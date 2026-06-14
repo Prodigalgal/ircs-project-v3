@@ -19,6 +19,7 @@
   但 V3 清单必须写向 `ircs-prod`。
 - 镜像仓库：`harbor.mnnu.eu.org/ircs`。
 - 生产数据：不迁移旧 `ircs-system` 业务数据；`ircs-prod` 使用 V3 migrator 初始化后的干净库。
+- 退役状态：旧 `ircs-system` namespace 与旧 ArgoCD `ircs-app` 已删除；Gitea 旧仓库可保留。
 
 ## 数据处理原则
 
@@ -40,8 +41,8 @@
 
 保留：
 
-- `ircs-system` 自身资源暂不删除，可作为短期回滚和历史对照。
 - 已生成的迁移前备份只作为本次撤销导入的恢复证据，不能再作为默认执行步骤。
+- 旧 `ircs-system` 退役前的非敏感快照作为历史对照保留，不包含 Secret 明文。
 
 ## GitOps bootstrap 范围
 
@@ -105,10 +106,17 @@
   - ClusterIP：gateway、portal/admin frontend、portal/admin BFF、identity/task/search/ops readiness 均 2xx。
   - Public：`https://huawai.sophia.fr.eu.org/gateway-health`、`https://ircs.sophia.fr.eu.org/gateway-health`
     均 `204`；两个根路径均返回对应 portal/admin HTML。
+- 已删除旧 ArgoCD Application `ircs-app`、旧 `ircs-system` namespace，并清理旧
+  `ircs-app` tracking 的 monitoring otel/tempo 资源；当前 ArgoCD 仅保留
+  `ircs-prod-core`、`ircs-prod-edge`、`ircs-prod-migrator`。
+- 已修复 BFF 生产 target：`APP_BFF_*_BASE_URL` 指向 `ircs-prod.svc.cluster.local`，
+  GitOps revision `8d9e11a500906898eb38d12a78d1f10850329af6` 已同步。
+- 已完成 BFF 修复后的公网真实回归：admin PoW、数学验证码、真实登录、dashboard
+  子接口组、configs、data-sources、collection-tasks、portal 首页和 portal login PoW 均通过。
 
 ## 下一执行批次
 
 1. 做生产候选 go/no-go 报告和安全最终复核。
 2. 做 `ircs-prod` 真实业务回归：登录、portal 浏览、admin 配置、任务触发、provider/source 抽样。
-3. 补 rollback runbook：恢复旧 route、重新启用旧 `ircs-app` 自动同步、或回滚 GitOps revision。
-4. 评估旧 `ircs-system` 退役窗口；未确认前只保持旧 namespace 不再承接业务流量。
+3. 补 rollback runbook：以 GitOps revision 回滚、备份恢复和重新应用历史快照为主；旧
+   `ircs-system` / `ircs-app` 不再作为默认回滚目标。

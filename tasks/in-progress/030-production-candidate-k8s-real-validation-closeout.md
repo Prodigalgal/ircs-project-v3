@@ -20,11 +20,11 @@
 | 领域 | 进度 | 状态 |
 | --- | ---: | --- |
 | HTTP route parity | 100% | missing=0，后续关注行为细节 |
-| portal/admin/BFF/gateway | 97% | `ircs-prod` 集群内与公网入口已通过真实验证 |
+| portal/admin/BFF/gateway | 98% | `ircs-prod` 集群内与公网入口、BFF prod target、admin/portal PoW 已通过真实验证 |
 | V1 行为级迁移 | 87%-90% | 主链路完成，剩外部 provider 长尾、异步组合场景和生产回归 |
 | runtime/platform/security/cache/lock/audit | 85%-88% | Prometheus/Rabbit/lock/audit 主证据已补，剩多副本和 cache hit/evict |
 | 029 Rabbit MT/PT/DT | 97% | 23/25 源站、失败/retry/DLQ、DoT/IPv6、provider-gated trend-sync、search outbox、Admin 网络策略和 Prometheus 已验证 |
-| 生产候选准入 | 94% | `ircs-prod` core/edge 已同步并切流；剩安全复核、回滚演练和 go/no-go |
+| 生产候选准入 | 95% | `ircs-prod` core/edge 已同步并切流，旧 `ircs-system`/`ircs-app` 已退役；剩安全复核、回滚演练和 go/no-go |
 
 ## 剩余任务清单
 
@@ -34,8 +34,7 @@
 4. 029 源站网络扩展：补 429、连接超时、老旧 TLS/HTTP 兼容等长尾真实证据。
 5. 028-20 runtime：补 distributed lock 多副本 contention、cache L2/L3 hit/evict 的 K8S/Prometheus 证据。
 6. 028-10 runner/governor：补真实 runner dry-run/execute gate/audit 的组合证据。
-7. 旧 `ircs-system` 退役：业务 HTTPRoute 已迁到 `ircs-prod`；剩旧 namespace 退役窗口。
-8. 旧生产数据：已决策不迁移，`ircs-prod` 干净起步；剩回滚说明和历史备份处置。
+7. 旧生产数据：已决策不迁移，`ircs-prod` 干净起步；剩回滚说明和历史备份处置。
 
 ## 本轮已完成
 
@@ -120,6 +119,18 @@
 - 完成公网真实验证：`https://huawai.sophia.fr.eu.org/gateway-health` 和
   `https://ircs.sophia.fr.eu.org/gateway-health` 均返回 `204`，两个根路径均返回对应
   portal/admin HTML。
+- 完成旧 ArgoCD 部署包退役：删除 `argocd/ircs-app`，删除旧 `ircs-system` namespace，
+  清理 `monitoring` namespace 内旧 `ircs-app` tracking 的 otel/tempo 资源；复核当前
+  ArgoCD 仅保留 `ircs-prod-core`、`ircs-prod-edge`、`ircs-prod-migrator`。
+- 完成 BFF prod target 修复：`APP_BFF_*_BASE_URL` 已集中指向
+  `ircs-prod.svc.cluster.local`，GitOps revision
+  `8d9e11a500906898eb38d12a78d1f10850329af6` 已同步，admin/portal BFF rollout 成功。
+- 完成 BFF 修复后的公网真实回归：admin `/api/v1/auth/pow?scope=admin.login` 从 `500`
+  恢复为 `200`；admin PoW + 数学验证码 + 真实登录成功；configs、data-sources、
+  collection-tasks、dashboard statistics/analysis/metrics/task-runtime/source-quality 均 `200`；
+  portal 首页、backend 兼容首页、portal login PoW 均 `200`。
+- 记录剩余错误语义小项：`/api/v1/dashboard` root 本身未映射，目前全局异常处理返回
+  `500`，需后续改为统一错误模型下的 `404`；真实 dashboard 子接口已通过。
 
 ## 下一步
 

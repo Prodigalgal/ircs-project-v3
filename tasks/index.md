@@ -34,13 +34,13 @@
 | 开发 MVP 可用度 | 98% | 门户/BFF/任务/运行时主链路已通过集群入口验证 |
 | V1/V3 行为 parity | 97% | 主行为已迁移，剩组合场景、边缘源站和生产回归 |
 | 029 Rabbit MT/PT/DT | 97% | 成功/失败/retry/DLQ/provider-gated trend-sync/search outbox/Prometheus 已真实验证 |
-| 生产就绪度 | 94% | `ircs-prod` GitOps core/edge 与公网切流已完成；剩安全复核、回滚演练和 go/no-go 报告 |
+| 生产就绪度 | 95% | `ircs-prod` GitOps core/edge、公网切流、旧 `ircs-system` 退役和 BFF target 修复已完成；剩安全复核、回滚演练和 go/no-go 报告 |
 
 ## 进行中主线
 
 | 任务 | 当前状态 | 下一步 |
 | --- | --- | --- |
-| `030-production-candidate-k8s-real-validation-closeout` | 主线；`ircs-prod` 已成为唯一验证目标，core/edge 已 `Synced/Healthy`，公网 HTTPRoute 已切到 V3 | 生产候选报告、备份/回滚和安全复核 |
+| `030-production-candidate-k8s-real-validation-closeout` | 主线；`ircs-prod` 已成为唯一验证目标，core/edge 已 `Synced/Healthy`，公网 HTTPRoute 已切到 V3，旧 `ircs-system`/`ircs-app` 已退役 | 生产候选报告、备份/回滚和安全复核 |
 | `029-rabbit-redis-task-system-redesign` | 约 97%；Rabbit MT/PT/DT、hot-state、DB flush、Admin/Ops runtime、DLQ 运维、provider-gated trend-sync、Prometheus 队列指标已上线 | 多副本 contention、扩展源站边缘矩阵 |
 | `028-22-production-candidate-closeout-parent` | 生产候选父任务；A-F 关键真实窗口已完成 | 生产候选报告、统一回归 |
 | `028-21-security-source-network-hardening` | JWT/ops/storage/auth rate limit/source network hardening 已实现 | Admin 入口真实策略选择与错误展示回归 |
@@ -48,7 +48,7 @@
 | `028-12-service-audit-rollout-and-worker-job-audit` | 已知 worker/job audit matrix 实现闭环 | 新增 ingestion/audit 的 live 证据归并 |
 | `028-10-production-governor-credential-pool-parity` | runner/governor 基座无已知占位拒绝缺口 | dry-run/execute gate/audit 组合证据 |
 | `028-16-f6-source-field-auto-mapping-hardening` | 自动映射和下拉点选已实现 | 真实资源站 live matrix 纳入统一回归 |
-| `031-ircs-prod-gitops-data-migration` | Gitea/Harbor/ArgoCD/GitOps/core/edge/cutover 已闭环；旧数据迁移取消，`ircs-prod` 干净起步 | 回滚 runbook、安全复核和旧 `ircs-system` 退役窗口 |
+| `031-ircs-prod-gitops-data-migration` | Gitea/Harbor/ArgoCD/GitOps/core/edge/cutover 已闭环；旧数据迁移取消，`ircs-prod` 干净起步；旧 `ircs-system` 与旧 `ircs-app` 已删除 | 回滚 runbook、安全复核和 go/no-go |
 
 ## 029 最新线上事实
 
@@ -87,8 +87,7 @@ P0：
 1. 生产候选报告：汇总 go/no-go、`ircs-prod`、备份和回滚。
 2. 回滚演练计划：恢复旧 route、重新启用旧 `ircs-app` automated self-heal、或回滚 GitOps revision。
 3. 安全/资源最终复核：Actuator 暴露面、JWT/PoW/rate limit、ops/storage internal API、资源 requests/limits。
-4. 旧 `ircs-system` 退役计划：业务 route 已迁出，剩旧 namespace 和旧 Argo app 退役窗口。
-5. `ircs-prod` 生产候选真实业务回归：登录、portal、admin 配置、任务触发、provider/source 抽样。
+4. `ircs-prod` 生产候选真实业务回归：登录、portal、admin 配置、任务触发、provider/source 抽样。
 
 P1：
 
@@ -131,6 +130,13 @@ P2：
 - 决策取消旧数据迁移，已把中断导入后的 `ircs-prod` 恢复为干净初始库。
 - 完成公网切流：`huawai.sophia.fr.eu.org` 和 `ircs.sophia.fr.eu.org` 已由
   `ircs-prod` HTTPRoute 承接，公网 `/gateway-health` 均返回 `204`。
+- 删除 ArgoCD 旧 Application `ircs-app`、旧 namespace `ircs-system`，并清理旧
+  `ircs-app` 遗留在 `monitoring` namespace 的 otel/tempo 资源；当前 ArgoCD 仅保留
+  `ircs-prod-core`、`ircs-prod-edge`、`ircs-prod-migrator`。
+- 修复 admin/portal BFF 仍回退 `ircs-dev.svc.cluster.local` 的生产配置问题，GitOps
+  revision `8d9e11a500906898eb38d12a78d1f10850329af6` 已同步，BFF rollout 成功。
+- 公网真实回归：admin PoW + 数学验证码 + 真实登录成功；configs、data-sources、
+  collection-tasks 和 dashboard 子接口组均 `200`；portal 首页和 portal login PoW 均 `200`。
 
 ## 历史完成入口
 
