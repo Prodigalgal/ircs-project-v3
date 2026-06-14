@@ -78,8 +78,8 @@ Cloudflare A huawai.sophia.fr.eu.org -> 129.150.47.1
 - 029 Rabbit 任务系统：约 97%，25 源一页真实任务矩阵达到 `23/25` 成功，核心网络策略、
   page 失败、detail retry 自恢复、terminal detail 失败、DoT 默认修复、IPv6 限制判因、
   provider-gated trend-sync、search outbox、Admin 网络策略和 Prometheus 观测均已跑通。
-- 生产准入整体：约 94%，`ircs-prod` GitOps core/edge 和公网切流已完成，离生产还差
-  回滚演练、安全复核和 go/no-go 报告。
+- 生产准入整体：约 96%，`ircs-prod` GitOps core/edge、公网切流和 go/no-go 报告已完成，
+  离无人值守正式生产还差入口 fallback 修复、回滚演练和配置有效源可观测性对齐。
 
 ## 最新真实证据
 
@@ -99,3 +99,9 @@ Cloudflare A huawai.sophia.fr.eu.org -> 129.150.47.1
   `https://huawai.sophia.fr.eu.org/gateway-health` 和
   `https://ircs.sophia.fr.eu.org/gateway-health` 均返回 `204`，根路径返回对应
   portal/admin HTML。
+- 深层行为级 go/no-go live 验证已完成，报告见
+  `docs/reports/126-production-candidate-go-no-go.md`。本轮 `28 PASS / 2 WARN / 0 FAIL`；
+  真实任务 `019ec64f-6ddb-725b-a588-0111ace83fb5` 终态 `COMPLETED`，`20/20` 成功；
+  Rabbit `93` 个队列全部 drain；ArgoCD core/edge 为 `Synced/Healthy`。
+- 当前结论为生产候选受控 `Conditional GO`；无人值守正式生产仍为 `NO-GO`，阻塞项是
+  公网 `/actuator/*`、`/internal/*` GET fallback、回滚演练和配置有效源可观测性。

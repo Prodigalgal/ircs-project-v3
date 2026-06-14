@@ -32,15 +32,15 @@
 | --- | ---: | --- |
 | HTTP route parity | 100% | V1 对外路由缺口维持 `missing=0` |
 | 开发 MVP 可用度 | 98% | 门户/BFF/任务/运行时主链路已通过集群入口验证 |
-| V1/V3 行为 parity | 97% | 主行为已迁移，剩组合场景、边缘源站和生产回归 |
+| V1/V3 行为 parity | 98% | 主行为已迁移，深层 go/no-go live 场景 `28 PASS / 2 WARN / 0 FAIL`，剩入口 fallback、长尾源站和多副本组合 |
 | 029 Rabbit MT/PT/DT | 97% | 成功/失败/retry/DLQ/provider-gated trend-sync/search outbox/Prometheus 已真实验证 |
-| 生产就绪度 | 95% | `ircs-prod` GitOps core/edge、公网切流、旧 `ircs-system` 退役和 BFF target 修复已完成；剩安全复核、回滚演练和 go/no-go 报告 |
+| 生产就绪度 | 96% | `ircs-prod` GitOps core/edge、公网切流、旧 `ircs-system` 退役、BFF target 修复和 go/no-go 报告已完成；剩入口 fallback、回滚演练和配置有效源可观测性 |
 
 ## 进行中主线
 
 | 任务 | 当前状态 | 下一步 |
 | --- | --- | --- |
-| `030-production-candidate-k8s-real-validation-closeout` | 主线；`ircs-prod` 已成为唯一验证目标，core/edge 已 `Synced/Healthy`，公网 HTTPRoute 已切到 V3，旧 `ircs-system`/`ircs-app` 已退役 | 生产候选报告、备份/回滚和安全复核 |
+| `030-production-candidate-k8s-real-validation-closeout` | 主线；`ircs-prod` 已成为唯一验证目标，core/edge 已 `Synced/Healthy`，公网 HTTPRoute 已切到 V3，旧 `ircs-system`/`ircs-app` 已退役，go/no-go 报告已出 | 入口 fallback 修复、备份/回滚演练和配置有效源对齐 |
 | `029-rabbit-redis-task-system-redesign` | 约 97%；Rabbit MT/PT/DT、hot-state、DB flush、Admin/Ops runtime、DLQ 运维、provider-gated trend-sync、Prometheus 队列指标已上线 | 多副本 contention、扩展源站边缘矩阵 |
 | `028-22-production-candidate-closeout-parent` | 生产候选父任务；A-F 关键真实窗口已完成 | 生产候选报告、统一回归 |
 | `028-21-security-source-network-hardening` | JWT/ops/storage/auth rate limit/source network hardening 已实现 | Admin 入口真实策略选择与错误展示回归 |
@@ -84,10 +84,12 @@
 
 P0：
 
-1. 生产候选报告：汇总 go/no-go、`ircs-prod`、备份和回滚。
-2. 回滚演练计划：恢复旧 route、重新启用旧 `ircs-app` automated self-heal、或回滚 GitOps revision。
-3. 安全/资源最终复核：Actuator 暴露面、JWT/PoW/rate limit、ops/storage internal API、资源 requests/limits。
-4. `ircs-prod` 生产候选真实业务回归：登录、portal、admin 配置、任务触发、provider/source 抽样。
+1. 公网入口 fallback 修复：`GET /actuator/*`、`GET /internal/*` 当前落到 admin SPA HTML `200`，
+   需在 gateway/route 层显式 `404/403`。
+2. 回滚演练：旧 `ircs-system` 已删除，需演练 GitOps revision rollback + DB restore。
+3. 配置有效源可观测性：identity runtime JWT Secret 已注入，但 config UI 对
+   `security.jwt.secret` 仍显示 `DB`，需对齐 owner-specific runtime source 语义。
+4. 数据填充准入：干净库下 portal `explore=0`，生产前跑受控采集或接受空库上线。
 
 P1：
 
@@ -141,6 +143,10 @@ P2：
   均返回 `404 / http.404 / Resource not found`。
 - V3 内部调用链接口已做静态对齐审计：45 条 BFF route target 和 31 条 `/internal/...`
   调用常量均匹配到 Controller 映射，未发现新增接口缺口。
+- 深层行为级 go/no-go live 验证完成，报告见
+  `docs/reports/126-production-candidate-go-no-go.md`：`28 PASS / 2 WARN / 0 FAIL`；
+  真实任务 `019ec64f-6ddb-725b-a588-0111ace83fb5` 终态 `COMPLETED`，`20/20` 成功，
+  Rabbit `93` 队列全部 drain，ArgoCD core/edge `Synced/Healthy`。
 
 ## 历史完成入口
 

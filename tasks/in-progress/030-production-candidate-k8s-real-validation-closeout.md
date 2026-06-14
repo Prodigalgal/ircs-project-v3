@@ -21,20 +21,22 @@
 | --- | ---: | --- |
 | HTTP route parity | 100% | missing=0，后续关注行为细节 |
 | portal/admin/BFF/gateway | 98% | `ircs-prod` 集群内与公网入口、BFF prod target、admin/portal PoW 已通过真实验证 |
-| V1 行为级迁移 | 87%-90% | 主链路完成，剩外部 provider 长尾、异步组合场景和生产回归 |
-| runtime/platform/security/cache/lock/audit | 85%-88% | Prometheus/Rabbit/lock/audit 主证据已补，剩多副本和 cache hit/evict |
+| V1 行为级迁移 | 98% | 主链路和 go/no-go live 场景完成；剩入口 fallback、长尾源站、多副本和非空 portal 数据回归 |
+| runtime/platform/security/cache/lock/audit | 90% | Prometheus/Rabbit/lock/audit 主证据已补，入口 fallback 与 cache hit/evict 仍需收口 |
 | 029 Rabbit MT/PT/DT | 97% | 23/25 源站、失败/retry/DLQ、DoT/IPv6、provider-gated trend-sync、search outbox、Admin 网络策略和 Prometheus 已验证 |
-| 生产候选准入 | 95% | `ircs-prod` core/edge 已同步并切流，旧 `ircs-system`/`ircs-app` 已退役；剩安全复核、回滚演练和 go/no-go |
+| 生产候选准入 | 96% | `ircs-prod` core/edge 已同步并切流，旧 `ircs-system`/`ircs-app` 已退役，go/no-go 报告已出；剩入口 fallback、回滚演练和配置有效源 |
 
 ## 剩余任务清单
 
-1. 生产候选报告：给出 go/no-go、`ircs-prod` 重部署、备份、回滚和风险。
+1. 入口 fallback 修复：公网 `GET /actuator/*`、`GET /internal/*` 当前返回 admin SPA HTML `200`，
+   需改为显式 `404/403`。
 2. `ircs-prod` GitOps 执行：Secret、core Application、edge HTTPRoute 已完成；后续只保留手动 migrator。
-3. 安全最终复核：JWT/PoW/rate limit、Actuator、ops/storage internal API、统一错误模型和敏感日志。
+3. 安全最终复核：JWT/PoW/rate limit、Actuator、ops/storage internal API、统一错误模型和敏感日志；
+   go/no-go 已确认 PoW 登录、JWT Secret 注入和敏感 config redaction 通过。
 4. 029 源站网络扩展：补 429、连接超时、老旧 TLS/HTTP 兼容等长尾真实证据。
 5. 028-20 runtime：补 distributed lock 多副本 contention、cache L2/L3 hit/evict 的 K8S/Prometheus 证据。
 6. 028-10 runner/governor：补真实 runner dry-run/execute gate/audit 的组合证据。
-7. 旧生产数据：已决策不迁移，`ircs-prod` 干净起步；剩回滚说明和历史备份处置。
+7. 旧生产数据：已决策不迁移，`ircs-prod` 干净起步；剩回滚演练和历史备份处置。
 
 ## 本轮已完成
 
@@ -135,8 +137,15 @@
   admin unknown route、portal unknown route。
 - 完成 V3 内部接口静态审计：45 条 admin/portal BFF route target 均有后端 Controller；
   31 条 `/internal/...` 调用常量均有 Controller 映射；本轮未发现 V3 内部调用链接口缺口。
+- 完成深层行为级 parity go/no-go live 验证：报告
+  `docs/reports/126-production-candidate-go-no-go.md`，结果 `28 PASS / 2 WARN / 0 FAIL`。
+  真实入口覆盖 gateway、PoW + 数学验证码 + admin login、portal home/metadata/explore、
+  admin dashboard/config/data-sources/audit/DLQ/maintenance、真实源站 fetch-sample、
+  真实任务 `019ec64f-6ddb-725b-a588-0111ace83fb5` 和 Rabbit drain。
+  当前结论为生产候选受控 `Conditional GO`，无人值守正式生产 `NO-GO`，阻塞项为入口
+  fallback、回滚演练和配置有效源可观测性。
 
 ## 下一步
 
-优先做安全最终复核、回滚演练说明和生产候选 go/no-go 报告；所有后续功能验证都直接连接
+优先修入口 fallback，随后做备份/回滚演练和配置有效源对齐；所有后续功能验证都直接连接
 `ircs-prod`，不再使用 `ircs-dev`。
