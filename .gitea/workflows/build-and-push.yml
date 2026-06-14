@@ -7,6 +7,16 @@ on:
       - master
     tags:
       - "v*"
+    paths:
+      - ".gitea/workflows/build-and-push.yml"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle/**"
+      - "gradlew"
+      - "platform/**"
+      - "services/**"
+      - "shared/**"
+      - "scripts/ci/**"
   workflow_dispatch:
 
 jobs:

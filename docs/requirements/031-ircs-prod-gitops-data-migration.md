@@ -66,3 +66,14 @@
 5. 旧生产数据迁移 dry-run 生成报告：迁移成功、丢弃、重建三类数据均可追踪。
 6. 生产切流前存在备份、恢复、回滚和 route 退役方案。
 
+## 当前进展
+
+2026-06-14：
+
+- 已创建 Gitea 仓库 `https://gitea.mnnu.eu.org/gitea-admin/ircs-project-v3`。
+- 已初始化本地 git 并推送 `main`。
+- 已配置 repo Actions secrets：`HARBOR_USERNAME`、`HARBOR_PASSWORD`。
+- 已接入 Gitea runner label `ircs`。
+- Actions run `#6` 成功，commit `a9a813b160df7c638604bfbefa26dcd88666b876`。
+- Harbor tag `sha-a9a813b160df` 已核验 21 个 Java/migrator 镜像全部存在。
+- 详细证据见 `docs/reports/124-ircs-prod-gitops-bootstrap-runner-harbor.md`。

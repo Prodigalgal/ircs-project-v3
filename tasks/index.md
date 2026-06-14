@@ -48,7 +48,7 @@
 | `028-12-service-audit-rollout-and-worker-job-audit` | 已知 worker/job audit matrix 实现闭环 | 新增 ingestion/audit 的 live 证据归并 |
 | `028-10-production-governor-credential-pool-parity` | runner/governor 基座无已知占位拒绝缺口 | dry-run/execute gate/audit 组合证据 |
 | `028-16-f6-source-field-auto-mapping-hardening` | 自动映射和下拉点选已实现 | 真实资源站 live matrix 纳入统一回归 |
-| `031-ircs-prod-gitops-data-migration` | 新增；生产 GitOps bootstrap 与 V1 数据兼容迁移策略已入账 | 创建 Gitea 仓库、推送代码、跑 runner、准备 ircs-prod GitOps 清单 |
+| `031-ircs-prod-gitops-data-migration` | Gitea 代码仓库、runner、Harbor 自动构建推送已闭环；数据迁移策略已入账 | 准备 ircs-prod GitOps 清单、旧数据迁移 dry-run、ArgoCD Application |
 
 ## 029 最新线上事实
 
@@ -89,6 +89,7 @@ P0：
 4. 备份、恢复、回滚演练计划和最小真实演练窗口。
 5. 旧 `ircs-system` route 迁移/退役计划：避免 `huawai.sophia.fr.eu.org` 同 hostname 冲突。
 6. 旧生产数据兼容迁移：能兼容的迁移到 `ircs-prod`，无法兼容的记录并丢弃，派生运行态重建。
+7. `ircs-prod` GitOps config：创建/更新 ArgoCD 管控仓库和 Application，引用本轮 Harbor tag/digest。
 
 P1：
 
@@ -123,6 +124,8 @@ P2：
   bootstrap 与旧生产数据兼容迁移原则。
 - 新增 `.gitignore`、`.gitea/workflows/build-and-push.yml` 和
   `scripts/ci/jib-build-push-all.sh`，为新 Gitea 仓库自动构建 ARM64 镜像做准备。
+- 创建并推送 Gitea 仓库 `gitea-admin/ircs-project-v3`；Actions run `#6` 成功，21 个
+  Java/migrator 镜像均推送到 Harbor，tag `sha-a9a813b160df`。
 
 ## 历史完成入口
 

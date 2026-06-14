@@ -96,6 +96,8 @@
   `docs/requirements/031-ircs-prod-gitops-data-migration.md`。
 - 准备新 Gitea 仓库 CI：新增 `.gitignore`、`.gitea/workflows/build-and-push.yml`、
   `scripts/ci/jib-build-push-all.sh`，runner 将使用 Jib 推送 `linux/arm64` 镜像到 Harbor。
+- 完成新 Gitea 仓库和 runner 链路：`gitea-admin/ircs-project-v3` 已推送，Actions
+  run `#6` 成功，Harbor tag `sha-a9a813b160df` 的 21 个 Java/migrator 镜像已核验。
 
 ## 下一步
 
