@@ -8,9 +8,9 @@
 
 ## 执行原则
 
-- 只用 `ircs-dev` K8S 集群做功能验证。
+- 只用 `ircs-prod` K8S 集群做功能验证。
 - 只使用真实配置、真实凭据、真实数据库数据和真实外部链路。
-- 允许污染开发数据库；后续生产会重新部署独立 namespace。
+- 允许污染 `ircs-prod` 生产候选数据库；后续正式生产窗口可重新初始化。
 - 生产目标 namespace 是 `ircs-prod`；旧 `ircs-system` 不再作为 V3 生产目标。
 - 本地 compile/build/Jib 可以作为准备动作，但不能作为功能完成证据。
 - 禁止用本地 smoke、mock/fake payload、造数任务替代真实验证。
@@ -20,22 +20,22 @@
 | 领域 | 进度 | 状态 |
 | --- | ---: | --- |
 | HTTP route parity | 100% | missing=0，后续关注行为细节 |
-| portal/admin/BFF/gateway | 95% | 当前轮真实入口回归完成，剩生产 namespace 前复验 |
+| portal/admin/BFF/gateway | 97% | `ircs-prod` 集群内与公网入口已通过真实验证 |
 | V1 行为级迁移 | 87%-90% | 主链路完成，剩外部 provider 长尾、异步组合场景和生产回归 |
 | runtime/platform/security/cache/lock/audit | 85%-88% | Prometheus/Rabbit/lock/audit 主证据已补，剩多副本和 cache hit/evict |
 | 029 Rabbit MT/PT/DT | 97% | 23/25 源站、失败/retry/DLQ、DoT/IPv6、provider-gated trend-sync、search outbox、Admin 网络策略和 Prometheus 已验证 |
-| 生产候选准入 | 86% | 源码 CI、独立 GitOps 仓库、digest pin、迁移/切流脚本已准备；剩实际 `ircs-prod` 同步、迁移、切流、安全复核和 go/no-go |
+| 生产候选准入 | 94% | `ircs-prod` core/edge 已同步并切流；剩安全复核、回滚演练和 go/no-go |
 
 ## 剩余任务清单
 
 1. 生产候选报告：给出 go/no-go、`ircs-prod` 重部署、备份、回滚和风险。
-2. `ircs-prod` GitOps 执行：先准备 Secret，再同步 core Application，迁移数据，最后切 HTTPRoute。
+2. `ircs-prod` GitOps 执行：Secret、core Application、edge HTTPRoute 已完成；后续只保留手动 migrator。
 3. 安全最终复核：JWT/PoW/rate limit、Actuator、ops/storage internal API、统一错误模型和敏感日志。
 4. 029 源站网络扩展：补 429、连接超时、老旧 TLS/HTTP 兼容等长尾真实证据。
 5. 028-20 runtime：补 distributed lock 多副本 contention、cache L2/L3 hit/evict 的 K8S/Prometheus 证据。
 6. 028-10 runner/governor：补真实 runner dry-run/execute gate/audit 的组合证据。
-7. 旧 `ircs-system` 退役：切流前迁移/替换旧 `huawai-route`，避免同 hostname HTTPRoute 冲突。
-8. 旧生产数据兼容迁移：能可靠映射的数据迁移到 `ircs-prod`，运行态/不可兼容数据丢弃或重建。
+7. 旧 `ircs-system` 退役：业务 HTTPRoute 已迁到 `ircs-prod`；剩旧 namespace 退役窗口。
+8. 旧生产数据：已决策不迁移，`ircs-prod` 干净起步；剩回滚说明和历史备份处置。
 
 ## 本轮已完成
 
@@ -106,8 +106,22 @@
 - 完成 GitOps 静态验证：`kubectl kustomize`、`kubectl apply --dry-run=client -k`
   对 core/edge 通过，ArgoCD Application client dry-run 通过，脚本 PowerShell AST parse 通过，
   GitOps repo 未检出明文真实凭据。
+- 删除废弃 `ircs-dev` namespace；后续开发、测试和生产候选验证统一使用 `ircs-prod`。
+- 完成 `ircs-prod` Secret 准备、core Application 同步和 Pod Ready：
+  `ircs-prod-core` 为 `Synced/Healthy`，24/24 Deployment Ready，3/3 StatefulSet Ready。
+- 取消旧生产数据迁移，按干净数据起步。中止半导入后已恢复迁移前 `ircs-prod` 备份，
+  当前 `unified_videos=0`、`raw_videos=0`、`episodes=0`、`system_configs=133`、
+  `databasechangelog=138`。
+- 完成 `ircs-prod` edge cutover：旧 `ircs-system/huawai-route` 和 `ircs-system/ircs-route`
+  已删除，新 `ircs-prod/huawai-route` 与 `ircs-prod/ircs-route` 已 `Accepted/Resolved`；
+  `ircs-prod-edge` 为 `Synced/Healthy`。
+- 完成集群内真实验证：gateway、portal/admin frontend、portal/admin BFF、
+  identity/task/search/ops readiness 均返回 2xx。
+- 完成公网真实验证：`https://huawai.sophia.fr.eu.org/gateway-health` 和
+  `https://ircs.sophia.fr.eu.org/gateway-health` 均返回 `204`，两个根路径均返回对应
+  portal/admin HTML。
 
 ## 下一步
 
-优先执行 `ircs-prod` Secret 准备和 core Application 同步；core Ready 后做旧数据迁移 dry-run，
-再进入公网 HTTPRoute 切流、安全最终复核和 go/no-go 报告。
+优先做安全最终复核、回滚演练说明和生产候选 go/no-go 报告；所有后续功能验证都直接连接
+`ircs-prod`，不再使用 `ircs-dev`。

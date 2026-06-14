@@ -1,53 +1,47 @@
-# 031 ircs-prod GitOps bootstrap and V1 data migration
+# 031 ircs-prod GitOps bootstrap and clean cutover
 
-状态：进行中
+状态：核心闭环完成，进入生产候选收尾
 
 日期：2026-06-14
 
 ## 目标
 
 把 V3 代码与生产部署链路接入 Gitea runner / Harbor / ArgoCD，并为旧生产数据进入
-`ircs-prod` 建立兼容迁移边界。
+`ircs-prod` 建立可审计边界。2026-06-14 决策更新：旧生产数据不迁移，`ircs-prod`
+按干净数据起步，后续真实测试和开发都直接在 `ircs-prod` 进行。
 
 ## 关键决策
 
 - 新生产 namespace：`ircs-prod`。
-- 旧生产 namespace：`ircs-system`，只作为迁移来源、对照和退役对象。
+- 旧生产 namespace：`ircs-system`，只作为对照、回滚参考和退役对象。
 - 代码仓库：新建 Gitea 仓库，建议名 `ircs-project-v3`。
 - GitOps 仓库：参考旧 V1 仓库 `https://gitea.mnnu.eu.org/gitea-admin/ircs-config`，
   但 V3 清单必须写向 `ircs-prod`。
 - 镜像仓库：`harbor.mnnu.eu.org/ircs`。
-- 生产数据：能兼容迁移的迁移；无法可靠兼容的数据明确丢弃并记录原因。
+- 生产数据：不迁移旧 `ircs-system` 业务数据；`ircs-prod` 使用 V3 migrator 初始化后的干净库。
 
-## 数据迁移原则
+## 数据处理原则
 
-1. 迁移前必须备份旧 `ircs-system` PostgreSQL、RabbitMQ、Valkey、Elasticsearch 和媒体对象引用。
-2. DB 是迁移唯一事实源；Rabbit/Valkey 只作为运行态，可重建的运行态默认不迁移。
-3. 迁移脚本必须先做 schema/version preflight，不对表结构做猜测。
-4. 可兼容数据迁移到 V3 表结构；不可兼容或运行态数据丢弃，并写入迁移报告。
-5. 迁移后重建派生物：search index、hot-state snapshot、任务 runtime、缓存、部分 audit 聚合。
-6. 管理员账号、运行时 Secret、provider credential 优先使用 `ircs-prod` Secret/ConfigMap 注入；
+1. `ircs-prod` 以 V3 schema、V3 seed 和运行时 Secret/ConfigMap 为唯一生产候选事实源。
+2. 旧 `ircs-system` 只保留为历史对照，不再向 `ircs-prod` 导入业务数据。
+3. 已完成的 schema preflight 和备份只作为撤销迁移路径的证据，不再执行兼容数据导入。
+4. Rabbit/Valkey/search index/hot-state/task runtime/cache 等运行态全部在 `ircs-prod` 重建。
+5. 管理员账号、运行时 Secret、provider credential 优先使用 `ircs-prod` Secret/ConfigMap 注入；
    旧 DB seed 只能作为最低优先级兜底。
 
-## 初始迁移分类
+## 旧数据结论
 
-应迁移：
+不迁移：
 
-- 管理员/会员账号、角色、权限和第三方 provider 绑定中可映射字段。
-- SystemConfig、credential metadata、provider key 引用；secret value 走 K8S Secret 或 credential-service。
-- catalog 字典、data source、source category/field mapping、source network options。
-- raw video、unified video、playlist、person、category、genre、area、language、tag 等业务数据。
-- cover/media 对象引用；对象本体按 R2/存储策略校验后保留。
-- interaction 中仍有业务价值的反馈、消息、收藏、观看历史、进度。
+- 管理员/会员账号、旧 session/token、历史任务、旧搜索派生 index。
+- raw/unified 业务数据、playlist、person、category、genre、area、language、tag 等旧内容。
+- cover/media 对象引用、interaction 历史、旧 audit/debug 临时记录。
+- Rabbit/Valkey/Elasticsearch 派生运行态。
 
-默认丢弃或重建：
+保留：
 
-- Rabbit 队列、unacked message、retry/DLQ 运行态。
-- Valkey/cache/hot-state、分布式锁、rate-limit counter、PoW/captcha nonce。
-- 旧 session/token、临时登录状态。
-- search/ES 派生 index，迁移后由 search outbox/reindex 重建。
-- 旧任务执行中的细粒度 runtime；只保留可映射的 master ledger，必要时重新执行任务。
-- 无法映射到 V3 owner-service 边界的旧 audit/debug 临时记录。
+- `ircs-system` 自身资源暂不删除，可作为短期回滚和历史对照。
+- 已生成的迁移前备份只作为本次撤销导入的恢复证据，不能再作为默认执行步骤。
 
 ## GitOps bootstrap 范围
 
@@ -63,8 +57,9 @@
 2. Gitea runner 能构建并推送所有 Java service / worker / BFF / migrator ARM64 镜像。
 3. Harbor 中可查到对应 tag/digest。
 4. `ircs-prod` GitOps 清单可由 ArgoCD 同步。
-5. 旧生产数据迁移 dry-run 生成报告：迁移成功、丢弃、重建三类数据均可追踪。
+5. 旧生产数据 schema preflight 可追踪；最终执行策略已改为不迁移、干净起步。
 6. 生产切流前存在备份、恢复、回滚和 route 退役方案。
+7. `ircs-prod-core` 与 `ircs-prod-edge` 由 ArgoCD 同步并保持 Healthy。
 
 ## 当前进展
 
@@ -91,11 +86,29 @@
   - `scripts/cutover-httproute.ps1`：默认 dry-run，`-Execute` 后暂停旧 `ircs-app` 自动同步、应用新 route、删除旧业务 route。
 - 已完成增量构建远程验证：workflow run `#8` 使用 `build_scope=ircs-task-service`
   成功，仅 Harbor `ircs-task-service:sha-f5c9db698318` 存在，同 tag 不存在于抽样其他服务。
+- 已删除废弃 `ircs-dev` namespace；后续开发、测试和生产候选验证统一在 `ircs-prod`。
+- 已执行 `scripts/prepare-prod-secrets.ps1`，创建 `ircs-prod` 并准备运行时 Secret/PullSecret。
+- 已创建并同步 ArgoCD Application：
+  - `ircs-prod-core`：`Synced/Healthy`。
+  - `ircs-prod-edge`：`Synced/Healthy`。
+  - `ircs-prod-migrator`：保留为手动应用，避免 core 每次同步重复运行 migrator。
+- 已完成旧数据 schema preflight：43 张兼容业务表通过；随后按用户决策取消旧数据迁移。
+- 曾启动的数据导入被中止后，已用迁移前 `ircs-prod` 备份恢复干净数据库：
+  `unified_videos=0`、`raw_videos=0`、`episodes=0`、`system_configs=133`、
+  `databasechangelog=138`。
+- 已完成 HTTPRoute 切流：
+  - `ircs-prod/huawai-route -> ircs-frontend-gateway:80`。
+  - `ircs-prod/ircs-route -> ircs-frontend-gateway:8080`。
+  - 旧 `ircs-system/huawai-route` 与 `ircs-system/ircs-route` 已删除。
+  - 旧 `ircs-app` 自动 self-heal 已关闭，防止旧 route 抢回流量。
+- 已完成集群内和公网真实验证：
+  - ClusterIP：gateway、portal/admin frontend、portal/admin BFF、identity/task/search/ops readiness 均 2xx。
+  - Public：`https://huawai.sophia.fr.eu.org/gateway-health`、`https://ircs.sophia.fr.eu.org/gateway-health`
+    均 `204`；两个根路径均返回对应 portal/admin HTML。
 
 ## 下一执行批次
 
-1. 执行 `ircs-prod-config/scripts/prepare-prod-secrets.ps1`，创建 `ircs-prod` 和运行时 Secret。
-2. `kubectl apply -f apps/ircs-prod-core-application.yaml`，同步 `ircs-prod-core`。
-3. 等待 core Pod Ready 和 migrator 完成，再运行迁移 dry-run。
-4. 根据 dry-run 决定是否 `-Execute -TruncateTarget` 执行数据迁移。
-5. core 真实验证通过后，再执行 edge cutover，不提前修改旧 `ircs-system` route。
+1. 做生产候选 go/no-go 报告和安全最终复核。
+2. 做 `ircs-prod` 真实业务回归：登录、portal 浏览、admin 配置、任务触发、provider/source 抽样。
+3. 补 rollback runbook：恢复旧 route、重新启用旧 `ircs-app` 自动同步、或回滚 GitOps revision。
+4. 评估旧 `ircs-system` 退役窗口；未确认前只保持旧 namespace 不再承接业务流量。

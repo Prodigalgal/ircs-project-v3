@@ -10,7 +10,7 @@
 
 ## 执行规则
 
-- 后续功能验证只允许连接 `ircs-dev` K8S 集群。
+- 后续功能验证只允许连接 `ircs-prod` K8S 集群。
 - 验证必须使用真实配置、真实凭据、真实数据库数据和真实外部链路。
 - 禁止用本地 smoke、mock/fake payload 或造数任务作为完成证据。
 - 本地 compile/build/Jib 只作为发布前守卫，不作为功能验收。
@@ -22,7 +22,7 @@
 
 目标：把 V3 从“实现基本完成”推进到“生产候选可判断”，形成代码、K8S rollout、
 真实在线测试证据、剩余风险清单和生产 namespace 重部署准备。所有功能验收只承认
-`ircs-dev` 集群真实入口、真实配置、真实凭据、真实数据和真实外部链路。
+`ircs-prod` 集群真实入口、真实配置、真实凭据、真实数据和真实外部链路。
 
 生产目标：`ircs-prod`。旧 `ircs-system` 不再作为 V3 生产命名空间，只作为现状对照和退役对象。
 
@@ -34,13 +34,13 @@
 | 开发 MVP 可用度 | 98% | 门户/BFF/任务/运行时主链路已通过集群入口验证 |
 | V1/V3 行为 parity | 97% | 主行为已迁移，剩组合场景、边缘源站和生产回归 |
 | 029 Rabbit MT/PT/DT | 97% | 成功/失败/retry/DLQ/provider-gated trend-sync/search outbox/Prometheus 已真实验证 |
-| 生产就绪度 | 90% | 仍缺 `ircs-prod` GitOps 清单、旧 route 迁移、备份/回滚、安全复核和 go/no-go 报告 |
+| 生产就绪度 | 94% | `ircs-prod` GitOps core/edge 与公网切流已完成；剩安全复核、回滚演练和 go/no-go 报告 |
 
 ## 进行中主线
 
 | 任务 | 当前状态 | 下一步 |
 | --- | --- | --- |
-| `030-production-candidate-k8s-real-validation-closeout` | 主线；K8S-only real validation 规则已固化，Admin 网络策略、Prometheus、portal/admin 入口已完成当前轮；生产目标 namespace 已定为 `ircs-prod` | 生产候选报告、`ircs-prod` GitOps/HTTPRoute、备份/回滚和安全复核 |
+| `030-production-candidate-k8s-real-validation-closeout` | 主线；`ircs-prod` 已成为唯一验证目标，core/edge 已 `Synced/Healthy`，公网 HTTPRoute 已切到 V3 | 生产候选报告、备份/回滚和安全复核 |
 | `029-rabbit-redis-task-system-redesign` | 约 97%；Rabbit MT/PT/DT、hot-state、DB flush、Admin/Ops runtime、DLQ 运维、provider-gated trend-sync、Prometheus 队列指标已上线 | 多副本 contention、扩展源站边缘矩阵 |
 | `028-22-production-candidate-closeout-parent` | 生产候选父任务；A-F 关键真实窗口已完成 | 生产候选报告、统一回归 |
 | `028-21-security-source-network-hardening` | JWT/ops/storage/auth rate limit/source network hardening 已实现 | Admin 入口真实策略选择与错误展示回归 |
@@ -48,7 +48,7 @@
 | `028-12-service-audit-rollout-and-worker-job-audit` | 已知 worker/job audit matrix 实现闭环 | 新增 ingestion/audit 的 live 证据归并 |
 | `028-10-production-governor-credential-pool-parity` | runner/governor 基座无已知占位拒绝缺口 | dry-run/execute gate/audit 组合证据 |
 | `028-16-f6-source-field-auto-mapping-hardening` | 自动映射和下拉点选已实现 | 真实资源站 live matrix 纳入统一回归 |
-| `031-ircs-prod-gitops-data-migration` | Gitea 代码仓库、runner、Harbor 自动构建推送已闭环；数据迁移策略已入账 | 准备 ircs-prod GitOps 清单、旧数据迁移 dry-run、ArgoCD Application |
+| `031-ircs-prod-gitops-data-migration` | Gitea/Harbor/ArgoCD/GitOps/core/edge/cutover 已闭环；旧数据迁移取消，`ircs-prod` 干净起步 | 回滚 runbook、安全复核和旧 `ircs-system` 退役窗口 |
 
 ## 029 最新线上事实
 
@@ -76,20 +76,19 @@
 - portal/admin 统一入口已完成当前轮真实回归；真实 Admin 采集任务
   `019ec381-6c91-76bc-82d2-4742ef71ca85` 终态 `COMPLETED`，`20/20` 成功。
 - 当前生产入口真实状态：`envoy-gateway-system/production-gateway` 已 Programmed；
-  Envoy LoadBalancer service 监听 `80:30971/TCP,443:30432/TCP`；旧
-  `ircs-system/huawai-route` 仍承接 `huawai.sophia.fr.eu.org`，后续需迁到 `ircs-prod`。
+  Envoy LoadBalancer service 监听 `80:30971/TCP,443:30432/TCP`；
+  `ircs-prod/huawai-route` 承接 `huawai.sophia.fr.eu.org`，
+  `ircs-prod/ircs-route` 承接 `ircs.sophia.fr.eu.org`。
 
 ## 剩余任务
 
 P0：
 
 1. 生产候选报告：汇总 go/no-go、`ircs-prod`、备份和回滚。
-2. `ircs-prod` GitOps 重部署方案：配置、Secret、镜像 digest、资源配额和流量入口。
+2. 回滚演练计划：恢复旧 route、重新启用旧 `ircs-app` automated self-heal、或回滚 GitOps revision。
 3. 安全/资源最终复核：Actuator 暴露面、JWT/PoW/rate limit、ops/storage internal API、资源 requests/limits。
-4. 备份、恢复、回滚演练计划和最小真实演练窗口。
-5. 旧 `ircs-system` route 迁移/退役计划：避免 `huawai.sophia.fr.eu.org` 同 hostname 冲突。
-6. 旧生产数据兼容迁移：能兼容的迁移到 `ircs-prod`，无法兼容的记录并丢弃，派生运行态重建。
-7. `ircs-prod` GitOps config：创建/更新 ArgoCD 管控仓库和 Application，引用本轮 Harbor tag/digest。
+4. 旧 `ircs-system` 退役计划：业务 route 已迁出，剩旧 namespace 和旧 Argo app 退役窗口。
+5. `ircs-prod` 生产候选真实业务回归：登录、portal、admin 配置、任务触发、provider/source 抽样。
 
 P1：
 
@@ -126,6 +125,12 @@ P2：
   `scripts/ci/jib-build-push-all.sh`，为新 Gitea 仓库自动构建 ARM64 镜像做准备。
 - 创建并推送 Gitea 仓库 `gitea-admin/ircs-project-v3`；Actions run `#6` 成功，21 个
   Java/migrator 镜像均推送到 Harbor，tag `sha-a9a813b160df`。
+- 删除废弃 `ircs-dev` namespace；后续开发、测试和生产候选验证统一在 `ircs-prod`。
+- 完成 `ircs-prod` GitOps core/edge：`ircs-prod-core` 与 `ircs-prod-edge` 均
+  `Synced/Healthy`，24/24 Deployment Ready，3/3 StatefulSet Ready。
+- 决策取消旧数据迁移，已把中断导入后的 `ircs-prod` 恢复为干净初始库。
+- 完成公网切流：`huawai.sophia.fr.eu.org` 和 `ircs.sophia.fr.eu.org` 已由
+  `ircs-prod` HTTPRoute 承接，公网 `/gateway-health` 均返回 `204`。
 
 ## 历史完成入口
 

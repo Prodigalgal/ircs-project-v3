@@ -6,7 +6,7 @@
 
 ## 目标
 
-把 V3 从“实现基本完成”推进到“生产候选可判断”。后续所有验证必须连接 `ircs-dev`
+把 V3 从“实现基本完成”推进到“生产候选可判断”。后续所有验证必须连接 `ircs-prod`
 K8S 集群，使用真实配置、真实凭据、真实数据库数据和真实外部链路；不再把本地 smoke、
 mock/fake payload 或造数脚本作为完成证据。
 
@@ -21,13 +21,13 @@ mock/fake payload 或造数脚本作为完成证据。
 
 ## 非目标
 
-- 不追求当前 `ircs-dev` 数据库纯净；开发库允许污染。
+- 不追求当前 `ircs-prod` 生产候选数据库纯净；真实验证允许写入和污染。
 - 不做本地服务 smoke，不用 fake/mock/造数任务伪造完成度。
 - 不在本阶段重新引入手动应用层 mTLS；mTLS 后续只作为基础设施/服务网格议题评估。
 
 ## 完成标准
 
-1. `ircs-dev` 全部核心 Pod Ready，Rabbit/DB/Valkey/ES/Prometheus 基础依赖健康。
+1. `ircs-prod` 全部核心 Pod Ready，Rabbit/DB/Valkey/ES/Prometheus 基础依赖健康。
 2. portal/admin/BFF/gateway 可通过真实入口访问并用于持续验证。
 3. 029 任务系统完成成功、业务失败、retry 耗尽、DLQ 运维、DB flush、Admin/Ops runtime 真实证据。
 4. 源站网络矩阵覆盖 DNS/DoH/DoT/IP policy、IPv4/IPv6、HTTP/1.0/老旧协议、HTML/非 JSON、
@@ -38,7 +38,7 @@ mock/fake payload 或造数脚本作为完成证据。
 
 ## 生产目标拓扑
 
-生产目标 namespace 固定为 `ircs-prod`。旧 `ircs-system` 不再作为 V3 生产目标，只作为迁移对照、
+生产目标 namespace 固定为 `ircs-prod`。旧 `ircs-system` 不再作为 V3 生产目标，只作为回滚参考、
 冲突排查和退役对象。
 
 发布链路：
@@ -62,22 +62,24 @@ Cloudflare A huawai.sophia.fr.eu.org -> 129.150.47.1
   -> V3 frontend gateway
 ```
 
-当前只读核对显示：`ircs-prod` 尚不存在；旧 `ircs-system` 仍持有
-`huawai.sophia.fr.eu.org`、`ircs.sophia.fr.eu.org`、`kibana.sophia.fr.eu.org`
-HTTPRoute；旧 `ircs-app` ArgoCD Application 仍指向 `ircs-system`。
+当前切流后核对显示：`ircs-prod-core` 与 `ircs-prod-edge` 均为 `Synced/Healthy`；
+`huawai.sophia.fr.eu.org` 由 `ircs-prod/huawai-route -> ircs-frontend-gateway:80`
+承接，`ircs.sophia.fr.eu.org` 由 `ircs-prod/ircs-route -> ircs-frontend-gateway:8080`
+承接。旧 `ircs-system/huawai-route` 和 `ircs-system/ircs-route` 已删除，旧
+`ircs-app` automated self-heal 已关闭。
 
 ## 当前进度估算
 
 - HTTP route parity：约 100%，历史 missing=0。
-- 门户/BFF/gateway：约 95%，已完成当前轮集群入口真实回归，剩生产 namespace 前复验。
+- 门户/BFF/gateway：约 97%，已完成 `ircs-prod` 集群内和公网真实入口回归。
 - V1 行为级迁移：约 87%-90%，主要剩长尾 provider、源站边缘网络、异步组合场景和生产回归。
 - runtime/platform/security/cache/lock/audit：约 85%-88%，Prometheus/Rabbit/lock/audit 主证据已补，
   剩多副本 contention、cache hit/evict 和 runner/governor 组合证据。
 - 029 Rabbit 任务系统：约 97%，25 源一页真实任务矩阵达到 `23/25` 成功，核心网络策略、
   page 失败、detail retry 自恢复、terminal detail 失败、DoT 默认修复、IPv6 限制判因、
   provider-gated trend-sync、search outbox、Admin 网络策略和 Prometheus 观测均已跑通。
-- 生产准入整体：约 82%，离生产还差 `ircs-prod` GitOps 清单、旧 route 迁移/退役、
-  备份/回滚演练、安全复核和 go/no-go 报告。
+- 生产准入整体：约 94%，`ircs-prod` GitOps core/edge 和公网切流已完成，离生产还差
+  回滚演练、安全复核和 go/no-go 报告。
 
 ## 最新真实证据
 
@@ -92,6 +94,8 @@ HTTPRoute；旧 `ircs-app` ArgoCD Application 仍指向 `ircs-system`。
   admin dashboard、configs、data-sources、request audit、worker-job audit、Rabbit DLQ、task runtime。
 - Admin 真实采集任务 `019ec381-6c91-76bc-82d2-4742ef71ca85` 终态 `COMPLETED`，
   `statProcessed=20/statSuccess=20/statFailed=0`。
-- 生产入口只读核对：Envoy Gateway `production-gateway` 已 Programmed；
-  `huawai.sophia.fr.eu.org` 当前仍由旧 `ircs-system/huawai-route -> huawai-svc:80`
-  承接；新目标必须迁移到 `ircs-prod` HTTPRoute。
+- `ircs-prod` 入口切流验证：集群内 gateway、portal/admin frontend、portal/admin BFF、
+  identity/task/search/ops readiness 均返回 2xx；公网
+  `https://huawai.sophia.fr.eu.org/gateway-health` 和
+  `https://ircs.sophia.fr.eu.org/gateway-health` 均返回 `204`，根路径返回对应
+  portal/admin HTML。
