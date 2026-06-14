@@ -69,6 +69,16 @@ ircs-prod frontend gateway / BFF / services
   repo `https://gitea.mnnu.eu.org/gitea-admin/ircs-config.git`，path `.`
   targetRevision `HEAD`，automated prune/selfHeal enabled。
 
+## 已落地仓库
+
+- 源码仓库：`https://gitea.mnnu.eu.org/gitea-admin/ircs-project-v3.git`。
+- GitOps 仓库：`https://gitea.mnnu.eu.org/gitea-admin/ircs-prod-config.git`。
+- GitOps core path：`ircs-prod/core`，目标 namespace `ircs-prod`。
+- GitOps edge path：`ircs-prod/edge-cutover`，只声明 `huawai-route` 和 `ircs-route`。
+- ArgoCD Application 清单位于 GitOps 仓库 `apps/`：
+  `ircs-prod-core-application.yaml` 自动同步 core；`ircs-prod-edge-application.yaml`
+  不开启 automated，用于人工切流窗口。
+
 ## 迁移要求
 
 1. 新生产清单不得继续写入 `ircs-system`。

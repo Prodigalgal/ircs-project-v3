@@ -78,3 +78,24 @@
   `a9a813b160df7c638604bfbefa26dcd88666b876`。
 - Harbor tag `sha-a9a813b160df` 已核验 21 个 Java/migrator 镜像全部存在。
 - 详细证据见 `docs/reports/124-ircs-prod-gitops-bootstrap-runner-harbor.md`。
+- 已新增独立 GitOps 仓库
+  `https://gitea.mnnu.eu.org/gitea-admin/ircs-prod-config.git`，本地路径
+  `D:\WorkSpace\Project\ircs\ircs-prod-config`。
+- GitOps 仓库已推送 `ircs-prod/core`、`ircs-prod/edge-cutover`、`apps/ircs-prod-core-application.yaml`
+  和 `apps/ircs-prod-edge-application.yaml`，commit `f83d115`。
+- `ircs-prod/core` 已固定 21 个 Java/migrator image digest，并固定 `huawai` 与
+  `ircs-frontend` digest；Secret 不入 Git，改由脚本从旧 namespace 复制并补齐 V3 token。
+- 已准备脚本：
+  - `scripts/prepare-prod-secrets.ps1`：复制旧 `ircs-system` Secret/PullSecret 到 `ircs-prod` 并生成 V3 缺失 token。
+  - `scripts/migrate-compatible-data.ps1`：默认 dry-run，`-Execute` 后迁移兼容业务表，排除 changelog 与运行态派生表。
+  - `scripts/cutover-httproute.ps1`：默认 dry-run，`-Execute` 后暂停旧 `ircs-app` 自动同步、应用新 route、删除旧业务 route。
+- 已完成增量构建远程验证：workflow run `#8` 使用 `build_scope=ircs-task-service`
+  成功，仅 Harbor `ircs-task-service:sha-f5c9db698318` 存在，同 tag 不存在于抽样其他服务。
+
+## 下一执行批次
+
+1. 执行 `ircs-prod-config/scripts/prepare-prod-secrets.ps1`，创建 `ircs-prod` 和运行时 Secret。
+2. `kubectl apply -f apps/ircs-prod-core-application.yaml`，同步 `ircs-prod-core`。
+3. 等待 core Pod Ready 和 migrator 完成，再运行迁移 dry-run。
+4. 根据 dry-run 决定是否 `-Execute -TruncateTarget` 执行数据迁移。
+5. core 真实验证通过后，再执行 edge cutover，不提前修改旧 `ircs-system` route。

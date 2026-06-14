@@ -24,13 +24,12 @@
 | V1 行为级迁移 | 87%-90% | 主链路完成，剩外部 provider 长尾、异步组合场景和生产回归 |
 | runtime/platform/security/cache/lock/audit | 85%-88% | Prometheus/Rabbit/lock/audit 主证据已补，剩多副本和 cache hit/evict |
 | 029 Rabbit MT/PT/DT | 97% | 23/25 源站、失败/retry/DLQ、DoT/IPv6、provider-gated trend-sync、search outbox、Admin 网络策略和 Prometheus 已验证 |
-| 生产候选准入 | 82% | 需 `ircs-prod` GitOps/HTTPRoute、备份/回滚、安全复核和 go/no-go 报告 |
+| 生产候选准入 | 86% | 源码 CI、独立 GitOps 仓库、digest pin、迁移/切流脚本已准备；剩实际 `ircs-prod` 同步、迁移、切流、安全复核和 go/no-go |
 
 ## 剩余任务清单
 
 1. 生产候选报告：给出 go/no-go、`ircs-prod` 重部署、备份、回滚和风险。
-2. `ircs-prod` GitOps 方案：整理 ArgoCD Application、Gitea repo/path、镜像 digest、
-   Secret/ConfigMap、资源 requests/limits、HTTPRoute/网关和初始化顺序。
+2. `ircs-prod` GitOps 执行：先准备 Secret，再同步 core Application，迁移数据，最后切 HTTPRoute。
 3. 安全最终复核：JWT/PoW/rate limit、Actuator、ops/storage internal API、统一错误模型和敏感日志。
 4. 029 源站网络扩展：补 429、连接超时、老旧 TLS/HTTP 兼容等长尾真实证据。
 5. 028-20 runtime：补 distributed lock 多副本 contention、cache L2/L3 hit/evict 的 K8S/Prometheus 证据。
@@ -98,8 +97,17 @@
   `scripts/ci/jib-build-push-all.sh`，runner 将使用 Jib 推送 `linux/arm64` 镜像到 Harbor。
 - 完成新 Gitea 仓库和 runner 链路：`gitea-admin/ircs-project-v3` 已推送，Actions
   run `#6` 成功，Harbor tag `sha-a9a813b160df` 的 21 个 Java/migrator 镜像已核验。
+- 完成源码增量构建：新增 affected build 脚本，workflow run `#8` 使用
+  `build_scope=ircs-task-service` 成功；Harbor 只出现
+  `ircs-task-service:sha-f5c9db698318`，抽样其他服务无同 tag。
+- 完成独立 GitOps 仓库：`gitea-admin/ircs-prod-config` 已推送 commit `f83d115`，
+  包含 `ircs-prod/core`、`ircs-prod/edge-cutover`、ArgoCD Application、Secret 准备、
+  兼容数据迁移和 HTTPRoute 切流脚本。
+- 完成 GitOps 静态验证：`kubectl kustomize`、`kubectl apply --dry-run=client -k`
+  对 core/edge 通过，ArgoCD Application client dry-run 通过，脚本 PowerShell AST parse 通过，
+  GitOps repo 未检出明文真实凭据。
 
 ## 下一步
 
-优先产出生产候选 go/no-go 报告、`ircs-prod` GitOps/HTTPRoute 重部署方案、备份/回滚方案和安全最终复核；
-功能长尾继续只用 `ircs-dev` 真实入口验证。
+优先执行 `ircs-prod` Secret 准备和 core Application 同步；core Ready 后做旧数据迁移 dry-run，
+再进入公网 HTTPRoute 切流、安全最终复核和 go/no-go 报告。

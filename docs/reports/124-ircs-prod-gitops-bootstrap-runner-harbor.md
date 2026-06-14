@@ -57,6 +57,33 @@ Harbor project：`ircs`
 
 ## 剩余
 
-- 需要准备 `ircs-prod` GitOps config repo / ArgoCD Application。
-- 需要把上述 image tag/digest 写入生产清单。
-- 需要准备旧 `ircs-system` 数据兼容迁移 dry-run 和切流回滚方案。
+- 已新增独立 GitOps 仓库 `https://gitea.mnnu.eu.org/gitea-admin/ircs-prod-config.git`。
+- 已推送 `ircs-prod` core/edge 清单与 ArgoCD Application，commit `f83d115`。
+- 已把上述 image digest 写入 `ircs-prod/core` 清单；前端 `huawai`、`ircs-frontend` 同样使用 digest pin。
+- 已准备旧 `ircs-system` Secret 复制、兼容数据迁移和 HTTPRoute 切流脚本：
+  `scripts/prepare-prod-secrets.ps1`、`scripts/migrate-compatible-data.ps1`、
+  `scripts/cutover-httproute.ps1`，位于 `ircs-prod-config` 仓库。
+
+## 增量构建证据
+
+2026-06-14 已将源码仓库 workflow 切到 affected build：
+
+```text
+commit: f5c9db698318a03370324595a12ca2645c2ca50f
+workflow run: #8 workflow_dispatch
+build_scope: ircs-task-service
+result: success
+Harbor tag: sha-f5c9db698318
+```
+
+Harbor 抽样核验结果：
+
+- `ircs-task-service:sha-f5c9db698318` 存在，digest
+  `sha256:197a53561fcff762a0f7e9d851b3eca72368d54b18420a9003e038d5abe0e17f`。
+- `ircs-admin-bff`、`ircs-config-service`、`ircs-content-service`、`ircs-identity-service`、
+  `ircs-portal-bff` 均不存在同 tag，说明本次单服务 dispatch 未重打全部服务。
+
+## 仍未执行
+
+- 尚未创建/同步 `ircs-prod-core` ArgoCD Application 到集群。
+- 尚未执行 `ircs-prod` Secret 准备、core 部署、数据迁移和公网 HTTPRoute 切流。
