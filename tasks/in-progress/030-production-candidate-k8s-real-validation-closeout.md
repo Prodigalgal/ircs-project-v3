@@ -129,8 +129,12 @@
   恢复为 `200`；admin PoW + 数学验证码 + 真实登录成功；configs、data-sources、
   collection-tasks、dashboard statistics/analysis/metrics/task-runtime/source-quality 均 `200`；
   portal 首页、backend 兼容首页、portal login PoW 均 `200`。
-- 记录剩余错误语义小项：`/api/v1/dashboard` root 本身未映射，目前全局异常处理返回
-  `500`，需后续改为统一错误模型下的 `404`；真实 dashboard 子接口已通过。
+- 完成未知映射统一 404：公共异常处理把 Spring MVC `NoResourceFoundException` /
+  `NoHandlerFoundException` 映射为统一 `404 / http.404 / Resource not found`；admin/portal
+  BFF route table 未命中也收敛为同一 message。公网真实验证覆盖 admin dashboard root、
+  admin unknown route、portal unknown route。
+- 完成 V3 内部接口静态审计：45 条 admin/portal BFF route target 均有后端 Controller；
+  31 条 `/internal/...` 调用常量均有 Controller 映射；本轮未发现 V3 内部调用链接口缺口。
 
 ## 下一步
 

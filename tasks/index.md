@@ -137,6 +137,10 @@ P2：
   revision `8d9e11a500906898eb38d12a78d1f10850329af6` 已同步，BFF rollout 成功。
 - 公网真实回归：admin PoW + 数学验证码 + 真实登录成功；configs、data-sources、
   collection-tasks 和 dashboard 子接口组均 `200`；portal 首页和 portal login PoW 均 `200`。
+- 统一未知映射 404 已上线：admin dashboard root、admin unknown route、portal unknown route
+  均返回 `404 / http.404 / Resource not found`。
+- V3 内部调用链接口已做静态对齐审计：45 条 BFF route target 和 31 条 `/internal/...`
+  调用常量均匹配到 Controller 映射，未发现新增接口缺口。
 
 ## 历史完成入口
 

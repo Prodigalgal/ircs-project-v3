@@ -86,9 +86,11 @@ GitOps revision：`8d9e11a500906898eb38d12a78d1f10850329af6`。
 - admin BFF 登录后接口：configs、data-sources、collection-tasks -> `200`。
 - dashboard 真实接口组：statistics、analysis、metrics、task-runtime、source-quality -> `200`。
 - portal BFF：首页、backend 兼容首页、portal login PoW -> `200`。
+- 未知映射统一 404：admin dashboard root、admin unknown route、portal unknown route 均返回
+  `404 / http.404 / Resource not found`。
+- V3 内部接口静态审计：45 条 admin/portal BFF route target 均匹配后端 Controller；
+  31 条 `/internal/...` 调用常量均匹配 Controller 映射。
 
 ## 剩余风险
 
 - 还需要生产候选安全复核、回滚演练说明和 go/no-go 报告。
-- `/api/v1/dashboard` root 没有映射，当前被全局异常处理成 `500`；真实 dashboard
-  子接口均正常，需后续修正未映射路径的错误语义为 `404`。
