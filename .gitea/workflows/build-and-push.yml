@@ -11,7 +11,7 @@ on:
 
 jobs:
   backend-images:
-    runs-on: ubuntu-latest
+    runs-on: ircs
     env:
       REGISTRY: harbor.mnnu.eu.org/ircs
       TARGET_ARCH: arm64
@@ -32,8 +32,10 @@ jobs:
         shell: bash
         run: |
           chmod +x scripts/ci/jib-build-push-all.sh
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            export IMAGE_TAG="${GITHUB_REF_NAME}"
+          REF_TYPE="${GITHUB_REF_TYPE:-${GITEA_REF_TYPE:-}}"
+          REF_NAME="${GITHUB_REF_NAME:-${GITEA_REF_NAME:-}}"
+          if [[ "${REF_TYPE}" == "tag" ]]; then
+            export IMAGE_TAG="${REF_NAME}"
           else
             export IMAGE_TAG="sha-$(git rev-parse --short=12 HEAD)"
           fi
@@ -44,4 +46,3 @@ jobs:
         with:
           name: build-image-manifest
           path: build-image-manifest.txt
-
