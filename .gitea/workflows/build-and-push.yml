@@ -42,8 +42,6 @@ jobs:
           fi
           scripts/ci/jib-build-push-all.sh
 
-      - name: Upload image manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-image-manifest
-          path: build-image-manifest.txt
+      - name: Print image manifest
+        shell: bash
+        run: cat build-image-manifest.txt
