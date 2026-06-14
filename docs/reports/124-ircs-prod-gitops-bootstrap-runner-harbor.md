@@ -12,7 +12,7 @@
 repo: https://gitea.mnnu.eu.org/gitea-admin/ircs-project-v3
 branch: main
 workflow: .gitea/workflows/build-and-push.yml
-successful run: #6
+successful runs: #6 workflow_dispatch, #7 push
 commit: a9a813b160df7c638604bfbefa26dcd88666b876
 image tag: sha-a9a813b160df
 runner label: ircs
@@ -25,6 +25,7 @@ target platform: linux/arm64
 - `gradlew` 缺少 executable bit，补 `chmod +x gradlew` 并提交 git mode `100755`。
 - Gitea 1.24 不支持 `actions/upload-artifact@v4`，改为直接打印 `build-image-manifest.txt`。
 - 新增 path filter，避免文档-only push 触发全量镜像构建。
+- `#7` 由 push 事件自动触发并成功，证明自动构建链路可用。
 
 ## Harbor 核验证据
 
@@ -59,4 +60,3 @@ Harbor project：`ircs`
 - 需要准备 `ircs-prod` GitOps config repo / ArgoCD Application。
 - 需要把上述 image tag/digest 写入生产清单。
 - 需要准备旧 `ircs-system` 数据兼容迁移 dry-run 和切流回滚方案。
-

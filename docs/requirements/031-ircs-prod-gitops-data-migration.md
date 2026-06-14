@@ -74,6 +74,7 @@
 - 已初始化本地 git 并推送 `main`。
 - 已配置 repo Actions secrets：`HARBOR_USERNAME`、`HARBOR_PASSWORD`。
 - 已接入 Gitea runner label `ircs`。
-- Actions run `#6` 成功，commit `a9a813b160df7c638604bfbefa26dcd88666b876`。
+- Actions run `#6` 手动触发成功，run `#7` push 自动触发成功，commit
+  `a9a813b160df7c638604bfbefa26dcd88666b876`。
 - Harbor tag `sha-a9a813b160df` 已核验 21 个 Java/migrator 镜像全部存在。
 - 详细证据见 `docs/reports/124-ircs-prod-gitops-bootstrap-runner-harbor.md`。
