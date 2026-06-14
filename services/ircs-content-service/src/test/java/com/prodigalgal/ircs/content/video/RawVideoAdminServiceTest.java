@@ -1,0 +1,121 @@
+package com.prodigalgal.ircs.content.video;
+
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.prodigalgal.ircs.content.ContentMaintenanceGate;
+import com.prodigalgal.ircs.content.video.JdbcVideoAdminRepository.RawVideoSnapshot;
+import com.prodigalgal.ircs.content.video.VideoAdminDtos.RawVideoUpdateRequest;
+import com.prodigalgal.ircs.contracts.search.SyncOperation;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class RawVideoAdminServiceTest {
+
+    @Mock
+    private JdbcVideoAdminRepository repository;
+
+    @Mock
+    private ContentCommandPublisher publisher;
+
+    @Mock
+    private InternalContentClients internalClients;
+
+    @Mock
+    private ContentMaintenanceGate maintenanceGate;
+
+    @InjectMocks
+    private RawVideoAdminService service;
+
+    @Test
+    void updateCriticalFieldUnbindsOldUnifiedAndPublishesIndexes() {
+        UUID rawId = UUID.randomUUID();
+        UUID oldUnifiedId = UUID.randomUUID();
+        UUID newUnifiedId = UUID.randomUUID();
+        RawVideoUpdateRequest request = new RawVideoUpdateRequest(
+                rawId,
+                "新标题",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                newUnifiedId,
+                null,
+                null,
+                null,
+                null);
+        when(repository.rawSnapshot(rawId)).thenReturn(new RawVideoSnapshot(rawId, "旧标题", null, "2024", 1, oldUnifiedId));
+
+        service.update(rawId, request);
+
+        verify(maintenanceGate).assertRawVideoWrite(rawId);
+        verify(repository).markUnifiedDirty(oldUnifiedId);
+        verify(repository).unbindRaw(rawId);
+        verify(repository).bindRawToUnified(rawId, newUnifiedId);
+        verify(publisher).publishRawSearch(rawId, SyncOperation.INDEX);
+        verify(publisher).publishUnifiedSearch(newUnifiedId, SyncOperation.INDEX);
+    }
+
+    @Test
+    void batchDeletePublishesRawDeleteAndMarksBoundUnifiedDirty() {
+        UUID rawId = UUID.randomUUID();
+        UUID unifiedId = UUID.randomUUID();
+        when(repository.findRawUnifiedBindings(List.of(rawId))).thenReturn(List.of(unifiedId));
+
+        service.batchDelete(List.of(rawId));
+
+        verify(maintenanceGate).assertRawVideoWrite(rawId);
+        verify(repository).deleteRawVideos(List.of(rawId));
+        verify(publisher).publishRawSearch(rawId, SyncOperation.DELETE);
+        verify(repository).markUnifiedDirty(unifiedId);
+        verify(publisher).publishUnifiedSearch(unifiedId, SyncOperation.INDEX);
+    }
+
+    @Test
+    void reNormalizeUpdatesStatusAndPublishesQueueMessage() {
+        UUID rawId = UUID.randomUUID();
+
+        service.reNormalize(rawId);
+
+        verify(maintenanceGate).assertRawVideoWrite(rawId);
+        verify(repository).setRawNormalizationPending(rawId);
+        verify(publisher).publishNormalize(rawId);
+    }
+
+    @Test
+    void batchRefetchDispatchesInternalClientForEachId() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        when(repository.rawSnapshot(first)).thenReturn(new RawVideoSnapshot(first, "a", null, null, null, null));
+        when(repository.rawSnapshot(second)).thenReturn(new RawVideoSnapshot(second, "b", null, null, null, null));
+
+        service.batchReFetch(List.of(first, second));
+
+        verify(maintenanceGate).assertRawVideoWrite(first);
+        verify(maintenanceGate).assertRawVideoWrite(second);
+        verify(internalClients).refetchRawVideo(first);
+        verify(internalClients).refetchRawVideo(second);
+    }
+}

@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: ircs-search-service
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}
+    port: ${RABBITMQ_PORT:${SPRING_RABBITMQ_PORT:5672}}
+    username: ${RABBITMQ_USERNAME:${SPRING_RABBITMQ_USERNAME:admin}}
+    password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
+    listener:
+      simple:
+        auto-startup: ${APP_SEARCH_LISTENER_ENABLED:false}
+        default-requeue-rejected: false
+  elasticsearch:
+    uris: ${SPRING_ELASTICSEARCH_URIS:${ELASTICSEARCH_URIS:http://localhost:9200}}
+    username: ${SPRING_ELASTICSEARCH_USERNAME:${ELASTICSEARCH_USERNAME:elastic}}
+    password: ${SPRING_ELASTICSEARCH_PASSWORD:${ELASTICSEARCH_PASSWORD:}}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}
+    driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:${REDIS_HOST:${VALKEY_HOST:localhost}}}
+      port: ${SPRING_DATA_REDIS_PORT:${REDIS_PORT:${VALKEY_PORT:6379}}}
+      password: ${SPRING_DATA_REDIS_PASSWORD:${REDIS_PASSWORD:${VALKEY_PASSWORD:}}}
+
+app:
+  search:
+    listener:
+      enabled: ${APP_SEARCH_LISTENER_ENABLED:false}
+    internal-access:
+      token: ${APP_SEARCH_SERVICE_TOKEN:}
+      require-token: ${APP_SEARCH_SERVICE_REQUIRE_TOKEN:false}
+      required-scope: ${APP_SEARCH_SERVICE_REQUIRED_SCOPE:search:sync}
+      max-batch-size: ${APP_SEARCH_SERVICE_MAX_BATCH_SIZE:1000}
+    outbox:
+      relay:
+        enabled: ${APP_SEARCH_OUTBOX_RELAY_ENABLED:false}
+        initial-delay-ms: ${APP_SEARCH_OUTBOX_RELAY_INITIAL_DELAY_MS:30000}
+        fixed-delay-ms: ${APP_SEARCH_OUTBOX_RELAY_FIXED_DELAY_MS:1000}
+        batch-size: ${APP_SEARCH_OUTBOX_RELAY_BATCH_SIZE:100}
+        max-retries: ${APP_SEARCH_OUTBOX_RELAY_MAX_RETRIES:5}
+        lease-seconds: ${APP_SEARCH_OUTBOX_RELAY_LEASE_SECONDS:300}
+        max-backoff-seconds: ${APP_SEARCH_OUTBOX_RELAY_MAX_BACKOFF_SECONDS:300}
+        worker-id: ${APP_SEARCH_OUTBOX_RELAY_WORKER_ID:}
+    reconciliation:
+      enabled: ${APP_SEARCH_RECONCILIATION_ENABLED:false}
+      cron: ${APP_SEARCH_RECONCILIATION_CRON:0 0 3 * * ?}
+      batch-size: ${APP_SEARCH_RECONCILIATION_BATCH_SIZE:100}
+      max-batches: ${APP_SEARCH_RECONCILIATION_MAX_BATCHES:20}
+      dry-run: ${APP_SEARCH_RECONCILIATION_DRY_RUN:true}
+      execute-gate: ${APP_SEARCH_RECONCILIATION_EXECUTE_GATE:true}
+    cluster-lock:
+      enabled: ${APP_SEARCH_CLUSTER_LOCK_ENABLED:true}
+      ttl: ${APP_SEARCH_CLUSTER_LOCK_TTL:PT10M}
+      worker-id: ${APP_SEARCH_CLUSTER_LOCK_WORKER_ID:}
+    config-listener:
+      enabled: ${APP_SEARCH_CONFIG_LISTENER_ENABLED:false}
+  storage:
+    r2-public-domain: ${APP_STORAGE_R2_PUBLIC_DOMAIN:${R2_PUBLIC_DOMAIN:}}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

@@ -1,0 +1,62 @@
+package com.prodigalgal.ircs.magnet;
+
+import java.util.List;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1")
+public class MagnetController {
+
+    private final MagnetQueryService magnetQueryService;
+
+    @GetMapping("/magnet-providers")
+    public ResponseEntity<List<MagnetProviderSummary>> listProviders() {
+        return ResponseEntity.ok(magnetQueryService.listProviders());
+    }
+
+    @GetMapping("/magnet-providers/{id}")
+    public ResponseEntity<MagnetProviderSummary> getProvider(@PathVariable UUID id) {
+        return magnetQueryService.findProvider(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/magnet-providers")
+    public ResponseEntity<MagnetProviderSummary> createProvider(@RequestBody MagnetProviderRequest request) {
+        MagnetProviderSummary result = magnetQueryService.createProvider(request);
+        return ResponseEntity.created(ServletUriComponentsBuilder
+                        .fromCurrentRequest()
+                        .path("/{id}")
+                        .buildAndExpand(result.id())
+                        .toUri())
+                .body(result);
+    }
+
+    @PutMapping("/magnet-providers/{id}")
+    public ResponseEntity<MagnetProviderSummary> updateProvider(
+            @PathVariable UUID id,
+            @RequestBody MagnetProviderRequest request) {
+        return ResponseEntity.ok(magnetQueryService.updateProvider(id, request));
+    }
+
+    @GetMapping("/magnets/unified/{id}")
+    public ResponseEntity<List<MagnetLinkSummary>> getUnifiedMagnets(@PathVariable UUID id) {
+        return ResponseEntity.ok(magnetQueryService.findApprovedLinks(id));
+    }
+
+    @PostMapping("/magnets/search/unified/{id}")
+    public ResponseEntity<MagnetSearchJobSummary> searchUnifiedMagnets(@PathVariable UUID id) {
+        return ResponseEntity.ok(magnetQueryService.triggerUnifiedSearch(id));
+    }
+}

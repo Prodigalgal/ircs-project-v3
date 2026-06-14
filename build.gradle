@@ -1,0 +1,108 @@
+plugins {
+    id 'org.springframework.boot' version '3.5.6' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+    id 'com.google.cloud.tools.jib' version '3.5.3' apply false
+}
+
+ext {
+    springAiVersion = '1.1.2'
+}
+
+allprojects {
+    group = 'com.prodigalgal'
+    version = '0.1.0-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom 'org.springframework.boot:spring-boot-dependencies:3.5.6'
+            mavenBom 'software.amazon.awssdk:bom:2.40.8'
+            mavenBom 'io.github.resilience4j:resilience4j-bom:2.3.0'
+            mavenBom 'io.opentelemetry:opentelemetry-bom:1.56.0'
+            mavenBom 'io.micrometer:micrometer-tracing-bom:1.5.7'
+            mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+        }
+    }
+
+    configurations.configureEach {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+    }
+
+    configurations {
+        mockitoAgent
+    }
+
+    dependencies {
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+        mockitoAgent('org.mockito:mockito-core') {
+            transitive = false
+        }
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile.absolutePath}"
+    }
+}
+
+def serviceProjects = subprojects.findAll { it.path.startsWith(':services:') }
+
+configure(serviceProjects) {
+    apply plugin: 'org.springframework.boot'
+    apply plugin: 'com.google.cloud.tools.jib'
+
+    dependencies {
+        implementation project(':shared:ircs-common')
+        implementation project(':shared:ircs-contracts')
+        implementation project(':shared:ircs-observability')
+
+        implementation 'org.springframework.boot:spring-boot-starter-web'
+        implementation 'org.springframework.boot:spring-boot-starter-actuator'
+        implementation 'org.springframework.boot:spring-boot-starter-validation'
+        implementation 'org.springframework.boot:spring-boot-starter-log4j2'
+        implementation 'com.lmax:disruptor:3.4.4'
+        implementation 'io.micrometer:micrometer-registry-prometheus'
+        implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+        implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    }
+
+    jib {
+        containerizingMode = 'packaged'
+        from {
+            image = 'eclipse-temurin:25-jre-alpine'
+            platforms {
+                platform {
+                    architecture = providers.gradleProperty('jibTargetArch').orElse('arm64').get()
+                    os = providers.gradleProperty('jibTargetOs').orElse('linux').get()
+                }
+            }
+        }
+        to {
+            image = providers.gradleProperty('jibToImage')
+                    .orElse("harbor.mnnu.eu.org/ircs/${project.name}:dev")
+                    .get()
+        }
+        container {
+            ports = ['8080']
+            creationTime = 'USE_CURRENT_TIMESTAMP'
+        }
+    }
+}

@@ -1,0 +1,108 @@
+package com.prodigalgal.ircs.catalog;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class CatalogRemoteCategorySyncServiceTest {
+
+    private final FakeRepository repository = new FakeRepository();
+    private final FakeFetchClient fetchClient = new FakeFetchClient();
+    private final CatalogRemoteCategorySyncService service = new CatalogRemoteCategorySyncService(
+            repository,
+            new ObjectMapper(),
+            fetchClient,
+            new CatalogCategoryMappingPolicy());
+
+    @Test
+    void syncsRemoteClassArrayIntoRawCategoriesWithoutPublicNetwork() {
+        UUID dataSourceId = UUID.randomUUID();
+        repository.dataSource = new DataSourceRead(
+                dataSourceId,
+                "fake",
+                "https://example.test/",
+                "api.php/provide/vod/",
+                "{\"ac\":\"list\",\"pg\":\"{page}\"}",
+                "/api.php/provide/vod/",
+                "{\"ac\":\"detail\",\"ids\":\"{ids}\"}",
+                "{}",
+                null,
+                null);
+        fetchClient.body = """
+                {
+                  "class": [
+                    { "type_id": "1", "type_name": "电影" },
+                    { "type_id": "2", "type_name": "国产剧" },
+                    { "type_id": "", "type_name": "跳过" }
+                  ]
+                }
+                """;
+
+        CatalogRemoteCategorySyncService.CategorySyncResult result =
+                service.syncDataSourceCategories(dataSourceId);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.url())
+                .isEqualTo("https://example.test/api.php/provide/vod/?limit=20&pagesize=20&ac=list&pg=1");
+        assertThat(result.checked()).isEqualTo(2);
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(repository.synced)
+                .extracting(SyncedCategory::sourceCode)
+                .containsExactly("1", "2");
+        assertThat(repository.synced)
+                .extracting(SyncedCategory::inferredCategoryName)
+                .containsExactly("电影", "电视剧");
+    }
+
+    private static final class FakeRepository extends JdbcCatalogRepository {
+
+        private DataSourceRead dataSource;
+        private final List<SyncedCategory> synced = new ArrayList<>();
+
+        private FakeRepository() {
+            super(null, null);
+        }
+
+        @Override
+        public java.util.Optional<DataSourceRead> findDataSource(UUID id) {
+            return dataSource != null && dataSource.id().equals(id)
+                    ? java.util.Optional.of(dataSource)
+                    : java.util.Optional.empty();
+        }
+
+        @Override
+        public SeedResult syncRawCategory(
+                UUID dataSourceId,
+                String sourceCode,
+                String sourceName,
+                String inferredCategoryName) {
+            synced.add(new SyncedCategory(sourceCode, sourceName, inferredCategoryName));
+            return SeedResult.inserted(UUID.randomUUID());
+        }
+    }
+
+    private static final class FakeFetchClient extends CatalogFetchSampleClient {
+
+        private String body;
+
+        private FakeFetchClient() {
+            super(null);
+        }
+
+        @Override
+        String get(String url) {
+            return body;
+        }
+
+        @Override
+        String get(String url, SourceNetworkOptions options) {
+            return body;
+        }
+    }
+
+    private record SyncedCategory(String sourceCode, String sourceName, String inferredCategoryName) {}
+}

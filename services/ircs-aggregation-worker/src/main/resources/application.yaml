@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: ircs-aggregation-worker
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}
+    port: ${RABBITMQ_PORT:${SPRING_RABBITMQ_PORT:5672}}
+    username: ${RABBITMQ_USERNAME:${SPRING_RABBITMQ_USERNAME:admin}}
+    password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}
+    driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:${REDIS_HOST:${VALKEY_HOST:localhost}}}
+      port: ${SPRING_DATA_REDIS_PORT:${REDIS_PORT:${VALKEY_PORT:6379}}}
+      password: ${SPRING_DATA_REDIS_PASSWORD:${REDIS_PASSWORD:${VALKEY_PASSWORD:}}}
+
+app:
+  aggregation:
+    scheduler:
+      enabled: ${APP_AGGREGATION_SCHEDULER_ENABLED:false}
+      fixed-delay-ms: ${APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS:5000}
+    config-listener:
+      enabled: ${APP_AGGREGATION_CONFIG_LISTENER_ENABLED:false}
+    batch-size: ${APP_AGGREGATION_BATCH_SIZE:200}
+    stuck-timeout-minutes: ${APP_AGGREGATION_STUCK_TIMEOUT_MINUTES:30}
+    match-lock:
+      enabled: ${APP_AGGREGATION_MATCH_LOCK_ENABLED:true}
+      ttl: ${APP_AGGREGATION_MATCH_LOCK_TTL:PT10M}
+      worker-id: ${APP_AGGREGATION_MATCH_LOCK_WORKER_ID:}
+    context-search:
+      enabled: ${APP_AGGREGATION_CONTEXT_SEARCH_ENABLED:true}
+      base-url: ${APP_AGGREGATION_CONTEXT_SEARCH_BASE_URL:${APP_SEARCH_SERVICE_BASE_URL:http://ircs-search-service:8080}}
+    internal-access:
+      require-token: ${APP_AGGREGATION_INTERNAL_ACCESS_REQUIRE_TOKEN:false}
+      token: ${APP_AGGREGATION_SERVICE_TOKEN:}
+      required-scope: ${APP_AGGREGATION_INTERNAL_ACCESS_REQUIRED_SCOPE:aggregation:maintenance}
+  worker:
+    audit:
+      enabled: ${APP_WORKER_AUDIT_ENABLED:true}
+      datasource-url: ${APP_WORKER_AUDIT_DATASOURCE_URL:${SPRING_DATASOURCE_URL:${DB_URL:${spring.datasource.url:}}}}
+      username: ${APP_WORKER_AUDIT_USERNAME:${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:${spring.datasource.username:}}}}
+      password: ${APP_WORKER_AUDIT_PASSWORD:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:${spring.datasource.password:}}}}
+      source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name}}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

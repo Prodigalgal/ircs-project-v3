@@ -1,0 +1,50 @@
+package com.prodigalgal.ircs.config;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+
+class JdbcConfigRepositoryTest {
+
+    private final JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
+    private final JdbcConfigRepository repository = new JdbcConfigRepository(jdbcTemplate);
+
+    @Test
+    void upsertDefaultDoesNotOverwriteExistingConfigValueOnConflict() {
+        when(jdbcTemplate.query(
+                        anyString(),
+                        org.mockito.ArgumentMatchers.<RowMapper<Object>>any(),
+                        any(),
+                        any(),
+                        any(),
+                        any()))
+                .thenReturn(List.of());
+
+        repository.upsertDefault(new SystemConfigDefaults.ResolvedDefault(
+                "app.mail.enabled",
+                "false",
+                "Mail enabled default seed"));
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(jdbcTemplate).query(
+                sqlCaptor.capture(),
+                org.mockito.ArgumentMatchers.<RowMapper<Object>>any(),
+                any(),
+                any(),
+                any(),
+                any());
+
+        String sql = sqlCaptor.getValue().toLowerCase();
+        String conflictClause = sql.substring(sql.indexOf("on conflict"));
+        assertTrue(conflictClause.contains("do update"));
+        assertFalse(conflictClause.contains("config_value ="));
+    }
+}

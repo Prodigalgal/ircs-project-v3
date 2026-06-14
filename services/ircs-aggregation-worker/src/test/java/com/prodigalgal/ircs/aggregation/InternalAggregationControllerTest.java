@@ -1,0 +1,112 @@
+package com.prodigalgal.ircs.aggregation;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunResponse;
+import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
+class InternalAggregationControllerTest {
+
+    private final AggregationService aggregationService = org.mockito.Mockito.mock(AggregationService.class);
+    private final AggregationInternalAccessPolicy accessPolicy =
+            org.mockito.Mockito.mock(AggregationInternalAccessPolicy.class);
+    private final InternalAggregationController controller =
+            new InternalAggregationController(aggregationService, accessPolicy);
+
+    @Test
+    void recalculateDirtyUnifiedChecksAccessAndDelegatesToService() {
+        UUID unifiedId = UUID.randomUUID();
+        AggregationMaintenanceRunResponse response = new AggregationMaintenanceRunResponse(
+                "unified-recalculate",
+                1,
+                3,
+                List.of(unifiedId));
+        when(aggregationService.recalculateDirtyUnified(4)).thenReturn(response);
+
+        ResponseEntity<AggregationMaintenanceRunResponse> result = controller.recalculateDirtyUnified(
+                4,
+                "ops-service",
+                "token",
+                "aggregation:maintenance ops:maintenance");
+
+        assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance ops:maintenance");
+        verify(aggregationService).recalculateDirtyUnified(4);
+    }
+
+    @Test
+    void recalculateUnifiedChecksAccessAndDelegatesToService() {
+        UUID unifiedId = UUID.randomUUID();
+        when(aggregationService.recalculateUnified(unifiedId)).thenReturn(2);
+
+        ResponseEntity<InternalAggregationController.RecalculateResponse> result = controller.recalculateUnified(
+                unifiedId,
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals(unifiedId, result.getBody().unifiedVideoId());
+        assertEquals(2, result.getBody().sourceCount());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        verify(aggregationService).recalculateUnified(unifiedId);
+    }
+
+    @Test
+    void prepareAggregationResetChecksAccessAndDelegatesToService() {
+        UUID rawId = UUID.randomUUID();
+        AggregationResetStepResponse response = new AggregationResetStepResponse(
+                "aggregation-reset",
+                "prepare",
+                4,
+                2,
+                3,
+                9,
+                List.of(rawId));
+        when(aggregationService.prepareAggregationReset(5)).thenReturn(response);
+
+        ResponseEntity<AggregationResetStepResponse> result = controller.prepareAggregationReset(
+                5,
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        verify(aggregationService).prepareAggregationReset(5);
+    }
+
+    @Test
+    void markAggregationResetRawPendingChecksAccessAndDelegatesToService() {
+        UUID rawId = UUID.randomUUID();
+        AggregationResetStepResponse response = new AggregationResetStepResponse(
+                "aggregation-reset",
+                "mark-raw-pending",
+                4,
+                0,
+                0,
+                4,
+                List.of(rawId));
+        when(aggregationService.markAllRawAggregationPending(6)).thenReturn(response);
+
+        ResponseEntity<AggregationResetStepResponse> result = controller.markAggregationResetRawPending(
+                6,
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        verify(aggregationService).markAllRawAggregationPending(6);
+    }
+}

@@ -1,0 +1,83 @@
+spring:
+  application:
+    name: ircs-normalization-worker
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}
+    port: ${RABBITMQ_PORT:${SPRING_RABBITMQ_PORT:5672}}
+    username: ${RABBITMQ_USERNAME:${SPRING_RABBITMQ_USERNAME:admin}}
+    password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
+    listener:
+      simple:
+        auto-startup: ${APP_NORMALIZATION_LISTENER_ENABLED:false}
+        default-requeue-rejected: false
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}
+    driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:${REDIS_HOST:${VALKEY_HOST:localhost}}}
+      port: ${SPRING_DATA_REDIS_PORT:${REDIS_PORT:${VALKEY_PORT:6379}}}
+      password: ${SPRING_DATA_REDIS_PASSWORD:${REDIS_PASSWORD:${VALKEY_PASSWORD:}}}
+
+app:
+  worker:
+    audit:
+      enabled: ${APP_WORKER_AUDIT_ENABLED:true}
+      datasource-url: ${APP_WORKER_AUDIT_DATASOURCE_URL:${SPRING_DATASOURCE_URL:${DB_URL:${spring.datasource.url:}}}}
+      username: ${APP_WORKER_AUDIT_USERNAME:${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:${spring.datasource.username:}}}}
+      password: ${APP_WORKER_AUDIT_PASSWORD:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:${spring.datasource.password:}}}}
+      source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name:ircs-normalization-worker}}
+  normalization:
+    listener:
+      enabled: ${APP_NORMALIZATION_LISTENER_ENABLED:false}
+    config-listener:
+      enabled: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:false}
+    internal-access:
+      require-token: ${APP_NORMALIZATION_INTERNAL_ACCESS_REQUIRE_TOKEN:false}
+      token: ${APP_NORMALIZATION_SERVICE_TOKEN:}
+      required-scope: ${APP_NORMALIZATION_INTERNAL_ACCESS_REQUIRED_SCOPE:normalization:maintenance}
+    system-config:
+      cache-ttl: ${APP_NORMALIZATION_SYSTEM_CONFIG_CACHE_TTL:30s}
+    max-retries: ${APP_NORMALIZATION_MAX_RETRIES:5}
+    backoff-base-seconds: ${APP_NORMALIZATION_BACKOFF_BASE_SECONDS:60}
+    hanlp-prewarm:
+      enabled: ${APP_NORMALIZATION_HANLP_PREWARM_ENABLED:true}
+    watchdog:
+      enabled: ${APP_NORMALIZATION_WATCHDOG_ENABLED:false}
+      initial-delay-ms: ${APP_NORMALIZATION_WATCHDOG_INITIAL_DELAY_MS:60000}
+      fixed-delay-ms: ${APP_NORMALIZATION_WATCHDOG_FIXED_DELAY_MS:300000}
+      batch-size: ${APP_NORMALIZATION_WATCHDOG_BATCH_SIZE:500}
+      stale-pending-seconds: ${APP_NORMALIZATION_WATCHDOG_STALE_PENDING_SECONDS:3600}
+    llm:
+      provider: ${APP_NORMALIZATION_LLM_PROVIDER:OPENAI}
+      request-timeout-seconds: ${APP_NORMALIZATION_LLM_REQUEST_TIMEOUT_SECONDS:30}
+      credential-service:
+        base-url: ${APP_NORMALIZATION_LLM_CREDENTIAL_SERVICE_BASE_URL:${APP_CREDENTIAL_SERVICE_BASE_URL:}}
+        token: ${APP_NORMALIZATION_LLM_CREDENTIAL_SERVICE_TOKEN:}
+        service-id: ${APP_NORMALIZATION_LLM_CREDENTIAL_SERVICE_ID:normalization-worker}
+        scopes: ${APP_NORMALIZATION_LLM_CREDENTIAL_SERVICE_SCOPES:credential:lease}
+    llm-cleaning:
+      runner:
+        enabled: ${APP_NORMALIZATION_LLM_CLEANING_RUNNER_ENABLED:false}
+        initial-delay-ms: ${APP_NORMALIZATION_LLM_CLEANING_INITIAL_DELAY_MS:90000}
+        fixed-delay-ms: ${APP_NORMALIZATION_LLM_CLEANING_FIXED_DELAY_MS:3600000}
+      mode: ${APP_NORMALIZATION_LLM_CLEANING_MODE:dry-run}
+      batch-size: ${APP_NORMALIZATION_LLM_CLEANING_BATCH_SIZE:500}
+      worker-id: ${APP_NORMALIZATION_LLM_CLEANING_WORKER_ID:}
+      claim-ttl: ${APP_NORMALIZATION_LLM_CLEANING_CLAIM_TTL:PT10M}
+  ai:
+    llm:
+      enabled: ${APP_AI_LLM_ENABLED:false}
+      model: ${APP_AI_LLM_MODEL:gemma-4-31b-it}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

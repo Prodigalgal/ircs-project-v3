@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: ircs-admin-bff
+  servlet:
+    multipart:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  bff:
+    audit:
+      enabled: ${APP_BFF_AUDIT_ENABLED:true}
+    service-identity:
+      service-id: ${APP_BFF_SERVICE_ID:admin-bff}
+      ops-token: ${APP_BFF_OPS_SERVICE_TOKEN:}
+      ops-scopes: ${APP_BFF_OPS_SERVICE_SCOPES:ops:read ops:run}
+    proxy:
+      connect-timeout: ${APP_BFF_PROXY_CONNECT_TIMEOUT:PT5S}
+      request-timeout: ${APP_BFF_PROXY_REQUEST_TIMEOUT:PT5S}
+      circuit-key: ${APP_BFF_PROXY_CIRCUIT_KEY:admin-bff-proxy}
+      circuit:
+        enabled: ${APP_BFF_PROXY_CIRCUIT_ENABLED:${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_ENABLED:${IRCS_OUTBOUND_CIRCUIT_ENABLED:true}}}
+        failure-threshold: ${APP_BFF_PROXY_CIRCUIT_FAILURE_THRESHOLD:${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_FAILURE_THRESHOLD:${IRCS_OUTBOUND_CIRCUIT_FAILURE_THRESHOLD:5}}}
+        open-duration: ${APP_BFF_PROXY_CIRCUIT_OPEN_DURATION:${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_OPEN_DURATION:${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_OPEN_DURATION_MS:${IRCS_OUTBOUND_CIRCUIT_OPEN_DURATION:${IRCS_OUTBOUND_CIRCUIT_OPEN_DURATION_MS:PT30S}}}}}
+        half-open-max-calls: ${APP_BFF_PROXY_CIRCUIT_HALF_OPEN_MAX_CALLS:${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_HALF_OPEN_MAX_CALLS:${IRCS_OUTBOUND_CIRCUIT_HALF_OPEN_MAX_CALLS:1}}}
+    targets:
+      identity: ${APP_BFF_IDENTITY_BASE_URL:http://ircs-identity-service.ircs-dev.svc.cluster.local:8080}
+      content: ${APP_BFF_CONTENT_BASE_URL:http://ircs-content-service.ircs-dev.svc.cluster.local:8080}
+      catalog: ${APP_BFF_CATALOG_BASE_URL:http://ircs-catalog-service.ircs-dev.svc.cluster.local:8080}
+      task: ${APP_BFF_TASK_BASE_URL:http://ircs-task-service.ircs-dev.svc.cluster.local:8080}
+      ops: ${APP_BFF_OPS_BASE_URL:http://ircs-ops-service.ircs-dev.svc.cluster.local:8080}
+      storage: ${APP_BFF_STORAGE_BASE_URL:http://ircs-storage-service.ircs-dev.svc.cluster.local:8080}
+      config: ${APP_BFF_CONFIG_BASE_URL:http://ircs-config-service.ircs-dev.svc.cluster.local:8080}
+      credential: ${APP_BFF_CREDENTIAL_BASE_URL:http://ircs-credential-service.ircs-dev.svc.cluster.local:8080}
+      magnet: ${APP_BFF_MAGNET_BASE_URL:http://ircs-magnet-service.ircs-dev.svc.cluster.local:8080}
+      scraper: ${APP_BFF_SCRAPER_BASE_URL:http://ircs-scraper-service.ircs-dev.svc.cluster.local:8080}
+      interaction: ${APP_BFF_INTERACTION_BASE_URL:http://ircs-interaction-service.ircs-dev.svc.cluster.local:8080}
+
+ircs:
+  outbound:
+    circuit:
+      admin-bff-proxy:
+        enabled: ${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_ENABLED:${IRCS_OUTBOUND_CIRCUIT_ENABLED:true}}
+        failure-threshold: ${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_FAILURE_THRESHOLD:${IRCS_OUTBOUND_CIRCUIT_FAILURE_THRESHOLD:5}}
+        open-duration: ${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_OPEN_DURATION:${IRCS_OUTBOUND_CIRCUIT_OPEN_DURATION:PT30S}}
+        open-duration-ms: ${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_OPEN_DURATION_MS:${IRCS_OUTBOUND_CIRCUIT_OPEN_DURATION_MS:30000}}
+        half-open-max-calls: ${IRCS_OUTBOUND_CIRCUIT_ADMIN_BFF_PROXY_HALF_OPEN_MAX_CALLS:${IRCS_OUTBOUND_CIRCUIT_HALF_OPEN_MAX_CALLS:1}}

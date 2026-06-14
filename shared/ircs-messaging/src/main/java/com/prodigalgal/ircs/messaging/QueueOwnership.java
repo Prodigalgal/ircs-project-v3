@@ -1,0 +1,36 @@
+package com.prodigalgal.ircs.messaging;
+
+import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import java.util.Map;
+
+public final class QueueOwnership {
+
+    public static final Map<QueueTopic, String> OWNER_BY_TOPIC = Map.ofEntries(
+            Map.entry(QueueTopic.INGEST_VIDEO, "ircs-ingestion-worker"),
+            Map.entry(QueueTopic.NORMALIZE_VIDEO, "ircs-normalization-worker"),
+            Map.entry(QueueTopic.ENRICH_METADATA, "ircs-metadata-worker"),
+            Map.entry(QueueTopic.ENRICHMENT_RESULT, "ircs-metadata-worker"),
+            Map.entry(QueueTopic.PLAYLIST_SYNC, "ircs-ingestion-worker"),
+            Map.entry(QueueTopic.FETCH_METADATA_DOUBAN, "ircs-metadata-worker"),
+            Map.entry(QueueTopic.FETCH_METADATA_TMDB, "ircs-metadata-worker"),
+            Map.entry(QueueTopic.FETCH_METADATA_RT, "ircs-metadata-worker"),
+            Map.entry(QueueTopic.DOWNLOAD_IMAGE, "ircs-storage-service"),
+            Map.entry(QueueTopic.PROMOTE_COVER_R2, "ircs-storage-service"),
+            Map.entry(QueueTopic.SYNC_AVATAR, "ircs-storage-service"),
+            Map.entry(QueueTopic.CMD_IMAGE_UNLINK, "ircs-content-service"),
+            Map.entry(QueueTopic.EVENT_IMAGE_UNLINKED, "ircs-storage-service"),
+            Map.entry(QueueTopic.SEND_MAIL, "ircs-notification-worker"),
+            Map.entry(QueueTopic.WATCH_PROGRESS, "ircs-interaction-service"),
+            Map.entry(QueueTopic.SEARCH_SYNC_RAW, "ircs-search-service"),
+            Map.entry(QueueTopic.SEARCH_SYNC_UNIFIED, "ircs-search-service"),
+            Map.entry(QueueTopic.TASK_PAGE, "ircs-scraper-service"),
+            Map.entry(QueueTopic.TASK_DETAIL, "ircs-scraper-service"),
+            Map.entry(QueueTopic.TASK_PAGE_DISCOVERED, "ircs-task-service"),
+            Map.entry(QueueTopic.TASK_PAGE_FAILED, "ircs-task-service"),
+            Map.entry(QueueTopic.TASK_DETAIL_DONE, "ircs-task-service"),
+            Map.entry(QueueTopic.TASK_MASTER_DONE, "ircs-task-service")
+    );
+
+    private QueueOwnership() {
+    }
+}
