@@ -15,6 +15,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
@@ -35,6 +37,16 @@ public class CommonApiExceptionHandler {
             MethodArgumentNotValidException exception,
             HttpServletRequest request) {
         return ApiErrorResponses.validation(exception, request);
+    }
+
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ApiErrorResponse> handleNotFound(Exception exception, HttpServletRequest request) {
+        return ApiErrorResponses.response(
+                HttpStatus.NOT_FOUND,
+                "http.404",
+                "Resource not found",
+                "http",
+                request);
     }
 
     @ExceptionHandler(IrcsAuthException.class)
