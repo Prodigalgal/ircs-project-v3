@@ -41,3 +41,4 @@ temp/
 .playwright-mcp/
 playwright-report/
 test-results/
+build-image-manifest.txt
