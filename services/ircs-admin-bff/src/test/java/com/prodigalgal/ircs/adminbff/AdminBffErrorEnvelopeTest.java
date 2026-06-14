@@ -37,7 +37,7 @@ class AdminBffErrorEnvelopeTest {
                 eq(IrcsPermissions.ROLE_ADMIN),
                 eq(IrcsPermissions.ADMIN_ACCESS)))
                 .thenReturn(adminPrincipal());
-        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "No BFF route for /api/v1/not-allowed"))
+        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"))
                 .when(proxyClient)
                 .proxy(any(HttpServletRequest.class), any(HttpServletResponse.class), same(routes));
         MockMvc mockMvc = MockMvcBuilders
@@ -54,7 +54,7 @@ class AdminBffErrorEnvelopeTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.code").value("http.404"))
-                .andExpect(jsonPath("$.message").value("No BFF route for /api/v1/not-allowed"))
+                .andExpect(jsonPath("$.message").value("Resource not found"))
                 .andExpect(jsonPath("$.entity").value("http"))
                 .andExpect(jsonPath("$.path").value("/api/v1/not-allowed"))
                 .andExpect(jsonPath("$.traceId").value("trace-admin"))

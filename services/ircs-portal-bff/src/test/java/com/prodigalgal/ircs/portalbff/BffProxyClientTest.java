@@ -133,8 +133,11 @@ class BffProxyClientTest {
 
         assertThatThrownBy(() -> proxyClient.proxy(request, response, routes))
                 .isInstanceOf(ResponseStatusException.class)
-                .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
-                .isEqualTo(HttpStatus.NOT_FOUND);
+                .satisfies(ex -> {
+                    ResponseStatusException status = (ResponseStatusException) ex;
+                    assertThat(status.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(status.getReason()).isEqualTo("Resource not found");
+                });
         assertThat(transport.requests).isEmpty();
     }
 

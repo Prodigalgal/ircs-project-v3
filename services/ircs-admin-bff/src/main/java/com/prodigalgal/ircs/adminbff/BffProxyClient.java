@@ -92,7 +92,7 @@ class BffProxyClient {
         String errorMessage = null;
         try {
             ResolvedRoute route = routes.resolve(request.getRequestURI())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No BFF route for " + request.getRequestURI()));
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
             URI target = targetUri(route, request.getQueryString());
             OutboundHttpRequest outbound = outboundRequest(request, target);
             try (OutboundStreamingHttpResponse upstream = outboundClient.execute(outbound)) {
