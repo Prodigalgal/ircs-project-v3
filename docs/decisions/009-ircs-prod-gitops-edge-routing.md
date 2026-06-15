@@ -1,5 +1,9 @@
 # 009 ircs-prod GitOps and edge routing
 
+> 当前 `mnnu.eu.org` 新集群部署口径见
+> `docs/k8s/production-gitops-runbook.md`。本文保留 2026-06-14 旧域名、
+> 旧 Harbor 和旧独立 GitOps 仓库时期的历史决策记录。
+
 状态：accepted
 
 日期：2026-06-14

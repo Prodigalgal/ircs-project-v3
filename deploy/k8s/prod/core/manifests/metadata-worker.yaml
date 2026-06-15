@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ircs-metadata-worker
+  namespace: ircs-prod
+  labels:
+    app: ircs-metadata-worker
+    app.kubernetes.io/part-of: ircs
+    environment: prod
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ircs-metadata-worker
+  template:
+    metadata:
+      labels:
+        app: ircs-metadata-worker
+        app.kubernetes.io/part-of: ircs
+        environment: prod
+    spec:
+      imagePullSecrets:
+        - name: registry-secret
+      containers:
+        - name: app
+          image: registry.mnnu.eu.org/ircs/ircs-metadata-worker@sha256:c8389f1bd63d7d9b663ff434ed90bb87e2dfd6caa735148c6521b6eb44ea3189
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ircs-prod-app-config
+          env:
+            - name: SPRING_APPLICATION_NAME
+              value: ircs-metadata-worker
+            - name: SPRING_RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ircs-prod-app-config
+                  key: RABBITMQ_HOST
+            - name: SPRING_RABBITMQ_USERNAME
+              value: admin
+            - name: SPRING_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ircs-prod-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ircs-prod-app-config
+                  key: DB_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              value: postgres
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ircs-prod-secrets
+                  key: DB_PASSWORD
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "2"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "0"
+            - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
+              value: "30000"
+            - name: APP_METADATA_LISTENER_ENABLED
+              value: "true"
+            - name: APP_METADATA_CONFIG_LISTENER_ENABLED
+              value: "true"
+            - name: APP_METADATA_DISPATCHER_ENABLED
+              value: "true"
+            - name: APP_METADATA_DOUBAN_ENABLED
+              value: "false"
+            - name: APP_METADATA_TMDB_ENABLED
+              value: "false"
+            - name: APP_METADATA_TMDB_WORKER_ENABLED
+              value: "true"
+            - name: APP_METADATA_CREDENTIAL_SERVICE_BASE_URL
+              value: http://ircs-credential-service.ircs-prod.svc.cluster.local:8080
+            - name: APP_METADATA_CREDENTIAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ircs-prod-secrets
+                  key: SERVICE_CREDENTIAL_TOKEN
+            - name: APP_METADATA_RT_ENABLED
+              value: "false"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            timeoutSeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            timeoutSeconds: 3
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+
+

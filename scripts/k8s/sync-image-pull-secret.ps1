@@ -1,35 +1,22 @@
 param(
-    [string]$SourceNamespace = "ircs-system",
-    [string]$TargetNamespace = "ircs-dev",
-    [string]$SecretName = "harbor-secret"
+    [string]$TargetNamespace = "ircs-prod",
+    [string]$SecretName = "registry-secret",
+    [string]$Registry = "registry.mnnu.eu.org",
+    [string]$Username = "admin"
 )
 
 $ErrorActionPreference = "Stop"
 
-$source = kubectl get secret $SecretName -n $SourceNamespace -o json | ConvertFrom-Json
-
-if ($source.type -ne "kubernetes.io/dockerconfigjson") {
-    throw "$SourceNamespace/$SecretName is not a dockerconfigjson secret"
+if (-not $env:REGISTRY_PASSWORD) {
+    throw "REGISTRY_PASSWORD must be set before creating $TargetNamespace/$SecretName"
 }
 
-$dockerConfig = $source.data.".dockerconfigjson"
-if (-not $dockerConfig) {
-    throw ".dockerconfigjson not found in $SourceNamespace/$SecretName"
-}
+kubectl create namespace $TargetNamespace --dry-run=client -o yaml | kubectl apply -f -
 
-$manifest = @"
-apiVersion: v1
-kind: Secret
-metadata:
-  name: $SecretName
-  namespace: $TargetNamespace
-  labels:
-    app.kubernetes.io/part-of: ircs
-    environment: dev
-type: kubernetes.io/dockerconfigjson
-data:
-  .dockerconfigjson: $dockerConfig
-"@
+kubectl -n $TargetNamespace create secret docker-registry $SecretName `
+    --docker-server=$Registry `
+    --docker-username=$Username `
+    --docker-password=$env:REGISTRY_PASSWORD `
+    --dry-run=client -o yaml | kubectl apply -f -
 
-$manifest | kubectl apply -f -
 kubectl get secret $SecretName -n $TargetNamespace

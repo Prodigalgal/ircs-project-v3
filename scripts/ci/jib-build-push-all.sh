@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REGISTRY="${REGISTRY:-harbor.mnnu.eu.org/ircs}"
+REGISTRY="${REGISTRY:-registry.mnnu.eu.org/ircs}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 TARGET_OS="${TARGET_OS:-linux}"
 TAG="${IMAGE_TAG:-sha-$(git rev-parse --short=12 HEAD)}"
 
-if [[ -z "${HARBOR_USERNAME:-}" || -z "${HARBOR_PASSWORD:-}" ]]; then
-  echo "HARBOR_USERNAME and HARBOR_PASSWORD are required." >&2
+if [[ -z "${REGISTRY_USERNAME:-}" || -z "${REGISTRY_PASSWORD:-}" ]]; then
+  echo "REGISTRY_USERNAME and REGISTRY_PASSWORD are required." >&2
   exit 2
 fi
 
@@ -37,27 +37,30 @@ modules=(
 
 echo "Building and pushing IRCS images to ${REGISTRY} with tag ${TAG} for ${TARGET_OS}/${TARGET_ARCH}"
 
+mkdir -p build
+: > build-image-manifest.txt
+{
+  echo "registry=${REGISTRY}"
+  echo "tag=${TAG}"
+  echo "target_os=${TARGET_OS}"
+  echo "target_arch=${TARGET_ARCH}"
+  echo "scope=all"
+  echo "modules=${#modules[@]}"
+} >> build-image-manifest.txt
+
 for entry in "${modules[@]}"; do
   module="${entry%%=*}"
   image="${entry##*=}"
   target="${REGISTRY}/${image}:${TAG}"
+  echo "${module}=${target}" >> build-image-manifest.txt
   echo "::group::${module} -> ${target}"
   ./gradlew --no-daemon ":${module}:jib" \
     "-PjibToImage=${target}" \
     "-PjibTargetArch=${TARGET_ARCH}" \
     "-PjibTargetOs=${TARGET_OS}" \
-    "-Djib.to.auth.username=${HARBOR_USERNAME}" \
-    "-Djib.to.auth.password=${HARBOR_PASSWORD}"
+    "-Djib.to.auth.username=${REGISTRY_USERNAME}" \
+    "-Djib.to.auth.password=${REGISTRY_PASSWORD}"
   echo "::endgroup::"
 done
 
-cat > build-image-manifest.txt <<MANIFEST
-registry=${REGISTRY}
-tag=${TAG}
-target_os=${TARGET_OS}
-target_arch=${TARGET_ARCH}
-modules=${#modules[@]}
-MANIFEST
-
 echo "Image manifest written to build-image-manifest.txt"
-

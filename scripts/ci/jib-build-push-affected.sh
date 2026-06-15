@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REGISTRY="${REGISTRY:-harbor.mnnu.eu.org/ircs}"
+REGISTRY="${REGISTRY:-registry.mnnu.eu.org/ircs}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 TARGET_OS="${TARGET_OS:-linux}"
 TAG="${IMAGE_TAG:-sha-$(git rev-parse --short=12 HEAD)}"
@@ -9,8 +9,8 @@ BUILD_SCOPE="${BUILD_SCOPE:-affected}"
 DRY_RUN="${DRY_RUN:-false}"
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-  if [[ -z "${HARBOR_USERNAME:-}" || -z "${HARBOR_PASSWORD:-}" ]]; then
-    echo "HARBOR_USERNAME and HARBOR_PASSWORD are required." >&2
+  if [[ -z "${REGISTRY_USERNAME:-}" || -z "${REGISTRY_PASSWORD:-}" ]]; then
+    echo "REGISTRY_USERNAME and REGISTRY_PASSWORD are required." >&2
     exit 2
   fi
 fi
@@ -214,8 +214,8 @@ for entry in "${selected[@]}"; do
       "-PjibToImage=${target}" \
       "-PjibTargetArch=${TARGET_ARCH}" \
       "-PjibTargetOs=${TARGET_OS}" \
-      "-Djib.to.auth.username=${HARBOR_USERNAME}" \
-      "-Djib.to.auth.password=${HARBOR_PASSWORD}"
+      "-Djib.to.auth.username=${REGISTRY_USERNAME}" \
+      "-Djib.to.auth.password=${REGISTRY_PASSWORD}"
   fi
   echo "::endgroup::"
 done

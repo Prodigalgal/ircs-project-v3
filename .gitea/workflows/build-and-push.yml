@@ -26,13 +26,16 @@ on:
 
 jobs:
   backend-images:
-    runs-on: ircs
+    runs-on: ubuntu-22.04
     env:
-      REGISTRY: harbor.mnnu.eu.org/ircs
+      REGISTRY: registry.mnnu.eu.org/ircs
       TARGET_ARCH: arm64
       TARGET_OS: linux
-      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      PUSH_USERNAME: ${{ secrets.PUSH_USERNAME }}
+      PUSH_PASSWORD: ${{ secrets.PUSH_PASSWORD }}
+      BUILD_SCOPE_INPUT: ${{ inputs.build_scope }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,7 +52,7 @@ jobs:
         shell: bash
         run: |
           chmod +x gradlew
-          chmod +x scripts/ci/jib-build-push-all.sh
+          chmod +x scripts/ci/jib-build-push-affected.sh
           REF_TYPE="${GITHUB_REF_TYPE:-${GITEA_REF_TYPE:-}}"
           REF_NAME="${GITHUB_REF_NAME:-${GITEA_REF_NAME:-}}"
           if [[ "${REF_TYPE}" == "tag" ]]; then
@@ -57,8 +60,38 @@ jobs:
           else
             export IMAGE_TAG="sha-$(git rev-parse --short=12 HEAD)"
           fi
-          export BUILD_SCOPE="${{ inputs.build_scope || 'affected' }}"
+          export BUILD_SCOPE="${BUILD_SCOPE_INPUT:-affected}"
           scripts/ci/jib-build-push-affected.sh
+
+      - name: Update production image tags
+        shell: bash
+        run: |
+          REF_TYPE="${GITHUB_REF_TYPE:-${GITEA_REF_TYPE:-}}"
+          if [[ "${REF_TYPE}" == "tag" ]]; then
+            echo "Tag build detected; production manifests are not rewritten from release tags."
+            exit 0
+          fi
+          chmod +x scripts/ci/update-prod-image-tags.sh
+          scripts/ci/update-prod-image-tags.sh build-image-manifest.txt
+
+      - name: Commit production image tags
+        shell: bash
+        run: |
+          if git diff --quiet -- deploy/k8s/prod; then
+            echo "No production manifest image changes."
+            exit 0
+          fi
+          if [[ -z "${PUSH_USERNAME:-}" || -z "${PUSH_PASSWORD:-}" ]]; then
+            echo "PUSH_USERNAME and PUSH_PASSWORD are required to push image tag updates." >&2
+            exit 2
+          fi
+          git config user.name "gitea-actions"
+          git config user.email "actions@mnnu.eu.org"
+          git add deploy/k8s/prod
+          git commit -m "ci: update ircs image tags"
+          auth="$(printf '%s:%s' "${PUSH_USERNAME}" "${PUSH_PASSWORD}" | base64 -w0)"
+          branch="${GITHUB_REF_NAME:-${GITEA_REF_NAME:-main}}"
+          git -c http.extraHeader="Authorization: Basic ${auth}" push origin "HEAD:${branch}"
 
       - name: Print image manifest
         shell: bash

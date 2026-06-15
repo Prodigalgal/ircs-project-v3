@@ -6,11 +6,11 @@ param(
     [string]$ImageName,
 
     [string]$Tag = "dev",
-    [string]$Registry = "harbor.mnnu.eu.org/ircs",
+    [string]$Registry = "registry.mnnu.eu.org/ircs",
     [string]$Architecture = "arm64",
     [string]$Os = "linux",
-    [string]$DockerConfigSecretNamespace = "ircs-system",
-    [string]$DockerConfigSecret = "harbor-secret"
+    [string]$DockerConfigSecretNamespace = "ircs-prod",
+    [string]$DockerConfigSecret = "registry-secret"
 )
 
 $ErrorActionPreference = "Stop"

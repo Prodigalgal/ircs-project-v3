@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ircs-prod-quota
+  namespace: ircs-prod
+spec:
+  hard:
+    pods: "34"
+    services: "30"
+    configmaps: "40"
+    secrets: "40"
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    limits.cpu: "12"
+    limits.memory: 24Gi
+

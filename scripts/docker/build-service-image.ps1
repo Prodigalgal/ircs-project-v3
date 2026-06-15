@@ -3,7 +3,7 @@ param(
     [string]$Service,
 
     [string]$Tag = "dev",
-    [string]$Registry = "harbor.mnnu.eu.org/ircs",
+    [string]$Registry = "registry.mnnu.eu.org/ircs",
     [string]$Platform = "linux/arm64",
     [switch]$Push
 )

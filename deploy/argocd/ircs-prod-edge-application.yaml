@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ircs-prod-edge
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: ircs
+    environment: prod
+spec:
+  project: default
+  source:
+    repoURL: http://gitea-http.gitea.svc.cluster.local:3000/admin/ircs-project-v3.git
+    targetRevision: main
+    path: deploy/k8s/prod/edge-cutover
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ircs-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+
