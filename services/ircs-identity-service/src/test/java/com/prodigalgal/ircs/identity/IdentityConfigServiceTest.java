@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
@@ -28,6 +29,15 @@ class IdentityConfigServiceTest {
         environment.setProperty("app.identity.jwt.secret", "env-secret");
 
         assertEquals("env-secret", service.value(IdentityConfigKey.JWT_SECRET));
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void runtimeValueOverridesInjectedAndStoredConfig() {
+        environment.setProperty("APP_IDENTITY_JWT_SECRET", "env-secret");
+        service.installRuntimeValues(Map.of(IdentityConfigKey.JWT_SECRET, "runtime-secret"));
+
+        assertEquals("runtime-secret", service.value(IdentityConfigKey.JWT_SECRET));
         verifyNoInteractions(repository);
     }
 

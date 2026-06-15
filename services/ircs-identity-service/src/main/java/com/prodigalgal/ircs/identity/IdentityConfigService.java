@@ -2,7 +2,10 @@ package com.prodigalgal.ircs.identity;
 
 import com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,12 +20,19 @@ public class IdentityConfigService {
     private final Environment environment;
     private final PasswordEncoder passwordEncoder;
     private final SystemConfigChangePublisher changePublisher;
+    private final ConcurrentMap<IdentityConfigKey, String> runtimeOverrides = new ConcurrentHashMap<>();
 
     public String value(IdentityConfigKey key) {
-        return injectedValue(key)
+        return runtimeOverride(key)
+                .or(() -> injectedValue(key))
                 .or(() -> repository.findValue(key.dbKey())
                         .filter(StringUtils::hasText))
                 .orElse(key.fallbackValue());
+    }
+
+    private Optional<String> runtimeOverride(IdentityConfigKey key) {
+        return Optional.ofNullable(runtimeOverrides.get(key))
+                .filter(StringUtils::hasText);
     }
 
     private Optional<String> injectedValue(IdentityConfigKey key) {
@@ -65,6 +75,14 @@ public class IdentityConfigService {
                 "DB",
                 revision,
                 Math.max(0L, revision - 1));
+    }
+
+    public void installRuntimeValues(Map<IdentityConfigKey, String> values) {
+        values.forEach((key, value) -> {
+            if (StringUtils.hasText(value)) {
+                runtimeOverrides.put(key, value);
+            }
+        });
     }
 
     public boolean bool(IdentityConfigKey key) {
