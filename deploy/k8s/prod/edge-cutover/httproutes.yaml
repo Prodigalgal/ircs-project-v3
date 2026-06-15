@@ -14,7 +14,11 @@ spec:
   hostnames:
     - huawai.mnnu.eu.org
   rules:
-    - filters:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
@@ -49,7 +53,11 @@ spec:
       backendRefs:
         - name: ircs-portal-bff
           port: 8080
-    - backendRefs:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
         - name: ircs-portal-frontend
           port: 3000
 ---
@@ -69,7 +77,11 @@ spec:
   hostnames:
     - admin.mnnu.eu.org
   rules:
-    - filters:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
@@ -101,6 +113,10 @@ spec:
       backendRefs:
         - name: ircs-admin-bff
           port: 8080
-    - backendRefs:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
         - name: ircs-admin-frontend
           port: 80
