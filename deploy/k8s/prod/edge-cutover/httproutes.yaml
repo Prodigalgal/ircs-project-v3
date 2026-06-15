@@ -8,7 +8,9 @@ metadata:
     environment: prod
 spec:
   parentRefs:
-    - name: mnnu-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mnnu-gateway
       namespace: gateway-system
       sectionName: http
   hostnames:
@@ -34,7 +36,9 @@ metadata:
     environment: prod
 spec:
   parentRefs:
-    - name: mnnu-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mnnu-gateway
       namespace: gateway-system
       sectionName: https
   hostnames:
@@ -51,15 +55,21 @@ spec:
             type: PathPrefix
             value: /media
       backendRefs:
-        - name: ircs-portal-bff
+        - group: ""
+          kind: Service
+          name: ircs-portal-bff
           port: 8080
+          weight: 1
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: ircs-portal-frontend
+        - group: ""
+          kind: Service
+          name: ircs-portal-frontend
           port: 3000
+          weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -71,7 +81,9 @@ metadata:
     environment: prod
 spec:
   parentRefs:
-    - name: mnnu-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mnnu-gateway
       namespace: gateway-system
       sectionName: http
   hostnames:
@@ -97,7 +109,9 @@ metadata:
     environment: prod
 spec:
   parentRefs:
-    - name: mnnu-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mnnu-gateway
       namespace: gateway-system
       sectionName: https
   hostnames:
@@ -111,12 +125,18 @@ spec:
             type: PathPrefix
             value: /media
       backendRefs:
-        - name: ircs-admin-bff
+        - group: ""
+          kind: Service
+          name: ircs-admin-bff
           port: 8080
+          weight: 1
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: ircs-admin-frontend
+        - group: ""
+          kind: Service
+          name: ircs-admin-frontend
           port: 80
+          weight: 1

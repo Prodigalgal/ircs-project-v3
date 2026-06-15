@@ -37,7 +37,6 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       partition: 0
-      maxUnavailable: 1
   selector:
     matchLabels:
       app: postgres
