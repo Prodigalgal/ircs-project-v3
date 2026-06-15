@@ -29,6 +29,10 @@ public final class IdentityRedisKeys {
         return "auth:rate_limit:" + bucket;
     }
 
+    public static String oauthState(Object state) {
+        return "auth:oauth_state:" + state;
+    }
+
     public static String powChallenge(Object id) {
         return "pow:challenge:" + id;
     }

@@ -4,36 +4,31 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.net.URI;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class OAuthProviderSettingsServiceTest {
 
-    private final IdentityConfigService configService = mock(IdentityConfigService.class);
-    private final OAuthProviderSettingsService service = new OAuthProviderSettingsService(configService);
+    private final OAuthProviderConfigResolver configResolver = mock(OAuthProviderConfigResolver.class);
+    private final OAuthProviderSettingsService service = new OAuthProviderSettingsService(configResolver);
 
     @Test
     void globalDisabledHidesAllProviders() {
-        when(configService.bool("member.oauth.enabled", false)).thenReturn(false);
+        when(configResolver.globalEnabled()).thenReturn(false);
 
         OAuthProviderSettings settings = service.publicSettings();
 
         assertFalse(settings.enabled());
         assertTrue(settings.providers().isEmpty());
-        verify(configService).bool("member.oauth.enabled", false);
-        verifyNoMoreInteractions(configService);
     }
 
     @Test
     void providerEnabledFlagControlsPublicEntries() {
-        when(configService.bool("member.oauth.enabled", false)).thenReturn(true);
-        when(configService.value("member.oauth.allowed-providers", "google,x,github,gitee,wechat,qq"))
-                .thenReturn("google,x");
-        when(configService.bool("member.oauth.google.enabled", false)).thenReturn(true);
-        when(configService.bool("member.oauth.x.enabled", false)).thenReturn(false);
+        when(configResolver.globalEnabled()).thenReturn(true);
+        when(configResolver.usableProviders()).thenReturn(List.of(config("google")));
 
         OAuthProviderSettings settings = service.publicSettings();
 
@@ -47,16 +42,24 @@ class OAuthProviderSettingsServiceTest {
 
     @Test
     void allowedProvidersListFiltersEnabledProviders() {
-        when(configService.bool("member.oauth.enabled", false)).thenReturn(true);
-        when(configService.value("member.oauth.allowed-providers", "google,x,github,gitee,wechat,qq"))
-                .thenReturn(" x , gitee ");
-        when(configService.bool("member.oauth.x.enabled", false)).thenReturn(true);
-        when(configService.bool("member.oauth.gitee.enabled", false)).thenReturn(true);
+        when(configResolver.globalEnabled()).thenReturn(true);
+        when(configResolver.usableProviders()).thenReturn(List.of(config("x"), config("gitee")));
 
         OAuthProviderSettings settings = service.publicSettings();
 
         assertEquals(2, settings.providers().size());
         assertEquals("x", settings.providers().get(0).code());
         assertEquals("gitee", settings.providers().get(1).code());
+    }
+
+    private static OAuthProviderConfig config(String code) {
+        OAuthProviderRegistry.Definition definition = OAuthProviderRegistry.find(code).orElseThrow();
+        return new OAuthProviderConfig(
+                definition,
+                "client-id",
+                "client-secret",
+                definition.defaultScope(),
+                URI.create("https://huawai.mnnu.eu.org" + definition.defaultRedirectPath()),
+                "https://huawai.mnnu.eu.org");
     }
 }

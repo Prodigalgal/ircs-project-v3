@@ -57,6 +57,9 @@ class SystemConfigDefaultsTest {
         assertEquals("false", defaults.staticDefaultValue("member.oauth.bind-existing-email.enabled").orElseThrow());
         assertEquals("true",
                 defaults.staticDefaultValue("member.oauth.email-ownership-verification.enabled").orElseThrow());
+        assertEquals("https://huawai.mnnu.eu.org", defaults.staticDefaultValue("app.frontend.url").orElseThrow());
+        assertEquals("https://huawai.mnnu.eu.org",
+                defaults.staticDefaultValue("member.oauth.redirect-base-url").orElseThrow());
         assertEquals("google,x,github,gitee,wechat,qq",
                 defaults.staticDefaultValue("member.oauth.allowed-providers").orElseThrow());
     }

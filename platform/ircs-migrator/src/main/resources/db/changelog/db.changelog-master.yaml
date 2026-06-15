@@ -105,3 +105,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/add-data-source-network-options.sql
   - include:
       file: db/changelog/2026/07/repair-search-outbox-schema.sql
+  - include:
+      file: db/changelog/2026/07/add-member-oauth-accounts.sql
