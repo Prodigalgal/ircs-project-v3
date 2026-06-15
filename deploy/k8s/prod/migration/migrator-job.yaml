@@ -22,7 +22,7 @@ spec:
         - name: registry-secret
       containers:
         - name: migrator
-          image: registry.mnnu.eu.org/ircs/ircs-migrator@sha256:64223fa99f7c2793b0145cc539bafa4b0c70fa3cc0af0e9059a2fed3bf7a2437
+          image: registry.mnnu.eu.org/ircs/ircs-migrator:sha-de9957f9ced5
           imagePullPolicy: IfNotPresent
           env:
             - name: SPRING_DATASOURCE_URL

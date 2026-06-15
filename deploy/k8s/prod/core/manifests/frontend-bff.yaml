@@ -30,7 +30,7 @@ spec:
         - name: registry-secret
       containers:
         - name: app
-          image: registry.mnnu.eu.org/ircs/ircs-portal-bff@sha256:4d3f2b8115635b111ec14cf5ac501707eb29b207487ce2317db117032b939e56
+          image: registry.mnnu.eu.org/ircs/ircs-portal-bff:sha-de9957f9ced5
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -143,7 +143,7 @@ spec:
         - name: registry-secret
       containers:
         - name: app
-          image: registry.mnnu.eu.org/ircs/ircs-admin-bff@sha256:e043f6a537aea4e02572e93766212bf4dc4465359ed1dbd255ae5b365fc9ca23
+          image: registry.mnnu.eu.org/ircs/ircs-admin-bff:sha-de9957f9ced5
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

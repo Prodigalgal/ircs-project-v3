@@ -25,7 +25,7 @@ spec:
         - name: registry-secret
       containers:
         - name: app
-          image: registry.mnnu.eu.org/ircs/ircs-notification-worker@sha256:46f41e02c0c76de3e1497ad1c1eaf554f72e0f6a47dfc3a56c798c5e6fc4cf82
+          image: registry.mnnu.eu.org/ircs/ircs-notification-worker:sha-de9957f9ced5
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
