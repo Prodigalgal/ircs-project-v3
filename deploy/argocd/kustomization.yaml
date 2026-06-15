@@ -1,6 +1,0 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - ircs-prod-core-application.yaml
-  - ircs-prod-edge-application.yaml
-  - ircs-prod-migrator-application.yaml
