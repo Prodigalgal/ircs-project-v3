@@ -372,7 +372,7 @@ spec:
         - name: registry-secret
       containers:
         - name: ircs-admin-frontend
-          image: registry.mnnu.eu.org/ircs/ircs-frontend@sha256:06314fea13ad8d95dceaae4db02b4c0fddc4b48e6c78e43c0f967d8a80421216
+          image: registry.mnnu.eu.org/ircs/ircs-admin-frontend:sha-7a74ebb402ab
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
