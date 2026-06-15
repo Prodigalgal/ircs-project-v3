@@ -311,7 +311,7 @@ spec:
         - name: registry-secret
       containers:
         - name: huawai
-          image: registry.mnnu.eu.org/ircs/huawai@sha256:f44dd3482d6ef3be632f090e61a70211a96d304d00e8c3abe92fccdf90298923
+          image: registry.mnnu.eu.org/ircs/ircs-huawai-frontend:sha-fbd4430f6682
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
