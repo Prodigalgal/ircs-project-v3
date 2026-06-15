@@ -26,6 +26,19 @@ class ConfigValueRedactorTest {
     }
 
     @Test
+    void redactsOAuthAppKeys() {
+        SystemConfigSummary summary = redactor.sanitize(new SystemConfigRecord(
+                UUID.randomUUID(),
+                "member.oauth.qq.app-key",
+                "qq-secret",
+                "QQ app key",
+                Instant.parse("2026-06-03T00:00:00Z")));
+
+        assertTrue(summary.sensitive());
+        assertNull(summary.value());
+    }
+
+    @Test
     void keepsNonSensitiveValues() {
         SystemConfigSummary summary = redactor.sanitize(new SystemConfigRecord(
                 UUID.randomUUID(),
@@ -37,5 +50,17 @@ class ConfigValueRedactorTest {
         assertFalse(summary.sensitive());
         assertTrue("120000".equals(summary.value()));
     }
-}
 
+    @Test
+    void keepsNonSecretAuthSettingsVisible() {
+        SystemConfigSummary summary = redactor.sanitize(new SystemConfigRecord(
+                UUID.randomUUID(),
+                "app.mail.properties.auth",
+                "true",
+                "SMTP auth switch",
+                Instant.parse("2026-06-03T00:00:00Z")));
+
+        assertFalse(summary.sensitive());
+        assertTrue("true".equals(summary.value()));
+    }
+}

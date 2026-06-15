@@ -95,25 +95,40 @@ public class JdbcConfigRepository {
                 insert into system_configs (id, created_at, updated_at, version, config_key, config_value, description)
                 values (gen_random_uuid(), now(), now(), 1, ?, ?, ?)
                 on conflict (config_key) do update
-                   set description = excluded.description,
+                   set config_value = case
+                           when (coalesce(btrim(system_configs.config_value), '') = ''
+                                   and coalesce(btrim(excluded.config_value), '') <> '')
+                                or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
+                           then excluded.config_value
+                           else system_configs.config_value
+                       end,
+                       description = excluded.description,
                        updated_at = case
-                           when coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
+                           when (coalesce(btrim(system_configs.config_value), '') = ''
+                                   and coalesce(btrim(excluded.config_value), '') <> '')
+                                or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
+                                or coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
                            then now()
                            else system_configs.updated_at
                        end,
                        version = case
-                           when coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
+                           when (coalesce(btrim(system_configs.config_value), '') = ''
+                                   and coalesce(btrim(excluded.config_value), '') <> '')
+                                or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
+                                or coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
                            then coalesce(system_configs.version, 0) + 1
                            else system_configs.version
                        end
                  returning (xmax = 0) as inserted,
-                           (xmax <> 0 and coalesce(description, '') = coalesce(?, '')) as description_updated
+                           (xmax <> 0) as description_updated
                 """,
                 (rs, rowNum) -> new UpsertRow(rs.getBoolean("inserted"), rs.getBoolean("description_updated")),
                 config.key(),
                 config.value(),
                 config.description(),
-                config.description());
+                config.upgradeLegacyFalse(),
+                config.upgradeLegacyFalse(),
+                config.upgradeLegacyFalse());
         UpsertRow row = DataAccessUtils.singleResult(rows);
         return row == null ? new UpsertResult(false, false) : new UpsertResult(row.inserted(), row.descriptionUpdated());
     }

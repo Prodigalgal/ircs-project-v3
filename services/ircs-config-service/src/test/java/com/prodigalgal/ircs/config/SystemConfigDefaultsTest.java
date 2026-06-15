@@ -14,13 +14,14 @@ class SystemConfigDefaultsTest {
     private final SystemConfigDefaults defaults = new SystemConfigDefaults(NoOpPasswordEncoder.getInstance());
 
     @Test
-    void includesFullV1SystemConfigKeyCatalog() {
+    void includesFullV1AndV3SystemConfigKeyCatalog() {
         Set<String> actual = defaults.all().stream()
                 .map(SystemConfigDefaults.DefaultConfig::key)
                 .collect(Collectors.toUnmodifiableSet());
 
-        assertEquals(V1_SYSTEM_CONFIG_KEYS, actual);
-        assertEquals(133, defaults.all().size());
+        assertTrue(actual.containsAll(V1_SYSTEM_CONFIG_KEYS));
+        assertTrue(actual.containsAll(V3_OAUTH_CONFIG_KEYS));
+        assertEquals(169, defaults.all().size());
     }
 
     @Test
@@ -45,6 +46,19 @@ class SystemConfigDefaultsTest {
         assertEquals("3000", defaults.staticDefaultValue("global.traffic.safety-floor-ms").orElseThrow());
         assertEquals("HTTP", defaults.staticDefaultValue("app.metadata.douban.proxy.type").orElseThrow());
         assertEquals("0 0/5 * * * ?", defaults.staticDefaultValue("app.search.sync.cron").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.storage.image.download.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.storage.r2.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.ai.llm.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.maintenance.playlist-repair.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.metadata.tmdb.proxy.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("member.oauth.auto-register.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("member.oauth.bind-existing-email.enabled").orElseThrow());
+        assertEquals("true",
+                defaults.staticDefaultValue("member.oauth.email-ownership-verification.enabled").orElseThrow());
+        assertEquals("google,x,github,gitee,wechat,qq",
+                defaults.staticDefaultValue("member.oauth.allowed-providers").orElseThrow());
     }
 
     @Test
@@ -68,8 +82,61 @@ class SystemConfigDefaultsTest {
                 "jwt secret"));
 
         assertFalse(adminPassword.value().isBlank());
-        assertEquals(32, jwtSecret.value().length());
+        assertEquals(64, jwtSecret.value().length());
     }
+
+    @Test
+    void marksNewEnabledDefaultsForLegacyFalseUpgrade() {
+        SystemConfigDefaults.DefaultConfig imageDownload = defaults.all().stream()
+                .filter(config -> config.key().equals("app.storage.image.download.enabled"))
+                .findFirst()
+                .orElseThrow();
+        SystemConfigDefaults.DefaultConfig proxy = defaults.all().stream()
+                .filter(config -> config.key().equals("app.metadata.tmdb.proxy.enabled"))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(imageDownload.upgradeLegacyFalse());
+        assertFalse(proxy.upgradeLegacyFalse());
+    }
+
+    private static final Set<String> V3_OAUTH_CONFIG_KEYS = Set.of(
+            "member.oauth.enabled",
+            "member.oauth.auto-register.enabled",
+            "member.oauth.bind-existing-email.enabled",
+            "member.oauth.email-ownership-verification.enabled",
+            "member.oauth.redirect-base-url",
+            "member.oauth.allowed-providers",
+            "member.oauth.github.enabled",
+            "member.oauth.github.client-id",
+            "member.oauth.github.client-secret",
+            "member.oauth.github.scope",
+            "member.oauth.github.redirect-uri",
+            "member.oauth.google.enabled",
+            "member.oauth.google.client-id",
+            "member.oauth.google.client-secret",
+            "member.oauth.google.scope",
+            "member.oauth.google.redirect-uri",
+            "member.oauth.x.enabled",
+            "member.oauth.x.client-id",
+            "member.oauth.x.client-secret",
+            "member.oauth.x.scope",
+            "member.oauth.x.redirect-uri",
+            "member.oauth.gitee.enabled",
+            "member.oauth.gitee.client-id",
+            "member.oauth.gitee.client-secret",
+            "member.oauth.gitee.scope",
+            "member.oauth.gitee.redirect-uri",
+            "member.oauth.wechat.enabled",
+            "member.oauth.wechat.app-id",
+            "member.oauth.wechat.app-secret",
+            "member.oauth.wechat.scope",
+            "member.oauth.wechat.redirect-uri",
+            "member.oauth.qq.enabled",
+            "member.oauth.qq.app-id",
+            "member.oauth.qq.app-key",
+            "member.oauth.qq.scope",
+            "member.oauth.qq.redirect-uri");
 
     private static final Set<String> V1_SYSTEM_CONFIG_KEYS = Set.of(
             "normalization.timeout.processing-min",

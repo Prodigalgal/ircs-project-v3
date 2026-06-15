@@ -18,10 +18,12 @@ class JdbcConfigRepositoryTest {
     private final JdbcConfigRepository repository = new JdbcConfigRepository(jdbcTemplate);
 
     @Test
-    void upsertDefaultDoesNotOverwriteExistingConfigValueOnConflict() {
+    void upsertDefaultOnlyRepairsBlankOrLegacyDefaultConfigValueOnConflict() {
         when(jdbcTemplate.query(
                         anyString(),
                         org.mockito.ArgumentMatchers.<RowMapper<Object>>any(),
+                        any(),
+                        any(),
                         any(),
                         any(),
                         any(),
@@ -40,11 +42,16 @@ class JdbcConfigRepositoryTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
                 any());
 
         String sql = sqlCaptor.getValue().toLowerCase();
         String conflictClause = sql.substring(sql.indexOf("on conflict"));
         assertTrue(conflictClause.contains("do update"));
-        assertFalse(conflictClause.contains("config_value ="));
+        assertTrue(conflictClause.contains("config_value = case"));
+        assertTrue(conflictClause.contains("btrim(system_configs.config_value)"));
+        assertTrue(conflictClause.contains("lower(coalesce(btrim(system_configs.config_value), '')) = 'false'"));
+        assertFalse(conflictClause.contains("config_value = excluded.config_value"));
     }
 }

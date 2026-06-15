@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 public class ConfigValueRedactor {
 
     private static final Pattern SENSITIVE_KEY = Pattern.compile(
-            "(password|passwd|pwd|secret|token|api[-_.]?key|access[-_.]?key|private[-_.]?key|credential|jwt|auth)",
+            "(password|passwd|pwd|secret|token|api[-_.]?key|app[-_.]?key|access[-_.]?key|private[-_.]?key|credential|jwt)",
             Pattern.CASE_INSENSITIVE);
 
     public SystemConfigSummary sanitize(SystemConfigRecord record) {

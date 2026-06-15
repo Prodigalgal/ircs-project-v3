@@ -71,6 +71,42 @@ public class SystemConfigDefaults {
             cfg("member.register.time-window.end", "18:00", "允许注册结束时间"),
             cfg("member.register.timezone", "Asia/Shanghai", "注册时间限制所依据的时区"),
             cfg("member.message.daily-limit", "5", "每个用户每日允许提交的留言数量"),
+            cfg("member.oauth.enabled", "false", "是否启用会员第三方登录"),
+            cfg("member.oauth.auto-register.enabled", "true", "第三方登录首次进入时是否自动创建会员"),
+            cfg("member.oauth.bind-existing-email.enabled", "false", "第三方登录邮箱命中已有会员时是否自动绑定"),
+            cfg("member.oauth.email-ownership-verification.enabled", "true", "第三方登录绑定已有邮箱前是否强制验证邮箱归属"),
+            cfg("member.oauth.redirect-base-url", "https://huawai.sophia.fr.eu.org", "第三方登录回调基础域名"),
+            cfg("member.oauth.allowed-providers", "google,x,github,gitee,wechat,qq", "允许展示的第三方登录 Provider 列表"),
+            cfg("member.oauth.google.enabled", "false", "是否启用 Google 登录"),
+            cfg("member.oauth.google.client-id", "", "Google OAuth Client ID"),
+            cfg("member.oauth.google.client-secret", "", "Google OAuth Client Secret"),
+            cfg("member.oauth.google.scope", "openid email profile", "Google OAuth Scope"),
+            cfg("member.oauth.google.redirect-uri", "/api/portal/auth/oauth/google/callback", "Google OAuth 回调路径"),
+            cfg("member.oauth.x.enabled", "false", "是否启用 X 登录"),
+            cfg("member.oauth.x.client-id", "", "X OAuth Client ID"),
+            cfg("member.oauth.x.client-secret", "", "X OAuth Client Secret"),
+            cfg("member.oauth.x.scope", "users.read tweet.read offline.access", "X OAuth Scope"),
+            cfg("member.oauth.x.redirect-uri", "/api/portal/auth/oauth/x/callback", "X OAuth 回调路径"),
+            cfg("member.oauth.github.enabled", "false", "是否启用 GitHub 登录"),
+            cfg("member.oauth.github.client-id", "", "GitHub OAuth Client ID"),
+            cfg("member.oauth.github.client-secret", "", "GitHub OAuth Client Secret"),
+            cfg("member.oauth.github.scope", "read:user user:email", "GitHub OAuth Scope"),
+            cfg("member.oauth.github.redirect-uri", "/api/portal/auth/oauth/github/callback", "GitHub OAuth 回调路径"),
+            cfg("member.oauth.gitee.enabled", "false", "是否启用 Gitee 登录"),
+            cfg("member.oauth.gitee.client-id", "", "Gitee OAuth Client ID"),
+            cfg("member.oauth.gitee.client-secret", "", "Gitee OAuth Client Secret"),
+            cfg("member.oauth.gitee.scope", "user_info emails", "Gitee OAuth Scope"),
+            cfg("member.oauth.gitee.redirect-uri", "/api/portal/auth/oauth/gitee/callback", "Gitee OAuth 回调路径"),
+            cfg("member.oauth.wechat.enabled", "false", "是否启用微信登录"),
+            cfg("member.oauth.wechat.app-id", "", "微信开放平台 App ID"),
+            cfg("member.oauth.wechat.app-secret", "", "微信开放平台 App Secret"),
+            cfg("member.oauth.wechat.scope", "snsapi_login", "微信 OAuth Scope"),
+            cfg("member.oauth.wechat.redirect-uri", "/api/portal/auth/oauth/wechat/callback", "微信登录回调路径"),
+            cfg("member.oauth.qq.enabled", "false", "是否启用 QQ 登录"),
+            cfg("member.oauth.qq.app-id", "", "QQ 互联 App ID"),
+            cfg("member.oauth.qq.app-key", "", "QQ 互联 App Key"),
+            cfg("member.oauth.qq.scope", "get_user_info", "QQ OAuth Scope"),
+            cfg("member.oauth.qq.redirect-uri", "/api/portal/auth/oauth/qq/callback", "QQ 登录回调路径"),
             cfg("app.mail.enabled", "true", "是否启用邮件发送功能"),
             cfg("app.mail.host", "smtp.gmail.com", "SMTP 服务器地址"),
             cfg("app.mail.port", "465", "SMTP 端口"),
@@ -97,7 +133,7 @@ public class SystemConfigDefaults {
             cfg("app.maintenance.search.reindex-batch-size", "500", "搜索索引全量重建每批次数量"),
             cfg("app.maintenance.batch-size.min", "200", "运维任务最小批次"),
             cfg("app.maintenance.batch-size.max", "2000", "运维任务最大批次"),
-            cfg("app.maintenance.playlist-repair.enabled", "false", "是否自动修复无剧集的视频"),
+            cfgUpgradeLegacyFalse("app.maintenance.playlist-repair.enabled", "true", "是否自动修复无剧集的视频"),
             cfg("app.maintenance.playlist-repair.batch-size", "50", "播放列表修复基准批次"),
             cfg("app.maintenance.playlist-repair.batch-size.min", "10", "播放列表修复最小批次"),
             cfg("app.maintenance.playlist-repair.batch-size.max", "100", "播放列表修复最大批次"),
@@ -110,7 +146,7 @@ public class SystemConfigDefaults {
             cfg("app.storage.path.prefix.cover", "covers", "影视封面存储目录前缀"),
             cfg("app.storage.path.prefix.avatar", "avatars", "用户头像存储目录前缀"),
             cfg("app.maintenance.queue-retention-days", "7", "采集队列日志保留天数"),
-            cfg("app.storage.image.download.enabled", "false", "是否开启图片本地化下载"),
+            cfgUpgradeLegacyFalse("app.storage.image.download.enabled", "true", "是否开启图片本地化下载"),
             cfg("app.storage.image.max-retries", "3", "图片下载/上传最大重试次数"),
             cfg("app.storage.image.timeout-min", "30", "图片处理超时时间(分钟)"),
             cfg("app.storage.image.download.batch-size", "100", "图片下载任务基准批次"),
@@ -122,10 +158,10 @@ public class SystemConfigDefaults {
             cfg("app.storage.avatar.sync.batch-size", "100", "头像同步任务基准批次"),
             cfg("app.storage.avatar.sync.batch-size.min", "20", "头像同步任务最小批次"),
             cfg("app.storage.avatar.sync.batch-size.max", "200", "头像同步任务最大批次"),
-            cfg("app.storage.r2.enabled", "false", "是否启用 Cloudflare R2"),
+            cfgUpgradeLegacyFalse("app.storage.r2.enabled", "true", "是否启用 Cloudflare R2"),
             cfg("app.storage.r2.bucket-name", "ircs", "R2 Bucket Name"),
             cfg("app.storage.r2.public-domain", "img.mnnu.eu.org", "R2 公开访问域名"),
-            cfg("app.ai.llm.enabled", "false", "是否启用 LLM 辅助清洗"),
+            cfgUpgradeLegacyFalse("app.ai.llm.enabled", "true", "是否启用 LLM 辅助清洗"),
             cfg("app.ai.llm.model", "gemma-4-31b-it", "LLM 模型名称"),
             cfg("app.ai.llm.rate-limit.rpm", "10", "LLM RPM 限制"),
             cfg("app.ai.llm.cleaning-cron", "0 0 4 * * ?", "LLM 清洗任务 CRON"),
@@ -192,15 +228,17 @@ public class SystemConfigDefaults {
             return new ResolvedDefault(
                     config.key(),
                     passwordEncoder.encode(generateRandomPassword()),
-                    config.description());
+                    config.description(),
+                    config.upgradeLegacyFalse());
         }
         if (JWT_SECRET_KEY.equals(config.key())) {
             return new ResolvedDefault(
                     config.key(),
-                    UUID.randomUUID().toString().replace("-", ""),
-                    config.description());
+                    generateJwtSecret(),
+                    config.description(),
+                    config.upgradeLegacyFalse());
         }
-        return new ResolvedDefault(config.key(), config.defaultValue(), config.description());
+        return new ResolvedDefault(config.key(), config.defaultValue(), config.description(), config.upgradeLegacyFalse());
     }
 
     public boolean isCoreKey(String key) {
@@ -240,8 +278,18 @@ public class SystemConfigDefaults {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes).substring(0, 12);
     }
 
+    private String generateJwtSecret() {
+        byte[] bytes = new byte[48];
+        new SecureRandom().nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
     private static DefaultConfig cfg(String key, String defaultValue, String description) {
-        return new DefaultConfig(key, defaultValue, description);
+        return new DefaultConfig(key, defaultValue, description, false);
+    }
+
+    private static DefaultConfig cfgUpgradeLegacyFalse(String key, String defaultValue, String description) {
+        return new DefaultConfig(key, defaultValue, description, true);
     }
 
     private static String llmPrompt(String expert, String validList) {
@@ -263,9 +311,15 @@ public class SystemConfigDefaults {
         """.formatted(expert, validList).trim();
     }
 
-    public record DefaultConfig(String key, String defaultValue, String description) {
+    public record DefaultConfig(String key, String defaultValue, String description, boolean upgradeLegacyFalse) {
+        public DefaultConfig(String key, String defaultValue, String description) {
+            this(key, defaultValue, description, false);
+        }
     }
 
-    public record ResolvedDefault(String key, String value, String description) {
+    public record ResolvedDefault(String key, String value, String description, boolean upgradeLegacyFalse) {
+        public ResolvedDefault(String key, String value, String description) {
+            this(key, value, description, false);
+        }
     }
 }
