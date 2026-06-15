@@ -63,6 +63,16 @@ public class IdentityConfigService {
                 .orElse(key.fallbackValue());
     }
 
+    public String value(String dbKey, String fallbackValue) {
+        return repository.findValue(dbKey)
+                .filter(StringUtils::hasText)
+                .orElse(fallbackValue);
+    }
+
+    public boolean bool(String dbKey, boolean fallbackValue) {
+        return Boolean.parseBoolean(value(dbKey, String.valueOf(fallbackValue)));
+    }
+
     public boolean hasInjectedValue(IdentityConfigKey key) {
         return injectedValue(key).isPresent();
     }

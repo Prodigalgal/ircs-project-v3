@@ -26,11 +26,17 @@ public class MemberAuthController {
 
     private final MemberAuthService authService;
     private final PoWService poWService;
+    private final OAuthProviderSettingsService oAuthProviderSettingsService;
 
     @GetMapping("/pow")
     public ResponseEntity<PoWChallenge> getChallenge(
             @RequestParam(name = "scope", defaultValue = "portal.login") String scope) {
         return ResponseEntity.ok(poWService.generateChallenge(scope));
+    }
+
+    @GetMapping("/oauth/providers")
+    public ResponseEntity<OAuthProviderSettings> oauthProviders() {
+        return ResponseEntity.ok(oAuthProviderSettingsService.publicSettings());
     }
 
     @PostMapping("/register")
