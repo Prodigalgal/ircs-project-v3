@@ -33,21 +33,25 @@ class TrafficMonitorServiceTest {
 
         when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(cursor.hasNext()).thenReturn(true, true, true, false);
+        when(cursor.hasNext()).thenReturn(true, true, true, true, false);
         when(cursor.next()).thenReturn(
                 PREFIX + "Provider:TMDB",
+                PREFIX + "Global:Scraper",
                 PREFIX + "cred:" + credentialId,
                 PREFIX + "Domain:stale.example");
         when(valueOps.get(PREFIX + "Provider:TMDB")).thenReturn(String.valueOf(now + 2500L));
+        when(valueOps.get(PREFIX + "Global:Scraper")).thenReturn(String.valueOf(now + 1500L));
         when(valueOps.get(PREFIX + "cred:" + credentialId)).thenReturn(String.valueOf(now + 35_000L));
         when(valueOps.get(PREFIX + "Domain:stale.example")).thenReturn(String.valueOf(now - 120_000L));
         when(credentialLabelRepository.findLabel(credentialId)).thenReturn(Optional.of("[TMDB] main"));
 
         TrafficStatusResponse status = service.getTrafficStatus();
 
-        assertEquals(1, status.globalLimiters().size());
-        assertEquals("Provider:TMDB", status.globalLimiters().getFirst().key());
-        assertFalse(status.globalLimiters().getFirst().isBlocked());
+        assertEquals(2, status.globalLimiters().size());
+        assertEquals("Global:Scraper", status.globalLimiters().getFirst().key());
+        assertEquals("全局锁: Scraper", status.globalLimiters().getFirst().label());
+        assertEquals("Provider:TMDB", status.globalLimiters().get(1).key());
+        assertFalse(status.globalLimiters().get(1).isBlocked());
         assertEquals(1, status.credentialLimiters().size());
         assertEquals("[TMDB] main", status.credentialLimiters().getFirst().label());
         assertTrue(status.credentialLimiters().getFirst().isBlocked());

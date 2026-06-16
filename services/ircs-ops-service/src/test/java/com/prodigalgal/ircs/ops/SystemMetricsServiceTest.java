@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,10 @@ class SystemMetricsServiceTest {
 
     private final RabbitAdmin rabbitAdmin = org.mockito.Mockito.mock(RabbitAdmin.class);
     private final RedisConnectionFactory redisConnectionFactory = org.mockito.Mockito.mock(RedisConnectionFactory.class);
-    private final SystemMetricsService service = new SystemMetricsService(rabbitAdmin, redisConnectionFactory);
+    private final SystemMetricsService service = new SystemMetricsService(
+            rabbitAdmin,
+            redisConnectionFactory,
+            new SimpleMeterRegistry());
 
     @Test
     void metricsReturnQueueGroupsAndGracefullyHandleRedisFailure() {

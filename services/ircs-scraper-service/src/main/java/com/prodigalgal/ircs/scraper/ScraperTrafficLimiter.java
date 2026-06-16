@@ -15,7 +15,10 @@ import org.springframework.stereotype.Component;
 @Component
 class ScraperTrafficLimiter {
 
+    private static final String GLOBAL_KEY = "traffic:limit:Global:Scraper";
+
     private final DistributedLockManager lockManager;
+    private final ScraperTrafficConfigValues configValues;
     private final boolean enabled;
     private final Duration defaultGap;
     private final Duration maxWait;
@@ -23,11 +26,13 @@ class ScraperTrafficLimiter {
 
     ScraperTrafficLimiter(
             DistributedLockManager lockManager,
+            ScraperTrafficConfigValues configValues,
             @Value("${app.scraper.traffic.enabled:true}") boolean enabled,
             @Value("${app.scraper.traffic.default-gap-ms:1000}") long defaultGapMs,
             @Value("${app.scraper.traffic.max-wait:PT2M}") Duration maxWait,
             @Value("${app.scraper.traffic.ttl:PT10M}") Duration ttl) {
         this.lockManager = lockManager;
+        this.configValues = configValues;
         this.enabled = enabled;
         this.defaultGap = positiveOr(defaultGapMs, Duration.ofSeconds(1));
         this.maxWait = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
@@ -35,38 +40,57 @@ class ScraperTrafficLimiter {
     }
 
     static ScraperTrafficLimiter noop() {
-        return new ScraperTrafficLimiter(null, false, 0, Duration.ZERO, Duration.ZERO);
+        return new ScraperTrafficLimiter(null, null, false, 0, Duration.ZERO, Duration.ZERO);
     }
 
     void acquireDataSourceSlot(DataSourceRecord source, ManualScrapeConfigRequest config) {
-        if (!enabled || lockManager == null || source == null || source.id() == null) {
+        if (!enabled || lockManager == null) {
+            return;
+        }
+        reserve(GLOBAL_KEY, globalGap(), "global crawler traffic limit");
+        if (source == null || source.id() == null) {
             return;
         }
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.DATA_SOURCE_SCRAPE);
+        reserve(key(profile, source.id()), sourceGap(config), source.name());
+    }
+
+    private void reserve(String key, Duration gap, String label) {
         TimeSliceReservation reservation = lockManager.reserveTimeSlice(new TimeSliceReservationRequest(
-                key(profile, source.id()),
-                gap(config),
-                maxWait,
+                key,
+                gap,
+                effectiveMaxWait(),
                 ttl));
         if (reservation.rejected()) {
-            throw new IllegalStateException("Data source traffic limit saturated: " + source.name()
+            throw new IllegalStateException("Traffic limit saturated: " + label
                     + ", wait=" + reservation.waitTime().toMillis() + "ms");
         }
-        sleepIfNeeded(reservation.waitTime(), source);
+        sleepIfNeeded(reservation.waitTime(), label);
     }
 
     private String key(DistributedLockProfile profile, UUID sourceId) {
         return profile.keyPrefix() + sourceId;
     }
 
-    private Duration gap(ManualScrapeConfigRequest config) {
+    private Duration sourceGap(ManualScrapeConfigRequest config) {
+        Duration requestedGap = defaultGap;
         if (config != null && config.fixedDelayMs() != null && config.fixedDelayMs() > 0) {
-            return Duration.ofMillis(config.fixedDelayMs());
+            requestedGap = Duration.ofMillis(config.fixedDelayMs());
         }
-        return defaultGap;
+        Duration floor = configValues == null ? Duration.ZERO : configValues.safetyFloor();
+        return requestedGap.compareTo(floor) >= 0 ? requestedGap : floor;
     }
 
-    private void sleepIfNeeded(Duration waitTime, DataSourceRecord source) {
+    private Duration globalGap() {
+        Duration gap = configValues == null ? defaultGap : configValues.globalDelay();
+        return gap != null && gap.isPositive() ? gap : Duration.ofMillis(1);
+    }
+
+    private Duration effectiveMaxWait() {
+        return configValues == null ? maxWait : configValues.maxWait(maxWait);
+    }
+
+    private void sleepIfNeeded(Duration waitTime, String label) {
         if (waitTime == null || !waitTime.isPositive()) {
             return;
         }
@@ -74,8 +98,7 @@ class ScraperTrafficLimiter {
             Thread.sleep(waitTime.toMillis());
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while waiting for data source traffic limit: "
-                    + source.name(), ex);
+            throw new IllegalStateException("Interrupted while waiting for traffic limit: " + label, ex);
         }
     }
 

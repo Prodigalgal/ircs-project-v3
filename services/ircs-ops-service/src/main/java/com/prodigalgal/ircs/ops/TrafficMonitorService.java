@@ -95,6 +95,9 @@ public class TrafficMonitorService {
         if (rawKey.startsWith("Provider:")) {
             return "全局锁: " + rawKey.substring(9);
         }
+        if (rawKey.startsWith("Global:")) {
+            return "全局锁: " + rawKey.substring(7);
+        }
         if (rawKey.startsWith("DataSource:")) {
             return "数据源锁: " + rawKey.substring(11);
         }
