@@ -2,8 +2,9 @@ package com.prodigalgal.ircs.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -16,7 +17,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class TaskCommandService {
 
@@ -24,6 +24,20 @@ public class TaskCommandService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskQueueDispatchService taskQueueDispatchService;
+    private final Executor taskQueueDispatchExecutor;
+
+    public TaskCommandService(
+            JdbcCollectionTaskRepository taskRepository,
+            ObjectMapper objectMapper,
+            ApplicationEventPublisher eventPublisher,
+            TaskQueueDispatchService taskQueueDispatchService,
+            @Qualifier("taskQueueDispatchExecutor") Executor taskQueueDispatchExecutor) {
+        this.taskRepository = taskRepository;
+        this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
+        this.taskQueueDispatchService = taskQueueDispatchService;
+        this.taskQueueDispatchExecutor = taskQueueDispatchExecutor;
+    }
 
     @Transactional
     public UUID create(TaskCreateRequest request) {
@@ -124,11 +138,21 @@ public class TaskCommandService {
     private void dispatchQueuedMasterAfterCommit(UUID id, boolean resume) {
         runAfterCommit(() -> {
             try {
-                taskQueueDispatchService.dispatchQueuedMaster(id, resume);
+                taskQueueDispatchExecutor.execute(() -> dispatchQueuedMasterSafely(id, resume));
             } catch (RuntimeException ex) {
-                log.error("Collection task post-commit dispatch failed, taskId={}, resume={}", id, resume, ex);
+                String reason = "Task queue dispatch submit failed: " + safeMessage(ex);
+                taskRepository.fail(id, reason);
+                log.error("Collection task dispatch submit failed, taskId={}, resume={}", id, resume, ex);
             }
         });
+    }
+
+    private void dispatchQueuedMasterSafely(UUID id, boolean resume) {
+        try {
+            taskQueueDispatchService.dispatchQueuedMaster(id, resume);
+        } catch (RuntimeException ex) {
+            log.error("Collection task post-commit dispatch failed, taskId={}, resume={}", id, resume, ex);
+        }
     }
 
     private void runAfterCommit(Runnable action) {
@@ -275,6 +299,14 @@ public class TaskCommandService {
 
     private Integer defaultInteger(Integer value, Integer fallback) {
         return value == null ? fallback : value;
+    }
+
+    private String safeMessage(Throwable ex) {
+        if (ex == null || ex.getMessage() == null || ex.getMessage().isBlank()) {
+            return ex == null ? "unknown" : ex.getClass().getSimpleName();
+        }
+        String message = ex.getMessage().replaceAll("\\s+", " ").trim();
+        return message.length() <= 240 ? message : message.substring(0, 240);
     }
 }
 
