@@ -74,19 +74,44 @@ class NotificationMailConfigValues {
         String username = credential.map(MailCredential::username).orElseGet(this::staticUsername);
         String password = credential.map(MailCredential::password).orElseGet(this::staticPassword);
         return new MailConnectOptions(
-                stringValue(DEFAULT_HOST, HOST_KEY, "spring.mail.host", "mail.host"),
-                intValue(DEFAULT_PORT, PORT_KEY, "spring.mail.port", "mail.port"),
+                credential.flatMap(this::smtpHost).orElseGet(() ->
+                        stringValue(DEFAULT_HOST, HOST_KEY, "spring.mail.host", "mail.host")),
+                credential.flatMap(this::smtpPort).orElseGet(() ->
+                        intValue(DEFAULT_PORT, PORT_KEY, "spring.mail.port", "mail.port")),
                 username,
                 password,
-                stringValue(DEFAULT_PROTOCOL, PROTOCOL_KEY, "spring.mail.protocol"),
-                booleanValue(DEFAULT_AUTH, AUTH_KEY, "APP_MAIL_SMTP_AUTH", "spring.mail.properties.mail.smtp.auth"),
-                booleanValue(DEFAULT_STARTTLS, STARTTLS_KEY, "APP_MAIL_STARTTLS_ENABLED",
-                        "spring.mail.properties.mail.smtp.starttls.enable"),
-                booleanValue(DEFAULT_SSL, SSL_KEY, "APP_MAIL_SSL_ENABLED",
-                        "spring.mail.properties.mail.smtp.ssl.enable"),
-                intValue(DEFAULT_TIMEOUT, TIMEOUT_KEY, "APP_MAIL_TIMEOUT",
-                        "spring.mail.properties.mail.smtp.timeout"),
+                credential.flatMap(this::smtpProtocol).orElseGet(() ->
+                        stringValue(DEFAULT_PROTOCOL, PROTOCOL_KEY, "spring.mail.protocol")),
+                credential.map(MailCredential::smtpAuth).orElseGet(() ->
+                        booleanValue(DEFAULT_AUTH, AUTH_KEY, "APP_MAIL_SMTP_AUTH", "spring.mail.properties.mail.smtp.auth")),
+                credential.map(MailCredential::smtpStarttlsEnabled).orElseGet(() ->
+                        booleanValue(DEFAULT_STARTTLS, STARTTLS_KEY, "APP_MAIL_STARTTLS_ENABLED",
+                                "spring.mail.properties.mail.smtp.starttls.enable")),
+                credential.map(MailCredential::smtpSslEnabled).orElseGet(() ->
+                        booleanValue(DEFAULT_SSL, SSL_KEY, "APP_MAIL_SSL_ENABLED",
+                                "spring.mail.properties.mail.smtp.ssl.enable")),
+                credential.flatMap(this::smtpTimeout).orElseGet(() ->
+                        intValue(DEFAULT_TIMEOUT, TIMEOUT_KEY, "APP_MAIL_TIMEOUT",
+                                "spring.mail.properties.mail.smtp.timeout")),
                 booleanValue(DEFAULT_DEBUG, DEBUG_KEY, "APP_MAIL_DEBUG", "spring.mail.properties.mail.debug"));
+    }
+
+    private Optional<String> smtpHost(MailCredential credential) {
+        return Optional.ofNullable(credential.smtpHost()).filter(StringUtils::hasText).map(String::trim);
+    }
+
+    private Optional<String> smtpProtocol(MailCredential credential) {
+        return Optional.ofNullable(credential.smtpProtocol()).filter(StringUtils::hasText).map(String::trim);
+    }
+
+    private Optional<Integer> smtpPort(MailCredential credential) {
+        Integer port = credential.smtpPort();
+        return port == null || port <= 0 ? Optional.empty() : Optional.of(port);
+    }
+
+    private Optional<Integer> smtpTimeout(MailCredential credential) {
+        Integer timeout = credential.smtpTimeoutMs();
+        return timeout == null || timeout <= 0 ? Optional.empty() : Optional.of(timeout);
     }
 
     private String staticUsername() {

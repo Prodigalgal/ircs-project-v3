@@ -61,7 +61,17 @@ class CredentialServiceMailCredentialRepositoryTest {
                   "id":"de0a6fd9-f07d-4201-bf92-279b6c9f099d",
                   "provider":"MAIL",
                   "name":"dev-mail",
-                  "secretPayload":{"username":"mail@example.invalid","password":"secret"},
+                  "secretPayload":{
+                    "username":"mail@example.invalid",
+                    "password":"secret",
+                    "smtp_host":"smtp.mail.example.invalid",
+                    "smtp_port":"587",
+                    "smtp_protocol":"smtp",
+                    "smtp_auth":"true",
+                    "smtp_starttls_enabled":"true",
+                    "smtp_ssl_enabled":"false",
+                    "smtp_timeout_ms":"7000"
+                  },
                   "priority":9,
                   "rateLimit":30,
                   "rateLimitUnit":"MINUTE"
@@ -73,6 +83,13 @@ class CredentialServiceMailCredentialRepositoryTest {
         assertEquals("de0a6fd9-f07d-4201-bf92-279b6c9f099d", credential.id().toString());
         assertEquals("mail@example.invalid", credential.username());
         assertEquals("secret", credential.password());
+        assertEquals("smtp.mail.example.invalid", credential.smtpHost());
+        assertEquals(587, credential.smtpPort());
+        assertEquals("smtp", credential.smtpProtocol());
+        assertEquals(Boolean.TRUE, credential.smtpAuth());
+        assertEquals(Boolean.TRUE, credential.smtpStarttlsEnabled());
+        assertEquals(Boolean.FALSE, credential.smtpSslEnabled());
+        assertEquals(7000, credential.smtpTimeoutMs());
         OutboundHttpRequest request = transport.requests.getFirst();
         assertThat(request.uri()).isEqualTo(URI.create(
                 "http://credential-service/internal/credentials/providers/MAIL/leases?requiredPayloadKey=username&limit=2"));
@@ -83,6 +100,39 @@ class CredentialServiceMailCredentialRepositoryTest {
                 .doesNotContainKey("X-IRCS-INTERNAL-TOKEN");
         assertThat(request.policy().type().name()).isEqualTo("INTERNAL_SERVICE");
         assertThat(request.policy().timeout()).isEqualTo(Duration.ofSeconds(4));
+    }
+
+    @Test
+    void rotatesAcrossAvailableMailCredentialPool() {
+        transport.enqueue(response(200, """
+                [{
+                  "id":"11111111-1111-4111-8111-111111111111",
+                  "provider":"MAIL",
+                  "name":"mail-a",
+                  "secretPayload":{"username":"a@example.invalid","password":"secret-a"}
+                },{
+                  "id":"22222222-2222-4222-8222-222222222222",
+                  "provider":"MAIL",
+                  "name":"mail-b",
+                  "secretPayload":{"username":"b@example.invalid","password":"secret-b"}
+                }]
+                """));
+        transport.enqueue(response(200, """
+                [{
+                  "id":"11111111-1111-4111-8111-111111111111",
+                  "provider":"MAIL",
+                  "name":"mail-a",
+                  "secretPayload":{"username":"a@example.invalid","password":"secret-a"}
+                },{
+                  "id":"22222222-2222-4222-8222-222222222222",
+                  "provider":"MAIL",
+                  "name":"mail-b",
+                  "secretPayload":{"username":"b@example.invalid","password":"secret-b"}
+                }]
+                """));
+
+        assertEquals("a@example.invalid", repository.leaseRequired().username());
+        assertEquals("b@example.invalid", repository.leaseRequired().username());
     }
 
     @Test

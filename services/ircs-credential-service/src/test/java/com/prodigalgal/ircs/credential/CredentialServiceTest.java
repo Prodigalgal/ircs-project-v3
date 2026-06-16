@@ -209,7 +209,7 @@ class CredentialServiceTest {
         CredentialRecord complete = record(
                 UUID.randomUUID(),
                 "MAIL",
-                "{\"username\":\"mail@example.invalid\",\"password\":\"secret\"}");
+                "{\"username\":\"mail@example.invalid\",\"password\":\"secret\",\"smtp_host\":\"smtp.mail.example.invalid\"}");
         CredentialRecord missingPassword = record(
                 UUID.randomUUID(),
                 "MAIL",
@@ -222,6 +222,7 @@ class CredentialServiceTest {
         assertEquals(1, result.size());
         assertEquals("mail@example.invalid", result.getFirst().getSecretPayload().get("username"));
         assertEquals("secret", result.getFirst().getSecretPayload().get("password"));
+        assertEquals("smtp.mail.example.invalid", result.getFirst().getSecretPayload().get("smtp_host"));
         verify(repository).findEnabledProviderCredentials("MAIL", "username", 100);
     }
 
@@ -244,6 +245,42 @@ class CredentialServiceTest {
         List<CredentialTemplateField> result = service.templates("rotten_tomatoes");
 
         assertEquals(List.of("cookie", "user_agent"), result.stream().map(CredentialTemplateField::key).toList());
+    }
+
+    @Test
+    void returnsMailProviderTemplateWithBoundSmtpFields() {
+        List<CredentialTemplateField> result = service.templates("mail");
+
+        assertEquals(
+                List.of(
+                        "username",
+                        "password",
+                        "smtp_host",
+                        "smtp_port",
+                        "smtp_protocol",
+                        "smtp_auth",
+                        "smtp_ssl_enabled",
+                        "smtp_starttls_enabled",
+                        "smtp_timeout_ms"),
+                result.stream().map(CredentialTemplateField::key).toList());
+    }
+
+    @Test
+    void mailSummaryExposesOnlyNonSecretSmtpPayload() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.of(record(
+                id,
+                "MAIL",
+                """
+                {"username":"mail@example.invalid","password":"secret","smtp_host":"smtp.mail.example.invalid","smtp_port":587}
+                """)));
+
+        CredentialSummary summary = service.findById(id).orElseThrow();
+
+        assertThat(summary.payload()).containsEntry("username", "mail@example.invalid")
+                .containsEntry("smtp_host", "smtp.mail.example.invalid")
+                .containsEntry("smtp_port", 587);
+        assertThat(summary.payload().get("password")).isEqualTo(Map.of("present", true, "redacted", true));
     }
 
     @Test

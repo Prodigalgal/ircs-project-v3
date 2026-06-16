@@ -126,6 +126,38 @@ class NotificationMailConfigValuesTest {
     }
 
     @Test
+    void mailCredentialOverridesSmtpConnectionOptions() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("APP_MAIL_HOST", "smtp.global.example.invalid")
+                .withProperty("APP_MAIL_PORT", "465")
+                .withProperty("APP_MAIL_SSL_ENABLED", "true")
+                .withProperty("APP_MAIL_STARTTLS_ENABLED", "false")
+                .withProperty("APP_MAIL_TIMEOUT", "10000");
+        NotificationMailConfigValues values = values(environment);
+        MailCredential credential = new MailCredential(
+                UUID.fromString("de0a6fd9-f07d-4201-bf92-279b6c9f099d"),
+                "credential@example.invalid",
+                "credential-secret",
+                "smtp.credential.example.invalid",
+                587,
+                "smtp",
+                true,
+                true,
+                false,
+                7000);
+
+        NotificationMailConfigValues.MailConnectOptions options = values.smtpOptions(Optional.of(credential));
+
+        assertEquals("smtp.credential.example.invalid", options.host());
+        assertEquals(587, options.port());
+        assertEquals("smtp", options.protocol());
+        assertTrue(options.auth());
+        assertTrue(options.starttlsEnabled());
+        assertFalse(options.sslEnabled());
+        assertEquals(7000, options.timeout());
+    }
+
+    @Test
     void deliveryModeUsesRuntimeAliasBeforeBoundProperties() {
         NotificationMailProperties properties = new NotificationMailProperties();
         properties.setDeliveryMode(NotificationMailProperties.DeliveryMode.SMTP);

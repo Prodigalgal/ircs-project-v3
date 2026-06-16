@@ -26,7 +26,7 @@ public class CredentialSanitizer {
                 record.provider(),
                 record.name(),
                 fingerprintSuffix(record.fingerprint()),
-                redactedPayload(payload),
+                redactedPayload(record.provider(), payload),
                 record.enabled(),
                 record.priority(),
                 record.rateLimit(),
@@ -45,15 +45,35 @@ public class CredentialSanitizer {
                 payloadKeys(payload));
     }
 
-    Map<String, Object> redactedPayload(Map<String, Object> payload) {
+    Map<String, Object> redactedPayload(String provider, Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) {
             return Map.of();
         }
         Map<String, Object> redacted = new LinkedHashMap<>();
-        payload.keySet().stream().sorted().forEach(key -> redacted.put(key, Map.of(
-                "present", true,
-                "redacted", true)));
+        payload.keySet().stream().sorted().forEach(key -> {
+            if ("MAIL".equalsIgnoreCase(provider) && isMailVisiblePayloadKey(key)) {
+                redacted.put(key, payload.get(key));
+                return;
+            }
+            redacted.put(key, Map.of(
+                    "present", true,
+                    "redacted", true));
+        });
         return redacted;
+    }
+
+    private boolean isMailVisiblePayloadKey(String key) {
+        return switch (key) {
+            case "username",
+                    "smtp_host",
+                    "smtp_port",
+                    "smtp_protocol",
+                    "smtp_auth",
+                    "smtp_ssl_enabled",
+                    "smtp_starttls_enabled",
+                    "smtp_timeout_ms" -> true;
+            default -> false;
+        };
     }
 
     Map<String, Object> payload(String payloadJson) {

@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -184,10 +185,27 @@ class RuntimeCredentialInitializer implements ApplicationRunner {
         if (!isValidSecret(username) || !isValidSecret(password)) {
             return null;
         }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("username", username.trim());
+        payload.put("password", password.trim());
+        payload.put("smtp_host", stringProperty("APP_MAIL_HOST", "MAIL_HOST", CredentialProviderCatalog.DEFAULT_MAIL_HOST));
+        payload.put("smtp_port", intProperty(CredentialProviderCatalog.DEFAULT_MAIL_PORT, "APP_MAIL_PORT", "MAIL_PORT"));
+        payload.put("smtp_protocol", stringProperty(
+                "APP_MAIL_PROTOCOL",
+                "SPRING_MAIL_PROTOCOL",
+                CredentialProviderCatalog.DEFAULT_MAIL_PROTOCOL));
+        payload.put("smtp_auth", booleanProperty(CredentialProviderCatalog.DEFAULT_MAIL_AUTH, "APP_MAIL_SMTP_AUTH"));
+        payload.put("smtp_ssl_enabled", booleanProperty(
+                CredentialProviderCatalog.DEFAULT_MAIL_SSL,
+                "APP_MAIL_SSL_ENABLED"));
+        payload.put("smtp_starttls_enabled", booleanProperty(
+                CredentialProviderCatalog.DEFAULT_MAIL_STARTTLS,
+                "APP_MAIL_STARTTLS_ENABLED"));
+        payload.put("smtp_timeout_ms", intProperty(CredentialProviderCatalog.DEFAULT_MAIL_TIMEOUT_MS, "APP_MAIL_TIMEOUT"));
         return new CredentialWriteRequest(
                 "MAIL",
                 "Env: Mail Primary",
-                Map.of("username", username.trim(), "password", password.trim()),
+                payload,
                 true,
                 100,
                 null,
@@ -301,6 +319,44 @@ class RuntimeCredentialInitializer implements ApplicationRunner {
 
     private String property(String key) {
         return environment.getProperty(key);
+    }
+
+    private String stringProperty(String key, String alias, String fallback) {
+        String value = property(key);
+        if (!StringUtils.hasText(value) && StringUtils.hasText(alias)) {
+            value = property(alias);
+        }
+        return StringUtils.hasText(value) ? value.trim() : fallback;
+    }
+
+    private int intProperty(int fallback, String... keys) {
+        for (String key : keys) {
+            String value = property(key);
+            if (!StringUtils.hasText(value)) {
+                continue;
+            }
+            try {
+                return Integer.parseInt(value.trim());
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private boolean booleanProperty(boolean fallback, String... keys) {
+        for (String key : keys) {
+            String value = property(key);
+            if (!StringUtils.hasText(value)) {
+                continue;
+            }
+            return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "true", "1", "yes", "y", "on", "enabled" -> true;
+                case "false", "0", "no", "n", "off", "disabled" -> false;
+                default -> fallback;
+            };
+        }
+        return fallback;
     }
 
     private boolean isValidSecret(String value) {

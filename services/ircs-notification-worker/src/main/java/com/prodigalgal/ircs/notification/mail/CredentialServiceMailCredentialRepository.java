@@ -11,7 +11,9 @@ import com.prodigalgal.ircs.contracts.credential.ProviderCredentialLease;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -20,10 +22,18 @@ public class CredentialServiceMailCredentialRepository {
     private static final String PROVIDER = "MAIL";
     private static final String USERNAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
+    private static final String SMTP_HOST_KEY = "smtp_host";
+    private static final String SMTP_PORT_KEY = "smtp_port";
+    private static final String SMTP_PROTOCOL_KEY = "smtp_protocol";
+    private static final String SMTP_AUTH_KEY = "smtp_auth";
+    private static final String SMTP_STARTTLS_KEY = "smtp_starttls_enabled";
+    private static final String SMTP_SSL_KEY = "smtp_ssl_enabled";
+    private static final String SMTP_TIMEOUT_KEY = "smtp_timeout_ms";
 
     private final OutboundHttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final NotificationMailProperties properties;
+    private final AtomicLong selectionCursor = new AtomicLong();
 
     CredentialServiceMailCredentialRepository(
             OutboundHttpClient httpClient,
@@ -53,11 +63,15 @@ public class CredentialServiceMailCredentialRepository {
             if (leases == null) {
                 throw new MailCredentialLeaseException("MAIL credential is not available");
             }
-            return Arrays.stream(leases)
+            List<MailCredential> candidates = Arrays.stream(leases)
                     .map(this::mapLease)
                     .filter(this::hasRequiredSecrets)
-                    .findFirst()
-                    .orElseThrow(() -> new MailCredentialLeaseException("MAIL credential is not available"));
+                    .toList();
+            if (candidates.isEmpty()) {
+                throw new MailCredentialLeaseException("MAIL credential is not available");
+            }
+            int index = (int) Math.floorMod(selectionCursor.getAndIncrement(), candidates.size());
+            return candidates.get(index);
         } catch (MailCredentialLeaseException ex) {
             throw ex;
         } catch (IOException ex) {
@@ -85,10 +99,49 @@ public class CredentialServiceMailCredentialRepository {
         return new MailCredential(
                 lease.getId(),
                 secretPayload == null ? null : secretPayload.get(USERNAME_KEY),
-                secretPayload == null ? null : secretPayload.get(PASSWORD_KEY));
+                secretPayload == null ? null : secretPayload.get(PASSWORD_KEY),
+                text(secretPayload, SMTP_HOST_KEY),
+                integer(secretPayload, SMTP_PORT_KEY),
+                text(secretPayload, SMTP_PROTOCOL_KEY),
+                bool(secretPayload, SMTP_AUTH_KEY),
+                bool(secretPayload, SMTP_STARTTLS_KEY),
+                bool(secretPayload, SMTP_SSL_KEY),
+                integer(secretPayload, SMTP_TIMEOUT_KEY));
     }
 
     private boolean hasRequiredSecrets(MailCredential credential) {
         return StringUtils.hasText(credential.username()) && StringUtils.hasText(credential.password());
+    }
+
+    private String text(Map<String, String> payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+        String value = payload.get(key);
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private Integer integer(Map<String, String> payload, String key) {
+        String value = text(payload, key);
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Boolean bool(Map<String, String> payload, String key) {
+        String value = text(payload, key);
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true", "1", "yes", "y", "on", "enabled" -> true;
+            case "false", "0", "no", "n", "off", "disabled" -> false;
+            default -> null;
+        };
     }
 }

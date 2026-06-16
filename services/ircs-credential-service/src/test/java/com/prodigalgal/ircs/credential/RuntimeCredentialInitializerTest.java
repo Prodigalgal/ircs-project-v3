@@ -30,6 +30,11 @@ class RuntimeCredentialInitializerTest {
                 .withProperty("APP_METADATA_TMDB_API_KEY", "tmdb-test")
                 .withProperty("APP_MAIL_USERNAME", "mail@example.test")
                 .withProperty("APP_MAIL_PASSWORD", "mail-password")
+                .withProperty("APP_MAIL_HOST", "smtp.mail.example.test")
+                .withProperty("APP_MAIL_PORT", "587")
+                .withProperty("APP_MAIL_STARTTLS_ENABLED", "true")
+                .withProperty("APP_MAIL_SSL_ENABLED", "false")
+                .withProperty("APP_MAIL_TIMEOUT", "7000")
                 .withProperty("APP_STORAGE_R2_ACCOUNT_ID", "r2-account")
                 .withProperty("APP_STORAGE_R2_ACCESS_KEY", "r2-access")
                 .withProperty("APP_STORAGE_R2_SECRET_KEY", "r2-secret");
@@ -70,6 +75,11 @@ class RuntimeCredentialInitializerTest {
         assertThat(mail.rateLimit()).isNull();
         assertThat(mail.rateLimitUnit()).isNull();
         assertThat(mail.dayLimit()).isEqualTo(500L);
+        assertThat(mail.payload()).containsEntry("smtp_host", "smtp.mail.example.test")
+                .containsEntry("smtp_port", 587)
+                .containsEntry("smtp_starttls_enabled", true)
+                .containsEntry("smtp_ssl_enabled", false)
+                .containsEntry("smtp_timeout_ms", 7000);
 
         CredentialWriteRequest r2 = captor.getAllValues().get(3);
         assertThat(r2.rateLimit()).isNull();
@@ -146,6 +156,48 @@ class RuntimeCredentialInitializerTest {
         assertThat(mail.name()).isEqualTo("MAIL-Init-1");
         assertThat(mail.rateLimit()).isNull();
         assertThat(mail.rateLimitUnit()).isNull();
+    }
+
+    @Test
+    void importsMailFileCredentialWithBoundSmtpConfig() throws Exception {
+        Path file = tempDir.resolve("mail-credentials.json");
+        Files.writeString(file, """
+                [
+                  {
+                    "provider": "MAIL",
+                    "name": "SMTP Mail",
+                    "payload": {
+                      "username": "smtp@example.test",
+                      "password": "smtp-password",
+                      "smtp_host": "smtp.example.test",
+                      "smtp_port": 587,
+                      "smtp_protocol": "smtp",
+                      "smtp_auth": true,
+                      "smtp_starttls_enabled": true,
+                      "smtp_ssl_enabled": false,
+                      "smtp_timeout_ms": 7000
+                    }
+                  }
+                ]
+                """);
+        when(credentialService.createIfAbsent(any())).thenReturn(true);
+        RuntimeCredentialInitializer initializer = RuntimeCredentialInitializer.forTest(
+                credentialService,
+                new MockEnvironment(),
+                objectMapper,
+                true,
+                file.toString(),
+                false);
+
+        RuntimeCredentialInitializer.InitializationResult result = initializer.initialize();
+
+        assertThat(result.fileInserted()).isEqualTo(1);
+        ArgumentCaptor<CredentialWriteRequest> captor = ArgumentCaptor.forClass(CredentialWriteRequest.class);
+        verify(credentialService).createIfAbsent(captor.capture());
+        assertThat(captor.getValue().payload()).containsEntry("smtp_host", "smtp.example.test")
+                .containsEntry("smtp_port", 587)
+                .containsEntry("smtp_starttls_enabled", true)
+                .containsEntry("smtp_ssl_enabled", false);
     }
 
     @Test
