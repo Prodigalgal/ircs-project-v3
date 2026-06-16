@@ -36,11 +36,11 @@ class TrafficMonitorServiceTest {
         when(cursor.hasNext()).thenReturn(true, true, true, true, false);
         when(cursor.next()).thenReturn(
                 PREFIX + "Provider:TMDB",
-                PREFIX + "Global:Scraper",
+                PREFIX + "Global:Scraper:Ip:203.0.113.10",
                 PREFIX + "cred:" + credentialId,
                 PREFIX + "Domain:stale.example");
         when(valueOps.get(PREFIX + "Provider:TMDB")).thenReturn(String.valueOf(now + 2500L));
-        when(valueOps.get(PREFIX + "Global:Scraper")).thenReturn(String.valueOf(now + 1500L));
+        when(valueOps.get(PREFIX + "Global:Scraper:Ip:203.0.113.10")).thenReturn(String.valueOf(now + 1500L));
         when(valueOps.get(PREFIX + "cred:" + credentialId)).thenReturn(String.valueOf(now + 35_000L));
         when(valueOps.get(PREFIX + "Domain:stale.example")).thenReturn(String.valueOf(now - 120_000L));
         when(credentialLabelRepository.findLabel(credentialId)).thenReturn(Optional.of("[TMDB] main"));
@@ -48,8 +48,8 @@ class TrafficMonitorServiceTest {
         TrafficStatusResponse status = service.getTrafficStatus();
 
         assertEquals(2, status.globalLimiters().size());
-        assertEquals("Global:Scraper", status.globalLimiters().getFirst().key());
-        assertEquals("全局锁: Scraper", status.globalLimiters().getFirst().label());
+        assertEquals("Global:Scraper:Ip:203.0.113.10", status.globalLimiters().getFirst().key());
+        assertEquals("全局锁: Scraper / IP 203.0.113.10", status.globalLimiters().getFirst().label());
         assertEquals("Provider:TMDB", status.globalLimiters().get(1).key());
         assertFalse(status.globalLimiters().get(1).isBlocked());
         assertEquals(1, status.credentialLimiters().size());
@@ -65,6 +65,26 @@ class TrafficMonitorServiceTest {
 
         assertTrue(status.globalLimiters().isEmpty());
         assertTrue(status.credentialLimiters().isEmpty());
+    }
+
+    @Test
+    void labelsDatasourceIpLimiter() {
+        UUID sourceId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        long now = System.currentTimeMillis();
+        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
+        ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(cursor.hasNext()).thenReturn(true, false);
+        when(cursor.next()).thenReturn(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId);
+        when(valueOps.get(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId))
+                .thenReturn(String.valueOf(now + 1200L));
+
+        TrafficStatusResponse status = service.getTrafficStatus();
+
+        assertEquals(1, status.globalLimiters().size());
+        assertEquals("数据源锁: " + sourceId + " / IP 203.0.113.10", status.globalLimiters().getFirst().label());
     }
 
     @Test

@@ -95,8 +95,14 @@ public class TrafficMonitorService {
         if (rawKey.startsWith("Provider:")) {
             return "全局锁: " + rawKey.substring(9);
         }
+        if (rawKey.startsWith("Global:Scraper:Ip:")) {
+            return "全局锁: Scraper / IP " + rawKey.substring(18);
+        }
         if (rawKey.startsWith("Global:")) {
             return "全局锁: " + rawKey.substring(7);
+        }
+        if (rawKey.startsWith("DataSource:Ip:")) {
+            return resolveDataSourceIpLabel(rawKey.substring(14));
         }
         if (rawKey.startsWith("DataSource:")) {
             return "数据源锁: " + rawKey.substring(11);
@@ -105,6 +111,16 @@ public class TrafficMonitorService {
             return "域名锁: " + rawKey.substring(7);
         }
         return rawKey;
+    }
+
+    private String resolveDataSourceIpLabel(String value) {
+        int delimiter = value.lastIndexOf(':');
+        if (delimiter < 1 || delimiter >= value.length() - 1) {
+            return "数据源锁: " + value;
+        }
+        String ip = value.substring(0, delimiter);
+        String sourceId = value.substring(delimiter + 1);
+        return "数据源锁: " + sourceId + " / IP " + ip;
     }
 
     private String resolveCredentialLabel(String idText) {

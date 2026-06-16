@@ -11,15 +11,17 @@ import java.time.Duration;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Component
 class ScraperTrafficLimiter {
 
-    private static final String GLOBAL_KEY = "traffic:limit:Global:Scraper";
+    private static final String GLOBAL_KEY_PREFIX = "traffic:limit:Global:Scraper:Ip:";
 
     private final DistributedLockManager lockManager;
     private final ScraperTrafficConfigValues configValues;
     private final boolean enabled;
+    private final String egressIdentity;
     private final Duration defaultGap;
     private final Duration maxWait;
     private final Duration ttl;
@@ -28,26 +30,28 @@ class ScraperTrafficLimiter {
             DistributedLockManager lockManager,
             ScraperTrafficConfigValues configValues,
             @Value("${app.scraper.traffic.enabled:true}") boolean enabled,
+            @Value("${app.scraper.traffic.egress-id:${IRCS_SCRAPER_TRAFFIC_EGRESS_IP:${KUBERNETES_NODE_IP:${HOST_IP:${HOSTNAME:unknown}}}}}") String egressIdentity,
             @Value("${app.scraper.traffic.default-gap-ms:1000}") long defaultGapMs,
             @Value("${app.scraper.traffic.max-wait:PT2M}") Duration maxWait,
             @Value("${app.scraper.traffic.ttl:PT10M}") Duration ttl) {
         this.lockManager = lockManager;
         this.configValues = configValues;
         this.enabled = enabled;
+        this.egressIdentity = sanitizeIdentity(egressIdentity);
         this.defaultGap = positiveOr(defaultGapMs, Duration.ofSeconds(1));
         this.maxWait = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
         this.ttl = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
     }
 
     static ScraperTrafficLimiter noop() {
-        return new ScraperTrafficLimiter(null, null, false, 0, Duration.ZERO, Duration.ZERO);
+        return new ScraperTrafficLimiter(null, null, false, "unknown", 0, Duration.ZERO, Duration.ZERO);
     }
 
     void acquireDataSourceSlot(DataSourceRecord source, ManualScrapeConfigRequest config) {
         if (!enabled || lockManager == null) {
             return;
         }
-        reserve(GLOBAL_KEY, globalGap(), "global crawler traffic limit");
+        reserve(globalKey(), globalGap(), "global crawler traffic limit");
         if (source == null || source.id() == null) {
             return;
         }
@@ -69,7 +73,11 @@ class ScraperTrafficLimiter {
     }
 
     private String key(DistributedLockProfile profile, UUID sourceId) {
-        return profile.keyPrefix() + sourceId;
+        return profile.keyPrefix() + "Ip:" + egressIdentity + ":" + sourceId;
+    }
+
+    private String globalKey() {
+        return GLOBAL_KEY_PREFIX + egressIdentity;
     }
 
     private Duration sourceGap(ManualScrapeConfigRequest config) {
@@ -104,5 +112,13 @@ class ScraperTrafficLimiter {
 
     private static Duration positiveOr(long millis, Duration fallback) {
         return millis > 0 ? Duration.ofMillis(millis) : fallback;
+    }
+
+    private static String sanitizeIdentity(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "unknown";
+        }
+        String sanitized = value.trim().replaceAll("[^A-Za-z0-9_.-]", "_");
+        return sanitized.isBlank() ? "unknown" : sanitized;
     }
 }
