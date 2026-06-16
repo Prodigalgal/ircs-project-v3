@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 class MailSendRateLimiterTest {
 
@@ -62,6 +63,16 @@ class MailSendRateLimiterTest {
         limiter.awaitGlobalPermit();
 
         assertEquals(500L, clock.sleptMs.get());
+    }
+
+    @Test
+    void springConstructorIsExplicitlyAutowired() throws NoSuchMethodException {
+        assertEquals(
+                Autowired.class,
+                MailSendRateLimiter.class
+                        .getDeclaredConstructor(NotificationMailConfigValues.class, MailCredentialUsageRepository.class)
+                        .getAnnotation(Autowired.class)
+                        .annotationType());
     }
 
     private static NotificationMailConfigValues configValues(int minMs, int maxMs, int maxWaitMs) {

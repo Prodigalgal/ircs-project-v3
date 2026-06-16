@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -32,6 +33,7 @@ class MailSendRateLimiter {
     private final Map<UUID, Deque<Long>> credentialWindows = new HashMap<>();
     private long nextGlobalPermitAtMs;
 
+    @Autowired
     MailSendRateLimiter(
             NotificationMailConfigValues configValues,
             MailCredentialUsageRepository usageRepository) {
