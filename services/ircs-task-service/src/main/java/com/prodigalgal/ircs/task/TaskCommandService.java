@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
@@ -16,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TaskCommandService {
 
     private final JdbcCollectionTaskRepository taskRepository;
@@ -80,7 +82,7 @@ public class TaskCommandService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "DataSource busy");
         }
         taskRepository.markQueued(task, resume);
-        runAfterCommit(() -> taskQueueDispatchService.dispatchQueuedMaster(id, resume));
+        dispatchQueuedMasterAfterCommit(id, resume);
     }
 
     @Transactional
@@ -91,7 +93,7 @@ public class TaskCommandService {
             return false;
         }
         taskRepository.markQueued(task, resume);
-        runAfterCommit(() -> taskQueueDispatchService.dispatchQueuedMaster(id, resume));
+        dispatchQueuedMasterAfterCommit(id, resume);
         return true;
     }
 
@@ -117,6 +119,16 @@ public class TaskCommandService {
 
     private void publishAfterCommit(Object event) {
         runAfterCommit(() -> eventPublisher.publishEvent(event));
+    }
+
+    private void dispatchQueuedMasterAfterCommit(UUID id, boolean resume) {
+        runAfterCommit(() -> {
+            try {
+                taskQueueDispatchService.dispatchQueuedMaster(id, resume);
+            } catch (RuntimeException ex) {
+                log.error("Collection task post-commit dispatch failed, taskId={}, resume={}", id, resume, ex);
+            }
+        });
     }
 
     private void runAfterCommit(Runnable action) {

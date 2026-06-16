@@ -123,7 +123,7 @@ class TaskQueueDispatchService {
     private List<Integer> initialPages(TaskExecutionPlan plan) {
         int start = effectiveStartPage(plan.currentPage(), plan.startPage());
         Integer endPage = effectiveEndPage(plan.endPage());
-        int end = endPage == null ? start : Math.max(start, endPage);
+        int end = endPage == null ? start + initialPageWindow - 1 : Math.max(start, endPage);
         if (maxPagesPerRun > 0) {
             end = Math.min(end, start + maxPagesPerRun - 1);
         }

@@ -71,6 +71,26 @@ class TaskQueueDispatchServiceTest {
     }
 
     @Test
+    void fullTaskDispatchesInitialWindowWhenEndPageIsOpenEnded() {
+        UUID taskId = UUID.randomUUID();
+        when(taskRepository.findExecutionPlan(taskId)).thenReturn(Optional.of(plan(taskId, 1, 0, 1)));
+        TaskQueueDispatchService service = service(true, 4);
+
+        service.dispatchQueuedMaster(taskId, false);
+
+        ArgumentCaptor<TaskMasterSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TaskMasterSnapshot.class);
+        verify(snapshotService).put(snapshotCaptor.capture());
+        assertThat(snapshotCaptor.getValue().pageScheduled()).isEqualTo(4);
+        assertThat(snapshotCaptor.getValue().endPage()).isNull();
+
+        ArgumentCaptor<TaskPageMessage> pageCaptor = ArgumentCaptor.forClass(TaskPageMessage.class);
+        verify(queuePublisher, org.mockito.Mockito.times(4)).publishPage(pageCaptor.capture());
+        assertThat(pageCaptor.getAllValues())
+                .extracting(TaskPageMessage::pageNumber)
+                .containsExactly(1, 2, 3, 4);
+    }
+
+    @Test
     void disabledQueueFailsMasterWithoutLocalRunnerFallback() {
         UUID taskId = UUID.randomUUID();
         TaskQueueDispatchService service = service(false, 200);
