@@ -30,6 +30,9 @@ class NotificationMailConfigValuesTest {
         assertTrue(options.sslEnabled());
         assertEquals(10000, options.timeout());
         assertFalse(options.debug());
+        assertEquals(1000, values.rateLimitMinMs());
+        assertEquals(2000, values.rateLimitMaxMs());
+        assertEquals(60000, values.rateLimitMaxWaitMs());
     }
 
     @Test
@@ -167,6 +170,19 @@ class NotificationMailConfigValuesTest {
                 properties);
 
         assertEquals(NotificationMailProperties.DeliveryMode.SINK, values.deliveryMode());
+    }
+
+    @Test
+    void mailRateLimitSettingsUseDbAndNormalizeMaxBelowMin() {
+        when(repository.findValue(NotificationMailConfigValues.RATE_LIMIT_MIN_KEY)).thenReturn(Optional.of("3000"));
+        when(repository.findValue(NotificationMailConfigValues.RATE_LIMIT_MAX_KEY)).thenReturn(Optional.of("1000"));
+        when(repository.findValue(NotificationMailConfigValues.RATE_LIMIT_MAX_WAIT_KEY)).thenReturn(Optional.of("15000"));
+
+        NotificationMailConfigValues values = values(new MockEnvironment());
+
+        assertEquals(3000, values.rateLimitMinMs());
+        assertEquals(3000, values.rateLimitMaxMs());
+        assertEquals(15000, values.rateLimitMaxWaitMs());
     }
 
     private NotificationMailConfigValues values(MockEnvironment environment) {

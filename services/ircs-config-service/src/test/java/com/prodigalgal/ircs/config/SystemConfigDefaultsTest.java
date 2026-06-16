@@ -21,7 +21,7 @@ class SystemConfigDefaultsTest {
 
         assertTrue(actual.containsAll(V1_SYSTEM_CONFIG_KEYS));
         assertTrue(actual.containsAll(V3_OAUTH_CONFIG_KEYS));
-        assertEquals(169, defaults.all().size());
+        assertEquals(170, defaults.all().size());
     }
 
     @Test
@@ -48,6 +48,7 @@ class SystemConfigDefaultsTest {
         assertEquals("0 0/5 * * * ?", defaults.staticDefaultValue("app.search.sync.cron").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.storage.image.download.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.storage.r2.enabled").orElseThrow());
+        assertEquals("60000", defaults.staticDefaultValue("app.mail.rate-limit.max-wait-ms").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.ai.llm.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.maintenance.playlist-repair.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.metadata.tmdb.proxy.enabled").orElseThrow());
@@ -186,6 +187,7 @@ class SystemConfigDefaultsTest {
             "app.mail.debug",
             "app.mail.rate-limit.min-ms",
             "app.mail.rate-limit.max-ms",
+            "app.mail.rate-limit.max-wait-ms",
             "app.adaptive.enabled",
             "app.adaptive.load-threshold",
             "app.adaptive.check-interval-ms",

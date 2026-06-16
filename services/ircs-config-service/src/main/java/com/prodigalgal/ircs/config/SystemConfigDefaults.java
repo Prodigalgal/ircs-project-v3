@@ -119,6 +119,7 @@ public class SystemConfigDefaults {
             cfg("app.mail.debug", "false", "是否开启邮件调试日志"),
             cfg("app.mail.rate-limit.min-ms", "1000", "邮件发送最小间隔(毫秒)"),
             cfg("app.mail.rate-limit.max-ms", "2000", "邮件发送最大间隔(毫秒)"),
+            cfg("app.mail.rate-limit.max-wait-ms", "60000", "邮件限流最大等待时间(毫秒)"),
             cfg("app.adaptive.enabled", "true", "是否启用自适应负载调度"),
             cfg("app.adaptive.load-threshold", "0.8", "系统高负载阈值 (0.0-1.0)"),
             cfg("app.adaptive.check-interval-ms", "10000", "资源监控采样间隔(毫秒)"),

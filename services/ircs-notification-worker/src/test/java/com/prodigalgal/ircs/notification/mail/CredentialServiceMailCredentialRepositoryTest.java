@@ -74,7 +74,9 @@ class CredentialServiceMailCredentialRepositoryTest {
                   },
                   "priority":9,
                   "rateLimit":30,
-                  "rateLimitUnit":"MINUTE"
+                  "rateLimitUnit":"MINUTE",
+                  "dayLimit":500,
+                  "monthLimit":5000
                 }]
                 """));
 
@@ -90,6 +92,10 @@ class CredentialServiceMailCredentialRepositoryTest {
         assertEquals(Boolean.TRUE, credential.smtpStarttlsEnabled());
         assertEquals(Boolean.FALSE, credential.smtpSslEnabled());
         assertEquals(7000, credential.smtpTimeoutMs());
+        assertEquals(30, credential.rateLimit());
+        assertEquals("MINUTE", credential.rateLimitUnit());
+        assertEquals(500L, credential.dayLimit());
+        assertEquals(5000L, credential.monthLimit());
         OutboundHttpRequest request = transport.requests.getFirst();
         assertThat(request.uri()).isEqualTo(URI.create(
                 "http://credential-service/internal/credentials/providers/MAIL/leases?requiredPayloadKey=username&limit=2"));

@@ -45,6 +45,15 @@ public class CredentialServiceMailCredentialRepository {
     }
 
     MailCredential leaseRequired() {
+        List<MailCredential> candidates = leaseCandidates();
+        if (candidates.isEmpty()) {
+            throw new MailCredentialLeaseException("MAIL credential is not available");
+        }
+        int index = (int) Math.floorMod(selectionCursor.getAndIncrement(), candidates.size());
+        return candidates.get(index);
+    }
+
+    List<MailCredential> leaseCandidates() {
         try {
             OutboundHttpRequest request = OutboundHttpRequest.get(
                     credentialLeaseUri(),
@@ -63,15 +72,10 @@ public class CredentialServiceMailCredentialRepository {
             if (leases == null) {
                 throw new MailCredentialLeaseException("MAIL credential is not available");
             }
-            List<MailCredential> candidates = Arrays.stream(leases)
+            return Arrays.stream(leases)
                     .map(this::mapLease)
                     .filter(this::hasRequiredSecrets)
                     .toList();
-            if (candidates.isEmpty()) {
-                throw new MailCredentialLeaseException("MAIL credential is not available");
-            }
-            int index = (int) Math.floorMod(selectionCursor.getAndIncrement(), candidates.size());
-            return candidates.get(index);
         } catch (MailCredentialLeaseException ex) {
             throw ex;
         } catch (IOException ex) {
@@ -106,7 +110,11 @@ public class CredentialServiceMailCredentialRepository {
                 bool(secretPayload, SMTP_AUTH_KEY),
                 bool(secretPayload, SMTP_STARTTLS_KEY),
                 bool(secretPayload, SMTP_SSL_KEY),
-                integer(secretPayload, SMTP_TIMEOUT_KEY));
+                integer(secretPayload, SMTP_TIMEOUT_KEY),
+                lease.getRateLimit(),
+                lease.getRateLimitUnit(),
+                lease.getDayLimit(),
+                lease.getMonthLimit());
     }
 
     private boolean hasRequiredSecrets(MailCredential credential) {

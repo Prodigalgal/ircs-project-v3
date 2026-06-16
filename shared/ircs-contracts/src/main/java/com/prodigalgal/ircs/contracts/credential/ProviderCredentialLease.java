@@ -22,6 +22,8 @@ public class ProviderCredentialLease implements Serializable {
     private Integer priority;
     private Integer rateLimit;
     private String rateLimitUnit;
+    private Long dayLimit;
+    private Long monthLimit;
     private Instant leasedAt;
     private Instant expiresAt;
 }

@@ -22,6 +22,8 @@ class CredentialLeaseMapperTest {
 
         assertEquals("TMDB", lease.getProvider());
         assertEquals(Map.of("api_key", "secret", "number_value", "42"), lease.getSecretPayload());
+        assertEquals(50L, lease.getDayLimit());
+        assertEquals(500L, lease.getMonthLimit());
     }
 
     @Test
@@ -42,8 +44,8 @@ class CredentialLeaseMapperTest {
                 1,
                 30,
                 "MINUTE",
-                0L,
-                0L,
+                50L,
+                500L,
                 0L,
                 0L,
                 "remark");

@@ -24,6 +24,17 @@ class MailSendHistoryConfiguration {
     }
 
     @Bean
+    MailCredentialUsageRepository mailCredentialUsageRepository(
+            @Value("${app.notification.mail.send-history.datasource-url:${SPRING_DATASOURCE_URL:${DB_URL:}}}")
+            String datasourceUrl,
+            @Value("${app.notification.mail.send-history.username:${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:}}}")
+            String username,
+            @Value("${app.notification.mail.send-history.password:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}}")
+            String password) {
+        return new MailCredentialUsageRepository(datasourceUrl, username, password);
+    }
+
+    @Bean
     JdbcMailSendHistoryCleanupService mailSendHistoryCleanupService(
             @Value("${app.notification.mail.send-history.datasource-url:${SPRING_DATASOURCE_URL:${DB_URL:}}}")
             String datasourceUrl,

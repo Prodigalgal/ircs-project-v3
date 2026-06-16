@@ -21,6 +21,9 @@ class NotificationMailConfigValues {
     static final String SSL_KEY = "app.mail.properties.ssl";
     static final String TIMEOUT_KEY = "app.mail.timeout";
     static final String DEBUG_KEY = "app.mail.debug";
+    static final String RATE_LIMIT_MIN_KEY = "app.mail.rate-limit.min-ms";
+    static final String RATE_LIMIT_MAX_KEY = "app.mail.rate-limit.max-ms";
+    static final String RATE_LIMIT_MAX_WAIT_KEY = "app.mail.rate-limit.max-wait-ms";
     static final String DEFAULT_FROM = "HuaWai System <huawai.system@gmail.com>";
     static final String DEFAULT_HOST = "smtp.gmail.com";
     static final int DEFAULT_PORT = 465;
@@ -31,6 +34,9 @@ class NotificationMailConfigValues {
     static final boolean DEFAULT_SSL = true;
     static final int DEFAULT_TIMEOUT = 10000;
     static final boolean DEFAULT_DEBUG = false;
+    static final int DEFAULT_RATE_LIMIT_MIN_MS = 1000;
+    static final int DEFAULT_RATE_LIMIT_MAX_MS = 2000;
+    static final int DEFAULT_RATE_LIMIT_MAX_WAIT_MS = 60000;
 
     private final Environment environment;
     private final SystemConfigRepository repository;
@@ -68,6 +74,20 @@ class NotificationMailConfigValues {
         } catch (IllegalArgumentException ignored) {
             return properties.getDeliveryMode();
         }
+    }
+
+    int rateLimitMinMs() {
+        return Math.max(0, intValue(DEFAULT_RATE_LIMIT_MIN_MS, RATE_LIMIT_MIN_KEY));
+    }
+
+    int rateLimitMaxMs() {
+        int min = rateLimitMinMs();
+        int max = Math.max(0, intValue(DEFAULT_RATE_LIMIT_MAX_MS, RATE_LIMIT_MAX_KEY));
+        return Math.max(min, max);
+    }
+
+    int rateLimitMaxWaitMs() {
+        return Math.max(0, intValue(DEFAULT_RATE_LIMIT_MAX_WAIT_MS, RATE_LIMIT_MAX_WAIT_KEY));
     }
 
     MailConnectOptions smtpOptions(Optional<MailCredential> credential) {

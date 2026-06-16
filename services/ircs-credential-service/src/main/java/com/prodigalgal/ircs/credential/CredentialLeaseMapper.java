@@ -29,6 +29,8 @@ public class CredentialLeaseMapper {
                 .priority(record.priority())
                 .rateLimit(record.rateLimit())
                 .rateLimitUnit(record.rateLimitUnit())
+                .dayLimit(record.dayLimit())
+                .monthLimit(record.monthLimit())
                 .leasedAt(leasedAt)
                 .expiresAt(expiresAt)
                 .build();
