@@ -92,20 +92,23 @@ public class TrafficMonitorService {
         if (rawKey.startsWith("cred:")) {
             return resolveCredentialLabel(rawKey.substring(5));
         }
+        if (rawKey.startsWith("Provider:Ip:")) {
+            return resolveTrailingIpLabel(rawKey.substring(12), "全局锁");
+        }
         if (rawKey.startsWith("Provider:")) {
             return "全局锁: " + rawKey.substring(9);
         }
-        if (rawKey.startsWith("Global:Scraper:Ip:")) {
-            return "全局锁: Scraper / IP " + rawKey.substring(18);
-        }
         if (rawKey.startsWith("Global:")) {
-            return "全局锁: " + rawKey.substring(7);
+            return resolveGlobalLabel(rawKey.substring(7));
         }
         if (rawKey.startsWith("DataSource:Ip:")) {
-            return resolveDataSourceIpLabel(rawKey.substring(14));
+            return resolveTrailingIpLabel(rawKey.substring(14), "数据源锁");
         }
         if (rawKey.startsWith("DataSource:")) {
             return "数据源锁: " + rawKey.substring(11);
+        }
+        if (rawKey.startsWith("Domain:Ip:")) {
+            return resolveTrailingIpLabel(rawKey.substring(10), "域名锁");
         }
         if (rawKey.startsWith("Domain:")) {
             return "域名锁: " + rawKey.substring(7);
@@ -113,14 +116,24 @@ public class TrafficMonitorService {
         return rawKey;
     }
 
-    private String resolveDataSourceIpLabel(String value) {
+    private String resolveGlobalLabel(String value) {
+        int marker = value.indexOf(":Ip:");
+        if (marker < 1 || marker >= value.length() - 4) {
+            return "全局锁: " + value;
+        }
+        String name = value.substring(0, marker);
+        String ip = value.substring(marker + 4);
+        return "全局锁: " + name + " / IP " + ip;
+    }
+
+    private String resolveTrailingIpLabel(String value, String prefix) {
         int delimiter = value.lastIndexOf(':');
         if (delimiter < 1 || delimiter >= value.length() - 1) {
-            return "数据源锁: " + value;
+            return prefix + ": " + value;
         }
         String ip = value.substring(0, delimiter);
-        String sourceId = value.substring(delimiter + 1);
-        return "数据源锁: " + sourceId + " / IP " + ip;
+        String target = value.substring(delimiter + 1);
+        return prefix + ": " + target + " / IP " + ip;
     }
 
     private String resolveCredentialLabel(String idText) {

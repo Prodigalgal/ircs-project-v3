@@ -7,31 +7,49 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.metadata.provider.MetadataProviderTrafficLimiter;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderTerminalException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 public class RestClientDoubanHttpClient implements DoubanHttpClient {
 
+    private static final String PROVIDER_CODE = "DOUBAN";
+
     private OutboundHttpClient httpClient;
     private final DoubanProviderProperties properties;
+    private final MetadataProviderTrafficLimiter trafficLimiter;
 
-    public RestClientDoubanHttpClient(DoubanProviderProperties properties) {
+    @Autowired
+    public RestClientDoubanHttpClient(
+            DoubanProviderProperties properties,
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+        this(properties, trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop));
+    }
+
+    private RestClientDoubanHttpClient(
+            DoubanProviderProperties properties,
+            MetadataProviderTrafficLimiter trafficLimiter) {
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
                 new JdkOutboundTransport(properties.getRequestTimeout()));
         this.properties = properties;
+        this.trafficLimiter = trafficLimiter == null ? MetadataProviderTrafficLimiter.noop() : trafficLimiter;
     }
 
     static RestClientDoubanHttpClient forTest(
             OutboundHttpClient httpClient,
             DoubanProviderProperties properties) {
-        RestClientDoubanHttpClient client = new RestClientDoubanHttpClient(properties);
+        RestClientDoubanHttpClient client = new RestClientDoubanHttpClient(
+                properties,
+                MetadataProviderTrafficLimiter.noop());
         client.httpClient = httpClient;
         return client;
     }
@@ -39,6 +57,7 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
     @Override
     public Optional<String> getJson(URI uri, Optional<DoubanCredential> credential) {
         try {
+            trafficLimiter.acquireProviderSlot(PROVIDER_CODE);
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(properties.getRequestTimeout())
                     .withUserAgent(credential
                             .map(DoubanCredential::userAgent)

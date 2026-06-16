@@ -14,6 +14,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -37,6 +39,7 @@ public class CoverImageDownloadService {
     private final FileNormalizationService normalizationService;
     private final LocalObjectStorage localObjectStorage;
     private final R2ObjectStorage r2ObjectStorage;
+    private final CoverImageTrafficLimiter trafficLimiter;
     private OutboundUrlPolicy outboundUrlPolicy;
     private CoverImageDownloadAdapter downloadAdapter;
 
@@ -55,17 +58,36 @@ public class CoverImageDownloadService {
     @Value("${app.storage.image.download-timeout-seconds:15}")
     private int downloadTimeoutSeconds;
 
+    @Autowired
     public CoverImageDownloadService(
             CoverImageAdminRepository repository,
             CoverImageUrlResolver urlResolver,
             FileNormalizationService normalizationService,
             LocalObjectStorage localObjectStorage,
-            R2ObjectStorage r2ObjectStorage) {
+            R2ObjectStorage r2ObjectStorage,
+            ObjectProvider<CoverImageTrafficLimiter> trafficLimiterProvider) {
+        this(
+                repository,
+                urlResolver,
+                normalizationService,
+                localObjectStorage,
+                r2ObjectStorage,
+                trafficLimiterProvider.getIfAvailable(CoverImageTrafficLimiter::noop));
+    }
+
+    private CoverImageDownloadService(
+            CoverImageAdminRepository repository,
+            CoverImageUrlResolver urlResolver,
+            FileNormalizationService normalizationService,
+            LocalObjectStorage localObjectStorage,
+            R2ObjectStorage r2ObjectStorage,
+            CoverImageTrafficLimiter trafficLimiter) {
         this.repository = repository;
         this.urlResolver = urlResolver;
         this.normalizationService = normalizationService;
         this.localObjectStorage = localObjectStorage;
         this.r2ObjectStorage = r2ObjectStorage;
+        this.trafficLimiter = trafficLimiter == null ? CoverImageTrafficLimiter.noop() : trafficLimiter;
         this.outboundUrlPolicy = new OutboundUrlPolicy(new DefaultOutboundAddressResolver());
     }
 
@@ -82,7 +104,8 @@ public class CoverImageDownloadService {
                 urlResolver,
                 normalizationService,
                 localObjectStorage,
-                r2ObjectStorage);
+                r2ObjectStorage,
+                CoverImageTrafficLimiter.noop());
         service.outboundUrlPolicy = outboundUrlPolicy;
         service.downloadAdapter = downloadAdapter;
         return service;
@@ -109,6 +132,7 @@ public class CoverImageDownloadService {
             }
             remoteUrl = remoteUrl.trim();
             URI remoteUri = validateDownloadUri(remoteUrl);
+            trafficLimiter.acquire(remoteUri);
             DownloadedImage image = download(remoteUri);
             NormalizedFile file = normalizationService.normalize(image.data(), image.contentType(), coverPathPrefix);
             if (!localObjectStorage.exists(file.storageKey())) {

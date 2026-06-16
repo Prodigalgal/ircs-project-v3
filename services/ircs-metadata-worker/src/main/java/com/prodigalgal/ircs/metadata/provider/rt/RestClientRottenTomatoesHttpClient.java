@@ -7,31 +7,49 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.metadata.provider.MetadataProviderTrafficLimiter;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderTerminalException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpClient {
 
+    private static final String PROVIDER_CODE = "ROTTEN_TOMATOES";
+
     private OutboundHttpClient httpClient;
     private final RottenTomatoesProviderProperties properties;
+    private final MetadataProviderTrafficLimiter trafficLimiter;
 
-    public RestClientRottenTomatoesHttpClient(RottenTomatoesProviderProperties properties) {
+    @Autowired
+    public RestClientRottenTomatoesHttpClient(
+            RottenTomatoesProviderProperties properties,
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+        this(properties, trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop));
+    }
+
+    private RestClientRottenTomatoesHttpClient(
+            RottenTomatoesProviderProperties properties,
+            MetadataProviderTrafficLimiter trafficLimiter) {
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
                 new JdkOutboundTransport(properties.getRequestTimeout()));
         this.properties = properties;
+        this.trafficLimiter = trafficLimiter == null ? MetadataProviderTrafficLimiter.noop() : trafficLimiter;
     }
 
     static RestClientRottenTomatoesHttpClient forTest(
             OutboundHttpClient httpClient,
             RottenTomatoesProviderProperties properties) {
-        RestClientRottenTomatoesHttpClient client = new RestClientRottenTomatoesHttpClient(properties);
+        RestClientRottenTomatoesHttpClient client = new RestClientRottenTomatoesHttpClient(
+                properties,
+                MetadataProviderTrafficLimiter.noop());
         client.httpClient = httpClient;
         return client;
     }
@@ -39,6 +57,7 @@ public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpCli
     @Override
     public Optional<String> getHtml(URI uri, Optional<RottenTomatoesCredential> credential) {
         try {
+            trafficLimiter.acquireProviderSlot(PROVIDER_CODE);
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(properties.getRequestTimeout())
                     .withUserAgent(credential
                             .map(RottenTomatoesCredential::userAgent)

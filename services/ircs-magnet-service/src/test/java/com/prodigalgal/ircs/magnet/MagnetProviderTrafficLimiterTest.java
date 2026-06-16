@@ -26,17 +26,19 @@ import org.springframework.beans.factory.ObjectProvider;
 class MagnetProviderTrafficLimiterTest {
 
     private static final UUID PROVIDER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final String EGRESS_IP = "203.0.113.10";
 
     @Test
     void reservesProviderTimeSliceUsingProviderMinDelay() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
-                "traffic:limit:Provider:" + PROVIDER_ID,
+                providerKey(),
                 Duration.ZERO,
                 Instant.parse("2026-06-11T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:01Z")));
         MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
                 lockManager,
                 true,
+                EGRESS_IP,
                 1000,
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10));
@@ -44,7 +46,7 @@ class MagnetProviderTrafficLimiterTest {
         limiter.acquireProviderSlot(provider(1500));
 
         assertThat(lockManager.lastTimeSliceRequest).isNotNull();
-        assertThat(lockManager.lastTimeSliceRequest.key()).isEqualTo("traffic:limit:Provider:" + PROVIDER_ID);
+        assertThat(lockManager.lastTimeSliceRequest.key()).isEqualTo(providerKey());
         assertThat(lockManager.lastTimeSliceRequest.gap()).isEqualTo(Duration.ofMillis(1500));
         assertThat(lockManager.lastTimeSliceRequest.maxWait()).isEqualTo(Duration.ofMinutes(2));
         assertThat(lockManager.lastTimeSliceRequest.ttl()).isEqualTo(Duration.ofMinutes(10));
@@ -53,13 +55,14 @@ class MagnetProviderTrafficLimiterTest {
     @Test
     void ytsRunnerStopsBeforeHttpWhenProviderTrafficIsSaturated() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.rejected(
-                "traffic:limit:Provider:" + PROVIDER_ID,
+                providerKey(),
                 Duration.ofMinutes(3),
                 Instant.parse("2026-06-11T00:00:00Z"),
                 Instant.parse("2026-06-11T00:03:00Z")));
         MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
                 lockManager,
                 true,
+                EGRESS_IP,
                 1000,
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10));
@@ -75,6 +78,27 @@ class MagnetProviderTrafficLimiterTest {
 
         assertThat(error.failureType()).isEqualTo(MagnetProviderTrafficLimiter.FAILURE_TYPE);
         assertThat(httpClient.requested).isFalse();
+    }
+
+    @Test
+    void normalizesIpv6EgressIdentityInProviderKey() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
+                "traffic:limit:Provider:Ip:2001_db8__10:" + PROVIDER_ID,
+                Duration.ZERO,
+                Instant.parse("2026-06-11T00:00:00Z"),
+                Instant.parse("2026-06-11T00:00:01Z")));
+        MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
+                lockManager,
+                true,
+                "2001:db8::10",
+                1000,
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+
+        limiter.acquireProviderSlot(provider(1500));
+
+        assertThat(lockManager.lastTimeSliceRequest.key())
+                .isEqualTo("traffic:limit:Provider:Ip:2001_db8__10:" + PROVIDER_ID);
     }
 
     private MagnetProviderSummary provider(Integer minDelayMs) {
@@ -99,6 +123,10 @@ class MagnetProviderTrafficLimiterTest {
                 null,
                 Instant.parse("2026-06-08T00:00:00Z"),
                 Instant.parse("2026-06-08T00:00:00Z"));
+    }
+
+    private static String providerKey() {
+        return "traffic:limit:Provider:Ip:" + EGRESS_IP + ":" + PROVIDER_ID;
     }
 
     @SuppressWarnings("unchecked")

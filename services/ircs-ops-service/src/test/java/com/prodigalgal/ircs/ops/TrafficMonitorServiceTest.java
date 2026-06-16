@@ -88,6 +88,30 @@ class TrafficMonitorServiceTest {
     }
 
     @Test
+    void labelsProviderAndDomainIpLimiters() {
+        long now = System.currentTimeMillis();
+        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
+        ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(cursor.hasNext()).thenReturn(true, true, false);
+        when(cursor.next()).thenReturn(
+                PREFIX + "Provider:Ip:2001_db8__10:DOUBAN",
+                PREFIX + "Domain:Ip:203.0.113.10:img.example.com");
+        when(valueOps.get(PREFIX + "Provider:Ip:2001_db8__10:DOUBAN"))
+                .thenReturn(String.valueOf(now + 1200L));
+        when(valueOps.get(PREFIX + "Domain:Ip:203.0.113.10:img.example.com"))
+                .thenReturn(String.valueOf(now + 800L));
+
+        TrafficStatusResponse status = service.getTrafficStatus();
+
+        assertEquals(2, status.globalLimiters().size());
+        assertEquals("域名锁: img.example.com / IP 203.0.113.10", status.globalLimiters().getFirst().label());
+        assertEquals("全局锁: DOUBAN / IP 2001_db8__10", status.globalLimiters().get(1).label());
+    }
+
+    @Test
     void resetDeletesNamespacedTrafficKey() {
         service.resetKey("Provider:TMDB");
 
