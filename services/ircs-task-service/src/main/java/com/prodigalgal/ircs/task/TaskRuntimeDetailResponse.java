@@ -15,7 +15,7 @@ public record TaskRuntimeDetailResponse(
         int pageOffset,
         int pageLimit,
         int visiblePageCount,
-        int discoveredPageCount,
+        int totalPageCount,
         boolean redisSnapshotPresent,
         boolean redisStatePresent,
         Instant refreshedAt

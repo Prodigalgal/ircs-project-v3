@@ -7,8 +7,6 @@ import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.contracts.task.TaskPageMessage;
 import com.prodigalgal.ircs.contracts.task.TaskScrapeOptions;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +23,6 @@ class TaskQueueDispatchService {
     private final TaskLogService taskLogService;
     private final ObjectMapper objectMapper;
     private final boolean enabled;
-    private final int initialPageWindow;
     private final int maxPagesPerRun;
 
     TaskQueueDispatchService(
@@ -36,7 +33,6 @@ class TaskQueueDispatchService {
             TaskLogService taskLogService,
             ObjectMapper objectMapper,
             @Value("${app.task.queue.enabled:true}") boolean enabled,
-            @Value("${app.task.queue.initial-page-window:200}") int initialPageWindow,
             @Value("${app.task.queue.max-pages-per-run:0}") int maxPagesPerRun) {
         this.taskRepository = taskRepository;
         this.snapshotService = snapshotService;
@@ -45,7 +41,6 @@ class TaskQueueDispatchService {
         this.taskLogService = taskLogService;
         this.objectMapper = objectMapper;
         this.enabled = enabled;
-        this.initialPageWindow = Math.max(1, initialPageWindow);
         this.maxPagesPerRun = Math.max(0, maxPagesPerRun);
     }
 
@@ -60,29 +55,16 @@ class TaskQueueDispatchService {
             return;
         }
         Instant now = Instant.now();
-        List<Integer> pages = initialPages(plan);
         TaskScrapeOptions options = scrapeOptions(plan);
-        TaskMasterSnapshot queuedSnapshot = snapshot(plan, resume, pages.size(), "QUEUED", null, now);
+        int firstPage = effectiveStartPage(plan.currentPage(), plan.startPage());
+        TaskMasterSnapshot queuedSnapshot = snapshot(plan, resume, 0, "QUEUED", null, now);
         try {
             snapshotService.put(queuedSnapshot);
-            progressService.recordScheduledPages(plan.id(), pages);
-            for (int pageNumber : pages) {
-                queuePublisher.publishPage(new TaskPageMessage(
-                        plan.id(),
-                        IrcsUuidGenerators.nextId(),
-                        plan.dataSourceId(),
-                        pageNumber,
-                        resume,
-                        0,
-                        options,
-                        correlationId(plan.id()),
-                        now));
-            }
-            append(plan.id(), "INFO", "Queued " + pages.size() + " page task(s) into RabbitMQ");
+            dispatchPage(plan, firstPage, resume, options, correlationId(plan.id()), now);
         } catch (RuntimeException ex) {
             String reason = "Task queue dispatch failed: " + safeMessage(ex);
             failMaster(plan.id(), reason);
-            snapshotService.put(snapshot(plan, resume, pages.size(), "FAILED", reason, Instant.now()));
+            snapshotService.put(snapshot(plan, resume, 0, "FAILED", reason, Instant.now()));
             throw ex;
         }
     }
@@ -96,43 +78,47 @@ class TaskQueueDispatchService {
             log.warn("Task page expansion skipped: execution plan missing, masterTaskId={}", masterTaskId);
             return;
         }
-        int nextPage = completedPage + initialPageWindow;
+        int nextPage = completedPage + 1;
         Integer finalPage = finalPage(plan, observedTotalPages);
         if (finalPage == null || nextPage > finalPage) {
             return;
         }
         Instant now = Instant.now();
-        long scheduledPage = progressService.trySchedulePage(masterTaskId, nextPage, now);
+        dispatchPage(plan, nextPage, false, scrapeOptions(plan), correlationId(plan.id(), correlationId), now);
+    }
+
+    private void dispatchPage(
+            TaskExecutionPlan plan,
+            int pageNumber,
+            boolean resume,
+            TaskScrapeOptions options,
+            String correlationId,
+            Instant now) {
+        Integer finalPage = finalPage(plan, null);
+        if (finalPage != null && pageNumber > finalPage) {
+            return;
+        }
+        UUID pageTaskId = IrcsUuidGenerators.nextId();
+        long scheduledPage = progressService.trySchedulePage(plan.id(), pageTaskId, pageNumber, now);
         if (scheduledPage <= 0) {
             return;
         }
-        TaskScrapeOptions options = scrapeOptions(plan);
-        queuePublisher.publishPage(new TaskPageMessage(
-                plan.id(),
-                IrcsUuidGenerators.nextId(),
-                plan.dataSourceId(),
-                (int) scheduledPage,
-                false,
-                0,
-                options,
-                correlationId(plan.id(), correlationId),
-                now));
+        try {
+            queuePublisher.publishPage(new TaskPageMessage(
+                    plan.id(),
+                    pageTaskId,
+                    plan.dataSourceId(),
+                    (int) scheduledPage,
+                    resume,
+                    0,
+                    options,
+                    correlationId,
+                    now));
+        } catch (RuntimeException ex) {
+            progressService.rollbackScheduledPage(plan.id(), pageTaskId, (int) scheduledPage, Instant.now());
+            throw ex;
+        }
         append(plan.id(), "INFO", "Queued page task " + scheduledPage + " into RabbitMQ");
-    }
-
-    private List<Integer> initialPages(TaskExecutionPlan plan) {
-        int start = effectiveStartPage(plan.currentPage(), plan.startPage());
-        Integer endPage = effectiveEndPage(plan.endPage());
-        int end = endPage == null ? start + initialPageWindow - 1 : Math.max(start, endPage);
-        if (maxPagesPerRun > 0) {
-            end = Math.min(end, start + maxPagesPerRun - 1);
-        }
-        int cappedEnd = Math.min(end, start + initialPageWindow - 1);
-        List<Integer> pages = new ArrayList<>();
-        for (int page = start; page <= cappedEnd; page++) {
-            pages.add(page);
-        }
-        return pages;
     }
 
     private Integer finalPage(TaskExecutionPlan plan, Integer observedTotalPages) {

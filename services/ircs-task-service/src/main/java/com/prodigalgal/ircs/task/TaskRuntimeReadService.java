@@ -30,13 +30,13 @@ class TaskRuntimeReadService {
         Optional<TaskDetailSummary> task = taskQueryService.findOne(masterTaskId);
         Optional<TaskMasterSnapshot> snapshot = snapshotService.find(masterTaskId);
         Map<String, String> masterState = hash(TaskHotKeys.masterState(masterTaskId));
-        List<UUID> discoveredPageIds = discoveredPageIds(masterTaskId);
+        List<UUID> runtimePageIds = runtimePageIds(masterTaskId);
 
-        if (task.isEmpty() && snapshot.isEmpty() && masterState.isEmpty() && discoveredPageIds.isEmpty()) {
+        if (task.isEmpty() && snapshot.isEmpty() && masterState.isEmpty() && runtimePageIds.isEmpty()) {
             return Optional.empty();
         }
 
-        List<TaskPageRuntimeSummary> allPages = discoveredPageIds.stream()
+        List<TaskPageRuntimeSummary> allPages = runtimePageIds.stream()
                 .map(pageTaskId -> page(pageTaskId, detailLimit))
                 .sorted(Comparator
                         .comparing((TaskPageRuntimeSummary page) -> page.pageNumber() == null ? Integer.MAX_VALUE : page.pageNumber())
@@ -118,7 +118,10 @@ class TaskRuntimeReadService {
         long detailCompleted = longValue(masterState, "detailCompleted", snapshot == null ? 0 : snapshot.detailCompleted());
         long detailSucceeded = longValue(masterState, "detailSucceeded", snapshot == null ? 0 : snapshot.detailSucceeded());
         long detailFailed = longValue(masterState, "detailFailed", snapshot == null ? 0 : snapshot.detailFailed());
-        long pageScheduled = snapshot == null ? configuredPageCount(task) : snapshot.pageScheduled();
+        long pageScheduled = longValue(
+                masterState,
+                "pageScheduled",
+                snapshot == null ? configuredPageCount(task) : snapshot.pageScheduled());
         long pageDiscovered = longValue(masterState, "pageDiscovered", pages.size());
         long derivedPageCompleted = pages.stream()
                 .filter(page -> page.detailScheduled() > 0 && page.detailCompleted() >= page.detailScheduled())
@@ -199,7 +202,7 @@ class TaskRuntimeReadService {
         return result;
     }
 
-    private List<UUID> discoveredPageIds(UUID masterTaskId) {
+    private List<UUID> runtimePageIds(UUID masterTaskId) {
         Set<String> members = redisTemplate.opsForSet().members(TaskHotKeys.masterDiscoveredPages(masterTaskId));
         if (members == null || members.isEmpty()) {
             return List.of();

@@ -101,6 +101,66 @@ class TaskRuntimeReadServiceTest {
     }
 
     @Test
+    void exposesQueuedPageSkeletonBeforeWorkerDiscoversDetails() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-06-13T00:00:00Z");
+
+        wireRedisOps();
+        when(taskQueryService.findOne(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId)));
+        when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(new TaskMasterSnapshot(
+                masterTaskId,
+                dataSourceId,
+                "Codex task",
+                "QUEUED",
+                true,
+                1,
+                3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                null,
+                masterTaskId.toString(),
+                now,
+                now)));
+        when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of(
+                "status", "RUNNING",
+                "pageScheduled", "1",
+                "pageDiscovered", "0",
+                "updatedAt", Long.toString(now.plusSeconds(1).toEpochMilli())));
+        when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(pageTaskId.toString()));
+        when(hashes.entries(TaskHotKeys.pageState(pageTaskId))).thenReturn(Map.of(
+                "pageNumber", "1",
+                "detailScheduled", "0",
+                "detailCompleted", "0",
+                "detailSucceeded", "0",
+                "detailFailed", "0",
+                "status", "QUEUED",
+                "updatedAt", Long.toString(now.plusSeconds(1).toEpochMilli())));
+        when(sets.members(TaskHotKeys.pageCompletedDetails(pageTaskId))).thenReturn(Set.of());
+
+        TaskRuntimeDetailResponse response = service.find(masterTaskId, 0, 20, 10).orElseThrow();
+
+        assertThat(response.master().status()).isEqualTo("RUNNING");
+        assertThat(response.master().pageScheduled()).isEqualTo(1);
+        assertThat(response.master().pageDiscovered()).isZero();
+        assertThat(response.snapshot().pageScheduled()).isEqualTo(1);
+        assertThat(response.pages()).hasSize(1);
+        TaskPageRuntimeSummary page = response.pages().get(0);
+        assertThat(page.pageTaskId()).isEqualTo(pageTaskId);
+        assertThat(page.pageNumber()).isEqualTo(1);
+        assertThat(page.status()).isEqualTo("QUEUED");
+        assertThat(page.detailBacklog()).isZero();
+        assertThat(page.progressPercent()).isZero();
+    }
+
+    @Test
     void returnsEmptyWhenNoRuntimeOrDbRecordExists() {
         UUID masterTaskId = UUID.randomUUID();
         wireRedisOps();

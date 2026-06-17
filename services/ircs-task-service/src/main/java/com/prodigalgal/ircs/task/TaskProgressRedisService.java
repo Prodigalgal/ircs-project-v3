@@ -19,9 +19,11 @@ class TaskProgressRedisService {
 
     private static final DefaultRedisScript<Long> PAGE_DISCOVERED_SCRIPT = new DefaultRedisScript<>(
             """
-            local added = redis.call('SADD', KEYS[1], ARGV[1])
-            if added == 0 then
-              return 0
+            redis.call('SADD', KEYS[1], ARGV[1])
+            local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
+            local firstDiscovery = 0
+            if previousStatus == '' or previousStatus == 'QUEUED' then
+              firstDiscovery = 1
             end
             local detailScheduled = tonumber(ARGV[3]) or 0
             local pageStatus = 'DISCOVERED'
@@ -38,11 +40,13 @@ class TaskProgressRedisService {
               'detailFailed', '0',
               'status', pageStatus,
               'updatedAt', ARGV[6])
-            redis.call('HINCRBY', KEYS[3], 'detailScheduled', ARGV[3])
-            redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
-            if detailScheduled <= 0 then
-              redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
-              redis.call('HINCRBY', KEYS[3], 'pageSucceeded', 1)
+            if firstDiscovery == 1 then
+              redis.call('HINCRBY', KEYS[3], 'detailScheduled', ARGV[3])
+              redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
+              if detailScheduled <= 0 then
+                redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
+                redis.call('HINCRBY', KEYS[3], 'pageSucceeded', 1)
+              end
             end
             local pageScheduled = tonumber(redis.call('HGET', KEYS[3], 'pageScheduled') or '0')
             local pageCompleted = tonumber(redis.call('HGET', KEYS[3], 'pageCompleted') or '0')
@@ -69,15 +73,19 @@ class TaskProgressRedisService {
               redis.call('HSET', KEYS[3], 'totalItems', ARGV[5])
             end
             redis.call('ZADD', KEYS[4], ARGV[6], ARGV[7])
-            return 1
+            return firstDiscovery
             """,
             Long.class);
 
     private static final DefaultRedisScript<Long> PAGE_FAILED_SCRIPT = new DefaultRedisScript<>(
             """
-            local added = redis.call('SADD', KEYS[1], ARGV[1])
-            if added == 0 then
-              return 0
+            redis.call('SADD', KEYS[1], ARGV[1])
+            local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
+            local firstFailure = 0
+            if previousStatus ~= 'FAILED'
+              and previousStatus ~= 'COMPLETED'
+              and previousStatus ~= 'COMPLETED_WITH_ERRORS' then
+              firstFailure = 1
             end
             redis.call('HSET', KEYS[2],
               'masterTaskId', ARGV[5],
@@ -90,9 +98,13 @@ class TaskProgressRedisService {
               'status', 'FAILED',
               'lastError', ARGV[3],
               'updatedAt', ARGV[4])
-            redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
-            redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
-            redis.call('HINCRBY', KEYS[3], 'pageFailed', 1)
+            if firstFailure == 1 then
+              if previousStatus == '' or previousStatus == 'QUEUED' then
+                redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
+              end
+              redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
+              redis.call('HINCRBY', KEYS[3], 'pageFailed', 1)
+            end
             local pageScheduled = tonumber(redis.call('HGET', KEYS[3], 'pageScheduled') or '0')
             local pageCompleted = tonumber(redis.call('HGET', KEYS[3], 'pageCompleted') or '0')
             local masterDetailScheduled = tonumber(redis.call('HGET', KEYS[3], 'detailScheduled') or '0')
@@ -203,16 +215,56 @@ class TaskProgressRedisService {
 
     private static final DefaultRedisScript<Long> SCHEDULE_PAGE_SCRIPT = new DefaultRedisScript<>(
             """
-            local added = redis.call('SADD', KEYS[1], ARGV[2])
+            local added = redis.call('SADD', KEYS[1], ARGV[3])
             if added == 0 then
               return 0
             end
             redis.call('HINCRBY', KEYS[2], 'pageScheduled', 1)
             redis.call('HSET', KEYS[2],
+              'masterTaskId', ARGV[1],
               'status', 'RUNNING',
-              'updatedAt', ARGV[3])
-            redis.call('ZADD', KEYS[3], ARGV[3], ARGV[1])
-            return tonumber(ARGV[2])
+              'updatedAt', ARGV[4])
+            redis.call('SADD', KEYS[4], ARGV[2])
+            redis.call('HSET', KEYS[5],
+              'masterTaskId', ARGV[1],
+              'pageTaskId', ARGV[2],
+              'pageNumber', ARGV[3],
+              'detailScheduled', '0',
+              'detailCompleted', '0',
+              'detailSucceeded', '0',
+              'detailFailed', '0',
+              'status', 'QUEUED',
+              'updatedAt', ARGV[4])
+            redis.call('ZADD', KEYS[3], ARGV[4], ARGV[1])
+            return tonumber(ARGV[3])
+            """,
+            Long.class);
+
+    private static final DefaultRedisScript<Long> ROLLBACK_SCHEDULED_PAGE_SCRIPT = new DefaultRedisScript<>(
+            """
+            local removed = redis.call('SREM', KEYS[1], ARGV[3])
+            if removed == 0 then
+              return 0
+            end
+            local pageStatus = redis.call('HGET', KEYS[5], 'status') or ''
+            if pageStatus ~= '' and pageStatus ~= 'QUEUED' then
+              redis.call('SADD', KEYS[1], ARGV[3])
+              return 0
+            end
+            redis.call('SREM', KEYS[4], ARGV[2])
+            redis.call('DEL', KEYS[5])
+            local scheduled = tonumber(redis.call('HGET', KEYS[2], 'pageScheduled') or '0')
+            if scheduled > 0 then
+              scheduled = redis.call('HINCRBY', KEYS[2], 'pageScheduled', -1)
+            end
+            if scheduled <= 0 then
+              redis.call('HSET', KEYS[2], 'status', 'QUEUED')
+            end
+            redis.call('HSET', KEYS[2],
+              'masterTaskId', ARGV[1],
+              'updatedAt', ARGV[4])
+            redis.call('ZADD', KEYS[3], ARGV[4], ARGV[1])
+            return 1
             """,
             Long.class);
 
@@ -222,21 +274,8 @@ class TaskProgressRedisService {
         this.redisTemplate = redisTemplate;
     }
 
-    void recordScheduledPages(UUID masterTaskId, List<Integer> pageNumbers) {
-        if (masterTaskId == null || pageNumbers == null || pageNumbers.isEmpty()) {
-            return;
-        }
-        String[] values = pageNumbers.stream()
-                .filter(page -> page != null && page > 0)
-                .map(String::valueOf)
-                .toArray(String[]::new);
-        if (values.length > 0) {
-            redisTemplate.opsForSet().add(TaskHotKeys.masterScheduledPages(masterTaskId), values);
-        }
-    }
-
-    long trySchedulePage(UUID masterTaskId, int pageNumber, Instant scheduledAt) {
-        if (masterTaskId == null || pageNumber < 1) {
+    long trySchedulePage(UUID masterTaskId, UUID pageTaskId, int pageNumber, Instant scheduledAt) {
+        if (masterTaskId == null || pageTaskId == null || pageNumber < 1) {
             return 0;
         }
         Instant effectiveAt = scheduledAt == null ? Instant.now() : scheduledAt;
@@ -245,8 +284,31 @@ class TaskProgressRedisService {
                 List.of(
                         TaskHotKeys.masterScheduledPages(masterTaskId),
                         TaskHotKeys.masterState(masterTaskId),
-                        TaskHotKeys.dirtyMasters()),
+                        TaskHotKeys.dirtyMasters(),
+                        TaskHotKeys.masterDiscoveredPages(masterTaskId),
+                        TaskHotKeys.pageState(pageTaskId)),
                 masterTaskId.toString(),
+                pageTaskId.toString(),
+                Integer.toString(pageNumber),
+                Long.toString(effectiveAt.toEpochMilli()));
+        return result == null ? 0 : result;
+    }
+
+    long rollbackScheduledPage(UUID masterTaskId, UUID pageTaskId, int pageNumber, Instant rolledBackAt) {
+        if (masterTaskId == null || pageTaskId == null || pageNumber < 1) {
+            return 0;
+        }
+        Instant effectiveAt = rolledBackAt == null ? Instant.now() : rolledBackAt;
+        Long result = redisTemplate.execute(
+                ROLLBACK_SCHEDULED_PAGE_SCRIPT,
+                List.of(
+                        TaskHotKeys.masterScheduledPages(masterTaskId),
+                        TaskHotKeys.masterState(masterTaskId),
+                        TaskHotKeys.dirtyMasters(),
+                        TaskHotKeys.masterDiscoveredPages(masterTaskId),
+                        TaskHotKeys.pageState(pageTaskId)),
+                masterTaskId.toString(),
+                pageTaskId.toString(),
                 Integer.toString(pageNumber),
                 Long.toString(effectiveAt.toEpochMilli()));
         return result == null ? 0 : result;
