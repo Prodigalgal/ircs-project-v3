@@ -35,7 +35,7 @@ class TaskMasterSnapshotService {
     }
 
     void put(TaskMasterSnapshot snapshot) {
-        resetPreviousRuntimeIfFreshStart(snapshot);
+        resetPreviousRuntimeForQueuedCommand(snapshot);
         String json = write(snapshot);
         String snapshotKey = TaskHotKeys.masterSnapshot(snapshot.masterTaskId());
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
@@ -53,8 +53,8 @@ class TaskMasterSnapshotService {
         markDirty(snapshot.masterTaskId(), snapshot.updatedAt());
     }
 
-    private void resetPreviousRuntimeIfFreshStart(TaskMasterSnapshot snapshot) {
-        if (snapshot.resume() || !"QUEUED".equalsIgnoreCase(snapshot.status())) {
+    private void resetPreviousRuntimeForQueuedCommand(TaskMasterSnapshot snapshot) {
+        if (!"QUEUED".equalsIgnoreCase(snapshot.status())) {
             return;
         }
         UUID masterTaskId = snapshot.masterTaskId();

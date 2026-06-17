@@ -67,6 +67,48 @@ class TaskMasterSnapshotServiceTest {
     }
 
     @Test
+    void cleansPreviousRuntimeBeforeResumeQueueCommand() {
+        wireRedisOps();
+        TaskMasterSnapshotService service = new TaskMasterSnapshotService(redisTemplate, objectMapper, Duration.ofHours(1));
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-06-13T00:00:00Z");
+        when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(pageTaskId.toString()));
+
+        service.put(new TaskMasterSnapshot(
+                masterTaskId,
+                UUID.randomUUID(),
+                "Codex task",
+                "QUEUED",
+                true,
+                1,
+                null,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                null,
+                masterTaskId.toString(),
+                now,
+                now));
+
+        verify(redisTemplate).delete(org.mockito.ArgumentMatchers.<java.util.Collection<String>>argThat(keys ->
+                keys.contains(TaskHotKeys.masterSnapshot(masterTaskId))
+                        && keys.contains(TaskHotKeys.masterState(masterTaskId))
+                        && keys.contains(TaskHotKeys.masterScheduledPages(masterTaskId))
+                        && keys.contains(TaskHotKeys.masterDiscoveredPages(masterTaskId))
+                        && keys.contains(TaskHotKeys.pageState(pageTaskId))
+                        && keys.contains(TaskHotKeys.pageCompletedDetails(pageTaskId))
+                        && keys.contains(TaskHotKeys.pageFailedDetails(pageTaskId))
+                        && keys.contains(TaskHotKeys.pageFailedDetailErrors(pageTaskId))));
+        verify(zsets).remove(TaskHotKeys.dirtyMasters(), masterTaskId.toString());
+    }
+
+    @Test
     void readsSnapshotWhenRedisContainsJson() throws Exception {
         wireRedisOps();
         TaskMasterSnapshotService service = new TaskMasterSnapshotService(redisTemplate, objectMapper, Duration.ofHours(1));
