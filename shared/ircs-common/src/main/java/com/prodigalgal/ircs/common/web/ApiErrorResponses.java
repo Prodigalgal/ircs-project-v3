@@ -115,7 +115,11 @@ public final class ApiErrorResponses {
             String message,
             String entity) throws IOException {
         ApiErrorResponse body = body(status, code, message, entity, request, null);
-        headers(body).forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
+        headers(body).forEach((name, values) -> {
+            if (!HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(name)) {
+                values.forEach(value -> response.addHeader(name, value));
+            }
+        });
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
@@ -124,6 +128,7 @@ public final class ApiErrorResponses {
 
     public static HttpHeaders headers(ApiErrorResponse body) {
         HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
         if (StringUtils.hasText(body.traceId())) {
             headers.set(TRACE_HEADER, body.traceId());
         }
