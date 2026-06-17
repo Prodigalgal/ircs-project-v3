@@ -8,7 +8,7 @@ spring:
     password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
     listener:
       simple:
-        auto-startup: ${APP_NORMALIZATION_LISTENER_ENABLED:false}
+        auto-startup: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:false}
         default-requeue-rejected: false
         prefetch: ${APP_NORMALIZATION_RABBIT_PREFETCH:10}
         concurrency: ${APP_NORMALIZATION_RABBIT_CONCURRENCY:2}
@@ -35,8 +35,6 @@ app:
       password: ${APP_WORKER_AUDIT_PASSWORD:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:${spring.datasource.password:}}}}
       source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name:ircs-normalization-worker}}
   normalization:
-    listener:
-      enabled: ${APP_NORMALIZATION_LISTENER_ENABLED:false}
     config-listener:
       enabled: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:false}
     internal-access:
@@ -49,12 +47,12 @@ app:
     backoff-base-seconds: ${APP_NORMALIZATION_BACKOFF_BASE_SECONDS:60}
     hanlp-prewarm:
       enabled: ${APP_NORMALIZATION_HANLP_PREWARM_ENABLED:true}
-    watchdog:
-      enabled: ${APP_NORMALIZATION_WATCHDOG_ENABLED:false}
-      initial-delay-ms: ${APP_NORMALIZATION_WATCHDOG_INITIAL_DELAY_MS:60000}
-      fixed-delay-ms: ${APP_NORMALIZATION_WATCHDOG_FIXED_DELAY_MS:300000}
-      batch-size: ${APP_NORMALIZATION_WATCHDOG_BATCH_SIZE:500}
-      stale-pending-seconds: ${APP_NORMALIZATION_WATCHDOG_STALE_PENDING_SECONDS:3600}
+    valkey-worker:
+      enabled: ${APP_NORMALIZATION_VALKEY_WORKER_ENABLED:false}
+      initial-delay-ms: ${APP_NORMALIZATION_VALKEY_WORKER_INITIAL_DELAY_MS:10000}
+      fixed-delay-ms: ${APP_NORMALIZATION_VALKEY_WORKER_FIXED_DELAY_MS:1000}
+      batch-size: ${APP_NORMALIZATION_VALKEY_WORKER_BATCH_SIZE:10}
+      visibility-timeout: ${APP_NORMALIZATION_VALKEY_WORKER_VISIBILITY_TIMEOUT:PT10M}
     llm:
       provider: ${APP_NORMALIZATION_LLM_PROVIDER:OPENAI}
       request-timeout-seconds: ${APP_NORMALIZATION_LLM_REQUEST_TIMEOUT_SECONDS:30}

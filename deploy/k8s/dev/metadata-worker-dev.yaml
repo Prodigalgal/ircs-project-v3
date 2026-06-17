@@ -66,18 +66,20 @@ spec:
               value: "0"
             - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
               value: "30000"
-            - name: APP_METADATA_LISTENER_ENABLED
-              value: "true"
             - name: APP_METADATA_CONFIG_LISTENER_ENABLED
               value: "true"
-            - name: APP_METADATA_DISPATCHER_ENABLED
+            - name: APP_METADATA_VALKEY_DISPATCHER_ENABLED
               value: "true"
+            - name: APP_METADATA_VALKEY_PROVIDER_WORKER_ENABLED
+              value: "true"
+            - name: APP_METADATA_VALKEY_DISPATCHER_BATCH_SIZE
+              value: "10"
+            - name: APP_METADATA_VALKEY_PROVIDER_BATCH_SIZE
+              value: "10"
             - name: APP_METADATA_DOUBAN_ENABLED
               value: "false"
             - name: APP_METADATA_TMDB_ENABLED
               value: "false"
-            - name: APP_METADATA_TMDB_WORKER_ENABLED
-              value: "true"
             - name: APP_METADATA_CREDENTIAL_SERVICE_BASE_URL
               value: http://ircs-credential-service.ircs-dev.svc.cluster.local:8080
             - name: APP_METADATA_CREDENTIAL_SERVICE_TOKEN

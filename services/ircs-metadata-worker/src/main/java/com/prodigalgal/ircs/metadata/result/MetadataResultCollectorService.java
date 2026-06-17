@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
-import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.metadata.dispatch.MetadataPendingRegistry;
+import com.prodigalgal.ircs.metadata.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.dispatch.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.ProviderCompletion;
 import java.util.LinkedHashSet;
@@ -29,8 +29,9 @@ public class MetadataResultCollectorService {
 
     private final RawVideoMetadataRepository repository;
     private final RawSearchSyncPublisher searchSyncPublisher;
-    private final MetadataPendingRegistry pendingRegistry;
     private final MetadataPipelineRunRepository pipelineRunRepository;
+    private final MetadataEnrichPublisher metadataEnrichPublisher;
+    private final MetadataConfigValues configValues;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -65,7 +66,6 @@ public class MetadataResultCollectorService {
                 message.isRetryable(),
                 message.getErrorCode(),
                 message.getErrorMessage());
-        completePendingHint(record.getId(), record.getDataHash(), message.getProviderType());
         if (!completion.tracked()) {
             log.warn(
                     "Metadata result has no durable provider run: videoId={}, provider={}, pipelineVersion={}",
@@ -85,29 +85,25 @@ public class MetadataResultCollectorService {
         finalizeVideoStatus(record, completion, metadataUpdated);
         repository.save(record);
         pipelineRunRepository.markRunFinished(record.getId(), record.getDataHash(), record.getEnrichmentStatus());
-        clearPendingHint(record.getId(), record.getDataHash());
         searchSyncPublisher.publishIndex(record.getId());
+        scheduleRetryIfNeeded(record);
 
         return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
     }
 
-    private void completePendingHint(UUID videoId, String pipelineVersion, ProviderType providerType) {
+    private void scheduleRetryIfNeeded(RawVideoMetadataRecord record) {
+        if (!"FAILED".equals(record.getEnrichmentStatus())) {
+            return;
+        }
         try {
-            pendingRegistry.complete(videoId, pipelineVersion, providerType);
+            metadataEnrichPublisher.publish(record.getId(), record.getDataHash(), configValues.retryDelay());
         } catch (RuntimeException ex) {
             log.warn(
-                    "Metadata pending Redis hint completion failed: videoId={}, provider={}, error={}",
-                    videoId,
-                    providerType,
+                    "Metadata retry Valkey submit failed: videoId={}, pipelineVersion={}, error={}",
+                    record.getId(),
+                    record.getDataHash(),
                     ex.getMessage());
-        }
-    }
-
-    private void clearPendingHint(UUID videoId, String pipelineVersion) {
-        try {
-            pendingRegistry.clear(videoId, pipelineVersion);
-        } catch (RuntimeException ex) {
-            log.warn("Metadata pending Redis hint clear failed: videoId={}, error={}", videoId, ex.getMessage());
+            throw ex;
         }
     }
 

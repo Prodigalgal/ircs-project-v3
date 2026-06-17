@@ -1,25 +1,28 @@
 package com.prodigalgal.ircs.metadata.dispatch;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
+import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 class MetadataProviderTaskPublisherTest {
 
     @Test
-    void mapsProvidersToDedicatedFetchTopics() {
-        RabbitTemplate rabbitTemplate = org.mockito.Mockito.mock(RabbitTemplate.class);
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(rabbitTemplate, new ObjectMapper());
+    void publishesProviderFetchAsValkeyTasks() {
+        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
+        UUID videoId = UUID.randomUUID();
         MetadataSearchContext context = MetadataSearchContext.builder()
-                .videoId(UUID.randomUUID())
+                .videoId(videoId)
+                .pipelineVersion("hash-v1")
                 .title("test")
                 .build();
 
@@ -27,29 +30,26 @@ class MetadataProviderTaskPublisherTest {
         publisher.publish(ProviderType.TMDB, context);
         publisher.publish(ProviderType.ROTTEN_TOMATOES, context);
 
-        verify(rabbitTemplate).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.douban"),
-                org.mockito.Mockito.contains(context.getVideoId().toString()));
-        verify(rabbitTemplate).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.tmdb"),
-                org.mockito.Mockito.contains(context.getVideoId().toString()));
-        verify(rabbitTemplate).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.rt"),
-                org.mockito.Mockito.contains(context.getVideoId().toString()));
-    }
-
-    @Test
-    void rejectsImdbBecauseNoFetchQueueExists() {
-        RabbitTemplate rabbitTemplate = org.mockito.Mockito.mock(RabbitTemplate.class);
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(rabbitTemplate, new ObjectMapper());
-        MetadataSearchContext context = MetadataSearchContext.builder()
-                .videoId(UUID.randomUUID())
-                .title("test")
-                .build();
-
-        assertThrows(IllegalArgumentException.class, () -> publisher.publish(ProviderType.IMDB, context));
+        verify(pipelineQueue).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("DOUBAN"),
+                eq(videoId),
+                eq("hash-v1"),
+                contains("\"provider\":\"DOUBAN\""),
+                eq(Duration.ZERO));
+        verify(pipelineQueue).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("TMDB"),
+                eq(videoId),
+                eq("hash-v1"),
+                contains("\"provider\":\"TMDB\""),
+                eq(Duration.ZERO));
+        verify(pipelineQueue).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("ROTTEN_TOMATOES"),
+                eq(videoId),
+                eq("hash-v1"),
+                contains("\"provider\":\"ROTTEN_TOMATOES\""),
+                eq(Duration.ZERO));
     }
 }

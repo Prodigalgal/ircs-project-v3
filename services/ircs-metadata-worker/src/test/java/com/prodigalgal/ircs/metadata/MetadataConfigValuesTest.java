@@ -16,25 +16,22 @@ class MetadataConfigValuesTest {
     private final SystemConfigRepository repository = org.mockito.Mockito.mock(SystemConfigRepository.class);
 
     @Test
-    void usesV1DefaultsWhenNoRuntimeOrDbConfigExists() {
+    void usesCurrentDefaultsWhenNoRuntimeOrDbConfigExists() {
         MetadataConfigValues values = values(new MockEnvironment());
 
         assertTrue(values.metadataEnabled());
         assertTrue(values.tmdbEnabled());
         assertTrue(values.doubanEnabled());
         assertTrue(values.rottenTomatoesEnabled());
-        assertEquals(Duration.ofMinutes(120), values.pendingTtl());
-        assertEquals(100, values.watchdogBatchSize());
-        assertEquals(300L, values.watchdogStalePendingSeconds());
+        assertEquals(Duration.ofMinutes(5), values.retryDelay());
     }
 
     @Test
-    void dbCanonicalKeysOverrideV1Defaults() {
+    void dbCanonicalKeysOverrideDefaults() {
         when(repository.findValue(MetadataConfigValues.METADATA_ENABLED_KEY)).thenReturn(Optional.of("false"));
         when(repository.findValue(MetadataConfigValues.TMDB_ENABLED_KEY)).thenReturn(Optional.of("false"));
         when(repository.findValue(MetadataConfigValues.DOUBAN_ENABLED_KEY)).thenReturn(Optional.of("false"));
         when(repository.findValue(MetadataConfigValues.RT_ENABLED_KEY)).thenReturn(Optional.of("false"));
-        when(repository.findValue(MetadataConfigValues.PENDING_RESCUE_MIN_KEY)).thenReturn(Optional.of("45"));
 
         MetadataConfigValues values = values(new MockEnvironment());
 
@@ -42,31 +39,25 @@ class MetadataConfigValuesTest {
         assertFalse(values.tmdbEnabled());
         assertFalse(values.doubanEnabled());
         assertFalse(values.rottenTomatoesEnabled());
-        assertEquals(Duration.ofMinutes(45), values.pendingTtl());
     }
 
     @Test
-    void runtimeAliasesOverrideDbCanonicalKeysForDevSafety() {
+    void runtimeAliasesOverrideDbCanonicalKeysForProviderFlagsAndRetryDelay() {
         when(repository.findValue(MetadataConfigValues.TMDB_ENABLED_KEY)).thenReturn(Optional.of("true"));
         when(repository.findValue(MetadataConfigValues.DOUBAN_ENABLED_KEY)).thenReturn(Optional.of("true"));
         when(repository.findValue(MetadataConfigValues.RT_ENABLED_KEY)).thenReturn(Optional.of("true"));
-        when(repository.findValue(MetadataConfigValues.PENDING_RESCUE_MIN_KEY)).thenReturn(Optional.of("120"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("APP_METADATA_TMDB_ENABLED", "false")
                 .withProperty("APP_METADATA_DOUBAN_ENABLED", "false")
                 .withProperty("APP_METADATA_RT_ENABLED", "false")
-                .withProperty("APP_METADATA_PENDING_TTL", "15m")
-                .withProperty("APP_METADATA_WATCHDOG_BATCH_SIZE", "25")
-                .withProperty("APP_METADATA_WATCHDOG_STALE_PENDING_SECONDS", "PT10M");
+                .withProperty("APP_METADATA_RETRY_DELAY", "15m");
 
         MetadataConfigValues values = values(environment);
 
         assertFalse(values.tmdbEnabled());
         assertFalse(values.doubanEnabled());
         assertFalse(values.rottenTomatoesEnabled());
-        assertEquals(Duration.ofMinutes(15), values.pendingTtl());
-        assertEquals(25, values.watchdogBatchSize());
-        assertEquals(600L, values.watchdogStalePendingSeconds());
+        assertEquals(Duration.ofMinutes(15), values.retryDelay());
     }
 
     @Test
@@ -79,10 +70,10 @@ class MetadataConfigValuesTest {
     }
 
     @Test
-    void listenerStartupFlagDoesNotOverrideMetadataGlobalSwitch() {
+    void configListenerStartupFlagDoesNotOverrideMetadataGlobalSwitch() {
         when(repository.findValue(MetadataConfigValues.METADATA_ENABLED_KEY)).thenReturn(Optional.of("false"));
         MockEnvironment environment = new MockEnvironment()
-                .withProperty("APP_METADATA_LISTENER_ENABLED", "true");
+                .withProperty("APP_METADATA_CONFIG_LISTENER_ENABLED", "true");
 
         MetadataConfigValues values = values(environment);
 
@@ -90,14 +81,15 @@ class MetadataConfigValuesTest {
     }
 
     @Test
-    void invalidValuesFallBackToV1Defaults() {
+    void invalidValuesFallBackToCurrentDefaults() {
         when(repository.findValue(MetadataConfigValues.TMDB_ENABLED_KEY)).thenReturn(Optional.of("bad"));
-        when(repository.findValue(MetadataConfigValues.PENDING_RESCUE_MIN_KEY)).thenReturn(Optional.of("bad"));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("APP_METADATA_RETRY_DELAY", "bad");
 
-        MetadataConfigValues values = values(new MockEnvironment());
+        MetadataConfigValues values = values(environment);
 
         assertTrue(values.tmdbEnabled());
-        assertEquals(Duration.ofMinutes(120), values.pendingTtl());
+        assertEquals(Duration.ofMinutes(5), values.retryDelay());
     }
 
     private MetadataConfigValues values(MockEnvironment environment) {

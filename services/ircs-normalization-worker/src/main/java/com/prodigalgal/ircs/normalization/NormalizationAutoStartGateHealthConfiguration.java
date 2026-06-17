@@ -14,12 +14,10 @@ class NormalizationAutoStartGateHealthConfiguration {
     @Bean
     HealthIndicator autoStartGateHealthIndicator(Environment environment) {
         return new AutoStartGateHealthIndicator(environment, List.of(
-                new AutoStartGate("normalization-listener", "app.normalization.listener.enabled",
-                        "APP_NORMALIZATION_LISTENER_ENABLED", false),
+                new AutoStartGate("normalization-valkey-worker", "app.normalization.valkey-worker.enabled",
+                        "APP_NORMALIZATION_VALKEY_WORKER_ENABLED", false),
                 new AutoStartGate("normalization-config-listener", "app.normalization.config-listener.enabled",
-                        "APP_NORMALIZATION_CONFIG_LISTENER_ENABLED", false),
-                new AutoStartGate("normalization-watchdog", "app.normalization.watchdog.enabled",
-                        "APP_NORMALIZATION_WATCHDOG_ENABLED", false)
+                        "APP_NORMALIZATION_CONFIG_LISTENER_ENABLED", false)
         ));
     }
 }

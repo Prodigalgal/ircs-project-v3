@@ -1,15 +1,16 @@
 package com.prodigalgal.ircs.metadata.dispatch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
+import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import com.prodigalgal.ircs.metadata.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.RawSearchSyncPublisher;
@@ -20,7 +21,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -29,9 +29,6 @@ class MetadataDispatchServiceTest {
 
     @Mock
     private RawVideoEnrichmentRepository repository;
-
-    @Mock
-    private MetadataPendingRegistry pendingRegistry;
 
     @Mock
     private MetadataPipelineRunRepository pipelineRunRepository;
@@ -66,7 +63,7 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
-    void dispatchesEnabledMissingProvidersAndRegistersPendingSet() {
+    void dispatchesEnabledMissingProvidersToValkeyTasks() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(record));
@@ -77,39 +74,32 @@ class MetadataDispatchServiceTest {
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.TMDB), result.providers());
-        verify(pendingRegistry).register(id, "hash-v1", List.of(ProviderType.TMDB), Duration.ofMinutes(30));
         verify(providerTaskPublisher).publish(org.mockito.Mockito.eq(ProviderType.TMDB), org.mockito.Mockito.any());
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
 
     @Test
-    void stalePipelineVersionDoesNotRegisterOrFanOutProviderTasks() {
+    void stalePipelineVersionDoesNotFanOutProviderTasks() {
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.of(record(id)));
 
         MetadataDispatchResult result = newService(false).dispatch(id, "old-hash");
 
         assertEquals("STALE", result.status());
-        verify(pendingRegistry, never()).register(
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any());
         verify(providerTaskPublisher, never()).publish(org.mockito.Mockito.any(), org.mockito.Mockito.any());
     }
 
     @Test
-    void fanOutUsesProviderConfigAndPublishesFetchTopicsThroughPublisher() {
+    void fanOutUsesProviderConfigAndPublishesProviderTasksThroughValkey() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(record));
-        RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(rabbitTemplate, new ObjectMapper());
+        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
         when(configValues.metadataEnabled()).thenReturn(true);
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
-        when(configValues.pendingTtl()).thenReturn(Duration.ofMinutes(15));
         when(pipelineRunRepository.prepareDispatch(
                         id,
                         "hash-v1",
@@ -118,7 +108,6 @@ class MetadataDispatchServiceTest {
         MetadataDispatchService service = new MetadataDispatchService(
                 repository,
                 configValues,
-                pendingRegistry,
                 pipelineRunRepository,
                 publisher,
                 searchSyncPublisher);
@@ -127,23 +116,27 @@ class MetadataDispatchServiceTest {
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES), result.providers());
-        verify(pendingRegistry).register(
-                id,
-                "hash-v1",
-                List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES),
-                Duration.ofMinutes(15));
-        verify(rabbitTemplate).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.douban"),
-                org.mockito.Mockito.contains(id.toString()));
-        verify(rabbitTemplate).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.tmdb"),
-                org.mockito.Mockito.contains(id.toString()));
-        verify(rabbitTemplate).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.rt"),
-                org.mockito.Mockito.contains(id.toString()));
+        verify(pipelineQueue).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("DOUBAN"),
+                eq(id),
+                eq("hash-v1"),
+                contains("\"provider\":\"DOUBAN\""),
+                eq(Duration.ZERO));
+        verify(pipelineQueue).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("TMDB"),
+                eq(id),
+                eq("hash-v1"),
+                contains("\"provider\":\"TMDB\""),
+                eq(Duration.ZERO));
+        verify(pipelineQueue).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("ROTTEN_TOMATOES"),
+                eq(id),
+                eq("hash-v1"),
+                contains("\"provider\":\"ROTTEN_TOMATOES\""),
+                eq(Duration.ZERO));
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
 
@@ -153,13 +146,12 @@ class MetadataDispatchServiceTest {
         RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("tmdb-1");
         when(repository.findById(id)).thenReturn(Optional.of(record));
-        RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(rabbitTemplate, new ObjectMapper());
+        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
         when(configValues.metadataEnabled()).thenReturn(true);
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
-        when(configValues.pendingTtl()).thenReturn(Duration.ofMinutes(30));
         when(pipelineRunRepository.prepareDispatch(
                         id,
                         "hash-v1",
@@ -168,7 +160,6 @@ class MetadataDispatchServiceTest {
         MetadataDispatchService service = new MetadataDispatchService(
                 repository,
                 configValues,
-                pendingRegistry,
                 pipelineRunRepository,
                 publisher,
                 searchSyncPublisher);
@@ -177,10 +168,13 @@ class MetadataDispatchServiceTest {
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES), result.providers());
-        verify(rabbitTemplate, never()).convertAndSend(
-                eq(QueueTopic.Names.PROCESS_X),
-                eq("metadata.fetch.tmdb"),
-                org.mockito.Mockito.anyString());
+        verify(pipelineQueue, never()).submitAfterCommit(
+                eq(PipelineTaskTypes.METADATA_PROVIDER),
+                contains("TMDB"),
+                eq(id),
+                eq("hash-v1"),
+                org.mockito.Mockito.anyString(),
+                eq(Duration.ZERO));
     }
 
     @Test
@@ -198,7 +192,7 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
-    void missingVideoReturnsNotFoundWithoutTouchingCurrentPendingSet() {
+    void missingVideoReturnsNotFoundWithoutTouchingSearchSync() {
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.empty());
 
@@ -211,13 +205,9 @@ class MetadataDispatchServiceTest {
     private MetadataDispatchService newService(boolean tmdbEnabled) {
         org.mockito.Mockito.lenient().when(configValues.metadataEnabled()).thenReturn(true);
         org.mockito.Mockito.lenient().when(configValues.tmdbEnabled()).thenReturn(tmdbEnabled);
-        if (tmdbEnabled) {
-            when(configValues.pendingTtl()).thenReturn(Duration.ofMinutes(30));
-        }
         return new MetadataDispatchService(
                 repository,
                 configValues,
-                pendingRegistry,
                 pipelineRunRepository,
                 providerTaskPublisher,
                 searchSyncPublisher);

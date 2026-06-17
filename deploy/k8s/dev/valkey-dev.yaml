@@ -17,7 +17,7 @@ spec:
       targetPort: valkey
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: valkey
   namespace: ircs-dev
@@ -26,6 +26,7 @@ metadata:
     app.kubernetes.io/part-of: ircs
     environment: dev
 spec:
+  serviceName: valkey-svc
   replicas: 1
   selector:
     matchLabels:
@@ -49,11 +50,22 @@ spec:
             - --save
             - ""
             - --appendonly
-            - "no"
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --dir
+            - /data
             - --maxmemory
-            - 96mb
+            - 192mb
             - --maxmemory-policy
-            - allkeys-lru
+            - noeviction
+            - --auto-aof-rewrite-percentage
+            - "100"
+            - --auto-aof-rewrite-min-size
+            - 32mb
+          volumeMounts:
+            - name: valkey-data
+              mountPath: /data
           startupProbe:
             exec:
               command: ["valkey-cli", "ping"]
@@ -73,4 +85,17 @@ spec:
               memory: 128Mi
             limits:
               cpu: 250m
-              memory: 256Mi
+              memory: 384Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: valkey-data
+        labels:
+          app: valkey
+          app.kubernetes.io/part-of: ircs
+          environment: dev
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

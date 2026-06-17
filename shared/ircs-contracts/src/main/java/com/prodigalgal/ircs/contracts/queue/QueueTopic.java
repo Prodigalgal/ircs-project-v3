@@ -2,13 +2,7 @@ package com.prodigalgal.ircs.contracts.queue;
 
 public enum QueueTopic {
     INGEST_VIDEO(Names.INGEST_Q, Names.INGEST_X, "video.upsert"),
-    NORMALIZE_VIDEO(Names.PROCESS_Q_NORM, Names.PROCESS_X, "video.normalize"),
-    ENRICH_METADATA(Names.PROCESS_Q_ENRICH, Names.PROCESS_X, "video.enrich"),
-    ENRICHMENT_RESULT(Names.PROCESS_Q_RESULT, Names.PROCESS_X, "metadata.result"),
     PLAYLIST_SYNC(Names.PROCESS_Q_PLAYLIST, Names.PROCESS_X, "video.playlist_sync"),
-    FETCH_METADATA_DOUBAN(Names.FETCH_Q_DOUBAN, Names.PROCESS_X, "metadata.fetch.douban"),
-    FETCH_METADATA_TMDB(Names.FETCH_Q_TMDB, Names.PROCESS_X, "metadata.fetch.tmdb"),
-    FETCH_METADATA_RT(Names.FETCH_Q_RT, Names.PROCESS_X, "metadata.fetch.rt"),
     DOWNLOAD_IMAGE(Names.STORAGE_Q_IMAGE, Names.STORAGE_X, "image.download"),
     PROMOTE_COVER_R2(Names.STORAGE_Q_COVER_R2_PROMOTE, Names.STORAGE_X, "image.cover.r2_promote"),
     SYNC_AVATAR(Names.STORAGE_Q_AVATAR, Names.STORAGE_X, "image.avatar_sync"),
@@ -77,13 +71,7 @@ public enum QueueTopic {
         public static final String DOMAIN_EVENT_X = "x.domain.events";
 
         public static final String INGEST_Q = "q.ingest.video";
-        public static final String PROCESS_Q_NORM = "q.normalize.video";
-        public static final String PROCESS_Q_ENRICH = "q.enrich.metadata";
-        public static final String PROCESS_Q_RESULT = "q.enrich.metadata.result";
         public static final String PROCESS_Q_PLAYLIST = "q.process.playlist_sync";
-        public static final String FETCH_Q_DOUBAN = "q.fetch.metadata.douban";
-        public static final String FETCH_Q_TMDB = "q.fetch.metadata.tmdb";
-        public static final String FETCH_Q_RT = "q.fetch.metadata.rt";
         public static final String STORAGE_Q_IMAGE = "q.storage.image";
         public static final String STORAGE_Q_COVER_R2_PROMOTE = "q.storage.cover_r2_promote";
         public static final String STORAGE_Q_AVATAR = "q.storage.avatar_sync";

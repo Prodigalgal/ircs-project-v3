@@ -14,12 +14,9 @@ public class MetadataConfigValues {
     static final String TMDB_ENABLED_KEY = "app.metadata.tmdb.enabled";
     static final String DOUBAN_ENABLED_KEY = "app.metadata.douban.enabled";
     static final String RT_ENABLED_KEY = "app.metadata.rotten-tomatoes.enabled";
-    static final String PENDING_RESCUE_MIN_KEY = "app.metadata.timeout.pending-min";
     static final boolean DEFAULT_METADATA_ENABLED = true;
     static final boolean DEFAULT_PROVIDER_ENABLED = true;
-    static final Duration DEFAULT_PENDING_TTL = Duration.ofMinutes(120);
-    static final int DEFAULT_WATCHDOG_BATCH_SIZE = 100;
-    static final long DEFAULT_WATCHDOG_STALE_PENDING_SECONDS = 300L;
+    static final Duration DEFAULT_RETRY_DELAY = Duration.ofMinutes(5);
 
     private final Environment environment;
     private final SystemConfigRepository repository;
@@ -71,26 +68,11 @@ public class MetadataConfigValues {
         };
     }
 
-    public Duration pendingTtl() {
+    public Duration retryDelay() {
         String raw = value(
-                PENDING_RESCUE_MIN_KEY,
-                "APP_METADATA_PENDING_TTL",
-                "app.metadata.dispatcher.pending-ttl");
-        return StringUtils.hasText(raw) ? parseDuration(raw, DEFAULT_PENDING_TTL) : DEFAULT_PENDING_TTL;
-    }
-
-    public int watchdogBatchSize() {
-        return intValue(
-                DEFAULT_WATCHDOG_BATCH_SIZE,
-                "app.metadata.watchdog.batch-size",
-                "APP_METADATA_WATCHDOG_BATCH_SIZE");
-    }
-
-    public long watchdogStalePendingSeconds() {
-        return durationSecondsValue(
-                DEFAULT_WATCHDOG_STALE_PENDING_SECONDS,
-                "app.metadata.watchdog.stale-pending-seconds",
-                "APP_METADATA_WATCHDOG_STALE_PENDING_SECONDS");
+                "app.metadata.retry-delay",
+                "APP_METADATA_RETRY_DELAY");
+        return StringUtils.hasText(raw) ? parseDuration(raw, DEFAULT_RETRY_DELAY) : DEFAULT_RETRY_DELAY;
     }
 
     private boolean booleanValue(boolean defaultValue, String key, String... aliases) {
@@ -116,39 +98,6 @@ public class MetadataConfigValues {
         return RuntimeInjectedConfig.find(environment, runtimeKeys)
                 .or(() -> repository.findValue(key))
                 .orElse(null);
-    }
-
-    private int intValue(int defaultValue, String key, String... aliases) {
-        String raw = value(key, aliases);
-        if (!StringUtils.hasText(raw)) {
-            return defaultValue;
-        }
-        try {
-            return Integer.parseInt(raw.trim());
-        } catch (NumberFormatException ignored) {
-            return defaultValue;
-        }
-    }
-
-    private long durationSecondsValue(long defaultValue, String key, String... aliases) {
-        String raw = value(key, aliases);
-        if (!StringUtils.hasText(raw)) {
-            return defaultValue;
-        }
-        String trimmed = raw.trim();
-        try {
-            return Math.max(1L, Long.parseLong(trimmed));
-        } catch (NumberFormatException ignored) {
-        }
-        try {
-            return Math.max(1L, Duration.parse(trimmed).toSeconds());
-        } catch (RuntimeException ignored) {
-        }
-        try {
-            return Math.max(1L, org.springframework.boot.convert.DurationStyle.detectAndParse(trimmed).toSeconds());
-        } catch (RuntimeException ignored) {
-            return defaultValue;
-        }
     }
 
     private Duration parseDuration(String raw, Duration defaultValue) {

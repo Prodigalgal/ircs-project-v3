@@ -7,13 +7,7 @@ public final class QueueOwnership {
 
     public static final Map<QueueTopic, String> OWNER_BY_TOPIC = Map.ofEntries(
             Map.entry(QueueTopic.INGEST_VIDEO, "ircs-ingestion-worker"),
-            Map.entry(QueueTopic.NORMALIZE_VIDEO, "ircs-normalization-worker"),
-            Map.entry(QueueTopic.ENRICH_METADATA, "ircs-metadata-worker"),
-            Map.entry(QueueTopic.ENRICHMENT_RESULT, "ircs-metadata-worker"),
             Map.entry(QueueTopic.PLAYLIST_SYNC, "ircs-ingestion-worker"),
-            Map.entry(QueueTopic.FETCH_METADATA_DOUBAN, "ircs-metadata-worker"),
-            Map.entry(QueueTopic.FETCH_METADATA_TMDB, "ircs-metadata-worker"),
-            Map.entry(QueueTopic.FETCH_METADATA_RT, "ircs-metadata-worker"),
             Map.entry(QueueTopic.DOWNLOAD_IMAGE, "ircs-storage-service"),
             Map.entry(QueueTopic.PROMOTE_COVER_R2, "ircs-storage-service"),
             Map.entry(QueueTopic.SYNC_AVATAR, "ircs-storage-service"),

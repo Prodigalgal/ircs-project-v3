@@ -68,16 +68,14 @@ spec:
               value: "0"
             - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
               value: "30000"
-            - name: APP_NORMALIZATION_LISTENER_ENABLED
+            - name: APP_NORMALIZATION_VALKEY_WORKER_ENABLED
               value: "true"
+            - name: APP_NORMALIZATION_VALKEY_WORKER_BATCH_SIZE
+              value: "10"
             - name: APP_NORMALIZATION_CONFIG_LISTENER_ENABLED
               value: "true"
             - name: APP_NORMALIZATION_INTERNAL_ACCESS_REQUIRE_TOKEN
               value: "false"
-            - name: APP_NORMALIZATION_WATCHDOG_ENABLED
-              value: "false"
-            - name: APP_NORMALIZATION_WATCHDOG_BATCH_SIZE
-              value: "25"
             - name: APP_NORMALIZATION_HANLP_PREWARM_ENABLED
               value: "true"
           startupProbe:

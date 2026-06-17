@@ -1,8 +1,6 @@
 package com.prodigalgal.ircs.normalization;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
-
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collection;
@@ -120,126 +118,6 @@ public class RawVideoNormalizationRepository {
                         .addValue("nextRetryTime", nextRetryTime == null ? null : Timestamp.from(nextRetryTime)));
     }
 
-    public List<PipelineCommand> findDueFailedNormalizationRecoveryCommands(Instant now, int limit) {
-        if (limit <= 0) {
-            return List.of();
-        }
-        return jdbcTemplate.query(
-                """
-                select id, data_hash
-                from raw_videos
-                where normalization_status = 'FAILED'
-                  and next_normalization_retry_time is not null
-                  and next_normalization_retry_time <= :now
-                order by next_normalization_retry_time asc, id asc
-                limit :limit
-                """,
-                new MapSqlParameterSource()
-                        .addValue("now", Timestamp.from(now))
-                        .addValue("limit", limit),
-                (rs, rowNum) -> PipelineCommand.normalize(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("data_hash")));
-    }
-
-    public List<PipelineCommand> findStaleActiveNormalizationRecoveryCommands(Instant staleBefore, int limit) {
-        if (limit <= 0) {
-            return List.of();
-        }
-        return jdbcTemplate.query(
-                """
-                select id, data_hash
-                from raw_videos
-                where normalization_status in ('PENDING', 'PROCESSING')
-                  and updated_at <= :staleBefore
-                order by updated_at asc, id asc
-                limit :limit
-                """,
-                new MapSqlParameterSource()
-                        .addValue("staleBefore", Timestamp.from(staleBefore))
-                        .addValue("limit", limit),
-                (rs, rowNum) -> PipelineCommand.normalize(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("data_hash")));
-    }
-
-    public List<PipelineCommand> claimDueFailedNormalizationRecoveryCommands(Instant now, int limit) {
-        if (limit <= 0) {
-            return List.of();
-        }
-        return jdbcTemplate.query(
-                """
-                with due as (
-                    select id
-                    from raw_videos
-                    where normalization_status = 'FAILED'
-                      and next_normalization_retry_time is not null
-                      and next_normalization_retry_time <= :now
-                    order by next_normalization_retry_time asc, id asc
-                    limit :limit
-                    for update skip locked
-                )
-                update raw_videos rv
-                set normalization_status = 'PENDING',
-                    next_normalization_retry_time = null,
-                    updated_at = now()
-                from due
-                where rv.id = due.id
-                returning rv.id, rv.data_hash
-                """,
-                new MapSqlParameterSource()
-                        .addValue("now", Timestamp.from(now))
-                        .addValue("limit", limit),
-                (rs, rowNum) -> PipelineCommand.normalize(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("data_hash")));
-    }
-
-    public List<PipelineCommand> claimStaleActiveNormalizationRecoveryCommands(Instant staleBefore, int limit) {
-        if (limit <= 0) {
-            return List.of();
-        }
-        return jdbcTemplate.query(
-                """
-                with stale as (
-                    select id
-                    from raw_videos
-                    where normalization_status in ('PENDING', 'PROCESSING')
-                      and updated_at <= :staleBefore
-                    order by updated_at asc, id asc
-                    limit :limit
-                    for update skip locked
-                )
-                update raw_videos rv
-                set normalization_status = 'PENDING',
-                    next_normalization_retry_time = null,
-                    updated_at = now()
-                from stale
-                where rv.id = stale.id
-                returning rv.id, rv.data_hash
-                """,
-                new MapSqlParameterSource()
-                        .addValue("staleBefore", Timestamp.from(staleBefore))
-                        .addValue("limit", limit),
-                (rs, rowNum) -> PipelineCommand.normalize(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("data_hash")));
-    }
-
-    public boolean markRecoveryQueued(UUID id) {
-        int updated = jdbcTemplate.update(
-                """
-                update raw_videos
-                set normalization_status = 'PENDING',
-                    next_normalization_retry_time = null,
-                    updated_at = now()
-                where id = :id
-                  and normalization_status in ('FAILED', 'PENDING', 'PROCESSING')
-                """,
-                new MapSqlParameterSource("id", id));
-        return updated > 0;
-    }
-
     public List<UUID> sampleRawVideoIds(int limit) {
         return jdbcTemplate.queryForList(
                 """
@@ -268,24 +146,6 @@ public class RawVideoNormalizationRepository {
                        updated_at = now()
                 """,
                 new MapSqlParameterSource());
-    }
-
-    public int releaseRecoveryPublishFailures(Collection<UUID> ids, Instant nextRetryTime) {
-        if (ids == null || ids.isEmpty()) {
-            return 0;
-        }
-        return jdbcTemplate.update(
-                """
-                update raw_videos
-                set normalization_status = 'FAILED',
-                    next_normalization_retry_time = :nextRetryTime,
-                    updated_at = now()
-                where id in (:ids)
-                  and normalization_status = 'PENDING'
-                """,
-                new MapSqlParameterSource()
-                        .addValue("ids", ids)
-                        .addValue("nextRetryTime", nextRetryTime == null ? null : Timestamp.from(nextRetryTime)));
     }
 
     private MapSqlParameterSource params(UUID id, RawVideoPatch patch) {

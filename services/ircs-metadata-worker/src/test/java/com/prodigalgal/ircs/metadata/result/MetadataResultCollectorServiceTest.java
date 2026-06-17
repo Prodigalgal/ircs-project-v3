@@ -13,10 +13,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.metadata.dispatch.MetadataPendingRegistry;
+import com.prodigalgal.ircs.metadata.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.dispatch.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.ProviderCompletion;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -38,10 +40,13 @@ class MetadataResultCollectorServiceTest {
     private RawSearchSyncPublisher searchSyncPublisher;
 
     @Mock
-    private MetadataPendingRegistry pendingRegistry;
+    private MetadataPipelineRunRepository pipelineRunRepository;
 
     @Mock
-    private MetadataPipelineRunRepository pipelineRunRepository;
+    private MetadataEnrichPublisher metadataEnrichPublisher;
+
+    @Mock
+    private MetadataConfigValues configValues;
 
     @Test
     void appliesSuccessfulMetadataAndPublishesSearchSync() {
@@ -185,6 +190,7 @@ class MetadataResultCollectorServiceTest {
         RawVideoMetadataRecord existing = record(id);
         existing.setEnrichmentRetryCount(1);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
+        when(configValues.retryDelay()).thenReturn(Duration.ofMinutes(5));
 
         MetadataResultProcessingResult result = newService(completedRetryableFailure()).process(EnrichmentResultMsg.builder()
                 .videoId(id)
@@ -198,6 +204,7 @@ class MetadataResultCollectorServiceTest {
         verify(repository).save(record.capture());
         assertEquals("FAILED", result.enrichmentStatus());
         assertEquals(2, record.getValue().getEnrichmentRetryCount());
+        verify(metadataEnrichPublisher).publish(id, "hash-v1", Duration.ofMinutes(5));
     }
 
     @Test
@@ -223,7 +230,7 @@ class MetadataResultCollectorServiceTest {
     }
 
     @Test
-    void stalePipelineVersionDoesNotCompletePendingOrSaveMetadata() {
+    void stalePipelineVersionDoesNotSaveMetadata() {
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.of(record(id)));
 
@@ -236,10 +243,6 @@ class MetadataResultCollectorServiceTest {
                 .build());
 
         assertEquals("STALE", result.enrichmentStatus());
-        verify(pendingRegistry, never()).complete(
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any(),
-                org.mockito.Mockito.any());
         verify(repository, never()).save(any());
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
@@ -282,7 +285,6 @@ class MetadataResultCollectorServiceTest {
         assertEquals("tmdb-early", record.getValue().getTmdbId());
         assertEquals("PENDING", record.getValue().getEnrichmentStatus());
         assertTrue(record.getValue().getRawMetadata().contains("动作"));
-        verify(pendingRegistry, never()).clear(id, "hash-v1");
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
 
@@ -325,7 +327,6 @@ class MetadataResultCollectorServiceTest {
         verify(repository).save(record.capture());
         assertEquals("SUCCESS", result.enrichmentStatus());
         assertEquals("SUCCESS", record.getValue().getEnrichmentStatus());
-        verify(pendingRegistry).clear(id, "hash-v1");
         verify(pipelineRunRepository).markRunFinished(id, "hash-v1", "SUCCESS");
         verify(searchSyncPublisher).publishIndex(id);
     }
@@ -347,8 +348,9 @@ class MetadataResultCollectorServiceTest {
         return new MetadataResultCollectorService(
                 repository,
                 searchSyncPublisher,
-                pendingRegistry,
                 pipelineRunRepository,
+                metadataEnrichPublisher,
+                configValues,
                 objectMapper);
     }
 

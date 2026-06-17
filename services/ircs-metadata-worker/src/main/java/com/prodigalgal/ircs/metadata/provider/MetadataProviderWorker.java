@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.metadata.provider;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.metadata.MetadataConfigValues;
@@ -17,15 +16,12 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
 @Component
 @Slf4j
-@ConditionalOnProperty(prefix = "app.metadata.provider-workers", name = "tmdb-enabled", havingValue = "true")
 public class MetadataProviderWorker {
 
     private final List<MetadataProvider> providers;
@@ -47,17 +43,14 @@ public class MetadataProviderWorker {
         this.auditWriter = auditWriter == null ? WorkerJobAuditWriter.noop() : auditWriter;
     }
 
-    @RabbitListener(queues = QueueTopic.Names.FETCH_Q_TMDB)
     public void onTmdbTask(Message message) {
         executeMessage(message, ProviderType.TMDB);
     }
 
-    @RabbitListener(queues = QueueTopic.Names.FETCH_Q_DOUBAN)
     public void onDoubanTask(Message message) {
         executeMessage(message, ProviderType.DOUBAN);
     }
 
-    @RabbitListener(queues = QueueTopic.Names.FETCH_Q_RT)
     public void onRottenTomatoesTask(Message message) {
         executeMessage(message, ProviderType.ROTTEN_TOMATOES);
     }

@@ -13,12 +13,6 @@ class NormalizationConfigValues {
     static final String MAX_RETRIES_ALIAS = "app.normalization.max-retries";
     static final String BACKOFF_BASE_SECONDS_KEY = "normalization.backoff.base-seconds";
     static final String BACKOFF_BASE_SECONDS_ALIAS = "app.normalization.backoff-base-seconds";
-    static final String BATCH_SIZE_KEY = "normalization.batch-size";
-    static final String BATCH_SIZE_MIN_KEY = "normalization.batch-size.min";
-    static final String BATCH_SIZE_MAX_KEY = "normalization.batch-size.max";
-    static final String WATCHDOG_BATCH_SIZE_ALIAS = "app.normalization.watchdog.batch-size";
-    static final String PENDING_TIMEOUT_MIN_KEY = "normalization.timeout.pending-min";
-    static final String WATCHDOG_STALE_PENDING_SECONDS_ALIAS = "app.normalization.watchdog.stale-pending-seconds";
     static final String LLM_ENABLED_KEY = "app.ai.llm.enabled";
     static final String LLM_CLEANING_MODE_KEY = "app.ai.llm.cleaning.mode";
     static final String LLM_CLEANING_BATCH_SIZE_KEY = "app.ai.llm.cleaning.batch-size";
@@ -35,9 +29,6 @@ class NormalizationConfigValues {
     static final int DEFAULT_MAX_RETRIES = 5;
     static final long DEFAULT_BACKOFF_BASE_SECONDS = 60L;
     static final int DEFAULT_BATCH_SIZE = 500;
-    static final int DEFAULT_BATCH_SIZE_MIN = 100;
-    static final int DEFAULT_BATCH_SIZE_MAX = 1000;
-    static final long DEFAULT_PENDING_TIMEOUT_MIN = 60L;
     static final String DEFAULT_LLM_CLEANING_MODE = "dry-run";
     static final String DEFAULT_LLM_MODEL = "gemma-4-31b-it";
     static final String DEFAULT_LLM_PROVIDER = "OPENAI";
@@ -60,35 +51,6 @@ class NormalizationConfigValues {
 
     long backoffBaseSeconds() {
         return longValue(DEFAULT_BACKOFF_BASE_SECONDS, BACKOFF_BASE_SECONDS_KEY, BACKOFF_BASE_SECONDS_ALIAS);
-    }
-
-    int watchdogBatchSize() {
-        String runtimeBatchSize = valueFromRuntime(BATCH_SIZE_KEY, WATCHDOG_BATCH_SIZE_ALIAS);
-        if (StringUtils.hasText(runtimeBatchSize)) {
-            return Math.max(1, parseInt(runtimeBatchSize, DEFAULT_BATCH_SIZE));
-        }
-        int batchSize = dbIntValue(DEFAULT_BATCH_SIZE, BATCH_SIZE_KEY);
-        int min = intValue(DEFAULT_BATCH_SIZE_MIN, BATCH_SIZE_MIN_KEY);
-        int max = intValue(DEFAULT_BATCH_SIZE_MAX, BATCH_SIZE_MAX_KEY);
-        if (max < min) {
-            return Math.max(1, batchSize);
-        }
-        return Math.max(1, Math.min(max, Math.max(min, batchSize)));
-    }
-
-    long watchdogStalePendingSeconds() {
-        String runtimeSeconds = valueFromRuntime(WATCHDOG_STALE_PENDING_SECONDS_ALIAS);
-        if (StringUtils.hasText(runtimeSeconds)) {
-            return Math.max(1L, parseLong(runtimeSeconds, DEFAULT_PENDING_TIMEOUT_MIN * 60L));
-        }
-        String runtimeMinutes = valueFromRuntime(PENDING_TIMEOUT_MIN_KEY);
-        if (StringUtils.hasText(runtimeMinutes)) {
-            return Math.max(1L, parseLong(runtimeMinutes, DEFAULT_PENDING_TIMEOUT_MIN)) * 60L;
-        }
-        long minutes = repository.findValue(PENDING_TIMEOUT_MIN_KEY)
-                .map(raw -> parseLong(raw, DEFAULT_PENDING_TIMEOUT_MIN))
-                .orElse(DEFAULT_PENDING_TIMEOUT_MIN);
-        return Math.max(1L, minutes) * 60L;
     }
 
     boolean llmCleaningEnabled() {
@@ -172,12 +134,6 @@ class NormalizationConfigValues {
             return defaultValue;
         }
         return parseInt(raw, defaultValue);
-    }
-
-    private int dbIntValue(int defaultValue, String key) {
-        return repository.findValue(key)
-                .map(raw -> parseInt(raw, defaultValue))
-                .orElse(defaultValue);
     }
 
     private long longValue(long defaultValue, String key, String... aliases) {

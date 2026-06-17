@@ -21,7 +21,6 @@ public class MetadataDispatchService {
 
     private final RawVideoEnrichmentRepository repository;
     private final MetadataConfigValues configValues;
-    private final MetadataPendingRegistry pendingRegistry;
     private final MetadataPipelineRunRepository pipelineRunRepository;
     private final MetadataProviderTaskPublisher providerTaskPublisher;
     private final RawSearchSyncPublisher searchSyncPublisher;
@@ -59,21 +58,9 @@ public class MetadataDispatchService {
         MetadataSearchContext context = toContext(record);
         List<ProviderType> pendingProviders =
                 pipelineRunRepository.prepareDispatch(videoId, record.getDataHash(), providers);
-        registerPendingHint(videoId, record.getDataHash(), providers);
         pendingProviders.forEach(provider -> providerTaskPublisher.publish(provider, context));
-        log.info("Dispatched metadata fetch tasks: videoId={}, providers={}", videoId, pendingProviders);
+        log.info("Dispatched metadata provider Valkey tasks: videoId={}, providers={}", videoId, pendingProviders);
         return new MetadataDispatchResult(videoId, true, "DISPATCHED", pendingProviders);
-    }
-
-    private void registerPendingHint(UUID videoId, String pipelineVersion, List<ProviderType> providers) {
-        try {
-            pendingRegistry.register(videoId, pipelineVersion, providers, configValues.pendingTtl());
-        } catch (RuntimeException ex) {
-            log.warn(
-                    "Metadata pending Redis hint registration failed: videoId={}, error={}",
-                    videoId,
-                    ex.getMessage());
-        }
     }
 
     private String finalizeImmediate(RawVideoEnrichmentRecord record) {

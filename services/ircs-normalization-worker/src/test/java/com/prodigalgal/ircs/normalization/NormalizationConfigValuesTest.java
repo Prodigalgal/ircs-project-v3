@@ -17,76 +17,39 @@ class NormalizationConfigValuesTest {
 
         assertEquals(5, values.maxRetries());
         assertEquals(60L, values.backoffBaseSeconds());
-        assertEquals(500, values.watchdogBatchSize());
-        assertEquals(3600L, values.watchdogStalePendingSeconds());
     }
 
     @Test
-    void dbCanonicalKeysOverrideV1Defaults() {
+    void dbCanonicalKeysOverrideDefaults() {
         when(repository.findValue("normalization.max-retries")).thenReturn(Optional.of("7"));
         when(repository.findValue("normalization.backoff.base-seconds")).thenReturn(Optional.of("90"));
-        when(repository.findValue("normalization.batch-size")).thenReturn(Optional.of("33"));
-        when(repository.findValue("normalization.batch-size.min")).thenReturn(Optional.of("10"));
-        when(repository.findValue("normalization.batch-size.max")).thenReturn(Optional.of("40"));
-        when(repository.findValue("normalization.timeout.pending-min")).thenReturn(Optional.of("15"));
         NormalizationConfigValues values = values(new MockEnvironment());
 
         assertEquals(7, values.maxRetries());
         assertEquals(90L, values.backoffBaseSeconds());
-        assertEquals(33, values.watchdogBatchSize());
-        assertEquals(900L, values.watchdogStalePendingSeconds());
-    }
-
-    @Test
-    void dbBatchSizeIsClampedByAdaptiveMinAndMaxDefaults() {
-        when(repository.findValue("normalization.batch-size")).thenReturn(Optional.of("33"));
-        NormalizationConfigValues values = values(new MockEnvironment());
-
-        assertEquals(100, values.watchdogBatchSize());
     }
 
     @Test
     void runtimeAliasesOverrideDbConfigAndKeepAliasUnits() {
         when(repository.findValue("normalization.max-retries")).thenReturn(Optional.of("7"));
         when(repository.findValue("normalization.backoff.base-seconds")).thenReturn(Optional.of("90"));
-        when(repository.findValue("normalization.batch-size")).thenReturn(Optional.of("33"));
-        when(repository.findValue("normalization.batch-size.min")).thenReturn(Optional.of("100"));
-        when(repository.findValue("normalization.batch-size.max")).thenReturn(Optional.of("1000"));
-        when(repository.findValue("normalization.timeout.pending-min")).thenReturn(Optional.of("15"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("APP_NORMALIZATION_MAX_RETRIES", "3")
-                .withProperty("APP_NORMALIZATION_BACKOFF_BASE_SECONDS", "12")
-                .withProperty("APP_NORMALIZATION_WATCHDOG_BATCH_SIZE", "9")
-                .withProperty("APP_NORMALIZATION_WATCHDOG_STALE_PENDING_SECONDS", "45");
+                .withProperty("APP_NORMALIZATION_BACKOFF_BASE_SECONDS", "12");
         NormalizationConfigValues values = values(environment);
 
         assertEquals(3, values.maxRetries());
         assertEquals(12L, values.backoffBaseSeconds());
-        assertEquals(9, values.watchdogBatchSize());
-        assertEquals(45L, values.watchdogStalePendingSeconds());
-    }
-
-    @Test
-    void runtimeCanonicalPendingTimeoutUsesV1MinutesUnit() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("NORMALIZATION_TIMEOUT_PENDING_MIN", "2");
-        NormalizationConfigValues values = values(environment);
-
-        assertEquals(120L, values.watchdogStalePendingSeconds());
     }
 
     @Test
     void invalidValuesFallBackWithoutThrowing() {
         when(repository.findValue("normalization.max-retries")).thenReturn(Optional.of("bad"));
         when(repository.findValue("normalization.backoff.base-seconds")).thenReturn(Optional.of("bad"));
-        when(repository.findValue("normalization.batch-size")).thenReturn(Optional.of("bad"));
-        when(repository.findValue("normalization.timeout.pending-min")).thenReturn(Optional.of("bad"));
         NormalizationConfigValues values = values(new MockEnvironment());
 
         assertEquals(5, values.maxRetries());
         assertEquals(60L, values.backoffBaseSeconds());
-        assertEquals(500, values.watchdogBatchSize());
-        assertEquals(3600L, values.watchdogStalePendingSeconds());
     }
 
     @Test

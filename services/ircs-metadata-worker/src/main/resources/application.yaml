@@ -8,7 +8,7 @@ spring:
     password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
     listener:
       simple:
-        auto-startup: ${APP_METADATA_LISTENER_ENABLED:false}
+        auto-startup: ${APP_METADATA_CONFIG_LISTENER_ENABLED:false}
         default-requeue-rejected: false
         prefetch: ${APP_METADATA_RABBIT_PREFETCH:10}
         concurrency: ${APP_METADATA_RABBIT_CONCURRENCY:2}
@@ -34,25 +34,27 @@ app:
       password: ${APP_WORKER_AUDIT_PASSWORD:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:${spring.datasource.password:}}}}
       source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name:ircs-metadata-worker}}
   metadata:
-    listener:
-      enabled: ${APP_METADATA_LISTENER_ENABLED:false}
     config-listener:
       enabled: ${APP_METADATA_CONFIG_LISTENER_ENABLED:false}
-    dispatcher:
-      enabled: ${APP_METADATA_DISPATCHER_ENABLED:false}
-      pending-ttl: ${APP_METADATA_PENDING_TTL:30m}
-    watchdog:
-      enabled: ${APP_METADATA_WATCHDOG_ENABLED:false}
-      initial-delay-ms: ${APP_METADATA_WATCHDOG_INITIAL_DELAY_MS:60000}
-      fixed-delay-ms: ${APP_METADATA_WATCHDOG_FIXED_DELAY_MS:300000}
-      batch-size: ${APP_METADATA_WATCHDOG_BATCH_SIZE:100}
-      stale-pending-seconds: ${APP_METADATA_WATCHDOG_STALE_PENDING_SECONDS:300}
+    retry-delay: ${APP_METADATA_RETRY_DELAY:PT5M}
+    valkey-dispatcher:
+      enabled: ${APP_METADATA_VALKEY_DISPATCHER_ENABLED:false}
+      initial-delay-ms: ${APP_METADATA_VALKEY_DISPATCHER_INITIAL_DELAY_MS:10000}
+      fixed-delay-ms: ${APP_METADATA_VALKEY_DISPATCHER_FIXED_DELAY_MS:1000}
+      batch-size: ${APP_METADATA_VALKEY_DISPATCHER_BATCH_SIZE:10}
+      visibility-timeout: ${APP_METADATA_VALKEY_DISPATCHER_VISIBILITY_TIMEOUT:PT10M}
+      retry-delay: ${APP_METADATA_VALKEY_DISPATCHER_RETRY_DELAY:PT5M}
+    valkey-provider-worker:
+      enabled: ${APP_METADATA_VALKEY_PROVIDER_WORKER_ENABLED:false}
+      initial-delay-ms: ${APP_METADATA_VALKEY_PROVIDER_INITIAL_DELAY_MS:10000}
+      fixed-delay-ms: ${APP_METADATA_VALKEY_PROVIDER_FIXED_DELAY_MS:1000}
+      batch-size: ${APP_METADATA_VALKEY_PROVIDER_BATCH_SIZE:10}
+      visibility-timeout: ${APP_METADATA_VALKEY_PROVIDER_VISIBILITY_TIMEOUT:PT10M}
+      retry-delay: ${APP_METADATA_VALKEY_PROVIDER_RETRY_DELAY:PT2M}
     providers:
       douban-enabled: ${APP_METADATA_DOUBAN_ENABLED:false}
       tmdb-enabled: ${APP_METADATA_TMDB_ENABLED:false}
       rotten-tomatoes-enabled: ${APP_METADATA_RT_ENABLED:false}
-    provider-workers:
-      tmdb-enabled: ${APP_METADATA_TMDB_WORKER_ENABLED:false}
     credential-service:
       base-url: ${APP_METADATA_CREDENTIAL_SERVICE_BASE_URL:http://localhost:8080}
       lease-limit: ${APP_METADATA_CREDENTIAL_SERVICE_LEASE_LIMIT:20}
