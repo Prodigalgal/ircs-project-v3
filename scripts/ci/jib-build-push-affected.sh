@@ -4,6 +4,7 @@ set -euo pipefail
 REGISTRY="${REGISTRY:-registry.mnnu.eu.org/ircs}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 TARGET_OS="${TARGET_OS:-linux}"
+JIB_BASE_IMAGE="${JIB_BASE_IMAGE:-registry.mnnu.eu.org/ircs/base/eclipse-temurin:25-jre-alpine}"
 TAG="${IMAGE_TAG:-sha-$(git rev-parse --short=12 HEAD)}"
 BUILD_SCOPE="${BUILD_SCOPE:-affected}"
 DRY_RUN="${DRY_RUN:-false}"
@@ -183,6 +184,7 @@ esac
 echo "IRCS image build scope: ${BUILD_SCOPE}"
 echo "IRCS image tag: ${TAG}"
 echo "IRCS target platform: ${TARGET_OS}/${TARGET_ARCH}"
+echo "IRCS Jib base image: ${JIB_BASE_IMAGE}"
 echo "IRCS selected module count: ${#selected[@]}"
 
 mkdir -p build
@@ -192,6 +194,7 @@ mkdir -p build
   echo "tag=${TAG}"
   echo "target_os=${TARGET_OS}"
   echo "target_arch=${TARGET_ARCH}"
+  echo "jib_base_image=${JIB_BASE_IMAGE}"
   echo "scope=${BUILD_SCOPE}"
   echo "modules=${#selected[@]}"
 } >> build-image-manifest.txt
@@ -212,6 +215,7 @@ for entry in "${selected[@]}"; do
   else
     ./gradlew --no-daemon ":${module}:jib" \
       "-PjibToImage=${target}" \
+      "-PjibBaseImage=${JIB_BASE_IMAGE}" \
       "-PjibTargetArch=${TARGET_ARCH}" \
       "-PjibTargetOs=${TARGET_OS}" \
       "-Djib.to.auth.username=${REGISTRY_USERNAME}" \

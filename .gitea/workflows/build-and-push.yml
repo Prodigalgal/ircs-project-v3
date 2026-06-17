@@ -38,6 +38,9 @@ jobs:
       PUSH_USERNAME: ${{ secrets.PUSH_USERNAME }}
       PUSH_PASSWORD: ${{ secrets.PUSH_PASSWORD }}
       BUILD_SCOPE_INPUT: ${{ inputs.build_scope }}
+      BASE_IMAGE_SOURCE: mirror.gcr.io/library/eclipse-temurin:25-jre-alpine
+      BASE_IMAGE_FALLBACK: public.ecr.aws/docker/library/eclipse-temurin:25-jre-alpine
+      BASE_IMAGE_TARGET: registry.mnnu.eu.org/ircs/base/eclipse-temurin:25-jre-alpine
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +52,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+
+      - name: Sync Jib base image
+        shell: bash
+        run: |
+          chmod +x scripts/ci/sync-jib-base-image.sh
+          scripts/ci/sync-jib-base-image.sh
 
       - name: Build and push images
         shell: bash

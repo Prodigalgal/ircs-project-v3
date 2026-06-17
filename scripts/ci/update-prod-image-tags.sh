@@ -17,7 +17,7 @@ fi
 updated=0
 while IFS='=' read -r module image; do
   [[ -z "${module}" || -z "${image}" ]] && continue
-  [[ "${module}" == registry || "${module}" == tag || "${module}" == target_os || "${module}" == target_arch || "${module}" == scope || "${module}" == modules ]] && continue
+  [[ "${module}" == registry || "${module}" == tag || "${module}" == target_os || "${module}" == target_arch || "${module}" == jib_base_image || "${module}" == scope || "${module}" == modules ]] && continue
 
   image_name="${image##*/}"
   image_name="${image_name%%:*}"
