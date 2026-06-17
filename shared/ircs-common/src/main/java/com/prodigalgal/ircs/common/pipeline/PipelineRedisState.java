@@ -8,13 +8,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
-@ConditionalOnBean(StringRedisTemplate.class)
+@ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
+@ConditionalOnBean(type = "org.springframework.data.redis.core.StringRedisTemplate")
 public class PipelineRedisState {
 
     private static final String PREFIX = "ircs:pipeline:";
