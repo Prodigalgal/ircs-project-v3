@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$ElasticsearchBaseUrl = "http://127.0.0.1:19216",
     [int]$ElasticsearchPort = 19216,
@@ -228,9 +228,9 @@ function Capture-AggregationEnv {
     $envMap = Get-DeploymentEnvMap "ircs-aggregation-worker"
     $snapshot = @{}
     foreach ($name in @(
-        "APP_AGGREGATION_BATCH_SIZE",
-        "APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS",
-        "APP_AGGREGATION_SCHEDULER_ENABLED"
+        "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE",
+        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS",
+        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"
     )) {
         $snapshot[$name] = @{
             exists = $envMap.ContainsKey($name)
@@ -243,19 +243,19 @@ function Capture-AggregationEnv {
 
 function Set-AggregationSmokeEnv {
     $envMap = Capture-AggregationEnv
-    $currentBatch = if ($envMap.ContainsKey("APP_AGGREGATION_BATCH_SIZE") -and $envMap["APP_AGGREGATION_BATCH_SIZE"] -match "^\d+$") {
-        [int]$envMap["APP_AGGREGATION_BATCH_SIZE"]
+    $currentBatch = if ($envMap.ContainsKey("APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE") -and $envMap["APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE"] -match "^\d+$") {
+        [int]$envMap["APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE"]
     } else {
         1
     }
-    $currentDelay = if ($envMap.ContainsKey("APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS") -and $envMap["APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS"] -match "^\d+$") {
-        [int]$envMap["APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS"]
+    $currentDelay = if ($envMap.ContainsKey("APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS") -and $envMap["APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS"] -match "^\d+$") {
+        [int]$envMap["APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS"]
     } else {
         5000
     }
-    $schedulerEnabled = if ($envMap.ContainsKey("APP_AGGREGATION_SCHEDULER_ENABLED")) { $envMap["APP_AGGREGATION_SCHEDULER_ENABLED"] } else { "true" }
+    $workerEnabled = if ($envMap.ContainsKey("APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED")) { $envMap["APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"] } else { "false" }
     $targetBatch = [Math]::Max(2, $SmokeBatchSize)
-    $needsPatch = $currentBatch -lt $targetBatch -or $currentDelay -gt 2000 -or $schedulerEnabled.ToLowerInvariant() -ne "true"
+    $needsPatch = $currentBatch -lt $targetBatch -or $currentDelay -gt 2000 -or $workerEnabled.ToLowerInvariant() -ne "true"
     if (-not $needsPatch) {
         return
     }
@@ -269,9 +269,9 @@ function Set-AggregationSmokeEnv {
     $result = Invoke-Kubectl @(
         "-n", $Namespace,
         "set", "env", "deployment/ircs-aggregation-worker",
-        "APP_AGGREGATION_BATCH_SIZE=$targetBatch",
-        "APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS=2000",
-        "APP_AGGREGATION_SCHEDULER_ENABLED=true"
+        "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE=$targetBatch",
+        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS=2000",
+        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED=true"
     )
     if ($result.exitCode -ne 0) {
         Finish-Smoke "FAILED" "AGGREGATION_ENV_PATCH_FAILED" $result
@@ -289,9 +289,9 @@ function Restore-AggregationEnv {
     }
     $args = @("-n", $Namespace, "set", "env", "deployment/ircs-aggregation-worker")
     foreach ($name in @(
-        "APP_AGGREGATION_BATCH_SIZE",
-        "APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS",
-        "APP_AGGREGATION_SCHEDULER_ENABLED"
+        "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE",
+        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS",
+        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"
     )) {
         $entry = $script:aggregationEnvSnapshot[$name]
         if ($entry.exists) {
@@ -427,12 +427,6 @@ function Get-QueueState {
 
 function Get-SmokeQueues {
     return @(
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq",
-        "q.search.sync.unified",
-        "q.search.sync.unified.dlq",
-        "q.storage.cover_r2_promote",
-        "q.storage.cover_r2_promote.dlq"
     )
 }
 
@@ -463,9 +457,6 @@ function Assert-ConsumersReady {
     for ($attempt = 0; $attempt -lt $WaitAttempts; $attempt++) {
         $missing = @()
         foreach ($queue in @(
-            "q.search.sync.raw",
-            "q.search.sync.unified",
-            "q.storage.cover_r2_promote"
         )) {
             $state = Get-QueueState $queue
             if ($state.consumers -lt 1) {
@@ -955,10 +946,6 @@ where uv.id = '$script:unifiedVideoId';
     if ($lastState -notmatch "^$([regex]::Escape($ids.coverLocal))\|") {
         throw "managed cover was not selected; last state: $lastState"
     }
-
-    Wait-QueueEmpty "q.storage.cover_r2_promote"
-    Wait-QueueEmpty "q.storage.cover_r2_promote.dlq"
-
     $storageEnv = Get-DeploymentEnvMap "ircs-storage-service"
     $r2Enabled = if ($storageEnv.ContainsKey("APP_STORAGE_R2_ENABLED")) { $storageEnv["APP_STORAGE_R2_ENABLED"] } else { "false" }
     $cover = Invoke-SqlScalar @"
@@ -1096,7 +1083,7 @@ try {
 
     $total = 8
     $i = 1
-    Mark "ircs-dev aggregation/search/storage consumers are ready and no HTTPRoute exists" $i $total; $i++
+    Mark "ircs-dev aggregation/storage runtime workers are ready and no HTTPRoute exists" $i $total; $i++
 
     Cleanup-SmokeData
     $script:cleanupDone = $false
@@ -1107,7 +1094,7 @@ try {
     }
     Setup-SmokeData
     Assert-DbFixturePresent
-    Mark "multi-raw pipeline fixture is seeded and pre-cleaned from DB/ES/queues" $i $total; $i++
+    Mark "multi-raw pipeline fixture is seeded and pre-cleaned from DB/ES" $i $total; $i++
 
     Wait-AggregationBound
     Mark "scheduler binds fixture raws to one unified through aggregation-worker" $i $total; $i++
@@ -1127,7 +1114,7 @@ try {
     foreach ($queue in Get-SmokeQueues) {
         Assert-QueueEmpty $queue
     }
-    Mark "raw/unified ES documents are refreshed and queues/DLQs stay empty" $i $total; $i++
+    Mark "raw/unified ES documents are refreshed and runtime work is drained" $i $total; $i++
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $ids.raw1
@@ -1151,7 +1138,7 @@ try {
         Stop-Process -Id $esPf.Id -Force -ErrorAction SilentlyContinue
         $esPf = $null
     }
-    Mark "cleanup leaves no DB/ES/Rabbit/HTTPRoute/port-forward residue and resource quota is unchanged" $i $total
+    Mark "cleanup leaves no DB/ES/HTTPRoute/port-forward residue and resource quota is unchanged" $i $total
 
     Finish-Smoke "PASSED" "AGGREGATION_PIPELINE_RUNTIME_LIVE_SMOKE_PASSED" @{
         quota = $script:quotaAfter

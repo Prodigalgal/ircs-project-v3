@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$CredentialBaseUrl = "http://127.0.0.1:18090",
     [int]$CredentialPort = 18090,
@@ -427,7 +427,7 @@ function Restore-StorageDeployment {
             APP_STORAGE_R2_ACCESS_KEY- `
             APP_STORAGE_R2_SECRET_KEY- `
             APP_STORAGE_R2_ENDPOINT- `
-            APP_STORAGE_R2_WATCHDOG_ENABLED- | Out-Null
+            APP_STORAGE_R2_WORK_QUEUE_WORKER_ENABLED- | Out-Null
         kubectl apply -f deploy/k8s/dev/storage-service-dev.yaml | Out-Null
         kubectl -n $Namespace rollout status deployment/ircs-storage-service --timeout=180s | Out-Null
         $script:deploymentChanged = $false
@@ -545,10 +545,10 @@ try {
         APP_STORAGE_R2_ENABLED=true `
         APP_STORAGE_R2_BUCKET_NAME=$bucketName `
         APP_STORAGE_R2_PUBLIC_DOMAIN=$publicDomain `
-        APP_STORAGE_R2_WATCHDOG_ENABLED=false | Out-Null
+        APP_STORAGE_R2_WORK_QUEUE_WORKER_ENABLED=false | Out-Null
     $deploymentChanged = $true
     kubectl -n $Namespace rollout status deployment/ircs-storage-service --timeout=180s | Out-Null
-    Mark "storage-service temporary R2 runtime is enabled without watchdog scan" 2 6
+    Mark "storage-service temporary R2 runtime is enabled without storage work queue worker" 2 6
 
     $storagePf = Start-PortForward "svc/ircs-storage-service" $StoragePort 8080 $storagePfOut $storagePfErr
     Write-FixturePng $fixtureFile

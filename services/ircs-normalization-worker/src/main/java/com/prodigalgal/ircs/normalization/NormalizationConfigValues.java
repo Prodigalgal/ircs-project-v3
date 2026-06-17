@@ -15,7 +15,6 @@ class NormalizationConfigValues {
     static final String BACKOFF_BASE_SECONDS_ALIAS = "app.normalization.backoff-base-seconds";
     static final String LLM_ENABLED_KEY = "app.ai.llm.enabled";
     static final String LLM_CLEANING_MODE_KEY = "app.ai.llm.cleaning.mode";
-    static final String LLM_CLEANING_BATCH_SIZE_KEY = "app.ai.llm.cleaning.batch-size";
     static final String LLM_MODEL_KEY = "app.ai.llm.model";
     static final String LLM_CREDENTIAL_SERVICE_BASE_URL_KEY = "app.normalization.llm.credential-service.base-url";
     static final String LLM_CREDENTIAL_SERVICE_BASE_URL_ALIAS = "app.credential-service.base-url";
@@ -28,7 +27,6 @@ class NormalizationConfigValues {
     static final String LLM_PROVIDER_KEY = "app.ai.llm.provider";
     static final int DEFAULT_MAX_RETRIES = 5;
     static final long DEFAULT_BACKOFF_BASE_SECONDS = 60L;
-    static final int DEFAULT_BATCH_SIZE = 500;
     static final String DEFAULT_LLM_CLEANING_MODE = "dry-run";
     static final String DEFAULT_LLM_MODEL = "gemma-4-31b-it";
     static final String DEFAULT_LLM_PROVIDER = "OPENAI";
@@ -60,10 +58,6 @@ class NormalizationConfigValues {
     String llmCleaningMode() {
         String mode = value(LLM_CLEANING_MODE_KEY, "app.normalization.llm-cleaning.mode");
         return StringUtils.hasText(mode) ? mode.trim().toLowerCase(Locale.ROOT) : DEFAULT_LLM_CLEANING_MODE;
-    }
-
-    int llmCleaningBatchSize() {
-        return intValue(DEFAULT_BATCH_SIZE, LLM_CLEANING_BATCH_SIZE_KEY, "app.normalization.llm-cleaning.batch-size");
     }
 
     String llmModel() {

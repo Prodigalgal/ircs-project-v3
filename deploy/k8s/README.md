@@ -6,7 +6,7 @@ The files here are target deployment scaffolds, not final production secrets.
 - `templates/app-deployment.yaml` is the standard app Deployment template.
 - `edge-routing.yaml` preserves the old frontend paths while routing to new services.
 - `dev/notification-worker-dev.yaml` is a conflict-safe dev workload scaffold.
-- `dev/search-service-dev.yaml` runs the search sync service with queue listeners enabled.
+- `dev/search-service-dev.yaml` runs the search sync service with runtime work queue workers enabled.
 - `dev/storage-service-dev.yaml` runs the storage image-delete worker with queue listeners enabled.
 - `dev/content-service-dev.yaml` runs the content image-unlink worker with queue listeners enabled.
 - `dev/metadata-worker-dev.yaml` runs the metadata result collector, dispatcher, and TMDB provider worker with queue listeners enabled; TMDB credentials are leased from credential-service.
@@ -16,7 +16,7 @@ The files here are target deployment scaffolds, not final production secrets.
 - `dev/task-service-dev.yaml` runs the read-only collection task list/detail API with proxy password redaction.
 - `dev/ingestion-worker-dev.yaml` runs the video ingest worker with ingest and playlist queue listeners enabled.
 - `dev/normalization-worker-dev.yaml` runs the normalize worker with the normalize queue listener enabled.
-- `dev/aggregation-worker-dev.yaml` runs the aggregation scheduler worker with raw/unified search sync publishing enabled.
+- `dev/aggregation-worker-dev.yaml` runs the aggregation runtime work queue worker with raw/unified search sync publishing enabled.
 - `dev/magnet-service-dev.yaml` runs the read-only magnet provider/cache API.
 - `dev/identity-service-dev.yaml` runs the member auth/profile API. It is deployed and Ready.
 - `dev/scraper-service-dev.yaml` runs the manual scrape API and publishes `q.ingest.video`. It is deployed and Ready.
@@ -149,7 +149,7 @@ Current dev storage-service scope:
 
 ```text
 owned:     q.storage.image_delete
-deferred:  q.storage.image, q.storage.avatar_sync
+deferred:  q.storage.image
 paired:    q.storage.image_unlink is handled by ircs-content-service
 R2:        disabled by default in dev
 storage:   emptyDir /app/storage, no extra PVC
@@ -167,7 +167,7 @@ Current dev metadata-worker scope:
 
 ```text
 owned:     q.enrich.metadata, q.enrich.metadata.result, q.fetch.metadata.tmdb
-publishes: search.sync.raw to q.search.sync.raw
+publishes: search.sync.raw to runtime work queue
 valkey:    pending-set coordination available
 credentials: leases TMDB api_key values from ircs-credential-service internal API
 tmdb:      worker enabled, dispatcher fan-out disabled in dev
@@ -224,19 +224,19 @@ Current dev normalization-worker scope:
 
 ```text
 owned:     q.normalize.video
-publishes: q.search.sync.raw
+publishes: runtime-work:search.sync.raw, runtime-work:aggregation.raw-video
 database:  raw_videos normalization status and lightweight field normalization as migration bridge
-smoke:     q.normalize.video -> raw_videos READY -> q.search.sync.raw -> ircs_raw_video
+smoke:     q.normalize.video -> raw_videos READY -> runtime-work:search.sync.raw + runtime-work:aggregation.raw-video
 deferred:  full V1 normalization handler pipeline, category/genre/person relation writes, FAILED recovery scheduler
 ```
 
 Current dev aggregation-worker scope:
 
 ```text
-owned:     scheduler scan of raw_videos ready for aggregation
-publishes: q.search.sync.raw, q.search.sync.unified
+owned:     runtime-work:aggregation.raw-video
+publishes: runtime-work:search.sync.raw, runtime-work:search.sync.unified
 database:  raw_videos aggregation status, raw_video_unified_video binding, basic unified_videos fields as migration bridge
-smoke:     raw_videos READY/PENDING -> BOUND -> unified_videos/raw_video_unified_video -> q.search.sync.* -> ES
+smoke:     raw_videos READY/PENDING -> BOUND -> unified_videos/raw_video_unified_video -> runtime work queue -> ES
 deferred:  full V1 graph clustering, relation-table aggregation, cover image merge, victim merge cleanup, interaction migration
 ```
 

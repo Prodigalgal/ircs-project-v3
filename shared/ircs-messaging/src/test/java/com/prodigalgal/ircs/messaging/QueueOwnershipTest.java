@@ -22,7 +22,7 @@ class QueueOwnershipTest {
     }
 
     @Test
-    void storageServiceOwnsCoverR2PromoteQueue() {
-        assertEquals("ircs-storage-service", QueueOwnership.OWNER_BY_TOPIC.get(QueueTopic.PROMOTE_COVER_R2));
+    void storageServiceOwnsImageDownloadQueue() {
+        assertEquals("ircs-storage-service", QueueOwnership.OWNER_BY_TOPIC.get(QueueTopic.DOWNLOAD_IMAGE));
     }
 }

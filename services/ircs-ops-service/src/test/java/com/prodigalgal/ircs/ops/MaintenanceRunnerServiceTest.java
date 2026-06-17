@@ -19,15 +19,15 @@ class MaintenanceRunnerServiceTest {
 
     private final MaintenanceReindexCommand reindexCommand =
             org.mockito.Mockito.mock(MaintenanceReindexCommand.class);
-    private final MaintenanceLlmCleaningClient llmCleaningClient =
-            org.mockito.Mockito.mock(MaintenanceLlmCleaningClient.class);
+    private final MaintenanceNormalizationClient normalizationClient =
+            org.mockito.Mockito.mock(MaintenanceNormalizationClient.class);
     private final MaintenanceAggregationClient aggregationClient =
             org.mockito.Mockito.mock(MaintenanceAggregationClient.class);
     private final MaintenanceTrendSyncClient trendSyncClient =
             org.mockito.Mockito.mock(MaintenanceTrendSyncClient.class);
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final MaintenanceRunnerService runnerService =
-            new MaintenanceRunnerService(reindexCommand, llmCleaningClient, aggregationClient, trendSyncClient, auditWriter);
+            new MaintenanceRunnerService(reindexCommand, normalizationClient, aggregationClient, trendSyncClient, auditWriter);
 
     @Test
     void registryExposesRiskDevDryRunAndLimitMetadata() {
@@ -48,12 +48,6 @@ class MaintenanceRunnerServiceTest {
         assertEquals(MaintenanceReindexCommand.DEFAULT_DEV_LIMIT, raw.defaultLimit());
         assertEquals(MaintenanceReindexCommand.MAX_DEV_LIMIT, raw.maxLimit());
         assertEquals(List.of(MaintenanceRunnerService.RAW_SEARCH_REINDEX_OWNER_STEP), raw.ownerSteps());
-
-        MaintenanceRunnerMetadata llmLanguage = find(registry, "llm-sanitize");
-        assertEquals(MaintenanceRiskLevel.HIGH, llmLanguage.riskLevel());
-        assertTrue(llmLanguage.devAllowed());
-        assertTrue(llmLanguage.supportsDryRun());
-        assertEquals(List.of(MaintenanceRunnerService.LLM_LANGUAGE_OWNER_STEP), llmLanguage.ownerSteps());
 
         MaintenanceRunnerMetadata unifiedRecalculate = find(registry, "unified-recalculate");
         assertEquals(MaintenanceRiskLevel.HIGH, unifiedRecalculate.riskLevel());
@@ -151,7 +145,7 @@ class MaintenanceRunnerServiceTest {
                 registry);
         MaintenanceRunnerService service = new MaintenanceRunnerService(
                 reindexCommand,
-                llmCleaningClient,
+                normalizationClient,
                 aggregationClient,
                 trendSyncClient,
                 metricsWriter);
@@ -178,26 +172,6 @@ class MaintenanceRunnerServiceTest {
                 .tag("outcome", "succeeded")
                 .timer()
                 .count());
-    }
-
-    @Test
-    void llmCleaningRunnerCallsNormalizationOwnerAndWritesSucceededAuditEvidence() {
-        MaintenanceRunResult result = new MaintenanceRunResult("llm-area-clean", 5, 3, List.of());
-        when(llmCleaningClient.run(MaintenanceLlmCleaningTask.AREA, "corr-llm")).thenReturn(result);
-
-        MaintenanceRunnerExecution execution = runnerService.run("llm-area-clean", "corr-llm");
-
-        assertFalse(execution.refused());
-        assertEquals(result, execution.result());
-        assertEquals("llm-area-clean", execution.metadata().taskName());
-        verify(llmCleaningClient).run(MaintenanceLlmCleaningTask.AREA, "corr-llm");
-
-        WorkerJobAuditEvent event = captureAuditEvent();
-        assertEquals(MaintenanceRunnerService.JOB_TYPE_MAINTENANCE_RUNNER, event.jobType());
-        assertEquals("llm-area-clean", event.jobName());
-        assertEquals("succeeded", event.status());
-        assertEquals("corr-llm", event.correlationId());
-        assertNotNull(event.duration());
     }
 
     @Test
@@ -275,14 +249,14 @@ class MaintenanceRunnerServiceTest {
                 11,
                 9,
                 List.of(sampleRawId));
-        when(llmCleaningClient.resetAllNormalization("corr-sanitize")).thenReturn(result);
+        when(normalizationClient.resetAllNormalization("corr-sanitize")).thenReturn(result);
 
         MaintenanceRunnerExecution execution = runnerService.run("sanitize", "corr-sanitize");
 
         assertFalse(execution.refused());
         assertEquals(result, execution.result());
         assertEquals("sanitize", execution.metadata().taskName());
-        verify(llmCleaningClient).resetAllNormalization("corr-sanitize");
+        verify(normalizationClient).resetAllNormalization("corr-sanitize");
 
         WorkerJobAuditEvent event = captureAuditEvent();
         assertEquals(MaintenanceRunnerService.JOB_TYPE_MAINTENANCE_RUNNER, event.jobType());
@@ -327,8 +301,7 @@ class MaintenanceRunnerServiceTest {
         verify(reindexCommand, never()).enqueueUnifiedIndex();
         verify(reindexCommand, never()).enqueueRawIndex();
         verify(reindexCommand, never()).hardResetUnifiedIndex(org.mockito.ArgumentMatchers.any());
-        verify(llmCleaningClient, never()).run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-        verify(llmCleaningClient, never()).resetAllNormalization(org.mockito.ArgumentMatchers.any());
+        verify(normalizationClient, never()).resetAllNormalization(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).recalculateDirtyUnified(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).prepareAggregationReset(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).markAggregationResetRawPending(org.mockito.ArgumentMatchers.any());
@@ -352,7 +325,7 @@ class MaintenanceRunnerServiceTest {
         verify(reindexCommand, never()).enqueueUnifiedIndex();
         verify(reindexCommand, never()).enqueueRawIndex();
         verify(reindexCommand, never()).hardResetUnifiedIndex(org.mockito.ArgumentMatchers.any());
-        verify(llmCleaningClient, never()).resetAllNormalization(org.mockito.ArgumentMatchers.any());
+        verify(normalizationClient, never()).resetAllNormalization(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).recalculateDirtyUnified(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).prepareAggregationReset(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).markAggregationResetRawPending(org.mockito.ArgumentMatchers.any());

@@ -16,6 +16,9 @@ class NormalizationAutoStartGateHealthConfiguration {
         return new AutoStartGateHealthIndicator(environment, List.of(
                 new AutoStartGate("normalization-valkey-worker", "app.normalization.valkey-worker.enabled",
                         "APP_NORMALIZATION_VALKEY_WORKER_ENABLED", false),
+                new AutoStartGate("normalization-llm-cleaning-work-queue-worker",
+                        "app.normalization.llm-cleaning.work-queue.worker.enabled",
+                        "APP_NORMALIZATION_LLM_CLEANING_WORK_QUEUE_WORKER_ENABLED", false),
                 new AutoStartGate("normalization-config-listener", "app.normalization.config-listener.enabled",
                         "APP_NORMALIZATION_CONFIG_LISTENER_ENABLED", false)
         ));

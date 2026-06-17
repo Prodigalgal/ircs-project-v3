@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$RabbitBaseUrl = "http://127.0.0.1:19077",
     [int]$RabbitPort = 19077,
@@ -369,9 +369,7 @@ function Assert-SmokeQueuesCleanBefore {
         "q.fetch.metadata.douban",
         "q.fetch.metadata.douban.dlq",
         "q.enrich.metadata.result",
-        "q.enrich.metadata.result.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.enrich.metadata.result.dlq"
     )) {
         $state = Get-QueueState $queue
         if ($state.messages -ne 0) {
@@ -392,8 +390,7 @@ function Assert-ConsumersReady {
         $missing = @()
         foreach ($queue in @(
             "q.fetch.metadata.douban",
-            "q.enrich.metadata.result",
-            "q.search.sync.raw"
+            "q.enrich.metadata.result"
         )) {
             $state = Get-QueueState $queue
             if ($state.consumers -lt 1) {
@@ -724,7 +721,7 @@ try {
     Assert-SmokeQueuesCleanBefore
     Assert-ConsumersReady
     Assert-NoHttpRoute
-    Mark "metadata/search consumers are ready and HTTPRoute remains absent" 2 6
+    Mark "metadata consumers are ready and HTTPRoute remains absent" 2 6
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -751,9 +748,7 @@ try {
         "q.fetch.metadata.douban",
         "q.fetch.metadata.douban.dlq",
         "q.enrich.metadata.result",
-        "q.enrich.metadata.result.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.enrich.metadata.result.dlq"
     )) {
         Assert-QueueEmpty $queue
     }
@@ -762,7 +757,7 @@ try {
     Wait-EsMissing
     Assert-NoDbResidue
     Assert-NoHttpRoute
-    Mark "provider/result/search queues and DLQs are empty; smoke fixture is cleaned" 6 6
+    Mark "provider/result queues and DLQs are empty; smoke fixture is cleaned" 6 6
 
     Finish-Smoke "SUCCESS" "DOUBAN_LIVE_QUEUE_PARITY_OK" @{
         marks = "6/6"
@@ -810,9 +805,7 @@ try {
             "q.fetch.metadata.douban",
             "q.fetch.metadata.douban.dlq",
             "q.enrich.metadata.result",
-            "q.enrich.metadata.result.dlq",
-            "q.search.sync.raw",
-            "q.search.sync.raw.dlq"
+            "q.enrich.metadata.result.dlq"
         )) {
             try { kubectl -n $Namespace exec rabbitmq-0 -- rabbitmqctl purge_queue $queue | Out-Null } catch { Write-Warning $_ }
         }

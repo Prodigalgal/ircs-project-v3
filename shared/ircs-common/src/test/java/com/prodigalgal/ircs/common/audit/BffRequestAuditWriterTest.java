@@ -46,7 +46,6 @@ class BffRequestAuditWriterTest {
             assertThat(result.getString("trace_id")).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
             assertThat(result.next()).isFalse();
         }
-        assertOutboxCount(url, "request_audit_logs", "BEHAVIOR", 1);
     }
 
     @Test
@@ -85,7 +84,6 @@ class BffRequestAuditWriterTest {
                     .doesNotContain("secret-token")
                     .doesNotContain("secret-password");
         }
-        assertOutboxCount(url, "request_audit_logs", "SECURITY", 1);
     }
 
     private static void createAuditTables(String url) throws Exception {
@@ -112,39 +110,6 @@ class BffRequestAuditWriterTest {
                         error_message text
                     )
                     """);
-            statement.execute("""
-                    create table audit_es_replication_outbox (
-                        id uuid primary key,
-                        created_at timestamp not null,
-                        updated_at timestamp not null,
-                        version bigint not null,
-                        audit_class varchar(32) not null,
-                        source_table varchar(128) not null,
-                        source_id uuid not null,
-                        event_type varchar(32) not null,
-                        payload text,
-                        status varchar(32) not null,
-                        attempt_count integer not null,
-                        next_attempt_at timestamp not null,
-                        last_error text
-                    )
-                    """);
-        }
-    }
-
-    private static void assertOutboxCount(String url, String sourceTable, String auditClass, int expected) throws Exception {
-        try (var connection = DriverManager.getConnection(url);
-             var statement = connection.prepareStatement("""
-                     select count(*)
-                     from audit_es_replication_outbox
-                     where source_table = ? and audit_class = ?
-                     """)) {
-            statement.setString(1, sourceTable);
-            statement.setString(2, auditClass);
-            try (var result = statement.executeQuery()) {
-                assertThat(result.next()).isTrue();
-                assertThat(result.getInt(1)).isEqualTo(expected);
-            }
         }
     }
 }

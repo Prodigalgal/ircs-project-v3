@@ -109,3 +109,11 @@ databaseChangeLog:
       file: db/changelog/2026/07/add-member-oauth-accounts.sql
   - include:
       file: db/changelog/2026/07/add-video-pipeline-run-checkpoints.sql
+  - include:
+      file: db/changelog/2026/07/drop-search-sync-tasks-runtime-queue.sql
+  - include:
+      file: db/changelog/2026/07/drop-audit-es-replication-outbox-runtime-queue.sql
+  - include:
+      file: db/changelog/2026/07/drop-llm-cleaning-claim-lease-runtime-queue.sql
+  - include:
+      file: db/changelog/2026/07/drop-avatar-sync-claim-lease-runtime-queue.sql

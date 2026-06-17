@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.storage.StorageWorkPublisher;
 import com.prodigalgal.ircs.common.outbound.OutboundAddressResolver;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
@@ -55,6 +56,9 @@ class CoverImageDownloadServiceTest {
     @Mock
     private R2ObjectStorage r2ObjectStorage;
 
+    @Mock
+    private StorageWorkPublisher storageWorkPublisher;
+
     private final FakeResolver resolver = new FakeResolver();
     private final FakeDownloadAdapter downloadAdapter = new FakeDownloadAdapter();
 
@@ -76,8 +80,29 @@ class CoverImageDownloadServiceTest {
 
         verify(normalizationService).normalize(aryEq(PNG), eq("image/png"), eq("covers"));
         verify(localObjectStorage).store(PNG, "covers/hash.png", "image/png");
-        verify(repository).finalizeDownload(imageId, normalized, false);
+        verify(repository).finalizeDownload(imageId, normalized);
+        verify(storageWorkPublisher, never()).enqueueCoverR2Sync(any(), any());
         verify(repository, never()).markFailed(any(), any(), anyInt());
+    }
+
+    @Test
+    void trueDownloadQueuesCoverR2SyncWhenR2IsActive() {
+        UUID imageId = UUID.randomUUID();
+        CoverImageRow row = row(imageId, CoverImageStatus.UNPROCESSED, 0);
+        NormalizedFile normalized =
+                new NormalizedFile(PNG, "hash", "image/png", ".png", PNG.length, "covers/hash.png");
+        downloadAdapter.enqueue(response(200, Map.of("Content-Type", List.of("image/png")), PNG));
+        when(repository.findRowById(imageId)).thenReturn(Optional.of(row));
+        when(repository.markFetching(imageId)).thenReturn(true);
+        when(urlResolver.resolve(row)).thenReturn("https://images.example.test/cover.png");
+        when(normalizationService.normalize(any(byte[].class), eq("image/png"), eq("covers"))).thenReturn(normalized);
+        when(localObjectStorage.exists("covers/hash.png")).thenReturn(true);
+        when(r2ObjectStorage.isActive()).thenReturn(true);
+
+        newService(true, false, 3).process(imageId);
+
+        verify(repository).finalizeDownload(imageId, normalized);
+        verify(storageWorkPublisher).enqueueCoverR2Sync(imageId, "cover-download");
     }
 
     @Test
@@ -93,7 +118,7 @@ class CoverImageDownloadServiceTest {
 
         verify(repository).markFailed(imageId, "Download failed with HTTP 500", 3);
         verifyNoInteractions(normalizationService, localObjectStorage);
-        verify(repository, never()).finalizeDownload(any(), any(), eq(false));
+        verify(repository, never()).finalizeDownload(any(), any());
     }
 
     @Test
@@ -109,7 +134,7 @@ class CoverImageDownloadServiceTest {
 
         verify(repository).markFailed(eq(imageId), contains("Unsafe image URL is blocked"), eq(1));
         verifyNoInteractions(normalizationService, localObjectStorage);
-        verify(repository, never()).finalizeDownload(any(), any(), eq(false));
+        verify(repository, never()).finalizeDownload(any(), any());
         org.assertj.core.api.Assertions.assertThat(downloadAdapter.requestedUris).isEmpty();
     }
 
@@ -130,7 +155,7 @@ class CoverImageDownloadServiceTest {
 
         newService(true, true, 3).process(imageId);
 
-        verify(repository).finalizeDownload(imageId, normalized, false);
+        verify(repository).finalizeDownload(imageId, normalized);
         org.assertj.core.api.Assertions.assertThat(downloadAdapter.requestedUris).hasSize(1);
     }
 
@@ -233,6 +258,7 @@ class CoverImageDownloadServiceTest {
                 normalizationService,
                 localObjectStorage,
                 r2ObjectStorage,
+                storageWorkPublisher,
                 new OutboundUrlPolicy(resolver),
                 downloadAdapter);
         ReflectionTestUtils.setField(service, "coverPathPrefix", "covers");

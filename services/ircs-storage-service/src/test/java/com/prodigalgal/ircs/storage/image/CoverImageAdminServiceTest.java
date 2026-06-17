@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.storage.StorageWorkPublisher;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageResponse;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.NormalizedFile;
@@ -25,6 +26,7 @@ class CoverImageAdminServiceTest {
     private final LocalObjectStorage localObjectStorage = org.mockito.Mockito.mock(LocalObjectStorage.class);
     private final R2ObjectStorage r2ObjectStorage = org.mockito.Mockito.mock(R2ObjectStorage.class);
     private final StorageCommandPublisher publisher = org.mockito.Mockito.mock(StorageCommandPublisher.class);
+    private final StorageWorkPublisher storageWorkPublisher = org.mockito.Mockito.mock(StorageWorkPublisher.class);
 
     @Test
     void uploadStoresFileAndPersistsMetadata() {
@@ -42,6 +44,24 @@ class CoverImageAdminServiceTest {
         verify(validator).validateFilename("cover.png");
         verify(localObjectStorage).store(new byte[] {1}, "covers/hash.png", "image/png");
         verify(repository).createLocal(normalized);
+        verify(storageWorkPublisher, never()).enqueueCoverR2Sync(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void uploadQueuesCoverR2SyncWhenR2IsActive() {
+        CoverImageAdminService service = newService();
+        UUID imageId = UUID.randomUUID();
+        MockMultipartFile file = new MockMultipartFile("file", "cover.png", "image/png", new byte[] {1});
+        NormalizedFile normalized = new NormalizedFile(new byte[] {1}, "hash", "image/png", ".png", 1, "covers/hash.png");
+        CoverImageResponse response = response(imageId, CoverImageStorageType.LOCAL, CoverImageStatus.LOCAL_STORED);
+        when(normalizationService.normalize(new byte[] {1}, "image/png", "covers")).thenReturn(normalized);
+        when(localObjectStorage.exists("covers/hash.png")).thenReturn(true);
+        when(repository.createLocal(normalized)).thenReturn(response);
+        when(r2ObjectStorage.isActive()).thenReturn(true);
+
+        assertEquals(response, service.manualUpload(file));
+
+        verify(storageWorkPublisher).enqueueCoverR2Sync(imageId, "cover-manual-upload");
     }
 
     @Test
@@ -107,6 +127,18 @@ class CoverImageAdminServiceTest {
         verify(publisher).publishImageDownload(id);
     }
 
+    @Test
+    void triggerR2SyncQueuesRuntimeWorkAfterEligibilityCheck() {
+        CoverImageAdminService service = newService();
+        UUID id = UUID.randomUUID();
+        when(r2ObjectStorage.isActive()).thenReturn(true);
+        when(repository.findRowById(id)).thenReturn(Optional.of(row(id, CoverImageStatus.LOCAL_STORED)));
+
+        service.triggerR2Sync(id);
+
+        verify(storageWorkPublisher).enqueueCoverR2Sync(id, "cover-manual-sync");
+    }
+
     private CoverImageAdminService newService() {
         return newService(10L * 1024 * 1024);
     }
@@ -118,7 +150,8 @@ class CoverImageAdminServiceTest {
                 normalizationService,
                 localObjectStorage,
                 r2ObjectStorage,
-                publisher);
+                publisher,
+                storageWorkPublisher);
         ReflectionTestUtils.setField(service, "coverPathPrefix", "covers");
         ReflectionTestUtils.setField(service, "maxUploadBytes", maxUploadBytes);
         return service;

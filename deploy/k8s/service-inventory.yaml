@@ -11,7 +11,7 @@ spec:
     - name: ircs-content-service
       type: http
       routes: ["/api/v1/raw-videos", "/api/v1/unified-videos", "/api/v1/playlists"]
-      publishes: ["q.normalize.video", "q.enrich.metadata", "q.search.sync.raw", "q.search.sync.unified"]
+      publishes: ["q.normalize.video", "q.enrich.metadata", "runtime-work:search.sync.raw", "runtime-work:search.sync.unified"]
     - name: ircs-catalog-service
       type: http
       routes: ["/api/v1/standard-areas", "/api/v1/standard-categories", "/api/v1/standard-genres", "/api/v1/standard-languages", "/api/v1/data-sources"]
@@ -31,11 +31,11 @@ spec:
     - name: ircs-search-service
       type: http-worker
       routes: ["/api/portal/search"]
-      consumes: ["q.search.sync.raw", "q.search.sync.unified"]
+      consumes: ["runtime-work:search.sync.raw", "runtime-work:search.sync.unified"]
     - name: ircs-storage-service
       type: http-worker
       routes: ["/api/v1/cover-images", "/media"]
-      consumes: ["q.storage.image", "q.storage.avatar_sync", "q.storage.image_delete"]
+      consumes: ["q.storage.image", "q.storage.image_delete"]
     - name: ircs-interaction-service
       type: http-worker
       routes: ["/api/v1/messages", "/api/portal/interaction", "/api/portal/feedback"]
@@ -56,12 +56,14 @@ spec:
       type: http-worker
       routes: ["/internal/v1/normalization/llm-cleaning"]
       consumes: ["q.normalize.video"]
+      publishes: ["runtime-work:search.sync.raw", "runtime-work:aggregation.raw-video"]
     - name: ircs-aggregation-worker
       type: worker
-      jobs: ["aggregation scheduler"]
+      consumes: ["runtime-work:aggregation.raw-video"]
     - name: ircs-metadata-worker
       type: worker
       consumes: ["q.enrich.metadata", "q.enrich.metadata.result", "q.fetch.metadata.douban", "q.fetch.metadata.tmdb", "q.fetch.metadata.rt"]
+      publishes: ["runtime-work:search.sync.raw", "runtime-work:aggregation.raw-video"]
     - name: ircs-notification-worker
       type: worker
       consumes: ["q.notification.mail"]

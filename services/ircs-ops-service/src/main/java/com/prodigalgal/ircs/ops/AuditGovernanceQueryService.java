@@ -13,7 +13,7 @@ public class AuditGovernanceQueryService {
         return repository.archiveSummary();
     }
 
-    public AuditEsReplicationOutboxSummaryResponse outboxSummary() {
-        return repository.outboxSummary();
+    public AuditReplicationWorkQueueSummaryResponse replicationWorkQueueSummary() {
+        return repository.replicationWorkQueueSummary();
     }
 }

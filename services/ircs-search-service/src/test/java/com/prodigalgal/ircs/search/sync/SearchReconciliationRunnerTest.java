@@ -5,7 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
-import com.prodigalgal.ircs.common.search.SearchSyncOutboxWriter;
+import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import com.prodigalgal.ircs.search.index.SearchIndexService;
@@ -22,14 +22,14 @@ class SearchReconciliationRunnerTest {
     void enqueuesDbRecordsMissingFromSearchIndexWhenExecuteEnabled() throws Exception {
         SearchDocumentJdbcRepository documentRepository = org.mockito.Mockito.mock(SearchDocumentJdbcRepository.class);
         SearchIndexService searchIndexService = org.mockito.Mockito.mock(SearchIndexService.class);
-        SearchSyncOutboxWriter outboxWriter = org.mockito.Mockito.mock(SearchSyncOutboxWriter.class);
+        SearchSyncWorkPublisher workPublisher = org.mockito.Mockito.mock(SearchSyncWorkPublisher.class);
         UUID present = UUID.randomUUID();
         UUID missing = UUID.randomUUID();
         when(documentRepository.findNextRawVideoIds(null, 10)).thenReturn(List.of(present, missing));
         when(documentRepository.findNextRawVideoIds(missing, 10)).thenReturn(List.of());
         when(documentRepository.findNextUnifiedVideoIds(null, 10)).thenReturn(List.of());
         when(searchIndexService.existingRawIds(List.of(present, missing))).thenReturn(Set.of(present));
-        when(outboxWriter.enqueueBatch(
+        when(workPublisher.enqueueBatch(
                 List.of(missing),
                 SearchEntityType.RAW_VIDEO,
                 SyncOperation.INDEX,
@@ -38,7 +38,7 @@ class SearchReconciliationRunnerTest {
         SearchReconciliationRunner runner = new SearchReconciliationRunner(
                 documentRepository,
                 searchIndexService,
-                outboxWriter,
+                workPublisher,
                 org.mockito.Mockito.mock(WorkerJobAuditWriter.class),
                 SearchDistributedLockRunner.local());
         set(runner, "batchSize", 10);
@@ -51,7 +51,7 @@ class SearchReconciliationRunnerTest {
         assertThat(result.scanned()).isEqualTo(2);
         assertThat(result.missing()).isEqualTo(1);
         assertThat(result.enqueued()).isEqualTo(1);
-        verify(outboxWriter).enqueueBatch(
+        verify(workPublisher).enqueueBatch(
                 List.of(missing),
                 SearchEntityType.RAW_VIDEO,
                 SyncOperation.INDEX,

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string[]]$Batch = @(),
     [string]$BatchFile = "",
     [switch]$Execute,
@@ -185,7 +185,7 @@ $batches = @(
         -Steps @(
             (New-Step "notification worker audit smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\notification-worker-audit-with-listener-02812-smoke.ps1 -FailOnSkip"),
             (New-Step "task service audit smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\task-service-audit-02812-smoke.ps1"),
-            (New-Step "search worker audit focused regression" ".\gradlew.bat --no-daemon :services:ircs-search-service:test --tests *SearchSyncConsumerTest --rerun-tasks"),
+            (New-Step "search runtime worker audit focused regression" ".\gradlew.bat --no-daemon :services:ircs-search-service:test --tests *SearchSyncWorkQueueWorkerTest --rerun-tasks"),
             (New-Step "scraper worker audit focused regression" ".\gradlew.bat --no-daemon :services:ircs-scraper-service:test --tests *ManualScraperServiceTaskExecutionTest --tests *ScraperServiceAuditFilterTest --rerun-tasks"),
             (New-Step "search service audit smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\search-service-audit-02812-smoke.ps1"),
             (New-Step "scraper service audit smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\scraper-service-audit-02812-smoke.ps1"),

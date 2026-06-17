@@ -1,10 +1,8 @@
 package com.prodigalgal.ircs.normalization;
 
-import java.sql.Timestamp;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -18,26 +16,17 @@ class LlmCleaningRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
-    List<LlmCleaningCandidate> claimCandidates(
-            LlmCleaningKind kind,
-            int limit,
-            String workerId,
-            Duration leaseDuration) {
-        if (limit <= 0) {
-            return List.of();
+    Optional<LlmCleaningCandidate> findCandidate(LlmCleaningKind kind, UUID rawId) {
+        if (rawId == null) {
+            return Optional.empty();
         }
-        Instant claimedUntil = Instant.now().plus(leaseDuration == null || !leaseDuration.isPositive()
-                ? Duration.ofMinutes(10)
-                : leaseDuration);
-        return jdbcTemplate.query(
-                claimSql(kind),
-                new MapSqlParameterSource()
-                        .addValue("limit", limit)
-                        .addValue("workerId", workerId)
-                        .addValue("claimedUntil", Timestamp.from(claimedUntil)),
+        List<LlmCleaningCandidate> candidates = jdbcTemplate.query(
+                candidateSql(kind),
+                new MapSqlParameterSource("rawId", rawId),
                 (rs, rowNum) -> new LlmCleaningCandidate(
                         rs.getObject("id", UUID.class),
                         rs.getString("raw_value")));
+        return candidates.stream().findFirst();
     }
 
     List<LlmCleaningStandard> findStandards(LlmCleaningKind kind) {
@@ -49,31 +38,11 @@ class LlmCleaningRepository {
                         rs.getString("name")));
     }
 
-    void releaseClaims(LlmCleaningKind kind, List<UUID> ids, String workerId) {
-        if (ids == null || ids.isEmpty()) {
-            return;
-        }
-        jdbcTemplate.update(
-                """
-                update %s
-                   set llm_cleaning_claimed_by = null,
-                       llm_cleaning_claimed_until = null
-                 where id in (:ids)
-                   and llm_cleaning_claimed_by = :workerId
-                   and %s is null
-                """.formatted(rawTable(kind), standardColumn(kind)),
-                new MapSqlParameterSource()
-                        .addValue("ids", ids)
-                        .addValue("workerId", workerId));
-    }
-
     boolean applyMatch(LlmCleaningKind kind, UUID rawId, UUID standardId) {
         int updated = jdbcTemplate.update(
                 """
                 update %s
                    set %s = :standardId,
-                       llm_cleaning_claimed_by = null,
-                       llm_cleaning_claimed_until = null,
                        updated_at = now()
                  where id = :rawId
                    and %s is null
@@ -129,8 +98,6 @@ class LlmCleaningRepository {
                         order by name
                         limit 1
                     ),
-                    llm_cleaning_claimed_by = null,
-                    llm_cleaning_claimed_until = null,
                     updated_at = now()
                 where id = :rawId
                   and category_id is null
@@ -162,83 +129,39 @@ class LlmCleaningRepository {
         return false;
     }
 
-    private String claimSql(LlmCleaningKind kind) {
+    private String candidateSql(LlmCleaningKind kind) {
         return switch (kind) {
             case GENRE -> """
-                    with candidates as (
-                        select id
-                        from raw_genres
-                        where standard_genre_id is null
-                          and source_value is not null
-                          and (llm_cleaning_claimed_until is null or llm_cleaning_claimed_until <= now())
-                        order by updated_at asc, id asc
-                        limit :limit
-                        for update skip locked
-                    )
-                    update raw_genres rg
-                       set llm_cleaning_claimed_by = :workerId,
-                           llm_cleaning_claimed_until = :claimedUntil,
-                           updated_at = now()
-                      from candidates
-                     where rg.id = candidates.id
-                    returning rg.id, rg.source_value as raw_value
+                    select id, source_value as raw_value
+                    from raw_genres
+                    where id = :rawId
+                      and standard_genre_id is null
+                      and source_value is not null
+                    limit 1
                     """;
             case LANGUAGE -> """
-                    with candidates as (
-                        select id
-                        from raw_languages
-                        where standard_language_id is null
-                          and source_value is not null
-                          and (llm_cleaning_claimed_until is null or llm_cleaning_claimed_until <= now())
-                        order by updated_at asc, id asc
-                        limit :limit
-                        for update skip locked
-                    )
-                    update raw_languages rl
-                       set llm_cleaning_claimed_by = :workerId,
-                           llm_cleaning_claimed_until = :claimedUntil,
-                           updated_at = now()
-                      from candidates
-                     where rl.id = candidates.id
-                    returning rl.id, rl.source_value as raw_value
+                    select id, source_value as raw_value
+                    from raw_languages
+                    where id = :rawId
+                      and standard_language_id is null
+                      and source_value is not null
+                    limit 1
                     """;
             case AREA -> """
-                    with candidates as (
-                        select id
-                        from raw_areas
-                        where standard_area_id is null
-                          and source_value is not null
-                          and (llm_cleaning_claimed_until is null or llm_cleaning_claimed_until <= now())
-                        order by updated_at asc, id asc
-                        limit :limit
-                        for update skip locked
-                    )
-                    update raw_areas ra
-                       set llm_cleaning_claimed_by = :workerId,
-                           llm_cleaning_claimed_until = :claimedUntil,
-                           updated_at = now()
-                      from candidates
-                     where ra.id = candidates.id
-                    returning ra.id, ra.source_value as raw_value
+                    select id, source_value as raw_value
+                    from raw_areas
+                    where id = :rawId
+                      and standard_area_id is null
+                      and source_value is not null
+                    limit 1
                     """;
             case CATEGORY -> """
-                    with candidates as (
-                        select id
-                        from raw_category
-                        where category_id is null
-                          and source_name is not null
-                          and (llm_cleaning_claimed_until is null or llm_cleaning_claimed_until <= now())
-                        order by updated_at asc, id asc
-                        limit :limit
-                        for update skip locked
-                    )
-                    update raw_category rc
-                       set llm_cleaning_claimed_by = :workerId,
-                           llm_cleaning_claimed_until = :claimedUntil,
-                           updated_at = now()
-                      from candidates
-                     where rc.id = candidates.id
-                    returning rc.id, rc.source_name as raw_value
+                    select id, source_name as raw_value
+                    from raw_category
+                    where id = :rawId
+                      and category_id is null
+                      and source_name is not null
+                    limit 1
                     """;
         };
     }

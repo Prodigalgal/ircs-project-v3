@@ -1,7 +1,5 @@
 package com.prodigalgal.ircs.normalization;
 
-import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -9,7 +7,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -22,28 +19,21 @@ class LlmCleaningService {
     private final FakeLlmCleaningClient fakeClient;
     private final OpenAiCompatibleLlmCleaningClient liveClient;
     private final LlmCredentialResolver credentialResolver;
-    private final String workerId;
-    private final Duration claimTtl;
+
     LlmCleaningService(
             NormalizationConfigValues configValues,
             LlmCleaningRepository repository,
             FakeLlmCleaningClient fakeClient,
             OpenAiCompatibleLlmCleaningClient liveClient,
-            LlmCredentialResolver credentialResolver,
-            @Value("${spring.application.name:ircs-normalization-worker}") String applicationName,
-            @Value("${app.normalization.llm-cleaning.worker-id:${APP_NORMALIZATION_LLM_CLEANING_WORKER_ID:}}")
-                    String configuredWorkerId,
-            @Value("${app.normalization.llm-cleaning.claim-ttl:PT10M}") Duration claimTtl) {
+            LlmCredentialResolver credentialResolver) {
         this.configValues = configValues;
         this.repository = repository;
         this.fakeClient = fakeClient;
         this.liveClient = liveClient;
         this.credentialResolver = credentialResolver;
-        this.workerId = WorkerInstanceIds.resolve(applicationName, configuredWorkerId);
-        this.claimTtl = claimTtl == null || !claimTtl.isPositive() ? Duration.ofMinutes(10) : claimTtl;
     }
 
-    LlmCleaningResult cleanBatch(LlmCleaningKind kind) {
+    LlmCleaningResult cleanQueued(LlmCleaningKind kind, List<UUID> rawIds) {
         if (!configValues.llmCleaningEnabled()) {
             return LlmCleaningResult.skipped(kind, "PROVIDER_DISABLED");
         }
@@ -53,12 +43,17 @@ class LlmCleaningService {
             return LlmCleaningResult.skipped(kind, "DRY_RUN_SKIPPED");
         }
 
-        int batchSize = Math.max(1, configValues.llmCleaningBatchSize());
-        List<LlmCleaningCandidate> candidates = repository.claimCandidates(kind, batchSize, workerId, claimTtl);
+        List<LlmCleaningCandidate> candidates = rawIds == null
+                ? List.of()
+                : rawIds.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .distinct()
+                        .map(rawId -> repository.findCandidate(kind, rawId))
+                        .flatMap(Optional::stream)
+                        .toList();
         if (candidates.isEmpty()) {
             return new LlmCleaningResult(kind, "SUCCESS", 0, 0, 0, "NO_CANDIDATES");
         }
-        List<UUID> claimedIds = candidates.stream().map(LlmCleaningCandidate::id).toList();
 
         List<LlmCleaningStandard> standards = repository.findStandards(kind);
         Map<String, LlmCleaningStandard> standardsByName = standards.stream()
@@ -78,7 +73,6 @@ class LlmCleaningService {
             LlmCleaningClient client = resolveClient(mode);
             LlmCredential credential = credential(mode).orElse(null);
             if ("live".equals(mode) && credential == null) {
-                repository.releaseClaims(kind, claimedIds, workerId);
                 return LlmCleaningResult.skipped(kind, "CREDENTIAL_MISSING");
             }
             List<LlmCleaningDecision> decisions = client.analyzeAndMap(
@@ -86,28 +80,13 @@ class LlmCleaningService {
                     standardsByName.keySet(),
                     kind,
                     credential);
-            LlmCleaningResult result = applyDecisions(kind, candidates.size(), candidatesByRaw, standardsByName, decisions);
-            repository.releaseClaims(kind, claimedIds, workerId);
-            return result;
+            return applyDecisions(kind, candidates.size(), candidatesByRaw, standardsByName, decisions);
         } catch (LlmCleaningException.ProviderTimeout ex) {
             log.warn("LLM cleaning {} skipped by provider timeout: {}", kind, ex.getMessage());
-            safeReleaseClaims(kind, claimedIds);
             return LlmCleaningResult.skipped(kind, "PROVIDER_TIMEOUT");
         } catch (LlmCleaningException.ProviderError | IllegalArgumentException ex) {
             log.warn("LLM cleaning {} skipped by provider error: {}", kind, ex.getMessage());
-            safeReleaseClaims(kind, claimedIds);
             return LlmCleaningResult.skipped(kind, "PROVIDER_ERROR");
-        }
-    }
-
-    private void safeReleaseClaims(LlmCleaningKind kind, List<UUID> claimedIds) {
-        try {
-            repository.releaseClaims(kind, claimedIds, workerId);
-        } catch (RuntimeException releaseError) {
-            log.warn("LLM cleaning {} failed to release {} claims: {}",
-                    kind,
-                    claimedIds == null ? 0 : claimedIds.size(),
-                    releaseError.getMessage());
         }
     }
 

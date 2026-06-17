@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RabbitBaseUrl = "http://127.0.0.1:19074",
     [int]$RabbitPort = 19074,
     [string]$ElasticsearchBaseUrl = "http://127.0.0.1:19200",
@@ -340,17 +340,15 @@ insert into raw_videos (
     Mark "normalization writes normalized raw fields from raw_metadata without triggering aggregation" $i $total; $i++
 
     Wait-EsRawDocument
-    Mark "normalization publishes legacy UUID raw search sync and ES raw document is refreshed" $i $total; $i++
+    Mark "normalization enqueues raw runtime search sync and ES raw document is refreshed" $i $total; $i++
 
     foreach ($queue in @(
         "q.normalize.video",
-        "q.normalize.video.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.normalize.video.dlq"
     )) {
         Assert-QueueEmpty $queue
     }
-    Mark "normalize/search queues and DLQs are empty for the smoke window" $i $total; $i++
+    Mark "normalize queue and DLQ are empty for the smoke window" $i $total; $i++
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -363,9 +361,7 @@ insert into raw_videos (
     if ($PurgeSmokeQueuesOnCleanup) {
         foreach ($queue in @(
             "q.normalize.video",
-            "q.normalize.video.dlq",
-            "q.search.sync.raw",
-            "q.search.sync.raw.dlq"
+            "q.normalize.video.dlq"
         )) {
             try { kubectl -n ircs-dev exec rabbitmq-0 -- rabbitmqctl purge_queue $queue | Out-Null } catch { Write-Warning $_ }
         }

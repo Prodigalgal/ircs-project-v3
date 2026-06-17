@@ -83,8 +83,6 @@ spec:
                 configMapKeyRef:
                   name: ircs-dev-app-config
                   key: R2_PUBLIC_DOMAIN
-            - name: APP_SEARCH_LISTENER_ENABLED
-              value: "true"
             - name: APP_SEARCH_CONFIG_LISTENER_ENABLED
               value: "true"
             - name: APP_SEARCH_CACHE_ENABLED
@@ -93,15 +91,15 @@ spec:
               value: PT60S
             - name: APP_SEARCH_CACHE_PORTAL_RECOMMEND_TTL
               value: PT60S
-            - name: APP_SEARCH_OUTBOX_RELAY_ENABLED
+            - name: APP_SEARCH_WORK_QUEUE_WORKER_ENABLED
               value: "true"
-            - name: APP_SEARCH_OUTBOX_RELAY_BATCH_SIZE
+            - name: APP_SEARCH_WORK_QUEUE_BATCH_SIZE
               value: "50"
-            - name: APP_SEARCH_OUTBOX_RELAY_INITIAL_DELAY_MS
+            - name: APP_SEARCH_WORK_QUEUE_INITIAL_DELAY_MS
               value: "10000"
-            - name: APP_SEARCH_OUTBOX_RELAY_FIXED_DELAY_MS
+            - name: APP_SEARCH_WORK_QUEUE_FIXED_DELAY_MS
               value: "2000"
-            - name: APP_SEARCH_OUTBOX_RELAY_WORKER_ID
+            - name: APP_SEARCH_WORK_QUEUE_WORKER_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name

@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.normalization;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ public class RawVideoNormalizationRepository {
         }
     }
 
-    public void markReady(UUID id, RawVideoPatch patch) {
+    public MarkReadyResult markReady(UUID id, RawVideoPatch patch) {
         jdbcTemplate.update(
                 """
                 update raw_videos
@@ -89,16 +90,22 @@ public class RawVideoNormalizationRepository {
                 where id = :id
                 """,
                 params(id, patch));
+        List<LlmCleaningRawTerm> llmCleaningTerms = new ArrayList<>();
         bindRawCategory(
                 id,
                 patch.rawCategoryDataSourceId(),
                 patch.rawCategorySourceCode(),
-                patch.rawCategorySourceName());
-        replaceRawRelations("raw_genres", "video_raw_genres", "raw_genre_id", id, patch.rawGenreValues());
-        replaceRawRelations("raw_languages", "video_raw_languages", "raw_language_id", id, patch.rawLanguageValues());
-        replaceRawRelations("raw_areas", "video_raw_areas", "raw_area_id", id, patch.rawAreaValues());
+                patch.rawCategorySourceName())
+                .ifPresent(llmCleaningTerms::add);
+        llmCleaningTerms.addAll(
+                replaceRawRelations("raw_genres", "video_raw_genres", "raw_genre_id", id, patch.rawGenreValues()));
+        llmCleaningTerms.addAll(
+                replaceRawRelations("raw_languages", "video_raw_languages", "raw_language_id", id, patch.rawLanguageValues()));
+        llmCleaningTerms.addAll(
+                replaceRawRelations("raw_areas", "video_raw_areas", "raw_area_id", id, patch.rawAreaValues()));
         replaceNamedRelations("actors", "video_actors", "actor_id", id, patch.actorValues());
         replaceNamedRelations("directors", "video_directors", "director_id", id, patch.directorValues());
+        return new MarkReadyResult(List.copyOf(llmCleaningTerms));
     }
 
     public void markFailure(UUID id, String status, int retryCount, Instant nextRetryTime) {
@@ -169,13 +176,13 @@ public class RawVideoNormalizationRepository {
                 .addValue("rottenTomatoesId", patch.rottenTomatoesId());
     }
 
-    private void bindRawCategory(
+    private Optional<LlmCleaningRawTerm> bindRawCategory(
             UUID rawVideoId,
             UUID dataSourceId,
             String sourceCode,
             String sourceName) {
         if (dataSourceId == null || !StringUtils.hasText(sourceCode)) {
-            return;
+            return Optional.empty();
         }
         String safeSourceCode = trimToLength(sourceCode, 100);
         String safeSourceName = StringUtils.hasText(sourceName) ? trimToLength(sourceName, 255) : null;
@@ -214,7 +221,7 @@ public class RawVideoNormalizationRepository {
                         .addValue("sourceName", safeSourceName),
                 UUID.class);
         if (rawCategoryId == null) {
-            return;
+            return Optional.empty();
         }
         jdbcTemplate.update(
                 """
@@ -226,9 +233,13 @@ public class RawVideoNormalizationRepository {
                 new MapSqlParameterSource()
                         .addValue("id", rawVideoId)
                         .addValue("rawCategoryId", rawCategoryId));
+        return Optional.of(new LlmCleaningRawTerm(
+                "category",
+                rawCategoryId,
+                StringUtils.hasText(safeSourceName) ? safeSourceName : safeSourceCode));
     }
 
-    private void replaceRawRelations(
+    private List<LlmCleaningRawTerm> replaceRawRelations(
             String rawTable,
             String joinTable,
             String rawIdColumn,
@@ -242,16 +253,20 @@ public class RawVideoNormalizationRepository {
                         .distinct()
                         .toList();
         if (safeValues.isEmpty()) {
-            return;
+            return List.of();
         }
 
         upsertRawValues(rawTable, safeValues);
-        List<UUID> rawIds = jdbcTemplate.queryForList(
-                "select id from %s where source_value in (:values)".formatted(rawTable),
+        List<LlmCleaningRawTerm> rawTerms = jdbcTemplate.query(
+                "select id, source_value from %s where source_value in (:values)".formatted(rawTable),
                 new MapSqlParameterSource("values", safeValues),
-                UUID.class);
+                (rs, rowNum) -> new LlmCleaningRawTerm(
+                        llmCleaningKind(rawTable),
+                        rs.getObject("id", UUID.class),
+                        rs.getString("source_value")));
+        List<UUID> rawIds = rawTerms.stream().map(LlmCleaningRawTerm::rawId).toList();
         if (rawIds.isEmpty()) {
-            return;
+            return List.of();
         }
 
         jdbcTemplate.update(
@@ -269,6 +284,7 @@ public class RawVideoNormalizationRepository {
                 on conflict do nothing
                 """.formatted(joinTable, rawIdColumn),
                 batch.toArray(MapSqlParameterSource[]::new));
+        return rawTerms;
     }
 
     private void upsertRawValues(String table, List<String> values) {
@@ -423,5 +439,20 @@ public class RawVideoNormalizationRepository {
     private String trimToLength(String value, int maxLength) {
         String trimmed = value.trim();
         return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
+    }
+
+    private String llmCleaningKind(String rawTable) {
+        return switch (rawTable) {
+            case "raw_genres" -> "genre";
+            case "raw_languages" -> "language";
+            case "raw_areas" -> "area";
+            default -> throw new IllegalArgumentException("Unsupported LLM cleaning table: " + rawTable);
+        };
+    }
+
+    public record MarkReadyResult(List<LlmCleaningRawTerm> llmCleaningTerms) {
+    }
+
+    public record LlmCleaningRawTerm(String kind, UUID rawId, String rawValue) {
     }
 }

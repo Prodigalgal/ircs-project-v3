@@ -77,7 +77,7 @@ public class BffRequestAuditWriter {
             statement.setString(13, truncate(resolveTraceId(request), TRACE_ID_LIMIT));
             statement.setString(14, truncate(errorMessage, ERROR_LIMIT));
             statement.executeUpdate();
-            AuditEsOutboxWriter.enqueueRequest(connection, auditClass, id, log);
+            AuditReplicationWorkDispatcher.enqueueRequest(auditClass, id, log);
         } catch (SQLException ex) {
             log.warn("BFF request audit write failed: {}", ex.getMessage());
         }

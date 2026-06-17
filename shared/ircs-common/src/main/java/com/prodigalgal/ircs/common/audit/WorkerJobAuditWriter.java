@@ -119,7 +119,7 @@ public class WorkerJobAuditWriter {
             statement.setString(9, errorClass(event.error()));
             statement.setString(10, errorMessage(event.error()));
             statement.executeUpdate();
-            AuditEsOutboxWriter.enqueueWorkerJob(connection, AuditClass.SYSTEM, id, log);
+            AuditReplicationWorkDispatcher.enqueueWorkerJob(AuditClass.SYSTEM, id, log);
         } catch (SQLException | RuntimeException ex) {
             log.warn("Worker job audit write failed for {}: {}", jobSource, ex.getMessage());
         }

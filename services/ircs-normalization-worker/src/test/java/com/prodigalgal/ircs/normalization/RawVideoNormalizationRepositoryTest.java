@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
@@ -35,12 +37,15 @@ class RawVideoNormalizationRepositoryTest {
         UUID areaId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         UUID directorId = UUID.randomUUID();
-        when(jdbcTemplate.queryForList(contains("raw_genres"), any(MapSqlParameterSource.class), eq(UUID.class)))
-                .thenReturn(List.of(genreId));
-        when(jdbcTemplate.queryForList(contains("raw_languages"), any(MapSqlParameterSource.class), eq(UUID.class)))
-                .thenReturn(List.of(languageId));
-        when(jdbcTemplate.queryForList(contains("raw_areas"), any(MapSqlParameterSource.class), eq(UUID.class)))
-                .thenReturn(List.of(areaId));
+        doReturn(List.of(new RawVideoNormalizationRepository.LlmCleaningRawTerm("genre", genreId, "动作")))
+                .when(jdbcTemplate)
+                .query(contains("raw_genres"), any(MapSqlParameterSource.class), any(RowMapper.class));
+        doReturn(List.of(new RawVideoNormalizationRepository.LlmCleaningRawTerm("language", languageId, "国语")))
+                .when(jdbcTemplate)
+                .query(contains("raw_languages"), any(MapSqlParameterSource.class), any(RowMapper.class));
+        doReturn(List.of(new RawVideoNormalizationRepository.LlmCleaningRawTerm("area", areaId, "中国大陆")))
+                .when(jdbcTemplate)
+                .query(contains("raw_areas"), any(MapSqlParameterSource.class), any(RowMapper.class));
         when(jdbcTemplate.queryForList(contains("actors"), any(MapSqlParameterSource.class), eq(UUID.class)))
                 .thenReturn(List.of(actorId));
         when(jdbcTemplate.queryForList(contains("directors"), any(MapSqlParameterSource.class), eq(UUID.class)))
@@ -48,13 +53,18 @@ class RawVideoNormalizationRepositoryTest {
 
         RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
 
-        repository.markReady(rawVideoId, patch(
+        RawVideoNormalizationRepository.MarkReadyResult result = repository.markReady(rawVideoId, patch(
                 Set.of("动作"),
                 Set.of("国语"),
                 Set.of("中国大陆"),
                 Set.of("演员甲"),
                 Set.of("导演甲")));
 
+        assertEquals(List.of(
+                new RawVideoNormalizationRepository.LlmCleaningRawTerm("genre", genreId, "动作"),
+                new RawVideoNormalizationRepository.LlmCleaningRawTerm("language", languageId, "国语"),
+                new RawVideoNormalizationRepository.LlmCleaningRawTerm("area", areaId, "中国大陆")),
+                result.llmCleaningTerms());
         verify(jdbcTemplate).batchUpdate(contains("insert into raw_genres"), any(SqlParameterSource[].class));
         verify(jdbcTemplate).batchUpdate(contains("insert into raw_languages"), any(SqlParameterSource[].class));
         verify(jdbcTemplate).batchUpdate(contains("insert into raw_areas"), any(SqlParameterSource[].class));

@@ -14,10 +14,8 @@ class AggregationAutoStartGateHealthConfiguration {
     @Bean
     HealthIndicator autoStartGateHealthIndicator(Environment environment) {
         return new AutoStartGateHealthIndicator(environment, List.of(
-                new AutoStartGate("aggregation-scheduler", "app.aggregation.scheduler.enabled",
-                        "APP_AGGREGATION_SCHEDULER_ENABLED", false),
-                new AutoStartGate("aggregation-config-listener", "app.aggregation.config-listener.enabled",
-                        "APP_AGGREGATION_CONFIG_LISTENER_ENABLED", false)
+                new AutoStartGate("aggregation-work-queue-worker", "app.aggregation.work-queue.worker.enabled",
+                        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED", false)
         ));
     }
 }

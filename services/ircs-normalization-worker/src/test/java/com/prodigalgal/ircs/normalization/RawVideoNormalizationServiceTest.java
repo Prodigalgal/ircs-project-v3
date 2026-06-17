@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
+import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkPublisher;
 import com.prodigalgal.ircs.contracts.normalization.NormalizationMaintenanceRunResponse;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +35,12 @@ class RawVideoNormalizationServiceTest {
     private MetadataEnrichPublisher metadataEnrichPublisher;
 
     @Mock
+    private AggregationWorkPublisher aggregationWorkPublisher;
+
+    @Mock
+    private LlmCleaningWorkPublisher llmCleaningWorkPublisher;
+
+    @Mock
     private NormalizationConfigValues configValues;
 
     private RawVideoNormalizationService service;
@@ -48,6 +56,8 @@ class RawVideoNormalizationServiceTest {
                         new RawRelationAliasPolicy()),
                 searchSyncPublisher,
                 metadataEnrichPublisher,
+                aggregationWorkPublisher,
+                llmCleaningWorkPublisher,
                 objectMapper,
                 configValues);
     }
@@ -95,6 +105,8 @@ class RawVideoNormalizationServiceTest {
                 null,
                 dataSourceId,
                 "hash-v1")));
+        when(repository.markReady(eq(id), any()))
+                .thenReturn(new RawVideoNormalizationRepository.MarkReadyResult(List.of()));
 
         RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
 
@@ -115,6 +127,7 @@ class RawVideoNormalizationServiceTest {
         assertEquals("电影", patch.getValue().rawCategorySourceName());
         verify(searchSyncPublisher).publishIndex(id);
         verify(metadataEnrichPublisher).publish(id, "hash-v1");
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "normalization-ready");
     }
 
     @Test

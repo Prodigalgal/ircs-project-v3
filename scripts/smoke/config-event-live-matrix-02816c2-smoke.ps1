@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [switch]$DryRun,
     [switch]$CheckClusterReadOnly,
@@ -50,15 +50,6 @@ $matrix = @(
         queue = "q.normalization.config_changed"
         listenerEnv = "APP_NORMALIZATION_CONFIG_LISTENER_ENABLED"
         representativeKey = "normalization.max-retries"
-        evidence = "unit listener/topology/cache tests"
-        next = "live Rabbit publish/consume smoke"
-    },
-    [ordered]@{
-        service = "ircs-aggregation-worker"
-        task = "028-16-C2-S10"
-        queue = "q.aggregation.config_changed"
-        listenerEnv = "APP_AGGREGATION_CONFIG_LISTENER_ENABLED"
-        representativeKey = "aggregation.batch-size"
         evidence = "unit listener/topology/cache tests"
         next = "live Rabbit publish/consume smoke"
     },

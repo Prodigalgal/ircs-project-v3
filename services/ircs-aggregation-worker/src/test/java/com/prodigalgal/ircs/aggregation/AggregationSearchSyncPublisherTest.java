@@ -3,7 +3,7 @@ package com.prodigalgal.ircs.aggregation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 
-import com.prodigalgal.ircs.common.search.SearchSyncOutboxWriter;
+import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.util.UUID;
@@ -11,37 +11,37 @@ import org.junit.jupiter.api.Test;
 
 class AggregationSearchSyncPublisherTest {
 
-    private final SearchSyncOutboxWriter outboxWriter = org.mockito.Mockito.mock(SearchSyncOutboxWriter.class);
+    private final SearchSyncWorkPublisher workPublisher = org.mockito.Mockito.mock(SearchSyncWorkPublisher.class);
     private final AggregationSearchSyncPublisher publisher =
-            new AggregationSearchSyncPublisher(outboxWriter);
+            new AggregationSearchSyncPublisher(workPublisher);
 
     @Test
-    void enqueuesRawIndexInSearchOutbox() {
+    void enqueuesRawIndexInSearchWorkQueue() {
         UUID rawVideoId = UUID.randomUUID();
 
         publisher.publishRawIndex(rawVideoId);
 
-        verify(outboxWriter).enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
         assertThat(rawVideoId).isNotNull();
     }
 
     @Test
-    void enqueuesUnifiedIndexInSearchOutbox() {
+    void enqueuesUnifiedIndexInSearchWorkQueue() {
         UUID unifiedVideoId = UUID.randomUUID();
 
         publisher.publishUnifiedIndex(unifiedVideoId);
 
-        verify(outboxWriter).enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
         assertThat(unifiedVideoId).isNotNull();
     }
 
     @Test
-    void enqueuesUnifiedDeleteInSearchOutbox() {
+    void enqueuesUnifiedDeleteInSearchWorkQueue() {
         UUID victimId = UUID.randomUUID();
 
         publisher.publishUnifiedDelete(victimId);
 
-        verify(outboxWriter).enqueue(victimId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.DELETE);
+        verify(workPublisher).enqueue(victimId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.DELETE);
         assertThat(victimId).isNotNull();
     }
 }

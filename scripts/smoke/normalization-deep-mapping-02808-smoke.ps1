@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$RabbitBaseUrl = "http://127.0.0.1:19084",
     [int]$RabbitPort = 19084,
@@ -286,9 +286,7 @@ function ConvertTo-StringArray {
 function Assert-QueueBaseline {
     $queues = @(
         "q.normalize.video",
-        "q.normalize.video.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.normalize.video.dlq"
     )
     $details = @{}
     foreach ($queueName in $queues) {
@@ -300,7 +298,7 @@ function Assert-QueueBaseline {
             unacked = [int]$queue.messages_unacknowledged
         }
     }
-    if ($details["q.normalize.video"].consumers -lt 1 -or $details["q.search.sync.raw"].consumers -lt 1) {
+    if ($details["q.normalize.video"].consumers -lt 1) {
         Finish-Smoke "SKIPPED" "REQUIRED_CONSUMER_MISSING" $details
     }
     foreach ($queueName in $queues) {
@@ -314,9 +312,7 @@ function Assert-QueuesEmpty {
     $details = @{}
     foreach ($queueName in @(
         "q.normalize.video",
-        "q.normalize.video.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.normalize.video.dlq"
     )) {
         $queue = Get-RabbitQueue $queueName
         $details[$queueName] = @{
@@ -547,7 +543,7 @@ try {
     $esPf = Start-PortForward "svc/elasticsearch-svc" $ElasticsearchPort 9200 $esPfOut $esPfErr
 
     Assert-QueueBaseline
-    Mark "normalization/search consumers are ready and queues are clean" 1 6
+    Mark "normalization consumer is ready and queues are clean" 1 6
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -567,7 +563,7 @@ try {
     Mark "raw relations and raw category map to existing standard dictionaries" 4 6
 
     Wait-EsRawDocument
-    Mark "raw search sync refreshes ES document with deep mapping fields" 5 6
+    Mark "runtime search sync refreshes ES document with deep mapping fields" 5 6
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId

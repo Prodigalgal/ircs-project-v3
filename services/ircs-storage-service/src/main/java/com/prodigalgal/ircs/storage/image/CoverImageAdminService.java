@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.storage.image;
 
+import com.prodigalgal.ircs.common.storage.StorageWorkPublisher;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageResponse;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.NormalizedFile;
@@ -27,6 +28,7 @@ public class CoverImageAdminService {
     private final LocalObjectStorage localObjectStorage;
     private final R2ObjectStorage r2ObjectStorage;
     private final StorageCommandPublisher publisher;
+    private final StorageWorkPublisher storageWorkPublisher;
 
     @Value("${app.storage.cover-path-prefix:covers}")
     private String coverPathPrefix;
@@ -70,7 +72,11 @@ public class CoverImageAdminService {
             if (!localObjectStorage.exists(normalized.storageKey())) {
                 localObjectStorage.store(normalized.data(), normalized.storageKey(), normalized.mimeType());
             }
-            return repository.createLocal(normalized);
+            CoverImageResponse response = repository.createLocal(normalized);
+            if (r2ObjectStorage.isActive()) {
+                storageWorkPublisher.enqueueCoverR2Sync(response.id(), "cover-manual-upload");
+            }
+            return response;
         } catch (SecurityException ex) {
             throw new StorageApiException(HttpStatus.BAD_REQUEST, "Security check failed: " + ex.getMessage());
         } catch (Exception ex) {
@@ -97,13 +103,8 @@ public class CoverImageAdminService {
         if (row.storageType() != CoverImageStorageType.LOCAL || row.status() != CoverImageStatus.LOCAL_STORED) {
             throw new StorageApiException(HttpStatus.BAD_REQUEST, "Image is not in a state eligible for R2 sync");
         }
-        repository.markUploadScheduled(id);
-        repository.markUploading(id);
-        byte[] data = localObjectStorage.retrieve(row.storagePath())
-                .orElseThrow(() -> new StorageApiException(HttpStatus.BAD_GATEWAY, "Local file missing"));
-        r2ObjectStorage.store(data, row.storagePath(), row.mimeType());
-        repository.finalizeUpload(id, row.storagePath());
-        log.info("Triggered R2 sync for cover image: {}", id);
+        storageWorkPublisher.enqueueCoverR2Sync(id, "cover-manual-sync");
+        log.info("Queued R2 sync for cover image: {}", id);
     }
 
     @Transactional

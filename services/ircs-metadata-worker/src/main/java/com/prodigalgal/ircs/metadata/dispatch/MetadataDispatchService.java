@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.metadata.dispatch;
 
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.MetadataConfigValues;
@@ -24,6 +25,7 @@ public class MetadataDispatchService {
     private final MetadataPipelineRunRepository pipelineRunRepository;
     private final MetadataProviderTaskPublisher providerTaskPublisher;
     private final RawSearchSyncPublisher searchSyncPublisher;
+    private final AggregationWorkPublisher aggregationWorkPublisher;
 
     public MetadataDispatchResult dispatch(UUID videoId, String pipelineVersion) {
         Optional<RawVideoEnrichmentRecord> recordOpt = repository.findById(videoId);
@@ -45,6 +47,7 @@ public class MetadataDispatchService {
         if (!configValues.metadataEnabled()) {
             String status = finalizeImmediate(record);
             searchSyncPublisher.publishIndex(videoId);
+            aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-immediate-finalized");
             return new MetadataDispatchResult(videoId, true, status, List.of());
         }
 
@@ -52,6 +55,7 @@ public class MetadataDispatchService {
         if (providers.isEmpty()) {
             String status = finalizeImmediate(record);
             searchSyncPublisher.publishIndex(videoId);
+            aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-immediate-finalized");
             return new MetadataDispatchResult(videoId, true, status, List.of());
         }
 

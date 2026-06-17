@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$ElasticsearchBaseUrl = "http://127.0.0.1:19204",
     [int]$ElasticsearchPort = 19204,
@@ -237,10 +237,6 @@ function Get-QueueState {
 function Assert-SmokeQueuesCleanBefore {
     $dirty = @()
     foreach ($queue in @(
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq",
-        "q.search.sync.unified",
-        "q.search.sync.unified.dlq"
     )) {
         try {
             $state = Get-QueueState $queue
@@ -266,8 +262,6 @@ function Assert-ConsumersReady {
     for ($attempt = 0; $attempt -lt $WaitAttempts; $attempt++) {
         $missing = @()
         foreach ($queue in @(
-            "q.search.sync.raw",
-            "q.search.sync.unified"
         )) {
             $state = Get-QueueState $queue
             if ($state.consumers -lt 1) {
@@ -665,7 +659,7 @@ try {
     Assert-NoHttpRoute
     $total = 6
     $i = 1
-    Mark "aggregation/search consumers are ready and HTTPRoute remains absent" $i $total; $i++
+    Mark "aggregation worker is ready and HTTPRoute remains absent" $i $total; $i++
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -679,17 +673,13 @@ try {
 
     Wait-EsRawDocument
     Wait-EsUnifiedDocument
-    Mark "aggregation publishes raw/unified legacy UUID search sync and ES documents are refreshed" $i $total; $i++
+    Mark "aggregation enqueues raw/unified runtime search sync and ES documents are refreshed" $i $total; $i++
 
     foreach ($queue in @(
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq",
-        "q.search.sync.unified",
-        "q.search.sync.unified.dlq"
     )) {
         Assert-QueueEmpty $queue
     }
-    Mark "aggregation/search queues and DLQs are empty for the smoke window" $i $total; $i++
+    Mark "runtime search work is drained for the smoke window" $i $total; $i++
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -716,10 +706,6 @@ try {
     } catch { Write-Warning $_ }
     if ($PurgeSmokeQueuesOnCleanup) {
         foreach ($queue in @(
-            "q.search.sync.raw",
-            "q.search.sync.raw.dlq",
-            "q.search.sync.unified",
-            "q.search.sync.unified.dlq"
         )) {
             try { kubectl -n $Namespace exec rabbitmq-0 -- rabbitmqctl purge_queue $queue | Out-Null } catch { Write-Warning $_ }
         }

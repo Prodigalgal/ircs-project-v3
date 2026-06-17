@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpException;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.storage.StorageWorkPublisher;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.NormalizedFile;
 import java.io.ByteArrayOutputStream;
@@ -40,6 +41,7 @@ public class CoverImageDownloadService {
     private final LocalObjectStorage localObjectStorage;
     private final R2ObjectStorage r2ObjectStorage;
     private final CoverImageTrafficLimiter trafficLimiter;
+    private final StorageWorkPublisher storageWorkPublisher;
     private OutboundUrlPolicy outboundUrlPolicy;
     private CoverImageDownloadAdapter downloadAdapter;
 
@@ -65,6 +67,7 @@ public class CoverImageDownloadService {
             FileNormalizationService normalizationService,
             LocalObjectStorage localObjectStorage,
             R2ObjectStorage r2ObjectStorage,
+            StorageWorkPublisher storageWorkPublisher,
             ObjectProvider<CoverImageTrafficLimiter> trafficLimiterProvider) {
         this(
                 repository,
@@ -72,6 +75,7 @@ public class CoverImageDownloadService {
                 normalizationService,
                 localObjectStorage,
                 r2ObjectStorage,
+                storageWorkPublisher,
                 trafficLimiterProvider.getIfAvailable(CoverImageTrafficLimiter::noop));
     }
 
@@ -81,12 +85,14 @@ public class CoverImageDownloadService {
             FileNormalizationService normalizationService,
             LocalObjectStorage localObjectStorage,
             R2ObjectStorage r2ObjectStorage,
+            StorageWorkPublisher storageWorkPublisher,
             CoverImageTrafficLimiter trafficLimiter) {
         this.repository = repository;
         this.urlResolver = urlResolver;
         this.normalizationService = normalizationService;
         this.localObjectStorage = localObjectStorage;
         this.r2ObjectStorage = r2ObjectStorage;
+        this.storageWorkPublisher = storageWorkPublisher;
         this.trafficLimiter = trafficLimiter == null ? CoverImageTrafficLimiter.noop() : trafficLimiter;
         this.outboundUrlPolicy = new OutboundUrlPolicy(new DefaultOutboundAddressResolver());
     }
@@ -97,6 +103,7 @@ public class CoverImageDownloadService {
             FileNormalizationService normalizationService,
             LocalObjectStorage localObjectStorage,
             R2ObjectStorage r2ObjectStorage,
+            StorageWorkPublisher storageWorkPublisher,
             OutboundUrlPolicy outboundUrlPolicy,
             CoverImageDownloadAdapter downloadAdapter) {
         CoverImageDownloadService service = new CoverImageDownloadService(
@@ -105,6 +112,7 @@ public class CoverImageDownloadService {
                 normalizationService,
                 localObjectStorage,
                 r2ObjectStorage,
+                storageWorkPublisher,
                 CoverImageTrafficLimiter.noop());
         service.outboundUrlPolicy = outboundUrlPolicy;
         service.downloadAdapter = downloadAdapter;
@@ -138,7 +146,11 @@ public class CoverImageDownloadService {
             if (!localObjectStorage.exists(file.storageKey())) {
                 localObjectStorage.store(file.data(), file.storageKey(), file.mimeType());
             }
-            repository.finalizeDownload(imageId, file, r2ObjectStorage.isActive());
+            boolean r2Active = r2ObjectStorage.isActive();
+            repository.finalizeDownload(imageId, file);
+            if (r2Active) {
+                storageWorkPublisher.enqueueCoverR2Sync(imageId, "cover-download");
+            }
             log.info("Downloaded cover image: id={}, path={}", imageId, file.storageKey());
         } catch (Exception ex) {
             repository.markFailed(imageId, ex.getMessage(), maxRetries);

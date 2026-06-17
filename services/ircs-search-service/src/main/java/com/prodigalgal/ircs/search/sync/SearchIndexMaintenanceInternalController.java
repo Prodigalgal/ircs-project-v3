@@ -16,15 +16,12 @@ import org.springframework.web.bind.annotation.RestController;
 class SearchIndexMaintenanceInternalController {
 
     private final SearchIndexService indexService;
-    private final SearchSyncOutboxRepository outboxRepository;
     private final SearchInternalAccessPolicy accessPolicy;
 
     SearchIndexMaintenanceInternalController(
             SearchIndexService indexService,
-            SearchSyncOutboxRepository outboxRepository,
             SearchInternalAccessPolicy accessPolicy) {
         this.indexService = indexService;
-        this.outboxRepository = outboxRepository;
         this.accessPolicy = accessPolicy;
     }
 
@@ -35,12 +32,11 @@ class SearchIndexMaintenanceInternalController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
-        int deletedTasks = outboxRepository.deleteByEntityType(entityType);
         boolean recreated = indexService.hardReset(entityType);
         return ResponseEntity.accepted().body(new SearchIndexMaintenanceResponse(
                 entityType,
                 "hard-reset",
-                deletedTasks,
+                0,
                 recreated));
     }
 }

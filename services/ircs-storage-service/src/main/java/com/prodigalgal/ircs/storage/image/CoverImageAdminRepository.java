@@ -198,7 +198,7 @@ public class CoverImageAdminRepository {
         return updated > 0;
     }
 
-    public void finalizeDownload(UUID id, NormalizedFile file, boolean scheduleR2) {
+    public void finalizeDownload(UUID id, NormalizedFile file) {
         jdbcTemplate.update(
                 """
                 update cover_images
@@ -209,7 +209,7 @@ public class CoverImageAdminRepository {
                     mime_type = :mimeType,
                     status = 'LOCAL_STORED',
                     retry_count = 0,
-                    next_retry_time = :nextRetryTime,
+                    next_retry_time = null,
                     last_error = null,
                     updated_at = now()
                 where id = :id
@@ -219,36 +219,7 @@ public class CoverImageAdminRepository {
                         .addValue("storagePath", file.storageKey())
                         .addValue("fileHash", file.hash())
                         .addValue("fileSize", file.size())
-                        .addValue("mimeType", file.mimeType())
-                        .addValue("nextRetryTime", scheduleR2 ? Timestamp.from(Instant.now()) : null));
-    }
-
-    public void markUploadScheduled(UUID id) {
-        jdbcTemplate.update(
-                """
-                update cover_images
-                set next_retry_time = now(),
-                    last_error = null,
-                    updated_at = now()
-                where id = :id
-                """,
-                new MapSqlParameterSource("id", id));
-    }
-
-    public boolean scheduleR2UploadIfEligible(UUID id) {
-        int updated = jdbcTemplate.update(
-                """
-                update cover_images
-                set next_retry_time = now(),
-                    last_error = null,
-                    updated_at = now()
-                where id = :id
-                  and storage_type = 'LOCAL'
-                  and status = 'LOCAL_STORED'
-                  and next_retry_time is null
-                """,
-                new MapSqlParameterSource("id", id));
-        return updated > 0;
+                        .addValue("mimeType", file.mimeType()));
     }
 
     public void markUploading(UUID id) {
@@ -278,55 +249,6 @@ public class CoverImageAdminRepository {
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("storagePath", storagePath));
-    }
-
-    public List<UUID> findDueLocalR2UploadIds(int limit) {
-        if (limit <= 0) {
-            return List.of();
-        }
-        return jdbcTemplate.query(
-                """
-                select ci.id
-                  from cover_images ci
-                 where ci.storage_type = 'LOCAL'
-                   and ci.status = 'LOCAL_STORED'
-                   and ci.storage_path is not null
-                   and ci.next_retry_time is not null
-                   and ci.next_retry_time <= now()
-                 order by ci.next_retry_time asc, ci.id asc
-                 limit :limit
-                """,
-                new MapSqlParameterSource("limit", limit),
-                (rs, rowNum) -> rs.getObject("id", UUID.class));
-    }
-
-    public List<UUID> claimDueLocalR2UploadIds(int limit) {
-        if (limit <= 0) {
-            return List.of();
-        }
-        return jdbcTemplate.query(
-                """
-                with due as (
-                    select ci.id
-                      from cover_images ci
-                     where ci.storage_type = 'LOCAL'
-                       and ci.status = 'LOCAL_STORED'
-                       and ci.storage_path is not null
-                       and ci.next_retry_time is not null
-                       and ci.next_retry_time <= now()
-                     order by ci.next_retry_time asc, ci.id asc
-                     limit :limit
-                     for update skip locked
-                )
-                update cover_images ci
-                   set status = 'UPLOADING',
-                       updated_at = now()
-                  from due
-                 where ci.id = due.id
-                returning ci.id
-                """,
-                new MapSqlParameterSource("limit", limit),
-                (rs, rowNum) -> rs.getObject("id", UUID.class));
     }
 
     public void markFailed(UUID id, String message, int maxRetries) {

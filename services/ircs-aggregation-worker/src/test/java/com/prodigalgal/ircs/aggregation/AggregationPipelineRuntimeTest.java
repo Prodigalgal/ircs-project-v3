@@ -26,7 +26,7 @@ class AggregationPipelineRuntimeTest {
     private JdbcAggregationRepository repository;
 
     @Test
-    void runsHandlersInV1OrderAndReturnsCoverPromoteIds() {
+    void runsHandlersInV1OrderAndReturnsCoverR2SyncIds() {
         UUID unifiedVideoId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
         when(repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId)).thenReturn(List.of(coverImageId));
@@ -36,7 +36,7 @@ class AggregationPipelineRuntimeTest {
         AggregationPipelineExecution execution = runtime.run(unifiedVideoId);
 
         assertTrue(execution.successful());
-        assertEquals(List.of(coverImageId), execution.coverR2PromoteImageIds());
+        assertEquals(List.of(coverImageId), execution.coverR2SyncImageIds());
         assertEquals(6, transactions.calls());
         InOrder ordered = inOrder(repository);
         ordered.verify(repository).rebuildUnifiedPipelineBasicAttributes(unifiedVideoId);
@@ -61,7 +61,7 @@ class AggregationPipelineRuntimeTest {
         AggregationPipelineExecution execution = runtime.run(unifiedVideoId);
 
         assertFalse(execution.successful());
-        assertEquals(List.of(coverImageId), execution.coverR2PromoteImageIds());
+        assertEquals(List.of(coverImageId), execution.coverR2SyncImageIds());
         assertEquals(6, transactions.calls());
         assertEquals(1, execution.failures().size());
         assertEquals(AggregationPipelineStage.METADATA, execution.failures().getFirst().stage());
@@ -73,7 +73,7 @@ class AggregationPipelineRuntimeTest {
     }
 
     @Test
-    void coverStageFailureDoesNotReturnPromoteIds() {
+    void coverStageFailureDoesNotReturnR2SyncIds() {
         UUID unifiedVideoId = UUID.randomUUID();
         doThrow(new IllegalStateException("cover failed"))
                 .when(repository)
@@ -84,7 +84,7 @@ class AggregationPipelineRuntimeTest {
         AggregationPipelineExecution execution = runtime.run(unifiedVideoId);
 
         assertFalse(execution.successful());
-        assertTrue(execution.coverR2PromoteImageIds().isEmpty());
+        assertTrue(execution.coverR2SyncImageIds().isEmpty());
         assertEquals(6, transactions.calls());
         assertEquals(List.of(AggregationPipelineStage.COVER_IMAGE), execution.failures().stream()
                 .map(AggregationPipelineStageFailure::stage)

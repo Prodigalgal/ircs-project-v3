@@ -59,13 +59,16 @@ app:
       secret-key: ${APP_STORAGE_R2_SECRET_KEY:}
       endpoint: ${APP_STORAGE_R2_ENDPOINT:}
       public-domain: ${APP_STORAGE_R2_PUBLIC_DOMAIN:${R2_PUBLIC_DOMAIN:}}
-      watchdog:
-        enabled: ${APP_STORAGE_R2_WATCHDOG_ENABLED:false}
-        initial-delay-ms: ${APP_STORAGE_R2_WATCHDOG_INITIAL_DELAY_MS:60000}
-        fixed-delay-ms: ${APP_STORAGE_R2_WATCHDOG_FIXED_DELAY_MS:300000}
-        batch-size: ${APP_STORAGE_R2_WATCHDOG_BATCH_SIZE:25}
-        worker-id: ${APP_STORAGE_R2_WATCHDOG_WORKER_ID:${APP_STORAGE_CLUSTER_LOCK_WORKER_ID:}}
-        claim-ttl: ${APP_STORAGE_R2_WATCHDOG_CLAIM_TTL:PT10M}
+      work-queue:
+        worker:
+          enabled: ${APP_STORAGE_R2_WORK_QUEUE_WORKER_ENABLED:false}
+          initial-delay-ms: ${APP_STORAGE_R2_WORK_QUEUE_INITIAL_DELAY_MS:30000}
+          fixed-delay-ms: ${APP_STORAGE_R2_WORK_QUEUE_FIXED_DELAY_MS:5000}
+          batch-size: ${APP_STORAGE_R2_WORK_QUEUE_BATCH_SIZE:25}
+          visibility-seconds: ${APP_STORAGE_R2_WORK_QUEUE_VISIBILITY_SECONDS:900}
+          max-retries: ${APP_STORAGE_R2_WORK_QUEUE_MAX_RETRIES:8}
+          max-backoff-seconds: ${APP_STORAGE_R2_WORK_QUEUE_MAX_BACKOFF_SECONDS:1800}
+          worker-id: ${APP_STORAGE_R2_WORK_QUEUE_WORKER_ID:${APP_STORAGE_CLUSTER_LOCK_WORKER_ID:}}
 
 management:
   endpoints:

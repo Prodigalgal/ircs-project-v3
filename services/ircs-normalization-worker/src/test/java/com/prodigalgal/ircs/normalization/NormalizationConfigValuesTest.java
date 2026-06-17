@@ -58,7 +58,6 @@ class NormalizationConfigValuesTest {
 
         assertEquals(false, values.llmCleaningEnabled());
         assertEquals("dry-run", values.llmCleaningMode());
-        assertEquals(500, values.llmCleaningBatchSize());
         assertEquals("gemma-4-31b-it", values.llmModel());
         assertEquals("OPENAI", values.llmProvider());
     }
@@ -67,12 +66,10 @@ class NormalizationConfigValuesTest {
     void llmRuntimeConfigOverridesDbSeedAndKeepsSecretRuntimeOnly() {
         when(repository.findValue("app.ai.llm.enabled")).thenReturn(Optional.of("false"));
         when(repository.findValue("app.ai.llm.cleaning.mode")).thenReturn(Optional.of("dry-run"));
-        when(repository.findValue("app.ai.llm.cleaning.batch-size")).thenReturn(Optional.of("100"));
         when(repository.findValue("app.ai.llm.model")).thenReturn(Optional.of("db-model"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("APP_AI_LLM_ENABLED", "true")
                 .withProperty("APP_AI_LLM_CLEANING_MODE", "fake")
-                .withProperty("APP_AI_LLM_CLEANING_BATCH_SIZE", "12")
                 .withProperty("APP_AI_LLM_MODEL", "runtime-model")
                 .withProperty("SPRING_AI_OPENAI_API_KEY", "sk-runtime")
                 .withProperty("APP_NORMALIZATION_LLM_CREDENTIAL_SERVICE_TOKEN", "internal-token")
@@ -82,7 +79,6 @@ class NormalizationConfigValuesTest {
 
         assertEquals(true, values.llmCleaningEnabled());
         assertEquals("fake", values.llmCleaningMode());
-        assertEquals(12, values.llmCleaningBatchSize());
         assertEquals("runtime-model", values.llmModel());
         assertEquals("sk-runtime", values.llmRuntimeApiKey());
         assertEquals("internal-token", values.llmCredentialServiceToken());

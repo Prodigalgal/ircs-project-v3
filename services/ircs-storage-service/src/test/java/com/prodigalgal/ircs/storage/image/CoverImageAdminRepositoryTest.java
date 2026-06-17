@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
+import com.prodigalgal.ircs.storage.image.CoverImageDtos.NormalizedFile;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -74,51 +75,26 @@ class CoverImageAdminRepositoryTest {
     }
 
     @Test
-    void findDueLocalR2UploadIdsOnlyScansLocalStoredRowsWithDueRetryTime() {
-        repository().findDueLocalR2UploadIds(10);
-
-        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<MapSqlParameterSource> params = ArgumentCaptor.forClass(MapSqlParameterSource.class);
-        verify(jdbcTemplate).query(
-                sql.capture(),
-                params.capture(),
-                org.mockito.ArgumentMatchers.<RowMapper<UUID>>any());
-        assertTrue(sql.getValue().contains("ci.storage_type = 'LOCAL'"));
-        assertTrue(sql.getValue().contains("ci.status = 'LOCAL_STORED'"));
-        assertTrue(sql.getValue().contains("ci.next_retry_time <= now()"));
-        assertEquals(10, params.getValue().getValue("limit"));
-    }
-
-    @Test
-    void claimDueLocalR2UploadIdsMarksRowsUploadingWithSkipLocked() {
-        repository().claimDueLocalR2UploadIds(10);
-
-        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<MapSqlParameterSource> params = ArgumentCaptor.forClass(MapSqlParameterSource.class);
-        verify(jdbcTemplate).query(
-                sql.capture(),
-                params.capture(),
-                org.mockito.ArgumentMatchers.<RowMapper<UUID>>any());
-        assertTrue(sql.getValue().contains("ci.status = 'LOCAL_STORED'"));
-        assertTrue(sql.getValue().contains("for update skip locked"));
-        assertTrue(sql.getValue().contains("set status = 'UPLOADING'"));
-        assertEquals(10, params.getValue().getValue("limit"));
-    }
-
-    @Test
-    void scheduleR2UploadIfEligibleOnlySchedulesLocalStoredRowsWithoutRetryTime() {
+    void finalizeDownloadStoresLocalMetadataWithoutDbR2Schedule() {
         UUID imageId = UUID.randomUUID();
-        when(jdbcTemplate.update(anyString(), any(MapSqlParameterSource.class))).thenReturn(1);
-
-        assertTrue(repository().scheduleR2UploadIfEligible(imageId));
+        NormalizedFile file = new NormalizedFile(
+                new byte[] {1},
+                "hash",
+                "image/png",
+                ".png",
+                1,
+                "covers/hash.png");
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<MapSqlParameterSource> params = ArgumentCaptor.forClass(MapSqlParameterSource.class);
+
+        repository().finalizeDownload(imageId, file);
         verify(jdbcTemplate).update(sql.capture(), params.capture());
         assertTrue(sql.getValue().contains("storage_type = 'LOCAL'"));
         assertTrue(sql.getValue().contains("status = 'LOCAL_STORED'"));
-        assertTrue(sql.getValue().contains("next_retry_time is null"));
+        assertTrue(sql.getValue().contains("next_retry_time = null"));
         assertEquals(imageId, params.getValue().getValue("id"));
+        assertEquals("covers/hash.png", params.getValue().getValue("storagePath"));
     }
 
     private CoverImageAdminRepository repository() {

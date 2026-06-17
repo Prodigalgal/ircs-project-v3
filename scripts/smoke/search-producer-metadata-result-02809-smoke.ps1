@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$RabbitBaseUrl = "http://127.0.0.1:19078",
     [int]$RabbitPort = 19078,
@@ -260,9 +260,7 @@ function Assert-SmokeQueuesCleanBefore {
     $dirty = @()
     foreach ($queue in @(
         "q.enrich.metadata.result",
-        "q.enrich.metadata.result.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.enrich.metadata.result.dlq"
     )) {
         try {
             $state = Get-QueueState $queue
@@ -288,8 +286,7 @@ function Assert-ConsumersReady {
     for ($attempt = 0; $attempt -lt $WaitAttempts; $attempt++) {
         $missing = @()
         foreach ($queue in @(
-            "q.enrich.metadata.result",
-            "q.search.sync.raw"
+            "q.enrich.metadata.result"
         )) {
             $state = Get-QueueState $queue
             if ($state.consumers -lt 1) {
@@ -601,7 +598,7 @@ try {
     Assert-NoHttpRoute
     $total = 6
     $i = 1
-    Mark "metadata/search consumers are ready and HTTPRoute remains absent" $i $total; $i++
+    Mark "metadata consumers are ready and HTTPRoute remains absent" $i $total; $i++
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -629,17 +626,15 @@ try {
     Mark "metadata result consumer updates raw_videos to SUCCESS" $i $total; $i++
 
     Wait-EsRawDocument
-    Mark "metadata result publishes legacy UUID raw search sync and ES raw document is refreshed" $i $total; $i++
+    Mark "metadata result enqueues raw runtime search sync and ES raw document is refreshed" $i $total; $i++
 
     foreach ($queue in @(
         "q.enrich.metadata.result",
-        "q.enrich.metadata.result.dlq",
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq"
+        "q.enrich.metadata.result.dlq"
     )) {
         Assert-QueueEmpty $queue
     }
-    Mark "metadata/search queues and DLQs are empty for the smoke window" $i $total; $i++
+    Mark "metadata queues and DLQs are empty for the smoke window" $i $total; $i++
 
     Cleanup-SmokeData
     Remove-EsDocument "ircs_raw_video" $rawVideoId
@@ -663,9 +658,7 @@ try {
     if ($PurgeSmokeQueuesOnCleanup) {
         foreach ($queue in @(
             "q.enrich.metadata.result",
-            "q.enrich.metadata.result.dlq",
-            "q.search.sync.raw",
-            "q.search.sync.raw.dlq"
+            "q.enrich.metadata.result.dlq"
         )) {
             try { kubectl -n $Namespace exec rabbitmq-0 -- rabbitmqctl purge_queue $queue | Out-Null } catch { Write-Warning $_ }
         }

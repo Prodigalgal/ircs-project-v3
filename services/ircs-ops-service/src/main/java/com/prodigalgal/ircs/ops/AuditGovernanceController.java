@@ -18,8 +18,8 @@ public class AuditGovernanceController {
         return ResponseEntity.ok(queryService.archiveSummary());
     }
 
-    @GetMapping("/es-outbox/summary")
-    public ResponseEntity<AuditEsReplicationOutboxSummaryResponse> outboxSummary() {
-        return ResponseEntity.ok(queryService.outboxSummary());
+    @GetMapping("/es-replication/work-queue/summary")
+    public ResponseEntity<AuditReplicationWorkQueueSummaryResponse> replicationWorkQueueSummary() {
+        return ResponseEntity.ok(queryService.replicationWorkQueueSummary());
     }
 }

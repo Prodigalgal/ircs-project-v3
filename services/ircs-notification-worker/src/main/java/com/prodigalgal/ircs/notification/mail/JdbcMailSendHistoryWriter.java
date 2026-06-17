@@ -1,7 +1,7 @@
 package com.prodigalgal.ircs.notification.mail;
 
 import com.prodigalgal.ircs.common.audit.AuditClass;
-import com.prodigalgal.ircs.common.audit.AuditEsOutboxWriter;
+import com.prodigalgal.ircs.common.audit.AuditReplicationWorkDispatcher;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 
 import java.sql.Connection;
@@ -74,7 +74,7 @@ class JdbcMailSendHistoryWriter implements MailSendHistoryWriter {
             statement.setString(10, truncate(normalize(event.failureCode()), FAILURE_CODE_LIMIT));
             statement.setString(11, sanitizeFailureMessage(event.failureMessage()));
             statement.executeUpdate();
-            AuditEsOutboxWriter.enqueueMailSendHistory(connection, AuditClass.SYSTEM, id, log);
+            AuditReplicationWorkDispatcher.enqueueMailSendHistory(AuditClass.SYSTEM, id, log);
         } catch (SQLException | RuntimeException ex) {
             log.warn("Notification mail send history write failed: {}", ex.getMessage());
         }

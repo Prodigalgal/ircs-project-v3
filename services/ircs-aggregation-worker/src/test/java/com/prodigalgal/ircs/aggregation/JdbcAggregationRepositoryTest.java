@@ -293,28 +293,6 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
-    void claimPendingUsesAggregationStatusTimelineOnly() {
-        UUID rawVideoId = UUID.randomUUID();
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy);
-
-        when(jdbcTemplate.queryForList(
-                        any(String.class),
-                        any(MapSqlParameterSource.class),
-                        eq(UUID.class)))
-                .thenReturn(List.of(rawVideoId));
-
-        List<UUID> result = repository.claimPending(1);
-
-        assertEquals(List.of(rawVideoId), result);
-        verify(jdbcTemplate).queryForList(sqlCaptor.capture(), paramsCaptor.capture(), eq(UUID.class));
-        String sql = sqlCaptor.getValue();
-        assertTrue(sql.contains("order by aggregation_status_updated_at asc"));
-        assertTrue(sql.contains("aggregation_status_updated_at = now()"));
-        assertTrue(!sql.matches("(?s).*set\\s+aggregation_status\\s*=\\s*'PROCESSING'\\s*,\\s*updated_at\\s*=\\s*now\\(\\).*"));
-        assertEquals(1, paramsCaptor.getValue().getValue("limit"));
-    }
-
-    @Test
     void findRawVideoExposesStandardCategoryNameForGraphBucket() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:aggregation-raw-category-" + UUID.randomUUID()

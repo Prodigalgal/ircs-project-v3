@@ -19,12 +19,16 @@ spring:
 
 app:
   aggregation:
-    scheduler:
-      enabled: ${APP_AGGREGATION_SCHEDULER_ENABLED:false}
-      fixed-delay-ms: ${APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS:5000}
-    config-listener:
-      enabled: ${APP_AGGREGATION_CONFIG_LISTENER_ENABLED:false}
-    batch-size: ${APP_AGGREGATION_BATCH_SIZE:200}
+    work-queue:
+      worker:
+        enabled: ${APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED:false}
+        initial-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_INITIAL_DELAY_MS:10000}
+        fixed-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS:1000}
+        batch-size: ${APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE:100}
+        visibility-seconds: ${APP_AGGREGATION_WORK_QUEUE_VISIBILITY_SECONDS:600}
+        max-retries: ${APP_AGGREGATION_WORK_QUEUE_MAX_RETRIES:8}
+        max-backoff-seconds: ${APP_AGGREGATION_WORK_QUEUE_MAX_BACKOFF_SECONDS:900}
+        worker-id: ${APP_AGGREGATION_WORK_QUEUE_WORKER_ID:}
     stuck-timeout-minutes: ${APP_AGGREGATION_STUCK_TIMEOUT_MINUTES:30}
     match-lock:
       enabled: ${APP_AGGREGATION_MATCH_LOCK_ENABLED:true}

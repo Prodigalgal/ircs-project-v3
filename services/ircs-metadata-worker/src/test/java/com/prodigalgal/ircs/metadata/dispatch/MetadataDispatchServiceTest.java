@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
@@ -40,6 +41,9 @@ class MetadataDispatchServiceTest {
     private RawSearchSyncPublisher searchSyncPublisher;
 
     @Mock
+    private AggregationWorkPublisher aggregationWorkPublisher;
+
+    @Mock
     private MetadataConfigValues configValues;
 
     @AfterEach
@@ -59,6 +63,7 @@ class MetadataDispatchServiceTest {
         assertEquals("SUCCESS", result.status());
         verify(repository).updateStatus(id, "SUCCESS", 0);
         verify(searchSyncPublisher).publishIndex(id);
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-immediate-finalized");
         verify(providerTaskPublisher, never()).publish(org.mockito.Mockito.any(), org.mockito.Mockito.any());
     }
 
@@ -110,7 +115,8 @@ class MetadataDispatchServiceTest {
                 configValues,
                 pipelineRunRepository,
                 publisher,
-                searchSyncPublisher);
+                searchSyncPublisher,
+                aggregationWorkPublisher);
 
         MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
@@ -162,7 +168,8 @@ class MetadataDispatchServiceTest {
                 configValues,
                 pipelineRunRepository,
                 publisher,
-                searchSyncPublisher);
+                searchSyncPublisher,
+                aggregationWorkPublisher);
 
         MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
@@ -210,7 +217,8 @@ class MetadataDispatchServiceTest {
                 configValues,
                 pipelineRunRepository,
                 providerTaskPublisher,
-                searchSyncPublisher);
+                searchSyncPublisher,
+                aggregationWorkPublisher);
     }
 
     private RawVideoEnrichmentRecord record(UUID id) {

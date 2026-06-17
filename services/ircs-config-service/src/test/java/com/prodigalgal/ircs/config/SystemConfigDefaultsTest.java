@@ -14,14 +14,14 @@ class SystemConfigDefaultsTest {
     private final SystemConfigDefaults defaults = new SystemConfigDefaults(NoOpPasswordEncoder.getInstance());
 
     @Test
-    void includesFullV1AndV3SystemConfigKeyCatalog() {
+    void includesCurrentSystemConfigKeyCatalog() {
         Set<String> actual = defaults.all().stream()
                 .map(SystemConfigDefaults.DefaultConfig::key)
                 .collect(Collectors.toUnmodifiableSet());
 
-        assertTrue(actual.containsAll(V1_SYSTEM_CONFIG_KEYS));
+        assertTrue(actual.containsAll(CURRENT_SYSTEM_CONFIG_KEYS));
         assertTrue(actual.containsAll(V3_OAUTH_CONFIG_KEYS));
-        assertEquals(170, defaults.all().size());
+        assertEquals(160, defaults.all().size());
     }
 
     @Test
@@ -30,7 +30,7 @@ class SystemConfigDefaultsTest {
         assertTrue(defaults.isCoreKey("security.jwt.secret"));
         assertTrue(defaults.isCoreKey("app.ai.llm.prompt.language"));
         assertTrue(defaults.isCoreKey("app.storage.r2.enabled"));
-        assertTrue(defaults.isCoreKey("aggregation.batch-size"));
+        assertTrue(defaults.isCoreKey("app.aggregation.work-queue.batch-size"));
         assertTrue(defaults.isRequiredKey("app.storage.r2.bucket-name"));
         assertTrue(defaults.isRequiredKey("app.storage.r2.public-domain"));
         assertFalse(defaults.isRequiredKey("app.metadata.tmdb.proxy.password"));
@@ -42,7 +42,6 @@ class SystemConfigDefaultsTest {
         assertEquals("100", defaults.staticDefaultValue("normalization.batch-size.min").orElseThrow());
         assertEquals("classpath:presets/ratelimit_rules.json",
                 defaults.staticDefaultValue("security.ratelimit.rules").orElseThrow());
-        assertEquals("0 0 4 * * ?", defaults.staticDefaultValue("app.ai.llm.cleaning-cron").orElseThrow());
         assertEquals("3000", defaults.staticDefaultValue("global.traffic.safety-floor-ms").orElseThrow());
         assertEquals("HTTP", defaults.staticDefaultValue("app.metadata.douban.proxy.type").orElseThrow());
         assertEquals("0 0/5 * * * ?", defaults.staticDefaultValue("app.search.sync.cron").orElseThrow());
@@ -142,7 +141,7 @@ class SystemConfigDefaultsTest {
             "member.oauth.qq.scope",
             "member.oauth.qq.redirect-uri");
 
-    private static final Set<String> V1_SYSTEM_CONFIG_KEYS = Set.of(
+    private static final Set<String> CURRENT_SYSTEM_CONFIG_KEYS = Set.of(
             "normalization.timeout.processing-min",
             "normalization.timeout.pending-min",
             "normalization.max-retries",
@@ -158,7 +157,6 @@ class SystemConfigDefaultsTest {
             "app.metadata.batch-size",
             "app.metadata.batch-size.min",
             "app.metadata.batch-size.max",
-            "aggregation.cron",
             "app.search.sync.batch-size",
             "app.frontend.url",
             "security.admin.username",
@@ -191,11 +189,9 @@ class SystemConfigDefaultsTest {
             "app.adaptive.enabled",
             "app.adaptive.load-threshold",
             "app.adaptive.check-interval-ms",
-            "aggregation.interval.ms",
-            "aggregation.batch-size",
-            "aggregation.batch-size.min",
-            "aggregation.batch-size.max",
-            "aggregation.db.similarity-threshold",
+            "app.aggregation.work-queue.batch-size",
+            "app.aggregation.work-queue.batch-size.min",
+            "app.aggregation.work-queue.batch-size.max",
             "app.maintenance.sanitize.batch-size",
             "app.maintenance.aggregation-reset.batch-size",
             "app.maintenance.rule-cleaning.batch-size",
@@ -206,9 +202,9 @@ class SystemConfigDefaultsTest {
             "app.maintenance.playlist-repair.batch-size",
             "app.maintenance.playlist-repair.batch-size.min",
             "app.maintenance.playlist-repair.batch-size.max",
-            "app.search.outbox.batch-size",
-            "app.search.outbox.batch-size.min",
-            "app.search.outbox.batch-size.max",
+            "app.search.work-queue.batch-size",
+            "app.search.work-queue.batch-size.min",
+            "app.search.work-queue.batch-size.max",
             "app.search.reconciliation.enabled",
             "app.storage.base-path",
             "app.storage.public-path",
@@ -224,19 +220,12 @@ class SystemConfigDefaultsTest {
             "app.storage.image.cleanup.batch-size",
             "app.storage.image.cleanup.batch-size.min",
             "app.storage.image.cleanup.batch-size.max",
-            "app.storage.avatar.sync.batch-size",
-            "app.storage.avatar.sync.batch-size.min",
-            "app.storage.avatar.sync.batch-size.max",
             "app.storage.r2.enabled",
             "app.storage.r2.bucket-name",
             "app.storage.r2.public-domain",
             "app.ai.llm.enabled",
             "app.ai.llm.model",
             "app.ai.llm.rate-limit.rpm",
-            "app.ai.llm.cleaning-cron",
-            "app.ai.llm.cleaning.batch-size",
-            "app.ai.llm.cleaning.batch-size.min",
-            "app.ai.llm.cleaning.batch-size.max",
             "app.ai.llm.prompt.language",
             "app.ai.llm.prompt.area",
             "app.ai.llm.prompt.genre",

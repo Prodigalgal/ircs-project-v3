@@ -101,26 +101,6 @@ public class MaintenanceController {
         return session("language-clean");
     }
 
-    @PostMapping("/llm/sanitize/init")
-    public ResponseEntity<Map<String, String>> initLlmSanitize() {
-        return session("llm-sanitize");
-    }
-
-    @PostMapping("/llm/area/init")
-    public ResponseEntity<Map<String, String>> initLlmAreaClean() {
-        return session("llm-area-clean");
-    }
-
-    @PostMapping("/llm/genre/init")
-    public ResponseEntity<Map<String, String>> initLlmGenreClean() {
-        return session("llm-genre-clean");
-    }
-
-    @PostMapping("/llm/category/init")
-    public ResponseEntity<Map<String, String>> initLlmCategoryClean() {
-        return session("llm-category-clean");
-    }
-
     @PostMapping("/search/reindex-raw/init")
     public ResponseEntity<Map<String, String>> initRawReindex() {
         return session("search-reindex-raw");

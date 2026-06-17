@@ -65,7 +65,7 @@ class NotificationMailSendHistorySchemaTest {
                     .getTables(null, null, "AUDIT_ES_REPLICATION_OUTBOX", null);
                  var archiveTables = connection.getMetaData()
                          .getTables(null, null, "AUDIT_ARCHIVE_ENTRIES", null)) {
-                assertTrue(outboxTables.next());
+                assertTrue(!outboxTables.next());
                 assertTrue(archiveTables.next());
             }
         }

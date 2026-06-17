@@ -20,14 +20,6 @@ public class StorageCommandPublisher {
         publish(QueueTopic.DOWNLOAD_IMAGE, imageId);
     }
 
-    public void publishCoverR2Promote(UUID imageId) {
-        publish(QueueTopic.PROMOTE_COVER_R2, imageId);
-    }
-
-    public void publishAvatarSync(UUID memberId) {
-        publish(QueueTopic.SYNC_AVATAR, memberId);
-    }
-
     private void publish(QueueTopic topic, UUID imageId) {
         rabbitTemplate.convertAndSend(topic.exchange(), topic.routingKey(), imageId.toString());
     }

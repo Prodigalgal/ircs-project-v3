@@ -2,8 +2,12 @@ package com.prodigalgal.ircs.aggregation;
 
 import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunResponse;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,28 +27,61 @@ public class AggregationService {
     private final AggregationMatchKeyLock matchKeyLock;
 
     @Transactional
-    public int aggregateBatch(int batchSize) {
-        List<UUID> rawVideoIds = repository.claimPending(Math.max(1, batchSize));
-        if (rawVideoIds.isEmpty()) {
-            return 0;
-        }
-        List<RawVideoAggregationRecord> rawVideos = rawVideoIds.stream()
-                .map(repository::findRawVideo)
-                .flatMap(java.util.Optional::stream)
-                .toList();
-        if (rawVideos.size() <= 1) {
-            return aggregateIndividually(rawVideos);
+    public AggregationResult aggregateOne(UUID rawVideoId) {
+        return aggregateOneInternal(rawVideoId);
+    }
+
+    @Transactional
+    public AggregationResult aggregateRuntimeWork(UUID rawVideoId) {
+        return aggregateRuntimeWorkBatch(List.of(rawVideoId)).stream()
+                .filter(result -> rawVideoId.equals(result.rawVideoId()))
+                .findFirst()
+                .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
+    }
+
+    @Transactional
+    public List<AggregationResult> aggregateRuntimeWorkBatch(List<UUID> rawVideoIds) {
+        List<UUID> orderedIds = rawVideoIds == null
+                ? List.of()
+                : rawVideoIds.stream()
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList();
+        if (orderedIds.isEmpty()) {
+            return List.of();
         }
 
-        int processed = 0;
-        for (RawVideoAggregationRecord rawVideo : rawVideos) {
-            if (!rawVideo.isAggregationEligible()) {
-                repository.markPending(rawVideo.id());
+        Map<UUID, AggregationResult> results = new LinkedHashMap<>();
+        List<RawVideoAggregationRecord> rawVideos = new ArrayList<>(orderedIds.size());
+        for (UUID rawVideoId : orderedIds) {
+            Optional<RawVideoAggregationRecord> rawVideo = repository.findRawVideo(rawVideoId);
+            if (rawVideo.isPresent()) {
+                rawVideos.add(rawVideo.orElseThrow());
+            } else {
+                results.put(rawVideoId, AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
             }
         }
-        List<RawVideoAggregationRecord> eligibleRawVideos = rawVideos.stream()
-                .filter(RawVideoAggregationRecord::isAggregationEligible)
-                .toList();
+        if (rawVideos.size() <= 1) {
+            for (RawVideoAggregationRecord rawVideo : rawVideos) {
+                AggregationResult result = bindRawVideo(rawVideo);
+                results.put(rawVideo.id(), publishAggregationResult(result));
+            }
+            return orderedResults(orderedIds, results);
+        }
+
+        List<RawVideoAggregationRecord> eligibleRawVideos = new ArrayList<>();
+        for (RawVideoAggregationRecord rawVideo : rawVideos) {
+            if (rawVideo.isAggregationEligible()) {
+                eligibleRawVideos.add(rawVideo);
+            } else {
+                repository.markPending(rawVideo.id());
+                results.put(rawVideo.id(), AggregationResult.skipped(rawVideo.id(), "NOT_ELIGIBLE"));
+            }
+        }
+        if (eligibleRawVideos.isEmpty()) {
+            return orderedResults(orderedIds, results);
+        }
+
         List<UnifiedVideoAggregationCandidate> contextUnifiedCandidates =
                 repository.findContextUnifiedCandidates(eligibleRawVideos);
         for (RawVideoAggregationCluster cluster : rawVideoGraphClusterer.cluster(
@@ -52,41 +89,16 @@ public class AggregationService {
                 contextUnifiedCandidates)) {
             if (!cluster.isMultiRawCluster()) {
                 AggregationResult result = bindRawVideo(cluster.leader());
-                if ("BOUND".equals(result.status())) {
-                    publishBoundResult(result);
-                    processed++;
-                } else if ("PIPELINE_FAILED".equals(result.status())) {
-                    result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
-                }
+                results.put(cluster.leader().id(), publishAggregationResult(result));
                 continue;
             }
             BoundClusterResult result = bindRawCluster(cluster);
-            if ("BOUND".equals(result.status())) {
-                publishClusterResult(result);
-                processed += result.rawVideoIds().size();
-            } else if ("PIPELINE_FAILED".equals(result.status())) {
-                result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
-            }
+            recordClusterResults(results, result);
         }
-        return processed;
+        return orderedResults(orderedIds, results);
     }
 
-    private int aggregateIndividually(List<RawVideoAggregationRecord> rawVideos) {
-        int processed = 0;
-        for (RawVideoAggregationRecord rawVideo : rawVideos) {
-            AggregationResult result = bindRawVideo(rawVideo);
-            if ("BOUND".equals(result.status())) {
-                publishBoundResult(result);
-                processed++;
-            } else if ("PIPELINE_FAILED".equals(result.status())) {
-                result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
-            }
-        }
-        return processed;
-    }
-
-    @Transactional
-    public AggregationResult aggregateOne(UUID rawVideoId) {
+    private AggregationResult aggregateOneInternal(UUID rawVideoId) {
         return repository.findRawVideo(rawVideoId)
                 .map(this::bindRawVideo)
                 .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
@@ -207,7 +219,7 @@ public class AggregationService {
                         execution.failures());
                 return AggregationResult.pipelineFailed(rawVideo.id(), unifiedVideoId, matchPlan.victimUnifiedVideoIds());
             }
-            execution.coverR2PromoteImageIds().forEach(storageCommandPublisher::publishCoverR2Promote);
+            execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
             repository.markBound(rawVideo.id());
 
             log.info(
@@ -224,13 +236,13 @@ public class AggregationService {
                 .filter(RawVideoAggregationRecord::isAggregationEligible)
                 .toList();
         if (rawVideos.isEmpty()) {
-            return BoundClusterResult.skipped();
+            return BoundClusterResult.skipped(cluster.rawVideoIds(), "NOT_ELIGIBLE");
         }
         Optional<AggregationMatchKeyLock.MatchLockScope> lockScope =
                 matchKeyLock.tryAcquire(AggregationMatchKeys.forCluster(cluster));
         if (lockScope.isEmpty()) {
             rawVideos.forEach(rawVideo -> repository.markPending(rawVideo.id()));
-            return BoundClusterResult.skipped();
+            return BoundClusterResult.skipped(cluster.rawVideoIds(), "MATCH_LOCK_BUSY");
         }
 
         try (AggregationMatchKeyLock.MatchLockScope ignored = lockScope.orElseThrow()) {
@@ -260,7 +272,7 @@ public class AggregationService {
                         unifiedVideoId,
                         matchPlan.victimUnifiedVideoIds());
             }
-            execution.coverR2PromoteImageIds().forEach(storageCommandPublisher::publishCoverR2Promote);
+            execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
             for (RawVideoAggregationRecord rawVideo : rawVideos) {
                 repository.markBound(rawVideo.id());
             }
@@ -314,17 +326,56 @@ public class AggregationService {
         result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
     }
 
+    private AggregationResult publishAggregationResult(AggregationResult result) {
+        if ("BOUND".equals(result.status())) {
+            publishBoundResult(result);
+        } else if ("PIPELINE_FAILED".equals(result.status())) {
+            result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
+        }
+        return result;
+    }
+
     private void publishClusterResult(BoundClusterResult result) {
         publisher.publishUnifiedIndex(result.unifiedVideoId());
         result.rawVideoIds().forEach(publisher::publishRawIndex);
         result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
     }
 
+    private void recordClusterResults(Map<UUID, AggregationResult> results, BoundClusterResult result) {
+        if ("BOUND".equals(result.status())) {
+            publishClusterResult(result);
+            result.rawVideoIds().forEach(rawVideoId -> results.put(
+                    rawVideoId,
+                    AggregationResult.bound(rawVideoId, result.unifiedVideoId(), result.deletedUnifiedVideoIds())));
+            return;
+        }
+        if ("PIPELINE_FAILED".equals(result.status())) {
+            result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
+            result.rawVideoIds().forEach(rawVideoId -> results.put(
+                    rawVideoId,
+                    AggregationResult.pipelineFailed(rawVideoId, result.unifiedVideoId(), result.deletedUnifiedVideoIds())));
+            return;
+        }
+        result.rawVideoIds().forEach(rawVideoId -> results.put(
+                rawVideoId,
+                AggregationResult.skipped(rawVideoId, result.reason())));
+    }
+
+    private List<AggregationResult> orderedResults(
+            List<UUID> orderedIds,
+            Map<UUID, AggregationResult> results) {
+        return orderedIds.stream()
+                .map(results::get)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
     private record BoundClusterResult(
             List<UUID> rawVideoIds,
             UUID unifiedVideoId,
             String status,
-            List<UUID> deletedUnifiedVideoIds) {
+            List<UUID> deletedUnifiedVideoIds,
+            String reason) {
 
         static BoundClusterResult bound(
                 List<UUID> rawVideoIds,
@@ -334,11 +385,12 @@ public class AggregationService {
                     List.copyOf(rawVideoIds),
                     unifiedVideoId,
                     "BOUND",
-                    List.copyOf(deletedUnifiedVideoIds));
+                    List.copyOf(deletedUnifiedVideoIds),
+                    null);
         }
 
-        static BoundClusterResult skipped() {
-            return new BoundClusterResult(List.of(), null, "SKIPPED", List.of());
+        static BoundClusterResult skipped(List<UUID> rawVideoIds, String reason) {
+            return new BoundClusterResult(List.copyOf(rawVideoIds), null, reason, List.of(), reason);
         }
 
         static BoundClusterResult pipelineFailed(
@@ -349,7 +401,8 @@ public class AggregationService {
                     List.copyOf(rawVideoIds),
                     unifiedVideoId,
                     "PIPELINE_FAILED",
-                    List.copyOf(deletedUnifiedVideoIds));
+                    List.copyOf(deletedUnifiedVideoIds),
+                    null);
         }
     }
 }

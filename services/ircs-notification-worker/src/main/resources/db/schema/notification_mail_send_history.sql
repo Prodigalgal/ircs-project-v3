@@ -30,22 +30,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_correlation
 CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_audit_class_created
     ON notification_mail_send_history (audit_class, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS audit_es_replication_outbox (
-    id UUID PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    version BIGINT NOT NULL DEFAULT 0,
-    audit_class VARCHAR(32) NOT NULL,
-    source_table VARCHAR(128) NOT NULL,
-    source_id UUID NOT NULL,
-    event_type VARCHAR(32) NOT NULL DEFAULT 'UPSERT',
-    payload TEXT,
-    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_error TEXT
-);
-
 CREATE TABLE IF NOT EXISTS audit_archive_entries (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

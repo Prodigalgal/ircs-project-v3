@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$ContentBaseUrl = "http://127.0.0.1:19086",
     [int]$ContentPort = 19086,
@@ -303,10 +303,6 @@ function Get-QueueState {
 function Assert-SmokeQueuesCleanBefore {
     $dirty = @()
     foreach ($queue in @(
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq",
-        "q.search.sync.unified",
-        "q.search.sync.unified.dlq"
     )) {
         try {
             $state = Get-QueueState $queue
@@ -332,8 +328,6 @@ function Assert-ConsumersReady {
     for ($attempt = 0; $attempt -lt $WaitAttempts; $attempt++) {
         $missing = @()
         foreach ($queue in @(
-            "q.search.sync.raw",
-            "q.search.sync.unified"
         )) {
             $state = Get-QueueState $queue
             if ($state.consumers -lt 1) {
@@ -764,13 +758,8 @@ try {
     Invoke-JsonRequest "POST" "/api/v1/unified-videos/$oldUnifiedVideoId/recalculate" $null @(200) | Out-Null
     Assert-SyncedDbState
     Wait-EsUnifiedDocument 0
-    Mark "unified recalculate publishes q.search.sync.unified and refreshes ircs_unified_video" $i $total; $i++
 
     foreach ($queue in @(
-        "q.search.sync.raw",
-        "q.search.sync.raw.dlq",
-        "q.search.sync.unified",
-        "q.search.sync.unified.dlq"
     )) {
         Assert-QueueEmpty $queue
     }
@@ -781,7 +770,7 @@ try {
     Wait-EsMissing "ircs_raw_video" $rawVideoId
     Wait-EsMissing "ircs_unified_video" $oldUnifiedVideoId
     Assert-NoDbResidue
-    Mark "search queues/DLQs are clean and cleanup leaves no DB/ES fixture residue" $i $total
+    Mark "runtime search sync is clean and cleanup leaves no DB/ES fixture residue" $i $total
 } catch {
     Finish-Smoke "FAILED" "OLD_UNIFIED_DIRTY_LIFECYCLE_SMOKE_FAILED" @{
         message = $_.Exception.Message
@@ -798,10 +787,6 @@ try {
     } catch { Write-Warning $_ }
     if ($PurgeSmokeQueuesOnCleanup) {
         foreach ($queue in @(
-            "q.search.sync.raw",
-            "q.search.sync.raw.dlq",
-            "q.search.sync.unified",
-            "q.search.sync.unified.dlq"
         )) {
             try { kubectl -n $Namespace exec rabbitmq-0 -- rabbitmqctl purge_queue $queue | Out-Null } catch { Write-Warning $_ }
         }

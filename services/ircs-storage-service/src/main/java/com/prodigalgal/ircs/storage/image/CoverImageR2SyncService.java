@@ -60,7 +60,7 @@ public class CoverImageR2SyncService {
             r2ObjectStorage.store(data.get(), row.storagePath(), row.mimeType());
             repository.finalizeUpload(imageId, row.storagePath());
             cleanupTemporaryLocalCopy(row.storagePath());
-            log.info("Cover image synced to R2 by watchdog: {}", imageId);
+            log.info("Cover image synced to R2 by runtime queue: {}", imageId);
             return CoverImageR2SyncResult.synced(row.storagePath());
         } catch (RuntimeException ex) {
             repository.markFailed(imageId, "R2 upload failed: " + ex.getMessage(), maxRetries);

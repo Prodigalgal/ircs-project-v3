@@ -63,10 +63,6 @@ public class MaintenanceRunnerService {
             "ircs-scraper-service",
             "POST /internal/v1/scraper/trends/sync",
             "scraper:maintenance");
-    static final MaintenanceOwnerStep LLM_LANGUAGE_OWNER_STEP = llmOwnerStep("language");
-    static final MaintenanceOwnerStep LLM_AREA_OWNER_STEP = llmOwnerStep("area");
-    static final MaintenanceOwnerStep LLM_GENRE_OWNER_STEP = llmOwnerStep("genre");
-    static final MaintenanceOwnerStep LLM_CATEGORY_OWNER_STEP = llmOwnerStep("category");
     private static final Map<String, MaintenanceRunnerMetadata> REGISTRY = Map.ofEntries(
             metadata(
                     MaintenanceReindexCommand.TASK_UNIFIED_REINDEX,
@@ -119,42 +115,6 @@ public class MaintenanceRunnerService {
             metadata("area-clean", DEV_REFUSAL_REASON),
             metadata("language-clean", DEV_REFUSAL_REASON),
             metadata(
-                    "llm-sanitize",
-                    MaintenanceRiskLevel.HIGH,
-                    true,
-                    true,
-                    0,
-                    0,
-                    "",
-                    List.of(LLM_LANGUAGE_OWNER_STEP)),
-            metadata(
-                    "llm-area-clean",
-                    MaintenanceRiskLevel.HIGH,
-                    true,
-                    true,
-                    0,
-                    0,
-                    "",
-                    List.of(LLM_AREA_OWNER_STEP)),
-            metadata(
-                    "llm-genre-clean",
-                    MaintenanceRiskLevel.HIGH,
-                    true,
-                    true,
-                    0,
-                    0,
-                    "",
-                    List.of(LLM_GENRE_OWNER_STEP)),
-            metadata(
-                    "llm-category-clean",
-                    MaintenanceRiskLevel.HIGH,
-                    true,
-                    true,
-                    0,
-                    0,
-                    "",
-                    List.of(LLM_CATEGORY_OWNER_STEP)),
-            metadata(
                     TASK_TREND_SYNC,
                     MaintenanceRiskLevel.HIGH,
                     true,
@@ -165,7 +125,7 @@ public class MaintenanceRunnerService {
                     List.of(TREND_SYNC_OWNER_STEP)));
 
     private final MaintenanceReindexCommand reindexCommand;
-    private final MaintenanceLlmCleaningClient llmCleaningClient;
+    private final MaintenanceNormalizationClient normalizationClient;
     private final MaintenanceAggregationClient aggregationClient;
     private final MaintenanceTrendSyncClient trendSyncClient;
     private final WorkerJobAuditWriter auditWriter;
@@ -208,7 +168,7 @@ public class MaintenanceRunnerService {
             return execute(metadata, correlationId, startedAt, () -> reindexCommand.enqueueRawIndex(correlationId));
         }
         if (TASK_SANITIZE.equals(metadata.taskName())) {
-            return execute(metadata, correlationId, startedAt, () -> llmCleaningClient.resetAllNormalization(correlationId));
+            return execute(metadata, correlationId, startedAt, () -> normalizationClient.resetAllNormalization(correlationId));
         }
         if (TASK_UNIFIED_RECALCULATE.equals(metadata.taskName())) {
             return execute(metadata, correlationId, startedAt, () -> aggregationClient.recalculateDirtyUnified(correlationId));
@@ -218,10 +178,6 @@ public class MaintenanceRunnerService {
         }
         if (TASK_TREND_SYNC.equals(metadata.taskName())) {
             return execute(metadata, correlationId, startedAt, () -> trendSyncClient.syncTrends(correlationId));
-        }
-        Optional<MaintenanceLlmCleaningTask> llmTask = MaintenanceLlmCleaningTask.fromTaskName(metadata.taskName());
-        if (llmTask.isPresent()) {
-            return execute(metadata, correlationId, startedAt, () -> llmCleaningClient.run(llmTask.get(), correlationId));
         }
         auditWriter.record(WorkerJobAuditEvent.failed(
                 JOB_TYPE_MAINTENANCE_RUNNER,
@@ -315,14 +271,6 @@ public class MaintenanceRunnerService {
                 0,
                 refusalReason,
                 List.of());
-    }
-
-    private static MaintenanceOwnerStep llmOwnerStep(String kind) {
-        return new MaintenanceOwnerStep(
-                "run-llm-" + kind + "-cleaning",
-                "ircs-normalization-worker",
-                "POST /internal/v1/normalization/llm-cleaning/" + kind + "/run",
-                "normalization:maintenance");
     }
 
     private static MaintenanceRunnerMetadata unknownMetadata(String taskName) {

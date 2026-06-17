@@ -68,14 +68,16 @@ spec:
               value: "0"
             - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
               value: "30000"
-            - name: APP_AGGREGATION_SCHEDULER_ENABLED
-              value: "false"
-            - name: APP_AGGREGATION_BATCH_SIZE
-              value: "1"
-            - name: APP_AGGREGATION_CONFIG_LISTENER_ENABLED
+            - name: APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED
               value: "true"
-            - name: APP_AGGREGATION_SCHEDULER_FIXED_DELAY_MS
-              value: "5000"
+            - name: APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE
+              value: "1"
+            - name: APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS
+              value: "2000"
+            - name: APP_AGGREGATION_WORK_QUEUE_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           startupProbe:
             httpGet:
               path: /actuator/health/liveness

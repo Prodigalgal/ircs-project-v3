@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$UseCluster
 )
 
@@ -14,18 +14,11 @@ $checks = @(
         deployment = "ircs-normalization-worker"
     },
     @{
-        name = "storage-r2-watchdog"
+        name = "storage-r2-work-queue-worker"
         appPath = "services/ircs-storage-service/src/main/resources/application.yaml"
         manifestPath = "deploy/k8s/dev/storage-service-dev.yaml"
-        envName = "APP_STORAGE_R2_WATCHDOG_ENABLED"
+        envName = "APP_STORAGE_R2_WORK_QUEUE_WORKER_ENABLED"
         deployment = "ircs-storage-service"
-    },
-    @{
-        name = "aggregation-scheduler"
-        appPath = "services/ircs-aggregation-worker/src/main/resources/application.yaml"
-        manifestPath = "deploy/k8s/dev/aggregation-worker-dev.yaml"
-        envName = "APP_AGGREGATION_SCHEDULER_ENABLED"
-        deployment = "ircs-aggregation-worker"
     }
 )
 

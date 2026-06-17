@@ -91,7 +91,7 @@ public class ServiceRequestAuditFilter extends OncePerRequestFilter {
                     request.getHeader("User-Agent"),
                     truncate(resolveTraceId(request), TRACE_ID_LIMIT),
                     truncate(errorMessage, ERROR_LIMIT));
-            AuditEsOutboxWriter.enqueueRequest(jdbcTemplate, auditClass, id, log);
+            AuditReplicationWorkDispatcher.enqueueRequest(auditClass, id, log);
         } catch (RuntimeException ex) {
             log.warn("Service request audit write failed for {}: {}", requestSource, ex.getMessage());
         }

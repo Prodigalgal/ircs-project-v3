@@ -15,6 +15,14 @@ class NotificationMailSendHistoryChangelogTest {
             "db/changelog/2026/07/add-audit-archive-retention-governance.sql";
     private static final String SEARCH_OUTBOX_REPAIR_CHANGELOG =
             "db/changelog/2026/07/repair-search-outbox-schema.sql";
+    private static final String SEARCH_RUNTIME_QUEUE_DROP_CHANGELOG =
+            "db/changelog/2026/07/drop-search-sync-tasks-runtime-queue.sql";
+    private static final String AUDIT_RUNTIME_QUEUE_DROP_CHANGELOG =
+            "db/changelog/2026/07/drop-audit-es-replication-outbox-runtime-queue.sql";
+    private static final String LLM_CLEANING_RUNTIME_QUEUE_DROP_CHANGELOG =
+            "db/changelog/2026/07/drop-llm-cleaning-claim-lease-runtime-queue.sql";
+    private static final String AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG =
+            "db/changelog/2026/07/drop-avatar-sync-claim-lease-runtime-queue.sql";
 
     @Test
     void masterChangelogIncludesNotificationMailSendHistory() throws IOException {
@@ -23,6 +31,10 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(master).contains("file: " + MAIL_HISTORY_CHANGELOG);
         assertThat(master).contains("file: " + AUDIT_GOVERNANCE_CHANGELOG);
         assertThat(master).contains("file: " + SEARCH_OUTBOX_REPAIR_CHANGELOG);
+        assertThat(master).contains("file: " + SEARCH_RUNTIME_QUEUE_DROP_CHANGELOG);
+        assertThat(master).contains("file: " + AUDIT_RUNTIME_QUEUE_DROP_CHANGELOG);
+        assertThat(master).contains("file: " + LLM_CLEANING_RUNTIME_QUEUE_DROP_CHANGELOG);
+        assertThat(master).contains("file: " + AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG);
     }
 
     @Test
@@ -65,6 +77,42 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(repair).contains("CREATE INDEX IF NOT EXISTS idx_search_sync_poll");
         assertThat(repair).contains("CREATE INDEX IF NOT EXISTS idx_search_sync_processing_lease");
         assertThat(repair).contains("CREATE INDEX IF NOT EXISTS idx_search_sync_entity_status");
+    }
+
+    @Test
+    void searchRuntimeQueueDropChangelogRemovesDbHotQueueTable() throws IOException {
+        String drop = normalize(readClasspath(SEARCH_RUNTIME_QUEUE_DROP_CHANGELOG));
+
+        assertThat(drop).contains("liquibase formatted sql");
+        assertThat(drop).contains("DROP TABLE IF EXISTS search_sync_tasks");
+    }
+
+    @Test
+    void auditRuntimeQueueDropChangelogRemovesDbOutboxTable() throws IOException {
+        String drop = normalize(readClasspath(AUDIT_RUNTIME_QUEUE_DROP_CHANGELOG));
+
+        assertThat(drop).contains("liquibase formatted sql");
+        assertThat(drop).contains("DROP TABLE IF EXISTS audit_es_replication_outbox");
+    }
+
+    @Test
+    void llmCleaningRuntimeQueueDropChangelogRemovesDbClaimLeaseColumns() throws IOException {
+        String drop = normalize(readClasspath(LLM_CLEANING_RUNTIME_QUEUE_DROP_CHANGELOG));
+
+        assertThat(drop).contains("liquibase formatted sql");
+        assertThat(drop).contains("DROP INDEX IF EXISTS idx_raw_genres_llm_cleaning_claim");
+        assertThat(drop).contains("DROP COLUMN IF EXISTS llm_cleaning_claimed_by");
+        assertThat(drop).contains("DROP COLUMN IF EXISTS llm_cleaning_claimed_until");
+    }
+
+    @Test
+    void avatarSyncRuntimeQueueDropChangelogRemovesDbClaimLeaseColumns() throws IOException {
+        String drop = normalize(readClasspath(AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG));
+
+        assertThat(drop).contains("liquibase formatted sql");
+        assertThat(drop).contains("DROP INDEX IF EXISTS idx_members_avatar_sync_claim");
+        assertThat(drop).contains("DROP COLUMN IF EXISTS avatar_sync_claimed_by");
+        assertThat(drop).contains("DROP COLUMN IF EXISTS avatar_sync_claimed_until");
     }
 
     private static String readClasspath(String path) throws IOException {

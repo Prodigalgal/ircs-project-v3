@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
@@ -46,6 +47,9 @@ class MetadataResultCollectorServiceTest {
     private MetadataEnrichPublisher metadataEnrichPublisher;
 
     @Mock
+    private AggregationWorkPublisher aggregationWorkPublisher;
+
+    @Mock
     private MetadataConfigValues configValues;
 
     @Test
@@ -79,6 +83,7 @@ class MetadataResultCollectorServiceTest {
         assertEquals("Original Title", record.getValue().getAliasTitle());
         assertEquals("PENDING", record.getValue().getAggregationStatus());
         verify(searchSyncPublisher).publishIndex(id);
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-finalized");
     }
 
     @Test
@@ -350,6 +355,7 @@ class MetadataResultCollectorServiceTest {
                 searchSyncPublisher,
                 pipelineRunRepository,
                 metadataEnrichPublisher,
+                aggregationWorkPublisher,
                 configValues,
                 objectMapper);
     }

@@ -4,14 +4,10 @@ public enum QueueTopic {
     INGEST_VIDEO(Names.INGEST_Q, Names.INGEST_X, "video.upsert"),
     PLAYLIST_SYNC(Names.PROCESS_Q_PLAYLIST, Names.PROCESS_X, "video.playlist_sync"),
     DOWNLOAD_IMAGE(Names.STORAGE_Q_IMAGE, Names.STORAGE_X, "image.download"),
-    PROMOTE_COVER_R2(Names.STORAGE_Q_COVER_R2_PROMOTE, Names.STORAGE_X, "image.cover.r2_promote"),
-    SYNC_AVATAR(Names.STORAGE_Q_AVATAR, Names.STORAGE_X, "image.avatar_sync"),
     CMD_IMAGE_UNLINK(Names.STORAGE_Q_UNLINK, Names.STORAGE_X, "image.cmd.unlink"),
     EVENT_IMAGE_UNLINKED(Names.STORAGE_Q_DELETE, Names.STORAGE_X, "image.event.unlinked"),
     SEND_MAIL(Names.NOTIFICATION_Q_MAIL, Names.NOTIFICATION_X, "notification.mail"),
     WATCH_PROGRESS(Names.INTERACTION_Q_PROGRESS, Names.INTERACTION_X, "interaction.progress"),
-    SEARCH_SYNC_RAW(Names.SEARCH_Q_RAW, Names.SEARCH_X, "search.sync.raw"),
-    SEARCH_SYNC_UNIFIED(Names.SEARCH_Q_UNIFIED, Names.SEARCH_X, "search.sync.unified"),
     TASK_PAGE(Names.TASK_Q_PAGE, Names.TASK_X, "task.page"),
     TASK_DETAIL(Names.TASK_Q_DETAIL, Names.TASK_X, "task.detail"),
     TASK_PAGE_DISCOVERED(Names.TASK_Q_PAGE_DISCOVERED, Names.TASK_X, "task.page.discovered"),
@@ -65,7 +61,6 @@ public enum QueueTopic {
         public static final String STORAGE_X = "x.storage";
         public static final String NOTIFICATION_X = "x.notification";
         public static final String INTERACTION_X = "x.interaction";
-        public static final String SEARCH_X = "x.search";
         public static final String TASK_X = "x.task";
         public static final String DLX = "x.dlx";
         public static final String DOMAIN_EVENT_X = "x.domain.events";
@@ -73,14 +68,10 @@ public enum QueueTopic {
         public static final String INGEST_Q = "q.ingest.video";
         public static final String PROCESS_Q_PLAYLIST = "q.process.playlist_sync";
         public static final String STORAGE_Q_IMAGE = "q.storage.image";
-        public static final String STORAGE_Q_COVER_R2_PROMOTE = "q.storage.cover_r2_promote";
-        public static final String STORAGE_Q_AVATAR = "q.storage.avatar_sync";
         public static final String STORAGE_Q_UNLINK = "q.storage.image_unlink";
         public static final String STORAGE_Q_DELETE = "q.storage.image_delete";
         public static final String NOTIFICATION_Q_MAIL = "q.notification.mail";
         public static final String INTERACTION_Q_PROGRESS = "q.interaction.watch_progress";
-        public static final String SEARCH_Q_RAW = "q.search.sync.raw";
-        public static final String SEARCH_Q_UNIFIED = "q.search.sync.unified";
         public static final String TASK_Q_PAGE = "q.task.page";
         public static final String TASK_Q_DETAIL = "q.task.detail";
         public static final String TASK_Q_PAGE_DISCOVERED = "q.task.page.discovered";

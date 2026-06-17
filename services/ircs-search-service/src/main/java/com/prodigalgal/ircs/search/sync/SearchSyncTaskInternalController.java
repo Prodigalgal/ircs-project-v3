@@ -1,7 +1,7 @@
 package com.prodigalgal.ircs.search.sync;
 
 import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
-import com.prodigalgal.ircs.common.search.SearchSyncOutboxWriter;
+import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
 import com.prodigalgal.ircs.contracts.search.SearchSyncTaskBatchEnqueueRequest;
 import com.prodigalgal.ircs.contracts.search.SearchSyncTaskEnqueueRequest;
 import com.prodigalgal.ircs.contracts.search.SearchSyncTaskEnqueueResponse;
@@ -25,15 +25,15 @@ class SearchSyncTaskInternalController {
 
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
 
-    private final SearchSyncOutboxWriter writer;
+    private final SearchSyncWorkPublisher publisher;
     private final SearchInternalAccessPolicy accessPolicy;
     private final int maxBatchSize;
 
     SearchSyncTaskInternalController(
-            SearchSyncOutboxWriter writer,
+            SearchSyncWorkPublisher publisher,
             SearchInternalAccessPolicy accessPolicy,
             @Value("${app.search.internal-access.max-batch-size:1000}") int maxBatchSize) {
-        this.writer = writer;
+        this.publisher = publisher;
         this.accessPolicy = accessPolicy;
         this.maxBatchSize = Math.max(1, maxBatchSize);
     }
@@ -47,7 +47,7 @@ class SearchSyncTaskInternalController {
             @RequestHeader(value = CORRELATION_HEADER, required = false) String correlationHeader) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
         validate(request);
-        int accepted = writer.enqueue(
+        int accepted = publisher.enqueue(
                 request.entityId(),
                 request.entityType(),
                 request.operation(),
@@ -65,7 +65,7 @@ class SearchSyncTaskInternalController {
             @RequestHeader(value = CORRELATION_HEADER, required = false) String correlationHeader) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
         validate(request);
-        int accepted = writer.enqueueBatch(
+        int accepted = publisher.enqueueBatch(
                 request.entityIds(),
                 request.entityType(),
                 request.operation(),

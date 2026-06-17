@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Namespace = "ircs-dev",
     [string]$RabbitBaseUrl = "http://127.0.0.1:19094",
     [int]$RabbitPort = 19094,
@@ -275,7 +275,7 @@ function Invoke-RabbitPublish {
 
 function Assert-QueueBaseline {
     $details = @{}
-    foreach ($queueName in @("q.normalize.video", "q.normalize.video.dlq", "q.search.sync.raw", "q.search.sync.raw.dlq")) {
+    foreach ($queueName in @("q.normalize.video", "q.normalize.video.dlq")) {
         $queue = Get-RabbitQueue $queueName
         $details[$queueName] = @{
             messages = [int]$queue.messages
@@ -284,7 +284,7 @@ function Assert-QueueBaseline {
             unacked = [int]$queue.messages_unacknowledged
         }
     }
-    if ($details["q.normalize.video"].consumers -lt 1 -or $details["q.search.sync.raw"].consumers -lt 1) {
+    if ($details["q.normalize.video"].consumers -lt 1) {
         Finish-Smoke "SKIPPED" "REQUIRED_CONSUMER_MISSING" $details
     }
     foreach ($queueName in $details.Keys) {
@@ -296,7 +296,7 @@ function Assert-QueueBaseline {
 
 function Assert-QueuesEmpty {
     $details = @{}
-    foreach ($queueName in @("q.normalize.video", "q.normalize.video.dlq", "q.search.sync.raw", "q.search.sync.raw.dlq")) {
+    foreach ($queueName in @("q.normalize.video", "q.normalize.video.dlq")) {
         $queue = Get-RabbitQueue $queueName
         $details[$queueName] = @{
             messages = [int]$queue.messages
@@ -418,7 +418,7 @@ try {
     Test-KubectlAccess
     $rabbitPf = Start-PortForward
     Assert-QueueBaseline
-    Mark "normalization/search consumers are ready and queues are clean" 1 5
+    Mark "normalization consumer is ready and queues are clean" 1 5
 
     Capture-BaselineRawIds
     Cleanup-SmokeData
@@ -441,7 +441,7 @@ try {
     Mark "DB fixture residue is cleaned" 4 5
 
     $queueDetails = Assert-QueuesEmpty
-    Mark "Rabbit queues remain empty after smoke" 5 5
+    Mark "normalization Rabbit queue remains empty after smoke" 5 5
     Finish-Smoke "PASSED" "NORMALIZATION_A9_PIPELINE_CLOSURE_SMOKE_PASSED" @{
         residue = "0"
         queues = $queueDetails

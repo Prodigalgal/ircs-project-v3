@@ -59,30 +59,6 @@ public class JdbcAggregationRepository {
         return new JdbcAggregationRepository(jdbcTemplate, matchingStrategy, contextSearchClient);
     }
 
-    public List<UUID> claimPending(int limit) {
-        return jdbcTemplate.queryForList(
-                """
-                with pending as (
-                    select id
-                    from raw_videos
-                    where aggregation_status = 'PENDING'
-                      and normalization_status = 'READY'
-                      and enrichment_status <> 'PENDING'
-                    order by aggregation_status_updated_at asc
-                    limit :limit
-                    for update skip locked
-                )
-                update raw_videos rv
-                set aggregation_status = 'PROCESSING',
-                    aggregation_status_updated_at = now()
-                from pending
-                where rv.id = pending.id
-                returning rv.id
-                """,
-                new MapSqlParameterSource("limit", limit),
-                UUID.class);
-    }
-
     public Optional<RawVideoAggregationRecord> findRawVideo(UUID rawVideoId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(

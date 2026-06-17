@@ -36,7 +36,7 @@ public class AggregationPipelineRuntime {
 
     public AggregationPipelineExecution run(UUID unifiedVideoId) {
         List<AggregationPipelineStageFailure> failures = new ArrayList<>();
-        List<UUID> coverR2PromoteImageIds = new ArrayList<>();
+        List<UUID> coverR2SyncImageIds = new ArrayList<>();
 
         runStage(
                 AggregationPipelineStage.BASIC_ATTRIBUTE,
@@ -63,9 +63,9 @@ public class AggregationPipelineRuntime {
                 unifiedVideoId,
                 () -> repository.rebuildUnifiedPipelineCategory(unifiedVideoId),
                 failures);
-        coverR2PromoteImageIds.addAll(runCoverStage(unifiedVideoId, failures));
+        coverR2SyncImageIds.addAll(runCoverStage(unifiedVideoId, failures));
 
-        return new AggregationPipelineExecution(unifiedVideoId, coverR2PromoteImageIds, failures);
+        return new AggregationPipelineExecution(unifiedVideoId, coverR2SyncImageIds, failures);
     }
 
     private void runStage(
@@ -185,11 +185,11 @@ record AggregationPipelineStageFailure(
 
 record AggregationPipelineExecution(
         UUID unifiedVideoId,
-        List<UUID> coverR2PromoteImageIds,
+        List<UUID> coverR2SyncImageIds,
         List<AggregationPipelineStageFailure> failures) {
 
     AggregationPipelineExecution {
-        coverR2PromoteImageIds = coverR2PromoteImageIds == null ? List.of() : List.copyOf(coverR2PromoteImageIds);
+        coverR2SyncImageIds = coverR2SyncImageIds == null ? List.of() : List.copyOf(coverR2SyncImageIds);
         failures = failures == null ? List.of() : List.copyOf(failures);
     }
 

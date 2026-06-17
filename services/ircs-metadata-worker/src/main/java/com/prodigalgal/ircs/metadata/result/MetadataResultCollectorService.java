@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
 import com.prodigalgal.ircs.metadata.MetadataConfigValues;
@@ -31,6 +32,7 @@ public class MetadataResultCollectorService {
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final MetadataPipelineRunRepository pipelineRunRepository;
     private final MetadataEnrichPublisher metadataEnrichPublisher;
+    private final AggregationWorkPublisher aggregationWorkPublisher;
     private final MetadataConfigValues configValues;
     private final ObjectMapper objectMapper;
 
@@ -86,6 +88,7 @@ public class MetadataResultCollectorService {
         repository.save(record);
         pipelineRunRepository.markRunFinished(record.getId(), record.getDataHash(), record.getEnrichmentStatus());
         searchSyncPublisher.publishIndex(record.getId());
+        aggregationWorkPublisher.enqueue(record.getId(), record.getDataHash(), "metadata-finalized");
         scheduleRetryIfNeeded(record);
 
         return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());

@@ -2,7 +2,7 @@ package com.prodigalgal.ircs.search.sync;
 
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
-import com.prodigalgal.ircs.common.search.SearchSyncOutboxWriter;
+import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import com.prodigalgal.ircs.search.index.SearchIndexService;
@@ -29,7 +29,7 @@ class SearchReconciliationRunner {
 
     private final SearchDocumentJdbcRepository documentRepository;
     private final SearchIndexService searchIndexService;
-    private final SearchSyncOutboxWriter outboxWriter;
+    private final SearchSyncWorkPublisher workPublisher;
     private final WorkerJobAuditWriter auditWriter;
     private final SearchDistributedLockRunner lockRunner;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -48,12 +48,12 @@ class SearchReconciliationRunner {
     SearchReconciliationRunner(
             SearchDocumentJdbcRepository documentRepository,
             SearchIndexService searchIndexService,
-            SearchSyncOutboxWriter outboxWriter,
+            SearchSyncWorkPublisher workPublisher,
             WorkerJobAuditWriter auditWriter,
             SearchDistributedLockRunner lockRunner) {
         this.documentRepository = documentRepository;
         this.searchIndexService = searchIndexService;
-        this.outboxWriter = outboxWriter;
+        this.workPublisher = workPublisher;
         this.auditWriter = auditWriter;
         this.lockRunner = lockRunner;
     }
@@ -127,7 +127,7 @@ class SearchReconciliationRunner {
                     .toList();
             missing += missingIds.size();
             if (!missingIds.isEmpty() && !dryRun && executeGate) {
-                enqueued += outboxWriter.enqueueBatch(
+                enqueued += workPublisher.enqueueBatch(
                         missingIds,
                         entityType,
                         SyncOperation.INDEX,

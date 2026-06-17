@@ -1,8 +1,12 @@
 package com.prodigalgal.ircs.ops;
 
+import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import java.sql.Timestamp;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -12,6 +16,7 @@ import org.springframework.stereotype.Repository;
 public class AuditGovernanceRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final ObjectProvider<RuntimeWorkQueue> workQueueProvider;
 
     public AuditArchiveSummaryResponse archiveSummary() {
         return jdbcTemplate.queryForObject(
@@ -34,33 +39,25 @@ public class AuditGovernanceRepository {
                         toInstant(rs.getTimestamp("newest_archived_at"))));
     }
 
-    public AuditEsReplicationOutboxSummaryResponse outboxSummary() {
-        return jdbcTemplate.queryForObject(
-                """
-                select count(*) as total,
-                       sum(case when status = 'PENDING' then 1 else 0 end) as pending_count,
-                       sum(case when status = 'PROCESSING' then 1 else 0 end) as processing_count,
-                       sum(case when status = 'SUCCEEDED' then 1 else 0 end) as succeeded_count,
-                       sum(case when status = 'FAILED' then 1 else 0 end) as failed_count,
-                       max(attempt_count) as max_attempt_count,
-                       min(case when status = 'PENDING' then created_at else null end) as oldest_pending_at,
-                       min(case when status in ('PENDING', 'FAILED') then next_attempt_at else null end) as next_attempt_at
-                  from audit_es_replication_outbox
-                """,
-                new MapSqlParameterSource(),
-                (rs, rowNum) -> new AuditEsReplicationOutboxSummaryResponse(
-                        rs.getLong("total"),
-                        rs.getLong("pending_count"),
-                        rs.getLong("processing_count"),
-                        rs.getLong("succeeded_count"),
-                        rs.getLong("failed_count"),
-                        getLong(rs.getObject("max_attempt_count")),
-                        toInstant(rs.getTimestamp("oldest_pending_at")),
-                        toInstant(rs.getTimestamp("next_attempt_at"))));
-    }
-
-    private static long getLong(Object value) {
-        return value instanceof Number number ? number.longValue() : 0L;
+    public AuditReplicationWorkQueueSummaryResponse replicationWorkQueueSummary() {
+        RuntimeWorkQueue workQueue = workQueueProvider.getIfAvailable();
+        if (workQueue == null) {
+            return new AuditReplicationWorkQueueSummaryResponse(
+                    AuditReplicationWorkTypes.ES_REPLICATION,
+                    false,
+                    0,
+                    0,
+                    0,
+                    0);
+        }
+        RuntimeWorkQueueCounts counts = workQueue.counts(AuditReplicationWorkTypes.ES_REPLICATION);
+        return new AuditReplicationWorkQueueSummaryResponse(
+                AuditReplicationWorkTypes.ES_REPLICATION,
+                true,
+                counts.pending() + counts.inflight() + counts.dlq(),
+                counts.pending(),
+                counts.inflight(),
+                counts.dlq());
     }
 
     private static Instant toInstant(Timestamp timestamp) {
