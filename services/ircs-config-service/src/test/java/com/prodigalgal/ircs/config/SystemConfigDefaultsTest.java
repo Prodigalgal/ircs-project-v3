@@ -18,10 +18,12 @@ class SystemConfigDefaultsTest {
         Set<String> actual = defaults.all().stream()
                 .map(SystemConfigDefaults.DefaultConfig::key)
                 .collect(Collectors.toUnmodifiableSet());
+        Set<String> expected = java.util.stream.Stream.concat(
+                        CURRENT_SYSTEM_CONFIG_KEYS.stream(), V3_OAUTH_CONFIG_KEYS.stream())
+                .collect(Collectors.toUnmodifiableSet());
 
-        assertTrue(actual.containsAll(CURRENT_SYSTEM_CONFIG_KEYS));
-        assertTrue(actual.containsAll(V3_OAUTH_CONFIG_KEYS));
-        assertEquals(160, defaults.all().size());
+        assertEquals(expected, actual);
+        assertEquals(expected.size(), defaults.all().size());
     }
 
     @Test
@@ -149,6 +151,11 @@ class SystemConfigDefaultsTest {
             "normalization.batch-size",
             "normalization.batch-size.min",
             "normalization.batch-size.max",
+            "app.normalization.valkey-worker.enabled",
+            "app.normalization.valkey-worker.batch-size",
+            "app.normalization.valkey-worker.visibility-timeout",
+            "app.normalization.valkey-worker.initial-delay-ms",
+            "app.normalization.valkey-worker.fixed-delay-ms",
             "app.metadata.timeout.processing-min",
             "app.metadata.timeout.pending-min",
             "app.metadata.enabled",
@@ -192,6 +199,13 @@ class SystemConfigDefaultsTest {
             "app.aggregation.work-queue.batch-size",
             "app.aggregation.work-queue.batch-size.min",
             "app.aggregation.work-queue.batch-size.max",
+            "app.aggregation.work-queue.worker.enabled",
+            "app.aggregation.work-queue.worker.batch-size",
+            "app.aggregation.work-queue.worker.visibility-seconds",
+            "app.aggregation.work-queue.worker.max-retries",
+            "app.aggregation.work-queue.worker.max-backoff-seconds",
+            "app.aggregation.work-queue.worker.initial-delay-ms",
+            "app.aggregation.work-queue.worker.fixed-delay-ms",
             "app.maintenance.sanitize.batch-size",
             "app.maintenance.aggregation-reset.batch-size",
             "app.maintenance.rule-cleaning.batch-size",
@@ -205,6 +219,13 @@ class SystemConfigDefaultsTest {
             "app.search.work-queue.batch-size",
             "app.search.work-queue.batch-size.min",
             "app.search.work-queue.batch-size.max",
+            "app.search.work-queue.worker.enabled",
+            "app.search.work-queue.worker.batch-size",
+            "app.search.work-queue.worker.visibility-seconds",
+            "app.search.work-queue.worker.max-retries",
+            "app.search.work-queue.worker.max-backoff-seconds",
+            "app.search.work-queue.worker.initial-delay-ms",
+            "app.search.work-queue.worker.fixed-delay-ms",
             "app.search.reconciliation.enabled",
             "app.storage.base-path",
             "app.storage.public-path",
@@ -220,12 +241,26 @@ class SystemConfigDefaultsTest {
             "app.storage.image.cleanup.batch-size",
             "app.storage.image.cleanup.batch-size.min",
             "app.storage.image.cleanup.batch-size.max",
+            "app.storage.r2.work-queue.worker.enabled",
+            "app.storage.r2.work-queue.worker.batch-size",
+            "app.storage.r2.work-queue.worker.visibility-seconds",
+            "app.storage.r2.work-queue.worker.max-retries",
+            "app.storage.r2.work-queue.worker.max-backoff-seconds",
+            "app.storage.r2.work-queue.worker.initial-delay-ms",
+            "app.storage.r2.work-queue.worker.fixed-delay-ms",
             "app.storage.r2.enabled",
             "app.storage.r2.bucket-name",
             "app.storage.r2.public-domain",
             "app.ai.llm.enabled",
             "app.ai.llm.model",
             "app.ai.llm.rate-limit.rpm",
+            "app.normalization.llm-cleaning.work-queue.worker.enabled",
+            "app.normalization.llm-cleaning.work-queue.worker.batch-size",
+            "app.normalization.llm-cleaning.work-queue.worker.visibility-seconds",
+            "app.normalization.llm-cleaning.work-queue.worker.max-retries",
+            "app.normalization.llm-cleaning.work-queue.worker.max-backoff-seconds",
+            "app.normalization.llm-cleaning.work-queue.worker.initial-delay-ms",
+            "app.normalization.llm-cleaning.work-queue.worker.fixed-delay-ms",
             "app.ai.llm.prompt.language",
             "app.ai.llm.prompt.area",
             "app.ai.llm.prompt.genre",
@@ -261,6 +296,18 @@ class SystemConfigDefaultsTest {
             "app.metadata.rotten-tomatoes.proxy.port",
             "app.metadata.rotten-tomatoes.proxy.username",
             "app.metadata.rotten-tomatoes.proxy.password",
+            "app.metadata.valkey-dispatcher.enabled",
+            "app.metadata.valkey-dispatcher.batch-size",
+            "app.metadata.valkey-dispatcher.visibility-timeout",
+            "app.metadata.valkey-dispatcher.retry-delay",
+            "app.metadata.valkey-dispatcher.initial-delay-ms",
+            "app.metadata.valkey-dispatcher.fixed-delay-ms",
+            "app.metadata.valkey-provider-worker.enabled",
+            "app.metadata.valkey-provider-worker.batch-size",
+            "app.metadata.valkey-provider-worker.visibility-timeout",
+            "app.metadata.valkey-provider-worker.retry-delay",
+            "app.metadata.valkey-provider-worker.initial-delay-ms",
+            "app.metadata.valkey-provider-worker.fixed-delay-ms",
             "app.scraper.trend-sync.enabled",
             "app.scraper.trend-sync.cron",
             "app.scraper.trend-sync.timezone",

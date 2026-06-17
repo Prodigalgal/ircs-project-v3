@@ -25,13 +25,13 @@ class FeedbackControllerTest {
         UUID memberId = UUID.randomUUID();
         FeedbackSubmitRequest request = new FeedbackSubmitRequest("门户反馈");
         UserMessageResponse message = message(memberId, "门户反馈");
-        when(memberTokenService.requireMemberId("Bearer token", null)).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(commandService.submit(memberId, request)).thenReturn(message);
 
-        UserMessageResponse response = controller.submit("Bearer token", null, request);
+        UserMessageResponse response = controller.submit("Bearer token", request);
 
         assertEquals(message, response);
-        verify(memberTokenService).requireMemberId("Bearer token", null);
+        verify(memberTokenService).requireMemberId("Bearer token");
         verify(commandService).submit(memberId, request);
     }
 
@@ -40,13 +40,13 @@ class FeedbackControllerTest {
         UUID memberId = UUID.randomUUID();
         PageBounds bounds = PageBounds.of(2, 999, 10, 70);
         PageResponse<UserMessageResponse> page = PageResponse.of(List.of(message(memberId, "我的留言")), 71, bounds);
-        when(memberTokenService.requireMemberId(null, "token-param")).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(commandService.myFeedback(memberId, bounds)).thenReturn(page);
 
-        PageResponse<UserMessageResponse> response = controller.myFeedback(null, "token-param", 2, 999);
+        PageResponse<UserMessageResponse> response = controller.myFeedback("Bearer token", 2, 999);
 
         assertEquals(page, response);
-        verify(memberTokenService).requireMemberId(null, "token-param");
+        verify(memberTokenService).requireMemberId("Bearer token");
         verify(commandService).myFeedback(memberId, bounds);
     }
 
@@ -81,12 +81,12 @@ class FeedbackControllerTest {
     void deletesOwnFeedbackWithNoContentResponse() {
         UUID memberId = UUID.randomUUID();
         UUID messageId = UUID.randomUUID();
-        when(memberTokenService.requireMemberId("Bearer token", null)).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
 
-        ResponseEntity<Void> response = controller.delete("Bearer token", null, messageId);
+        ResponseEntity<Void> response = controller.delete("Bearer token", messageId);
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
-        verify(memberTokenService).requireMemberId("Bearer token", null);
+        verify(memberTokenService).requireMemberId("Bearer token");
         verify(commandService).delete(memberId, messageId);
     }
 

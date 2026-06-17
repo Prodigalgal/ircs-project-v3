@@ -32,7 +32,7 @@ class InteractionServiceAuditFilterTest {
         createAuditTable(url);
         JdbcTemplate jdbcTemplate = new JdbcTemplate(new DriverManagerDataSource(url));
         UUID memberId = UUID.randomUUID();
-        when(memberTokenService.requireMemberId("Bearer header-secret-token", "query-secret-token"))
+        when(memberTokenService.requireMemberId("Bearer header-secret-token"))
                 .thenReturn(memberId);
         when(commandService.submit(eq(memberId), any(FeedbackSubmitRequest.class)))
                 .thenReturn(message(memberId));

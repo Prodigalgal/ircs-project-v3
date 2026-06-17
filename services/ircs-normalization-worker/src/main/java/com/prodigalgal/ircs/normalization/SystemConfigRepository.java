@@ -1,52 +1,48 @@
 package com.prodigalgal.ircs.normalization;
 
+import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.function.LongSupplier;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
 class SystemConfigRepository {
 
-    static final Duration DEFAULT_CACHE_TTL = Duration.ofSeconds(30);
-
     private final JdbcTemplate jdbcTemplate;
-    private final long cacheTtlNanos;
-    private LongSupplier ticker;
-    private final ConcurrentMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final SystemConfigValkeyCache valkeyCache;
 
+    @Autowired
     SystemConfigRepository(
             JdbcTemplate jdbcTemplate,
-            @Value("${app.normalization.system-config.cache-ttl:30s}") Duration cacheTtl) {
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+            @Value("${app.system-config.valkey-cache.key-prefix:ircs:system-config:v1}") String keyPrefix,
+            @Value("${app.system-config.valkey-cache.ttl:PT12H}") Duration ttl,
+            @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localTtl) {
         this.jdbcTemplate = jdbcTemplate;
-        this.cacheTtlNanos = Math.max(0L, cacheTtl.toNanos());
-        this.ticker = System::nanoTime;
+        this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
     }
 
-    static SystemConfigRepository forTest(JdbcTemplate jdbcTemplate, Duration cacheTtl, LongSupplier ticker) {
-        SystemConfigRepository repository = new SystemConfigRepository(jdbcTemplate, cacheTtl);
-        repository.ticker = ticker;
-        return repository;
+    static SystemConfigRepository forTest(JdbcTemplate jdbcTemplate) {
+        return new SystemConfigRepository(
+                jdbcTemplate,
+                null,
+                SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
+                SystemConfigValkeyCache.DEFAULT_TTL,
+                SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
     }
 
     Optional<String> findValue(String key) {
-        long now = ticker.getAsLong();
-        CacheEntry cached = cache.get(key);
-        if (cached != null && !cached.expired(now, cacheTtlNanos)) {
-            return cached.value();
-        }
-        CacheEntry refreshed = new CacheEntry(findValueFromDatabase(key), now);
-        cache.put(key, refreshed);
-        return refreshed.value();
+        return valkeyCache.findValue(key, () -> findValueFromDatabase(key));
     }
 
     void evict(String key) {
-        cache.remove(key);
+        valkeyCache.evictLocal(key);
     }
 
     private Optional<String> findValueFromDatabase(String key) {
@@ -57,16 +53,6 @@ class SystemConfigRepository {
                     key));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
-        }
-    }
-
-    private record CacheEntry(Optional<String> value, long loadedAtNanos) {
-
-        boolean expired(long nowNanos, long ttlNanos) {
-            if (ttlNanos == 0L) {
-                return true;
-            }
-            return nowNanos - loadedAtNanos >= ttlNanos;
         }
     }
 }

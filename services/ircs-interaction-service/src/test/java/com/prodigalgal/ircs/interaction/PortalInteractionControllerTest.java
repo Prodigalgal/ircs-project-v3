@@ -25,10 +25,10 @@ class PortalInteractionControllerTest {
     void togglesFavoriteForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
-        when(memberTokenService.requireMemberId("Bearer token", null)).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(commandService.toggleFavorite(memberId, unifiedVideoId)).thenReturn(true);
 
-        Map<String, Boolean> response = controller.toggleFavorite("Bearer token", null, unifiedVideoId);
+        Map<String, Boolean> response = controller.toggleFavorite("Bearer token", unifiedVideoId);
 
         assertEquals(Map.of("favorited", true), response);
         verify(commandService).toggleFavorite(memberId, unifiedVideoId);
@@ -38,10 +38,10 @@ class PortalInteractionControllerTest {
     void returnsFavoriteStatusForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
-        when(memberTokenService.requireMemberId(null, "token-param")).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(commandService.favoriteStatus(memberId, unifiedVideoId)).thenReturn(false);
 
-        Map<String, Boolean> response = controller.favoriteStatus(null, "token-param", unifiedVideoId);
+        Map<String, Boolean> response = controller.favoriteStatus("Bearer token", unifiedVideoId);
 
         assertEquals(Map.of("favorited", false), response);
         verify(commandService).favoriteStatus(memberId, unifiedVideoId);
@@ -66,13 +66,13 @@ class PortalInteractionControllerTest {
                 true);
         PageBounds bounds = PageBounds.of(0, 20, 20, 70);
         PageResponse<InteractionRecordResponse> page = PageResponse.of(List.of(record), 1, bounds);
-        when(memberTokenService.requireMemberId("Bearer token", null)).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(queryService.history(memberId, bounds)).thenReturn(page);
 
-        PageResponse<InteractionRecordResponse> response = controller.history("Bearer token", null, 0, 20);
+        PageResponse<InteractionRecordResponse> response = controller.history("Bearer token", 0, 20);
 
         assertEquals(page, response);
-        verify(memberTokenService).requireMemberId("Bearer token", null);
+        verify(memberTokenService).requireMemberId("Bearer token");
         verify(queryService).history(memberId, bounds);
     }
 
@@ -94,13 +94,13 @@ class PortalInteractionControllerTest {
                 true);
         PageBounds bounds = PageBounds.of(1, 5, 20, 70);
         PageResponse<InteractionRecordResponse> page = PageResponse.of(List.of(record), 8, bounds);
-        when(memberTokenService.requireMemberId(null, "token-param")).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(queryService.favorites(memberId, bounds)).thenReturn(page);
 
-        PageResponse<InteractionRecordResponse> response = controller.favorites(null, "token-param", 1, 5);
+        PageResponse<InteractionRecordResponse> response = controller.favorites("Bearer token", 1, 5);
 
         assertEquals(page, response);
-        verify(memberTokenService).requireMemberId(null, "token-param");
+        verify(memberTokenService).requireMemberId("Bearer token");
         verify(queryService).favorites(memberId, bounds);
     }
 
@@ -109,9 +109,9 @@ class PortalInteractionControllerTest {
         UUID memberId = UUID.randomUUID();
         ProgressReportRequest request =
                 new ProgressReportRequest(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "第1集", 30, 600);
-        when(memberTokenService.requireMemberId("Bearer token", null)).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
 
-        ResponseEntity<Void> response = controller.reportProgress("Bearer token", null, request);
+        ResponseEntity<Void> response = controller.reportProgress("Bearer token", request);
 
         assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
         verify(commandService).reportProgress(memberId, request);
@@ -120,9 +120,9 @@ class PortalInteractionControllerTest {
     @Test
     void clearsHistoryForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
-        when(memberTokenService.requireMemberId("Bearer token", null)).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
 
-        ResponseEntity<Void> response = controller.clearHistory("Bearer token", null);
+        ResponseEntity<Void> response = controller.clearHistory("Bearer token");
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(commandService).clearHistory(memberId);
@@ -132,9 +132,9 @@ class PortalInteractionControllerTest {
     void deletesHistoryRecordForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
         UUID historyId = UUID.randomUUID();
-        when(memberTokenService.requireMemberId(null, "token-param")).thenReturn(memberId);
+        when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
 
-        ResponseEntity<Void> response = controller.deleteHistoryRecord(null, "token-param", historyId);
+        ResponseEntity<Void> response = controller.deleteHistoryRecord("Bearer token", historyId);
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(commandService).deleteHistoryRecord(memberId, historyId);

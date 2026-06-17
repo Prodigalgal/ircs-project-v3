@@ -12,14 +12,19 @@ import org.springframework.mock.env.MockEnvironment;
 class TaskAutoStartGateHealthConfigurationTest {
 
     @Test
-    void exposesDefaultSeedSchedulerAndWatchdogGates() {
+    void exposesDefaultSeedSchedulerWatchdogAndValkeyRuntimeGates() {
         HealthIndicator indicator = new TaskAutoStartGateHealthConfiguration()
                 .autoStartGateHealthIndicator(new MockEnvironment());
 
         List<AutoStartGateState> gates = gates(indicator.health());
 
         assertThat(gates).extracting(AutoStartGateState::name)
-                .containsExactly("task-default-seed", "task-scheduler", "task-watchdog");
+                .containsExactly(
+                        "task-default-seed",
+                        "task-scheduler",
+                        "task-watchdog",
+                        "task-queue-listener",
+                        "task-snapshot-flush");
         assertThat(gates).filteredOn(gate -> gate.name().equals("task-default-seed"))
                 .singleElement()
                 .satisfies(gate -> assertThat(gate.enabled()).isTrue());
@@ -27,6 +32,12 @@ class TaskAutoStartGateHealthConfigurationTest {
                 .singleElement()
                 .satisfies(gate -> assertThat(gate.blocked()).isTrue());
         assertThat(gates).filteredOn(gate -> gate.name().equals("task-watchdog"))
+                .singleElement()
+                .satisfies(gate -> assertThat(gate.blocked()).isTrue());
+        assertThat(gates).filteredOn(gate -> gate.name().equals("task-queue-listener"))
+                .singleElement()
+                .satisfies(gate -> assertThat(gate.blocked()).isTrue());
+        assertThat(gates).filteredOn(gate -> gate.name().equals("task-snapshot-flush"))
                 .singleElement()
                 .satisfies(gate -> assertThat(gate.blocked()).isTrue());
     }

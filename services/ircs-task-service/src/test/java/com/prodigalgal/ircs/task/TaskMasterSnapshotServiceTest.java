@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -22,6 +23,7 @@ class TaskMasterSnapshotServiceTest {
 
     private final StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
     private final ValueOperations<String, String> values = org.mockito.Mockito.mock(ValueOperations.class);
+    private final HashOperations<String, Object, Object> hashes = org.mockito.Mockito.mock(HashOperations.class);
     private final SetOperations<String, String> sets = org.mockito.Mockito.mock(SetOperations.class);
     private final ZSetOperations<String, String> zsets = org.mockito.Mockito.mock(ZSetOperations.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
@@ -116,6 +118,7 @@ class TaskMasterSnapshotServiceTest {
 
     private void wireRedisOps() {
         when(redisTemplate.opsForValue()).thenReturn(values);
+        when(redisTemplate.opsForHash()).thenReturn(hashes);
         when(redisTemplate.opsForSet()).thenReturn(sets);
         when(redisTemplate.opsForZSet()).thenReturn(zsets);
     }

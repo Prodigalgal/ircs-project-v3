@@ -350,12 +350,7 @@ class ConfigServiceTest {
                 "app.mail.properties.starttls",
                 "true",
                 "STARTTLS");
-        when(repository.findByKey("app.mail.properties.ssl")).thenReturn(Optional.of(new SystemConfigRecord(
-                UUID.randomUUID(),
-                "app.mail.properties.ssl",
-                "true",
-                "SSL",
-                Instant.parse("2026-06-03T00:00:00Z"))));
+        when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of("true"));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> service.updateConfig(
                 "app.mail.properties.starttls",
@@ -371,12 +366,7 @@ class ConfigServiceTest {
                 "true",
                 "STARTTLS");
         environment.setProperty("app.mail.properties.ssl", "true");
-        when(repository.findByKey("app.mail.properties.ssl")).thenReturn(Optional.of(new SystemConfigRecord(
-                UUID.randomUUID(),
-                "app.mail.properties.ssl",
-                "false",
-                "SSL",
-                Instant.parse("2026-06-03T00:00:00Z"))));
+        when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of("false"));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> service.updateConfig(
                 "app.mail.properties.starttls",
@@ -392,12 +382,7 @@ class ConfigServiceTest {
                 "true",
                 "STARTTLS");
         environment.setProperty("APP_MAIL_PROPERTIES_SSL", "true");
-        when(repository.findByKey("app.mail.properties.ssl")).thenReturn(Optional.of(new SystemConfigRecord(
-                UUID.randomUUID(),
-                "app.mail.properties.ssl",
-                "false",
-                "SSL",
-                Instant.parse("2026-06-03T00:00:00Z"))));
+        when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of("false"));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> service.updateConfig(
                 "app.mail.properties.starttls",
@@ -415,12 +400,7 @@ class ConfigServiceTest {
         environment.getPropertySources().addLast(new MapPropertySource(
                 "Config resource 'class path resource [application.yaml]' via location 'optional:classpath:/'",
                 Map.of("app.mail.properties.ssl", "true")));
-        when(repository.findByKey("app.mail.properties.ssl")).thenReturn(Optional.of(new SystemConfigRecord(
-                UUID.randomUUID(),
-                "app.mail.properties.ssl",
-                "false",
-                "SSL",
-                Instant.parse("2026-06-03T00:00:00Z"))));
+        when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of("false"));
         SystemConfigRecord updated = new SystemConfigRecord(
                 UUID.randomUUID(),
                 "app.mail.properties.starttls",

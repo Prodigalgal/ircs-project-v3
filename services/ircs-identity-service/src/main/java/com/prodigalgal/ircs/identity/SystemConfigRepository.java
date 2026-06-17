@@ -1,26 +1,44 @@
 package com.prodigalgal.ircs.identity;
 
+import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-@RequiredArgsConstructor
 public class SystemConfigRepository {
 
     private final JdbcTemplate jdbcTemplate;
-    private final ConcurrentMap<String, Optional<String>> cache = new ConcurrentHashMap<>();
+    private final SystemConfigValkeyCache valkeyCache;
+
+    public SystemConfigRepository(JdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, null, SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
+                SystemConfigValkeyCache.DEFAULT_TTL, SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
+    }
+
+    @Autowired
+    public SystemConfigRepository(
+            JdbcTemplate jdbcTemplate,
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+            @Value("${app.system-config.valkey-cache.key-prefix:ircs:system-config:v1}") String keyPrefix,
+            @Value("${app.system-config.valkey-cache.ttl:PT12H}") Duration ttl,
+            @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localTtl) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
+    }
 
     public Optional<String> findValue(String key) {
-        return cache.computeIfAbsent(key, this::findValueFromDatabase);
+        return valkeyCache.findValue(key, () -> findValueFromDatabase(key));
     }
 
     public void evict(String key) {
-        cache.remove(key);
+        valkeyCache.evictLocal(key);
     }
 
     public long upsertValue(String key, String value) {
@@ -37,7 +55,7 @@ public class SystemConfigRepository {
                 Long.class,
                 key,
                 value);
-        evict(key);
+        valkeyCache.putAfterCommit(key, value);
         return revision == null ? 0L : revision;
     }
 

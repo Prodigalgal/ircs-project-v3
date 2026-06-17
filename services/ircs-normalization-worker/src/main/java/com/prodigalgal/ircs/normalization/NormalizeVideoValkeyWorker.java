@@ -11,16 +11,17 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-@ConditionalOnProperty(prefix = "app.normalization.valkey-worker", name = "enabled", havingValue = "true")
 public class NormalizeVideoValkeyWorker {
 
+    private static final String ENABLED_KEY = "app.normalization.valkey-worker.enabled";
+    private static final long ENABLED_CACHE_TTL_NANOS = Duration.ofSeconds(30).toNanos();
     private final PipelineValkeyQueue pipelineQueue;
     private final RawVideoNormalizationService normalizationService;
     private final NormalizationConfigValues configValues;
@@ -28,6 +29,14 @@ public class NormalizeVideoValkeyWorker {
     private final String workerId;
     private final int batchSize;
     private final Duration visibilityTimeout;
+    private volatile Boolean cachedEnabled;
+    private volatile long cachedEnabledExpiresAtNanos;
+
+    @Autowired(required = false)
+    private SystemConfigRepository systemConfigRepository;
+
+    @Value("${app.normalization.valkey-worker.enabled:false}")
+    private boolean enabledByDeployment = true;
 
     NormalizeVideoValkeyWorker(
             PipelineValkeyQueue pipelineQueue,
@@ -57,6 +66,9 @@ public class NormalizeVideoValkeyWorker {
     }
 
     int runOnce() {
+        if (!workerEnabled()) {
+            return 0;
+        }
         int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.NORMALIZE_VIDEO, batchSize);
         if (reclaimed > 0) {
             log.info("Requeued expired normalization tasks from Valkey: count={}", reclaimed);
@@ -138,5 +150,46 @@ public class NormalizeVideoValkeyWorker {
 
     private static Duration positive(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private boolean workerEnabled() {
+        SystemConfigRepository repository = systemConfigRepository;
+        if (repository == null) {
+            return enabledByDeployment;
+        }
+        long now = System.nanoTime();
+        Boolean value = cachedEnabled;
+        if (value != null && now < cachedEnabledExpiresAtNanos) {
+            return value;
+        }
+        synchronized (this) {
+            value = cachedEnabled;
+            if (value != null && now < cachedEnabledExpiresAtNanos) {
+                return value;
+            }
+            boolean refreshed = enabledByDeployment;
+            try {
+                repository.evict(ENABLED_KEY);
+                refreshed = repository.findValue(ENABLED_KEY)
+                        .map(raw -> parseBoolean(raw, enabledByDeployment))
+                        .orElse(enabledByDeployment);
+            } catch (RuntimeException ex) {
+                log.warn("Unable to read normalization Valkey worker enabled config: {}", ex.getMessage());
+            }
+            cachedEnabled = refreshed;
+            cachedEnabledExpiresAtNanos = now + ENABLED_CACHE_TTL_NANOS;
+            return refreshed;
+        }
+    }
+
+    private static boolean parseBoolean(String raw, boolean defaultValue) {
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        return switch (raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true", "1", "yes", "y", "on", "enabled" -> true;
+            case "false", "0", "no", "n", "off", "disabled" -> false;
+            default -> defaultValue;
+        };
     }
 }

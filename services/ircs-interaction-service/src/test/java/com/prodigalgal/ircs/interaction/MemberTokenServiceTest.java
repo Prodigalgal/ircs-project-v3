@@ -37,14 +37,14 @@ class MemberTokenServiceTest {
         configureJwt();
         when(interactionRepository.findMemberStatus(memberId)).thenReturn(Optional.of("ACTIVE"));
 
-        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER"), null);
+        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER"));
 
         assertEquals(memberId, resolved);
     }
 
     @Test
     void rejectsMissingToken() {
-        ApiException exception = assertThrows(ApiException.class, () -> service.requireMemberId(null, null));
+        ApiException exception = assertThrows(ApiException.class, () -> service.requireMemberId(null));
 
         assertEquals(HttpStatus.UNAUTHORIZED, exception.status());
     }
@@ -57,7 +57,7 @@ class MemberTokenServiceTest {
 
         ApiException exception = assertThrows(
                 ApiException.class,
-                () -> service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER"), null));
+                () -> service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER")));
 
         assertEquals(HttpStatus.FORBIDDEN, exception.status());
     }
@@ -69,7 +69,7 @@ class MemberTokenServiceTest {
 
         ApiException exception = assertThrows(
                 ApiException.class,
-                () -> service.requireMemberId("Bearer " + token(memberId, "ROLE_ADMIN"), null));
+                () -> service.requireMemberId("Bearer " + token(memberId, "ROLE_ADMIN")));
 
         assertEquals(HttpStatus.UNAUTHORIZED, exception.status());
     }
@@ -81,7 +81,7 @@ class MemberTokenServiceTest {
 
         ApiException exception = assertThrows(
                 ApiException.class,
-                () -> service.requireMemberId("Bearer " + roleOnlyToken(memberId), null));
+                () -> service.requireMemberId("Bearer " + roleOnlyToken(memberId)));
 
         assertEquals(HttpStatus.UNAUTHORIZED, exception.status());
     }
@@ -95,7 +95,7 @@ class MemberTokenServiceTest {
         when(systemConfigRepository.findValue("security.jwt.iat-floor")).thenReturn(Optional.empty());
         when(interactionRepository.findMemberStatus(memberId)).thenReturn(Optional.of("ACTIVE"));
 
-        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", ENV_SECRET), null);
+        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", ENV_SECRET));
 
         assertEquals(memberId, resolved);
     }
@@ -108,7 +108,7 @@ class MemberTokenServiceTest {
         when(systemConfigRepository.findValue("security.jwt.iat-floor")).thenReturn(Optional.empty());
         when(interactionRepository.findMemberStatus(memberId)).thenReturn(Optional.of("ACTIVE"));
 
-        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", ENV_SECRET), null);
+        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", ENV_SECRET));
 
         assertEquals(memberId, resolved);
     }
@@ -123,7 +123,7 @@ class MemberTokenServiceTest {
         when(systemConfigRepository.findValue("security.jwt.iat-floor")).thenReturn(Optional.empty());
         when(interactionRepository.findMemberStatus(memberId)).thenReturn(Optional.of("ACTIVE"));
 
-        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", ENV_SECRET), null);
+        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", ENV_SECRET));
 
         assertEquals(memberId, resolved);
     }
@@ -138,7 +138,7 @@ class MemberTokenServiceTest {
         when(systemConfigRepository.findValue("security.jwt.iat-floor")).thenReturn(Optional.empty());
         when(interactionRepository.findMemberStatus(memberId)).thenReturn(Optional.of("ACTIVE"));
 
-        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", SECRET), null);
+        UUID resolved = service.requireMemberId("Bearer " + token(memberId, "ROLE_MEMBER", SECRET));
 
         assertEquals(memberId, resolved);
     }

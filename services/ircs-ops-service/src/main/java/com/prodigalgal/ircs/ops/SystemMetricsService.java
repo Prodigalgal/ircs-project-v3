@@ -3,6 +3,13 @@ package com.prodigalgal.ircs.ops;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
+import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
+import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
+import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
+import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,6 +36,7 @@ public class SystemMetricsService {
     private final RedisConnectionFactory redisConnectionFactory;
     private final MeterRegistry meterRegistry;
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
+    private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final Map<String, Long> previousQueueCounts = new ConcurrentHashMap<>();
 
     @PostConstruct
@@ -41,6 +49,7 @@ public class SystemMetricsService {
         registerValkeyPipelineGauges(PipelineTaskTypes.NORMALIZE_VIDEO);
         registerValkeyPipelineGauges(PipelineTaskTypes.ENRICH_METADATA);
         registerValkeyPipelineGauges(PipelineTaskTypes.METADATA_PROVIDER);
+        runtimeWorkDescriptors().forEach(descriptor -> registerRuntimeWorkGauges(descriptor.taskType()));
     }
 
     public SystemMetricsResponse currentMetrics() {
@@ -101,10 +110,15 @@ public class SystemMetricsService {
         if (!pipelineQueues.isEmpty()) {
             normalGroups.put("Valkey Pipeline", pipelineQueues);
         }
+        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues();
+        if (!runtimeWorkQueues.isEmpty()) {
+            normalGroups.put("Valkey Runtime Work", runtimeWorkQueues);
+        }
 
         List<QueueGroupResponse> groups = new ArrayList<>();
         normalGroups.forEach((title, queues) -> groups.add(new QueueGroupResponse(title, false, queues)));
         List<QueueMetricResponse> valkeyDlqs = valkeyPipelineDlqs();
+        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs());
         if (!valkeyDlqs.isEmpty()) {
             dlqs.addAll(valkeyDlqs);
         }
@@ -140,6 +154,26 @@ public class SystemMetricsService {
         return dlqs;
     }
 
+    private List<QueueMetricResponse> valkeyRuntimeWorkQueues() {
+        List<QueueMetricResponse> queues = new ArrayList<>();
+        runtimeWorkDescriptors().forEach(descriptor -> {
+            addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Pending",
+                    "RUNTIME_" + descriptor.key() + "_PENDING", descriptor.color(), descriptor.taskType(),
+                    RuntimeWorkMetricRole.PENDING);
+            addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Inflight",
+                    "RUNTIME_" + descriptor.key() + "_INFLIGHT", descriptor.inflightColor(), descriptor.taskType(),
+                    RuntimeWorkMetricRole.INFLIGHT);
+        });
+        return queues;
+    }
+
+    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs() {
+        List<QueueMetricResponse> dlqs = new ArrayList<>();
+        runtimeWorkDescriptors().forEach(descriptor -> addRuntimeWorkQueueMetrics(dlqs, descriptor.label() + " Runtime DLQ",
+                "RUNTIME_" + descriptor.key() + "_DLQ", "#dc2626", descriptor.taskType(), RuntimeWorkMetricRole.DLQ));
+        return dlqs;
+    }
+
     private void addValkeyQueueMetrics(
             List<QueueMetricResponse> target,
             String name,
@@ -148,6 +182,25 @@ public class SystemMetricsService {
             String taskType,
             PipelineMetricRole role) {
         PipelineValkeyTaskCounts counts = pipelineCounts(taskType);
+        long current = switch (role) {
+            case PENDING -> counts.pending();
+            case INFLIGHT -> counts.inflight();
+            case DLQ -> counts.dlq();
+        };
+        long previous = previousQueueCounts.getOrDefault(key, current);
+        long throughput = Math.max(0, current - previous);
+        previousQueueCounts.put(key, current);
+        target.add(new QueueMetricResponse(name, key, color, safeInt(current), 0, throughput));
+    }
+
+    private void addRuntimeWorkQueueMetrics(
+            List<QueueMetricResponse> target,
+            String name,
+            String key,
+            String color,
+            String taskType,
+            RuntimeWorkMetricRole role) {
+        RuntimeWorkQueueCounts counts = runtimeWorkCounts(taskType);
         long current = switch (role) {
             case PENDING -> counts.pending();
             case INFLIGHT -> counts.inflight();
@@ -213,6 +266,19 @@ public class SystemMetricsService {
             return queue.counts(taskType);
         } catch (Exception ignored) {
             return emptyPipelineCounts();
+        }
+    }
+
+    private RuntimeWorkQueueCounts runtimeWorkCounts(String taskType) {
+        RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
+        if (queue == null) {
+            return emptyRuntimeWorkCounts();
+        }
+        try {
+            RuntimeWorkQueueCounts counts = queue.counts(taskType);
+            return counts == null ? emptyRuntimeWorkCounts() : counts;
+        } catch (Exception ignored) {
+            return emptyRuntimeWorkCounts();
         }
     }
 
@@ -285,8 +351,38 @@ public class SystemMetricsService {
                 .register(meterRegistry);
     }
 
+    private void registerRuntimeWorkGauges(String taskType) {
+        Gauge.builder("ircs.valkey.runtime_work.pending", () -> runtimeWorkCounts(taskType).pending())
+                .description("Valkey runtime work pending task count observed by ops-service")
+                .tag("task_type", taskType)
+                .register(meterRegistry);
+        Gauge.builder("ircs.valkey.runtime_work.inflight", () -> runtimeWorkCounts(taskType).inflight())
+                .description("Valkey runtime work inflight task count observed by ops-service")
+                .tag("task_type", taskType)
+                .register(meterRegistry);
+        Gauge.builder("ircs.valkey.runtime_work.dlq", () -> runtimeWorkCounts(taskType).dlq())
+                .description("Valkey runtime work DLQ task count observed by ops-service")
+                .tag("task_type", taskType)
+                .register(meterRegistry);
+    }
+
     private PipelineValkeyTaskCounts emptyPipelineCounts() {
         return new PipelineValkeyTaskCounts(0, 0, 0);
+    }
+
+    private RuntimeWorkQueueCounts emptyRuntimeWorkCounts() {
+        return new RuntimeWorkQueueCounts(0, 0, 0);
+    }
+
+    private List<RuntimeWorkDescriptor> runtimeWorkDescriptors() {
+        return List.of(
+                new RuntimeWorkDescriptor("SEARCH_RAW", "Search Raw", SearchSyncWorkTypes.RAW, "#2563eb", "#60a5fa"),
+                new RuntimeWorkDescriptor("SEARCH_UNIFIED", "Search Unified", SearchSyncWorkTypes.UNIFIED, "#1d4ed8", "#3b82f6"),
+                new RuntimeWorkDescriptor("AGGREGATION", "Aggregation", AggregationWorkTypes.RAW_VIDEO, "#c2410c", "#fb923c"),
+                new RuntimeWorkDescriptor("LLM_CLEANING", "LLM Cleaning", LlmCleaningWorkTypes.RAW_TERM, "#9333ea", "#c084fc"),
+                new RuntimeWorkDescriptor("STORAGE_AVATAR", "Avatar R2", StorageWorkTypes.AVATAR_SYNC, "#0891b2", "#22d3ee"),
+                new RuntimeWorkDescriptor("STORAGE_COVER", "Cover R2", StorageWorkTypes.COVER_R2_SYNC, "#0f766e", "#2dd4bf"),
+                new RuntimeWorkDescriptor("AUDIT_ES", "Audit ES", AuditReplicationWorkTypes.ES_REPLICATION, "#4b5563", "#9ca3af"));
     }
 
     private record QueueState(int messageCount, int consumerCount) {
@@ -299,5 +395,19 @@ public class SystemMetricsService {
         PENDING,
         INFLIGHT,
         DLQ
+    }
+
+    private enum RuntimeWorkMetricRole {
+        PENDING,
+        INFLIGHT,
+        DLQ
+    }
+
+    private record RuntimeWorkDescriptor(
+            String key,
+            String label,
+            String taskType,
+            String color,
+            String inflightColor) {
     }
 }

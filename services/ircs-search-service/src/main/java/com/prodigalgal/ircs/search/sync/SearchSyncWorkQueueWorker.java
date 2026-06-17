@@ -9,22 +9,24 @@ import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import com.prodigalgal.ircs.search.support.SystemConfigRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-@ConditionalOnProperty(prefix = "app.search.work-queue.worker", name = "enabled", havingValue = "true")
 class SearchSyncWorkQueueWorker {
 
+    private static final String ENABLED_KEY = "app.search.work-queue.worker.enabled";
+    private static final long ENABLED_CACHE_TTL_NANOS = Duration.ofSeconds(30).toNanos();
     private static final String JOB_TYPE = "runtime-work-queue";
 
     private final RuntimeWorkQueue workQueue;
@@ -41,6 +43,14 @@ class SearchSyncWorkQueueWorker {
     private volatile int lastFailed;
     private volatile int lastRequeued;
     private volatile String lastError;
+    private volatile Boolean cachedEnabled;
+    private volatile long cachedEnabledExpiresAtNanos;
+
+    @Autowired(required = false)
+    private SystemConfigRepository systemConfigRepository;
+
+    @Value("${app.search.work-queue.worker.enabled:false}")
+    private boolean enabledByDeployment = true;
 
     @Value("${app.search.work-queue.worker.batch-size:100}")
     private int batchSize;
@@ -81,6 +91,9 @@ class SearchSyncWorkQueueWorker {
     }
 
     int runOnce() {
+        if (!workerEnabled()) {
+            return 0;
+        }
         if (!running.compareAndSet(false, true)) {
             return 0;
         }
@@ -252,6 +265,47 @@ class SearchSyncWorkQueueWorker {
 
     private static Duration elapsedSince(Instant startedAt) {
         return Duration.between(startedAt, Instant.now());
+    }
+
+    private boolean workerEnabled() {
+        SystemConfigRepository repository = systemConfigRepository;
+        if (repository == null) {
+            return enabledByDeployment;
+        }
+        long now = System.nanoTime();
+        Boolean value = cachedEnabled;
+        if (value != null && now < cachedEnabledExpiresAtNanos) {
+            return value;
+        }
+        synchronized (this) {
+            value = cachedEnabled;
+            if (value != null && now < cachedEnabledExpiresAtNanos) {
+                return value;
+            }
+            boolean refreshed = enabledByDeployment;
+            try {
+                repository.evict(ENABLED_KEY);
+                refreshed = repository.findValue(ENABLED_KEY)
+                        .map(raw -> parseBoolean(raw, enabledByDeployment))
+                        .orElse(enabledByDeployment);
+            } catch (RuntimeException ex) {
+                log.warn("Unable to read search worker enabled config: {}", ex.getMessage());
+            }
+            cachedEnabled = refreshed;
+            cachedEnabledExpiresAtNanos = now + ENABLED_CACHE_TTL_NANOS;
+            return refreshed;
+        }
+    }
+
+    private static boolean parseBoolean(String raw, boolean defaultValue) {
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        return switch (raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true", "1", "yes", "y", "on", "enabled" -> true;
+            case "false", "0", "no", "n", "off", "disabled" -> false;
+            default -> defaultValue;
+        };
     }
 
     private static class SearchSyncWorkQueueException extends RuntimeException {

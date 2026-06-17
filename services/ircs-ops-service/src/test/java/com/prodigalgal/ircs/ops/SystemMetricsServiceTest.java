@@ -10,6 +10,9 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
+import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Properties;
@@ -25,11 +28,15 @@ class SystemMetricsServiceTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider =
+            org.mockito.Mockito.mock(ObjectProvider.class);
     private final SystemMetricsService service = new SystemMetricsService(
             rabbitAdmin,
             redisConnectionFactory,
             new SimpleMeterRegistry(),
-            pipelineValkeyQueueProvider);
+            pipelineValkeyQueueProvider,
+            runtimeWorkQueueProvider);
 
     @Test
     void metricsReturnQueueGroupsAndGracefullyHandleRedisFailure() {
@@ -74,6 +81,26 @@ class SystemMetricsServiceTest {
                 .filter(QueueGroupResponse::dlq)
                 .flatMap(group -> group.queues().stream())
                 .anyMatch(queue -> "VALKEY_PROVIDER_DLQ".equals(queue.key()) && queue.messageCount() == 2));
+    }
+
+    @Test
+    void metricsExposeValkeyRuntimeWorkBacklog() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(SearchSyncWorkTypes.RAW))
+                .thenReturn(new RuntimeWorkQueueCounts(7, 2, 1));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_SEARCH_RAW_PENDING".equals(queue.key()) && queue.messageCount() == 7));
+        assertTrue(metrics.queueGroups().stream()
+                .filter(QueueGroupResponse::dlq)
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_SEARCH_RAW_DLQ".equals(queue.key()) && queue.messageCount() == 1));
     }
 
     private Properties queueProps(int messages, int consumers) {

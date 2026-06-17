@@ -115,8 +115,7 @@ public class ConfigService {
         if (injectedValue.isPresent()) {
             return injectedValue.get();
         }
-        return configRepository.findByKey(key)
-                .map(SystemConfigRecord::value)
+        return configRepository.findValue(key)
                 .filter(StringUtils::hasText)
                 .orElse(fallback);
     }

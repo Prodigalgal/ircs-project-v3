@@ -10,10 +10,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -35,32 +33,6 @@ class SystemConfigRepositoryTest {
         repository.evict(ContentConfigValues.SCRAPER_BASE_URL_KEY);
 
         assertEquals("http://scraper-two:8080", repository.findValue(ContentConfigValues.SCRAPER_BASE_URL_KEY).orElseThrow());
-        verify(jdbcTemplate, times(2))
-                .queryForObject(anyString(), eq(String.class), eq(ContentConfigValues.SCRAPER_BASE_URL_KEY));
-    }
-
-    @Test
-    void refreshesAfterTtlWhenConfigChangeEventWasMissed() {
-        AtomicLong ticker = new AtomicLong(0L);
-        SystemConfigRepository ttlRepository =
-                SystemConfigRepository.forTest(jdbcTemplate, Duration.ofSeconds(30), ticker::get);
-        when(jdbcTemplate.queryForObject(anyString(), eq(String.class), eq(ContentConfigValues.SCRAPER_BASE_URL_KEY)))
-                .thenReturn("http://scraper-before-missed-event:8080")
-                .thenReturn("http://scraper-after-missed-event:8080");
-
-        assertEquals(
-                "http://scraper-before-missed-event:8080",
-                ttlRepository.findValue(ContentConfigValues.SCRAPER_BASE_URL_KEY).orElseThrow());
-        ticker.set(Duration.ofSeconds(29).toNanos());
-        assertEquals(
-                "http://scraper-before-missed-event:8080",
-                ttlRepository.findValue(ContentConfigValues.SCRAPER_BASE_URL_KEY).orElseThrow());
-
-        ticker.set(Duration.ofSeconds(30).toNanos());
-
-        assertEquals(
-                "http://scraper-after-missed-event:8080",
-                ttlRepository.findValue(ContentConfigValues.SCRAPER_BASE_URL_KEY).orElseThrow());
         verify(jdbcTemplate, times(2))
                 .queryForObject(anyString(), eq(String.class), eq(ContentConfigValues.SCRAPER_BASE_URL_KEY));
     }

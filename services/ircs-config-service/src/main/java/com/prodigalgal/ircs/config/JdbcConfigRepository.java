@@ -1,14 +1,19 @@
 package com.prodigalgal.ircs.config;
 
+import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.support.DataAccessUtils;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -18,12 +23,28 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-@RequiredArgsConstructor
 public class JdbcConfigRepository {
 
     private static final int MAX_PAGE_SIZE = 1000;
 
     private final JdbcTemplate jdbcTemplate;
+    private final SystemConfigValkeyCache valkeyCache;
+
+    public JdbcConfigRepository(JdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, null, SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
+                SystemConfigValkeyCache.DEFAULT_TTL, SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
+    }
+
+    @Autowired
+    public JdbcConfigRepository(
+            JdbcTemplate jdbcTemplate,
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+            @Value("${app.system-config.valkey-cache.key-prefix:ircs:system-config:v1}") String keyPrefix,
+            @Value("${app.system-config.valkey-cache.ttl:PT12H}") Duration ttl,
+            @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localTtl) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
+    }
 
     public Page<SystemConfigRecord> findAll(Pageable pageable, String keyword) {
         Pageable safePageable = sanitize(pageable);
@@ -68,6 +89,10 @@ public class JdbcConfigRepository {
         }
     }
 
+    public Optional<String> findValue(String key) {
+        return valkeyCache.findValue(key, () -> findValueFromDatabase(key));
+    }
+
     public boolean existsByKey(String key) {
         Boolean exists = jdbcTemplate.queryForObject(
                 "select exists(select 1 from system_configs where config_key = ?)",
@@ -77,7 +102,7 @@ public class JdbcConfigRepository {
     }
 
     public SystemConfigRecord create(SystemConfigWriteRequest request) {
-        return jdbcTemplate.queryForObject(
+        SystemConfigRecord record = jdbcTemplate.queryForObject(
                 """
                 insert into system_configs (id, created_at, updated_at, version, config_key, config_value, description)
                 values (gen_random_uuid(), now(), now(), 1, ?, ?, ?)
@@ -87,6 +112,10 @@ public class JdbcConfigRepository {
                 request.key(),
                 request.value(),
                 request.description());
+        if (record != null) {
+            valkeyCache.putAfterCommit(record.key(), record.value());
+        }
+        return record;
     }
 
     public UpsertResult upsertDefault(SystemConfigDefaults.ResolvedDefault config) {
@@ -120,9 +149,13 @@ public class JdbcConfigRepository {
                            else system_configs.version
                        end
                  returning (xmax = 0) as inserted,
-                           (xmax <> 0) as description_updated
+                           (xmax <> 0) as description_updated,
+                           config_value
                 """,
-                (rs, rowNum) -> new UpsertRow(rs.getBoolean("inserted"), rs.getBoolean("description_updated")),
+                (rs, rowNum) -> new UpsertRow(
+                        rs.getBoolean("inserted"),
+                        rs.getBoolean("description_updated"),
+                        rs.getString("config_value")),
                 config.key(),
                 config.value(),
                 config.description(),
@@ -130,6 +163,9 @@ public class JdbcConfigRepository {
                 config.upgradeLegacyFalse(),
                 config.upgradeLegacyFalse());
         UpsertRow row = DataAccessUtils.singleResult(rows);
+        if (row != null) {
+            valkeyCache.putAfterCommit(config.key(), row.value());
+        }
         return row == null ? new UpsertResult(false, false) : new UpsertResult(row.inserted(), row.descriptionUpdated());
     }
 
@@ -148,11 +184,30 @@ public class JdbcConfigRepository {
                 request.value(),
                 request.description(),
                 key);
-        return Optional.ofNullable(DataAccessUtils.singleResult(rows));
+        SystemConfigRecord record = DataAccessUtils.singleResult(rows);
+        if (record != null) {
+            valkeyCache.putAfterCommit(record.key(), record.value());
+        }
+        return Optional.ofNullable(record);
     }
 
     public int deleteByKey(String key) {
-        return jdbcTemplate.update("delete from system_configs where config_key = ?", key);
+        int deleted = jdbcTemplate.update("delete from system_configs where config_key = ?", key);
+        if (deleted > 0) {
+            valkeyCache.evictAfterCommit(key);
+        }
+        return deleted;
+    }
+
+    private Optional<String> findValueFromDatabase(String key) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
+                    "select config_value from system_configs where config_key = ?",
+                    String.class,
+                    key));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
     }
 
     private String buildKeywordWhere(String keyword, List<Object> params) {
@@ -185,7 +240,7 @@ public class JdbcConfigRepository {
                 toInstant(rs.getTimestamp("updated_at")));
     }
 
-    private record UpsertRow(boolean inserted, boolean descriptionUpdated) {
+    private record UpsertRow(boolean inserted, boolean descriptionUpdated, String value) {
     }
 
     public record UpsertResult(boolean inserted, boolean descriptionUpdated) {

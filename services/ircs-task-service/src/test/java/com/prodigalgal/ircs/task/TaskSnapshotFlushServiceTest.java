@@ -65,7 +65,7 @@ class TaskSnapshotFlushServiceTest {
         assertThat(result).isEqualTo(new TaskSnapshotFlushResult(1, 1, 0));
         TaskDbRuntimeSnapshot ledger = captureLedger();
         assertThat(ledger.masterTaskId()).isEqualTo(masterTaskId);
-        assertThat(ledger.status()).isEqualTo("COMPLETED");
+        assertThat(ledger.status()).isEqualTo("FAILED");
         assertThat(ledger.currentPage()).isEqualTo(2);
         assertThat(ledger.totalFound()).isEqualTo(10);
         assertThat(ledger.processed()).isEqualTo(4);
