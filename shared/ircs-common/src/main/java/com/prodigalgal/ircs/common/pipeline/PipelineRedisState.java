@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -30,6 +31,7 @@ public class PipelineRedisState {
     private final StringRedisTemplate redisTemplate;
     private final Clock clock;
 
+    @Autowired
     public PipelineRedisState(StringRedisTemplate redisTemplate) {
         this(redisTemplate, Clock.systemUTC());
     }
