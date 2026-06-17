@@ -25,6 +25,7 @@ public record RawVideoRecord(
         String tmdbId,
         String imdbId,
         String rottenTomatoesId,
-        UUID dataSourceId
+        UUID dataSourceId,
+        String dataHash
 ) {
 }

@@ -21,18 +21,24 @@ public class RawVideoNormalizationService {
     private final RawVideoNormalizationRepository repository;
     private final RawVideoTextNormalizer textNormalizer;
     private final RawSearchSyncPublisher searchSyncPublisher;
+    private final MetadataEnrichPublisher metadataEnrichPublisher;
     private final ObjectMapper objectMapper;
     private final NormalizationConfigValues configValues;
 
     @Transactional
-    public NormalizationResult normalize(UUID rawVideoId) {
+    public NormalizationResult normalize(UUID rawVideoId, String pipelineVersion) {
         Optional<RawVideoRecord> maybeRecord = repository.findById(rawVideoId);
         if (maybeRecord.isEmpty()) {
             return NormalizationResult.missing(rawVideoId);
         }
 
         RawVideoRecord record = maybeRecord.get();
+        if (isStale(pipelineVersion, record.dataHash())) {
+            return NormalizationResult.stale(rawVideoId);
+        }
+
         if ("READY".equals(record.normalizationStatus())) {
+            metadataEnrichPublisher.publish(rawVideoId, record.dataHash());
             return NormalizationResult.skipped(rawVideoId);
         }
 
@@ -40,20 +46,30 @@ public class RawVideoNormalizationService {
             return markFailure(record, "EMPTY_RAW_METADATA");
         }
 
+        RawVideoPatch patch;
         try {
             JsonNode metadata = objectMapper.readTree(record.rawMetadata());
             if (!metadata.isObject() || metadata.isEmpty()) {
                 return markFailure(record, "EMPTY_RAW_METADATA");
             }
-            RawVideoPatch patch = textNormalizer.normalize(record, metadata);
-            repository.markReady(rawVideoId, patch);
-            searchSyncPublisher.publishIndex(rawVideoId);
-            return NormalizationResult.ready(rawVideoId);
+            patch = textNormalizer.normalize(record, metadata);
         } catch (Exception ex) {
             log.warn("Unable to normalize raw video {}: reason={}, errorClass={}",
                     rawVideoId, "INVALID_RAW_METADATA", ex.getClass().getSimpleName());
             return markFailure(record, "INVALID_RAW_METADATA");
         }
+
+        repository.markReady(rawVideoId, patch);
+        searchSyncPublisher.publishIndex(rawVideoId);
+        metadataEnrichPublisher.publish(rawVideoId, record.dataHash());
+        return NormalizationResult.ready(rawVideoId);
+    }
+
+    private boolean isStale(String pipelineVersion, String currentDataHash) {
+        if (StringUtils.hasText(currentDataHash)) {
+            return !StringUtils.hasText(pipelineVersion) || !pipelineVersion.trim().equals(currentDataHash);
+        }
+        return StringUtils.hasText(pipelineVersion);
     }
 
     private NormalizationResult markFailure(RawVideoRecord record, String reason) {
@@ -96,6 +112,10 @@ public class RawVideoNormalizationService {
 
         public static NormalizationResult missing(UUID rawVideoId) {
             return new NormalizationResult(rawVideoId, "MISSING", "RAW_VIDEO_NOT_FOUND");
+        }
+
+        public static NormalizationResult stale(UUID rawVideoId) {
+            return new NormalizationResult(rawVideoId, "STALE", "PIPELINE_VERSION_STALE");
         }
     }
 }

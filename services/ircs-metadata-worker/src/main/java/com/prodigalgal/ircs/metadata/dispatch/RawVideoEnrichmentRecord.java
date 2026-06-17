@@ -20,6 +20,7 @@ public class RawVideoEnrichmentRecord {
     private String rottenTomatoesId;
     private String enrichmentStatus;
     private Integer enrichmentRetryCount;
+    private String dataHash;
 
     public boolean hasAuthoritativeId() {
         return hasText(doubanId) || hasText(tmdbId);

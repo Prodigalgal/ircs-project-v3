@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Component
 @RequiredArgsConstructor
@@ -37,14 +38,14 @@ public class MetadataPendingRegistry {
 
     private final StringRedisTemplate redisTemplate;
 
-    public void register(UUID videoId, List<ProviderType> providers, Duration ttl) {
+    public void register(UUID videoId, String pipelineVersion, List<ProviderType> providers, Duration ttl) {
         if (providers.isEmpty()) {
             return;
         }
         if (ttl == null || !ttl.isPositive()) {
             throw new IllegalArgumentException("metadata pending registry ttl must be positive");
         }
-        String key = key(videoId);
+        String key = key(videoId, pipelineVersion);
         List<String> args = new ArrayList<>(providers.size() + 1);
         providers.stream()
                 .map(Enum::name)
@@ -53,11 +54,11 @@ public class MetadataPendingRegistry {
         redisTemplate.execute(REGISTER_SCRIPT, Collections.singletonList(key), args.toArray());
     }
 
-    public PendingCompletion complete(UUID videoId, ProviderType providerType) {
+    public PendingCompletion complete(UUID videoId, String pipelineVersion, ProviderType providerType) {
         if (providerType == null) {
             return PendingCompletion.untracked();
         }
-        String key = key(videoId);
+        String key = key(videoId, pipelineVersion);
         Long remaining = redisTemplate.execute(COMPLETE_SCRIPT, Collections.singletonList(key), providerType.name());
         if (remaining == null || remaining < 0) {
             return PendingCompletion.untracked();
@@ -65,12 +66,16 @@ public class MetadataPendingRegistry {
         return new PendingCompletion(true, remaining);
     }
 
-    public void clear(UUID videoId) {
-        redisTemplate.delete(key(videoId));
+    public void clear(UUID videoId, String pipelineVersion) {
+        redisTemplate.delete(key(videoId, pipelineVersion));
     }
 
-    public String key(UUID videoId) {
-        return PREFIX + videoId;
+    public String key(UUID videoId, String pipelineVersion) {
+        return PREFIX + videoId + ":" + normalizeVersion(pipelineVersion);
+    }
+
+    private String normalizeVersion(String pipelineVersion) {
+        return StringUtils.hasText(pipelineVersion) ? pipelineVersion.trim() : "_";
     }
 
     public record PendingCompletion(boolean tracked, long remaining) {

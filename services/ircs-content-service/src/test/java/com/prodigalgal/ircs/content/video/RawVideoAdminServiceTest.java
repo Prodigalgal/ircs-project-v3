@@ -66,7 +66,8 @@ class RawVideoAdminServiceTest {
                 null,
                 null,
                 null);
-        when(repository.rawSnapshot(rawId)).thenReturn(new RawVideoSnapshot(rawId, "旧标题", null, "2024", 1, oldUnifiedId));
+        when(repository.rawSnapshot(rawId)).thenReturn(
+                new RawVideoSnapshot(rawId, "旧标题", null, "2024", 1, "hash-old", oldUnifiedId));
 
         service.update(rawId, request);
 
@@ -96,20 +97,22 @@ class RawVideoAdminServiceTest {
     @Test
     void reNormalizeUpdatesStatusAndPublishesQueueMessage() {
         UUID rawId = UUID.randomUUID();
+        when(repository.rawSnapshot(rawId)).thenReturn(
+                new RawVideoSnapshot(rawId, "title", null, null, null, "hash-current", null));
 
         service.reNormalize(rawId);
 
         verify(maintenanceGate).assertRawVideoWrite(rawId);
         verify(repository).setRawNormalizationPending(rawId);
-        verify(publisher).publishNormalize(rawId);
+        verify(publisher).publishNormalize(rawId, "hash-current");
     }
 
     @Test
     void batchRefetchDispatchesInternalClientForEachId() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        when(repository.rawSnapshot(first)).thenReturn(new RawVideoSnapshot(first, "a", null, null, null, null));
-        when(repository.rawSnapshot(second)).thenReturn(new RawVideoSnapshot(second, "b", null, null, null, null));
+        when(repository.rawSnapshot(first)).thenReturn(new RawVideoSnapshot(first, "a", null, null, null, null, null));
+        when(repository.rawSnapshot(second)).thenReturn(new RawVideoSnapshot(second, "b", null, null, null, null, null));
 
         service.batchReFetch(List.of(first, second));
 

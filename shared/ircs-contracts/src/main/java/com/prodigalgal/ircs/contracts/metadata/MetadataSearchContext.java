@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class MetadataSearchContext implements Serializable {
     private UUID videoId;
+    private String pipelineVersion;
     private String title;
     private String aliasTitle;
     private String subtitle;

@@ -18,6 +18,8 @@ public class MetadataConfigValues {
     static final boolean DEFAULT_METADATA_ENABLED = true;
     static final boolean DEFAULT_PROVIDER_ENABLED = true;
     static final Duration DEFAULT_PENDING_TTL = Duration.ofMinutes(120);
+    static final int DEFAULT_WATCHDOG_BATCH_SIZE = 100;
+    static final long DEFAULT_WATCHDOG_STALE_PENDING_SECONDS = 300L;
 
     private final Environment environment;
     private final SystemConfigRepository repository;
@@ -77,6 +79,20 @@ public class MetadataConfigValues {
         return StringUtils.hasText(raw) ? parseDuration(raw, DEFAULT_PENDING_TTL) : DEFAULT_PENDING_TTL;
     }
 
+    public int watchdogBatchSize() {
+        return intValue(
+                DEFAULT_WATCHDOG_BATCH_SIZE,
+                "app.metadata.watchdog.batch-size",
+                "APP_METADATA_WATCHDOG_BATCH_SIZE");
+    }
+
+    public long watchdogStalePendingSeconds() {
+        return durationSecondsValue(
+                DEFAULT_WATCHDOG_STALE_PENDING_SECONDS,
+                "app.metadata.watchdog.stale-pending-seconds",
+                "APP_METADATA_WATCHDOG_STALE_PENDING_SECONDS");
+    }
+
     private boolean booleanValue(boolean defaultValue, String key, String... aliases) {
         String raw = value(key, aliases);
         if (!StringUtils.hasText(raw)) {
@@ -100,6 +116,39 @@ public class MetadataConfigValues {
         return RuntimeInjectedConfig.find(environment, runtimeKeys)
                 .or(() -> repository.findValue(key))
                 .orElse(null);
+    }
+
+    private int intValue(int defaultValue, String key, String... aliases) {
+        String raw = value(key, aliases);
+        if (!StringUtils.hasText(raw)) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private long durationSecondsValue(long defaultValue, String key, String... aliases) {
+        String raw = value(key, aliases);
+        if (!StringUtils.hasText(raw)) {
+            return defaultValue;
+        }
+        String trimmed = raw.trim();
+        try {
+            return Math.max(1L, Long.parseLong(trimmed));
+        } catch (NumberFormatException ignored) {
+        }
+        try {
+            return Math.max(1L, Duration.parse(trimmed).toSeconds());
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            return Math.max(1L, org.springframework.boot.convert.DurationStyle.detectAndParse(trimmed).toSeconds());
+        } catch (RuntimeException ignored) {
+            return defaultValue;
+        }
     }
 
     private Duration parseDuration(String raw, Duration defaultValue) {

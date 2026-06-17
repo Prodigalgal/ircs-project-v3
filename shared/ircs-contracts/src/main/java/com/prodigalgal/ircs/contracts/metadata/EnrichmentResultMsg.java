@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class EnrichmentResultMsg implements Serializable {
     private UUID videoId;
+    private String pipelineVersion;
     private ProviderType providerType;
     private boolean success;
     private boolean retryable;
@@ -20,9 +21,14 @@ public class EnrichmentResultMsg implements Serializable {
     private EnrichedMetadataDTO metadata;
     private String errorMessage;
 
-    public static EnrichmentResultMsg success(UUID videoId, ProviderType providerType, EnrichedMetadataDTO metadata) {
+    public static EnrichmentResultMsg success(
+            UUID videoId,
+            String pipelineVersion,
+            ProviderType providerType,
+            EnrichedMetadataDTO metadata) {
         return EnrichmentResultMsg.builder()
                 .videoId(videoId)
+                .pipelineVersion(pipelineVersion)
                 .providerType(providerType)
                 .success(true)
                 .retryable(false)
@@ -32,12 +38,14 @@ public class EnrichmentResultMsg implements Serializable {
 
     public static EnrichmentResultMsg failure(
             UUID videoId,
+            String pipelineVersion,
             ProviderType providerType,
             String errorMessage,
             boolean retryable,
             String errorCode) {
         return EnrichmentResultMsg.builder()
                 .videoId(videoId)
+                .pipelineVersion(pipelineVersion)
                 .providerType(providerType)
                 .success(false)
                 .retryable(retryable)

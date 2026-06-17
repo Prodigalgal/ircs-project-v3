@@ -228,7 +228,7 @@ public class JdbcVideoAdminRepository {
         try {
             return jdbcTemplate.queryForObject(
                     """
-                    select rv.id, rv.title, rv.alias_title, rv.year, rv.season,
+                    select rv.id, rv.title, rv.alias_title, rv.year, rv.season, rv.data_hash,
                            (
                                select rvu.unified_video_id
                                from raw_video_unified_video rvu
@@ -245,6 +245,7 @@ public class JdbcVideoAdminRepository {
                             rs.getString("alias_title"),
                             rs.getString("year"),
                             (Integer) rs.getObject("season"),
+                            rs.getString("data_hash"),
                             rs.getObject("unified_video_id", UUID.class)));
         } catch (EmptyResultDataAccessException ex) {
             throw new ContentApiException(HttpStatus.NOT_FOUND, "Raw video not found: " + id);
@@ -1619,6 +1620,7 @@ public class JdbcVideoAdminRepository {
             String aliasTitle,
             String year,
             Integer season,
+            String dataHash,
             UUID unifiedVideoId) {
     }
 

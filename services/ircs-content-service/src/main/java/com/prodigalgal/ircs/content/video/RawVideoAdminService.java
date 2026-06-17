@@ -115,14 +115,15 @@ public class RawVideoAdminService {
     @Transactional
     public void reNormalize(UUID id) {
         maintenanceGate.assertRawVideoWrite(id);
+        RawVideoSnapshot snapshot = repository.rawSnapshot(id);
         repository.setRawNormalizationPending(id);
-        publisher.publishNormalize(id);
+        publisher.publishNormalize(id, snapshot.dataHash());
     }
 
     public void reEnrich(UUID id) {
         maintenanceGate.assertRawVideoWrite(id);
-        repository.rawSnapshot(id);
-        publisher.publishEnrich(id);
+        RawVideoSnapshot snapshot = repository.rawSnapshot(id);
+        publisher.publishEnrich(id, snapshot.dataHash());
     }
 
     public void reFetchFromSource(UUID id) {

@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.normalization;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
+import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -29,7 +30,7 @@ public class RawVideoNormalizationRepository {
                     select id, normalization_status, normalization_retry_count, raw_metadata::text, locked_fields::text,
                            title, alias_title, season, subtitle, description, year, area, raw_language_str, remarks, score,
                            total_episodes, duration, douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
-                           data_source_id
+                           data_source_id, data_hash
                     from raw_videos
                     where id = :id
                     """,
@@ -56,7 +57,8 @@ public class RawVideoNormalizationRepository {
                             rs.getString("tmdb_id"),
                             rs.getString("imdb_id"),
                             rs.getString("rotten_tomatoes_id"),
-                            rs.getObject("data_source_id", UUID.class))));
+                            rs.getObject("data_source_id", UUID.class),
+                            rs.getString("data_hash"))));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -118,13 +120,13 @@ public class RawVideoNormalizationRepository {
                         .addValue("nextRetryTime", nextRetryTime == null ? null : Timestamp.from(nextRetryTime)));
     }
 
-    public List<UUID> findDueFailedNormalizationRecoveryIds(Instant now, int limit) {
+    public List<PipelineCommand> findDueFailedNormalizationRecoveryCommands(Instant now, int limit) {
         if (limit <= 0) {
             return List.of();
         }
-        return jdbcTemplate.queryForList(
+        return jdbcTemplate.query(
                 """
-                select id
+                select id, data_hash
                 from raw_videos
                 where normalization_status = 'FAILED'
                   and next_normalization_retry_time is not null
@@ -135,16 +137,18 @@ public class RawVideoNormalizationRepository {
                 new MapSqlParameterSource()
                         .addValue("now", Timestamp.from(now))
                         .addValue("limit", limit),
-                UUID.class);
+                (rs, rowNum) -> PipelineCommand.normalize(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("data_hash")));
     }
 
-    public List<UUID> findStaleActiveNormalizationRecoveryIds(Instant staleBefore, int limit) {
+    public List<PipelineCommand> findStaleActiveNormalizationRecoveryCommands(Instant staleBefore, int limit) {
         if (limit <= 0) {
             return List.of();
         }
-        return jdbcTemplate.queryForList(
+        return jdbcTemplate.query(
                 """
-                select id
+                select id, data_hash
                 from raw_videos
                 where normalization_status in ('PENDING', 'PROCESSING')
                   and updated_at <= :staleBefore
@@ -154,14 +158,16 @@ public class RawVideoNormalizationRepository {
                 new MapSqlParameterSource()
                         .addValue("staleBefore", Timestamp.from(staleBefore))
                         .addValue("limit", limit),
-                UUID.class);
+                (rs, rowNum) -> PipelineCommand.normalize(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("data_hash")));
     }
 
-    public List<UUID> claimDueFailedNormalizationRecoveryIds(Instant now, int limit) {
+    public List<PipelineCommand> claimDueFailedNormalizationRecoveryCommands(Instant now, int limit) {
         if (limit <= 0) {
             return List.of();
         }
-        return jdbcTemplate.queryForList(
+        return jdbcTemplate.query(
                 """
                 with due as (
                     select id
@@ -179,19 +185,21 @@ public class RawVideoNormalizationRepository {
                     updated_at = now()
                 from due
                 where rv.id = due.id
-                returning rv.id
+                returning rv.id, rv.data_hash
                 """,
                 new MapSqlParameterSource()
                         .addValue("now", Timestamp.from(now))
                         .addValue("limit", limit),
-                UUID.class);
+                (rs, rowNum) -> PipelineCommand.normalize(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("data_hash")));
     }
 
-    public List<UUID> claimStaleActiveNormalizationRecoveryIds(Instant staleBefore, int limit) {
+    public List<PipelineCommand> claimStaleActiveNormalizationRecoveryCommands(Instant staleBefore, int limit) {
         if (limit <= 0) {
             return List.of();
         }
-        return jdbcTemplate.queryForList(
+        return jdbcTemplate.query(
                 """
                 with stale as (
                     select id
@@ -208,12 +216,14 @@ public class RawVideoNormalizationRepository {
                     updated_at = now()
                 from stale
                 where rv.id = stale.id
-                returning rv.id
+                returning rv.id, rv.data_hash
                 """,
                 new MapSqlParameterSource()
                         .addValue("staleBefore", Timestamp.from(staleBefore))
                         .addValue("limit", limit),
-                UUID.class);
+                (rs, rowNum) -> PipelineCommand.normalize(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("data_hash")));
     }
 
     public boolean markRecoveryQueued(UUID id) {

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
@@ -133,90 +135,98 @@ class RawVideoNormalizationRepositoryTest {
     }
 
     @Test
-    void findDueFailedNormalizationRecoveryIdsScansDueFailuresOnly() {
+    void findDueFailedNormalizationRecoveryCommandsScansDueFailuresOnly() {
         UUID failedId = UUID.randomUUID();
+        PipelineCommand command = PipelineCommand.normalize(failedId, "hash-failed");
         Instant now = Instant.parse("2026-06-07T10:00:00Z");
-        when(jdbcTemplate.queryForList(
+        when(jdbcTemplate.query(
                         argThat(sql -> sql.contains("normalization_status = 'FAILED'")
                                 && sql.contains("next_normalization_retry_time <= :now")
+                                && sql.contains("data_hash")
                                 && !sql.contains("normalization_status = 'PENDING'")
                                 && !sql.contains("PERMANENT_FAILURE")),
                         any(MapSqlParameterSource.class),
-                        eq(UUID.class)))
-                .thenReturn(List.of(failedId));
+                        any(RowMapper.class)))
+                .thenReturn(List.of(command));
 
         RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
 
-        List<UUID> result = repository.findDueFailedNormalizationRecoveryIds(now, 25);
+        List<PipelineCommand> result = repository.findDueFailedNormalizationRecoveryCommands(now, 25);
 
-        assertEquals(List.of(failedId), result);
+        assertEquals(List.of(command), result);
     }
 
     @Test
-    void claimDueFailedNormalizationRecoveryIdsMarksPendingWithRowLease() {
+    void claimDueFailedNormalizationRecoveryCommandsMarksPendingWithRowLease() {
         UUID failedId = UUID.randomUUID();
+        PipelineCommand command = PipelineCommand.normalize(failedId, "hash-failed");
         Instant now = Instant.parse("2026-06-07T10:00:00Z");
-        when(jdbcTemplate.queryForList(
+        when(jdbcTemplate.query(
                         argThat(sql -> sql.contains("for update skip locked")
                                 && sql.contains("update raw_videos rv")
                                 && sql.contains("normalization_status = 'FAILED'")
                                 && sql.contains("next_normalization_retry_time <= :now")
                                 && sql.contains("normalization_status = 'PENDING'")
                                 && sql.contains("next_normalization_retry_time = null")
-                                && sql.contains("returning rv.id")),
+                                && sql.contains("returning rv.id, rv.data_hash")),
                         any(MapSqlParameterSource.class),
-                        eq(UUID.class)))
-                .thenReturn(List.of(failedId));
+                        any(RowMapper.class)))
+                .thenReturn(List.of(command));
 
         RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
 
-        List<UUID> result = repository.claimDueFailedNormalizationRecoveryIds(now, 25);
+        List<PipelineCommand> result = repository.claimDueFailedNormalizationRecoveryCommands(now, 25);
 
-        assertEquals(List.of(failedId), result);
+        assertEquals(List.of(command), result);
     }
 
     @Test
-    void findStaleActiveNormalizationRecoveryIdsScansPendingAndProcessingOnly() {
+    void findStaleActiveNormalizationRecoveryCommandsScansPendingAndProcessingOnly() {
         UUID pendingId = UUID.randomUUID();
         UUID processingId = UUID.randomUUID();
+        PipelineCommand pending = PipelineCommand.normalize(pendingId, "hash-pending");
+        PipelineCommand processing = PipelineCommand.normalize(processingId, "hash-processing");
         Instant staleBefore = Instant.parse("2026-06-07T09:50:00Z");
-        when(jdbcTemplate.queryForList(
+        when(jdbcTemplate.query(
                         argThat(sql -> sql.contains("normalization_status in ('PENDING', 'PROCESSING')")
                                 && sql.contains("updated_at <= :staleBefore")
+                                && sql.contains("data_hash")
                                 && !sql.contains("PERMANENT_FAILURE")),
                         any(MapSqlParameterSource.class),
-                        eq(UUID.class)))
-                .thenReturn(List.of(pendingId, processingId));
+                        any(RowMapper.class)))
+                .thenReturn(List.of(pending, processing));
 
         RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
 
-        List<UUID> result = repository.findStaleActiveNormalizationRecoveryIds(staleBefore, 25);
+        List<PipelineCommand> result = repository.findStaleActiveNormalizationRecoveryCommands(staleBefore, 25);
 
-        assertEquals(List.of(pendingId, processingId), result);
+        assertEquals(List.of(pending, processing), result);
     }
 
     @Test
-    void claimStaleActiveNormalizationRecoveryIdsMarksPendingWithRowLease() {
+    void claimStaleActiveNormalizationRecoveryCommandsMarksPendingWithRowLease() {
         UUID pendingId = UUID.randomUUID();
         UUID processingId = UUID.randomUUID();
+        PipelineCommand pending = PipelineCommand.normalize(pendingId, "hash-pending");
+        PipelineCommand processing = PipelineCommand.normalize(processingId, "hash-processing");
         Instant staleBefore = Instant.parse("2026-06-07T09:50:00Z");
-        when(jdbcTemplate.queryForList(
+        when(jdbcTemplate.query(
                         argThat(sql -> sql.contains("for update skip locked")
                                 && sql.contains("update raw_videos rv")
                                 && sql.contains("normalization_status in ('PENDING', 'PROCESSING')")
                                 && sql.contains("updated_at <= :staleBefore")
                                 && sql.contains("normalization_status = 'PENDING'")
                                 && sql.contains("next_normalization_retry_time = null")
-                                && sql.contains("returning rv.id")),
+                                && sql.contains("returning rv.id, rv.data_hash")),
                         any(MapSqlParameterSource.class),
-                        eq(UUID.class)))
-                .thenReturn(List.of(pendingId, processingId));
+                        any(RowMapper.class)))
+                .thenReturn(List.of(pending, processing));
 
         RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
 
-        List<UUID> result = repository.claimStaleActiveNormalizationRecoveryIds(staleBefore, 25);
+        List<PipelineCommand> result = repository.claimStaleActiveNormalizationRecoveryCommands(staleBefore, 25);
 
-        assertEquals(List.of(pendingId, processingId), result);
+        assertEquals(List.of(pending, processing), result);
     }
 
     @Test

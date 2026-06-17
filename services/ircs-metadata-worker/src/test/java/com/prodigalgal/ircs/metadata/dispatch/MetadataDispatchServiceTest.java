@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import com.prodigalgal.ircs.metadata.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.RawSearchSyncPublisher;
 import java.time.Duration;
 import java.util.List;
@@ -33,6 +34,9 @@ class MetadataDispatchServiceTest {
     private MetadataPendingRegistry pendingRegistry;
 
     @Mock
+    private MetadataPipelineRunRepository pipelineRunRepository;
+
+    @Mock
     private MetadataProviderTaskPublisher providerTaskPublisher;
 
     @Mock
@@ -53,7 +57,7 @@ class MetadataDispatchServiceTest {
         record.setTmdbId("tmdb-1");
         when(repository.findById(id)).thenReturn(Optional.of(record));
 
-        MetadataDispatchResult result = newService(false).dispatch(id);
+        MetadataDispatchResult result = newService(false).dispatch(id, "hash-v1");
 
         assertEquals("SUCCESS", result.status());
         verify(repository).updateStatus(id, "SUCCESS", 0);
@@ -66,14 +70,32 @@ class MetadataDispatchServiceTest {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB)))
+                .thenReturn(List.of(ProviderType.TMDB));
 
-        MetadataDispatchResult result = newService(true).dispatch(id);
+        MetadataDispatchResult result = newService(true).dispatch(id, "hash-v1");
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.TMDB), result.providers());
-        verify(pendingRegistry).register(id, List.of(ProviderType.TMDB), Duration.ofMinutes(30));
+        verify(pendingRegistry).register(id, "hash-v1", List.of(ProviderType.TMDB), Duration.ofMinutes(30));
         verify(providerTaskPublisher).publish(org.mockito.Mockito.eq(ProviderType.TMDB), org.mockito.Mockito.any());
         verify(searchSyncPublisher, never()).publishIndex(id);
+    }
+
+    @Test
+    void stalePipelineVersionDoesNotRegisterOrFanOutProviderTasks() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.of(record(id)));
+
+        MetadataDispatchResult result = newService(false).dispatch(id, "old-hash");
+
+        assertEquals("STALE", result.status());
+        verify(pendingRegistry, never()).register(
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any());
+        verify(providerTaskPublisher, never()).publish(org.mockito.Mockito.any(), org.mockito.Mockito.any());
     }
 
     @Test
@@ -88,19 +110,26 @@ class MetadataDispatchServiceTest {
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
         when(configValues.pendingTtl()).thenReturn(Duration.ofMinutes(15));
+        when(pipelineRunRepository.prepareDispatch(
+                        id,
+                        "hash-v1",
+                        List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES)))
+                .thenReturn(List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES));
         MetadataDispatchService service = new MetadataDispatchService(
                 repository,
                 configValues,
                 pendingRegistry,
+                pipelineRunRepository,
                 publisher,
                 searchSyncPublisher);
 
-        MetadataDispatchResult result = service.dispatch(id);
+        MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES), result.providers());
         verify(pendingRegistry).register(
                 id,
+                "hash-v1",
                 List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES),
                 Duration.ofMinutes(15));
         verify(rabbitTemplate).convertAndSend(
@@ -131,14 +160,20 @@ class MetadataDispatchServiceTest {
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
         when(configValues.pendingTtl()).thenReturn(Duration.ofMinutes(30));
+        when(pipelineRunRepository.prepareDispatch(
+                        id,
+                        "hash-v1",
+                        List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES)))
+                .thenReturn(List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES));
         MetadataDispatchService service = new MetadataDispatchService(
                 repository,
                 configValues,
                 pendingRegistry,
+                pipelineRunRepository,
                 publisher,
                 searchSyncPublisher);
 
-        MetadataDispatchResult result = service.dispatch(id);
+        MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES), result.providers());
@@ -155,7 +190,7 @@ class MetadataDispatchServiceTest {
         record.setEnrichmentRetryCount(2);
         when(repository.findById(id)).thenReturn(Optional.of(record));
 
-        MetadataDispatchResult result = newService(false).dispatch(id);
+        MetadataDispatchResult result = newService(false).dispatch(id, "hash-v1");
 
         assertEquals("FAILED", result.status());
         verify(repository).updateStatus(id, "FAILED", 3);
@@ -163,14 +198,13 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
-    void missingVideoClearsPendingSet() {
+    void missingVideoReturnsNotFoundWithoutTouchingCurrentPendingSet() {
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.empty());
 
-        MetadataDispatchResult result = newService(false).dispatch(id);
+        MetadataDispatchResult result = newService(false).dispatch(id, "hash-v1");
 
         assertEquals(false, result.videoFound());
-        verify(pendingRegistry).clear(id);
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
 
@@ -184,6 +218,7 @@ class MetadataDispatchServiceTest {
                 repository,
                 configValues,
                 pendingRegistry,
+                pipelineRunRepository,
                 providerTaskPublisher,
                 searchSyncPublisher);
     }
@@ -202,6 +237,7 @@ class MetadataDispatchServiceTest {
                 null,
                 null,
                 "PENDING",
-                0);
+                0,
+                "hash-v1");
     }
 }

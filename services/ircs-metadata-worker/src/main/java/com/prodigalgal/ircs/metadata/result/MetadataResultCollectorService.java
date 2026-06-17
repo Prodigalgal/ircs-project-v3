@@ -6,11 +6,14 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
+import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.dispatch.MetadataPendingRegistry;
-import com.prodigalgal.ircs.metadata.dispatch.MetadataPendingRegistry.PendingCompletion;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.ProviderCompletion;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ public class MetadataResultCollectorService {
     private final RawVideoMetadataRepository repository;
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final MetadataPendingRegistry pendingRegistry;
+    private final MetadataPipelineRunRepository pipelineRunRepository;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -34,30 +38,84 @@ public class MetadataResultCollectorService {
         Optional<RawVideoMetadataRecord> recordOpt = repository.findById(message.getVideoId());
         if (recordOpt.isEmpty()) {
             log.warn("Metadata result references missing raw video: {}", message.getVideoId());
-            pendingRegistry.clear(message.getVideoId());
             return new MetadataResultProcessingResult(message.getVideoId(), false, null);
         }
 
         RawVideoMetadataRecord record = recordOpt.get();
+        if (isStale(message.getPipelineVersion(), record.getDataHash())) {
+            log.info(
+                    "Ignoring stale metadata result: videoId={}, provider={}, commandVersion={}, currentVersion={}",
+                    message.getVideoId(),
+                    message.getProviderType(),
+                    message.getPipelineVersion(),
+                    record.getDataHash());
+            return new MetadataResultProcessingResult(record.getId(), true, "STALE");
+        }
+
         boolean metadataUpdated = false;
         if (message.isSuccess() && message.getMetadata() != null) {
             metadataUpdated = applyMetadata(record, message.getMetadata());
         }
 
-        PendingCompletion pendingCompletion = pendingRegistry.complete(record.getId(), message.getProviderType());
-        if (pendingCompletion.tracked() && pendingCompletion.remaining() > 0) {
+        ProviderCompletion completion = pipelineRunRepository.completeProvider(
+                record.getId(),
+                record.getDataHash(),
+                message.getProviderType(),
+                message.isSuccess(),
+                message.isRetryable(),
+                message.getErrorCode(),
+                message.getErrorMessage());
+        completePendingHint(record.getId(), record.getDataHash(), message.getProviderType());
+        if (!completion.tracked()) {
+            log.warn(
+                    "Metadata result has no durable provider run: videoId={}, provider={}, pipelineVersion={}",
+                    record.getId(),
+                    message.getProviderType(),
+                    message.getPipelineVersion());
+            return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
+        }
+        if (!completion.newlyCompleted()) {
+            return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
+        }
+        if (!completion.allCompleted()) {
             repository.save(record);
             return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
         }
 
-        finalizeVideoStatus(record, message, metadataUpdated);
+        finalizeVideoStatus(record, completion, metadataUpdated);
         repository.save(record);
-        if (pendingCompletion.tracked()) {
-            pendingRegistry.clear(record.getId());
-        }
+        pipelineRunRepository.markRunFinished(record.getId(), record.getDataHash(), record.getEnrichmentStatus());
+        clearPendingHint(record.getId(), record.getDataHash());
         searchSyncPublisher.publishIndex(record.getId());
 
         return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
+    }
+
+    private void completePendingHint(UUID videoId, String pipelineVersion, ProviderType providerType) {
+        try {
+            pendingRegistry.complete(videoId, pipelineVersion, providerType);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Metadata pending Redis hint completion failed: videoId={}, provider={}, error={}",
+                    videoId,
+                    providerType,
+                    ex.getMessage());
+        }
+    }
+
+    private void clearPendingHint(UUID videoId, String pipelineVersion) {
+        try {
+            pendingRegistry.clear(videoId, pipelineVersion);
+        } catch (RuntimeException ex) {
+            log.warn("Metadata pending Redis hint clear failed: videoId={}, error={}", videoId, ex.getMessage());
+        }
+    }
+
+    private boolean isStale(String pipelineVersion, String currentDataHash) {
+        if (StringUtils.hasText(currentDataHash)) {
+            return !StringUtils.hasText(pipelineVersion) || !pipelineVersion.trim().equals(currentDataHash);
+        }
+        return StringUtils.hasText(pipelineVersion);
     }
 
     private boolean applyMetadata(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata) {
@@ -226,7 +284,7 @@ public class MetadataResultCollectorService {
 
     private void finalizeVideoStatus(
             RawVideoMetadataRecord record,
-            EnrichmentResultMsg message,
+            ProviderCompletion completion,
             boolean metadataUpdated) {
         if (record.hasAuthoritativeId()) {
             record.setEnrichmentStatus("SUCCESS");
@@ -237,7 +295,7 @@ public class MetadataResultCollectorService {
             return;
         }
 
-        if (!message.isRetryable()) {
+        if (completion.retryableFailureCount() <= 0) {
             record.setEnrichmentStatus("PERMANENT_FAILURE");
             return;
         }

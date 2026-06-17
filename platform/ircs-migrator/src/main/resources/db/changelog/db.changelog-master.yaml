@@ -107,3 +107,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/repair-search-outbox-schema.sql
   - include:
       file: db/changelog/2026/07/add-member-oauth-accounts.sql
+  - include:
+      file: db/changelog/2026/07/add-video-pipeline-run-checkpoints.sql

@@ -19,7 +19,7 @@ public class RawVideoMetadataRepository {
     static final String SELECT_BY_ID = """
             select id, douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                    description, score, year, alias_title, raw_metadata::text, locked_fields,
-                   enrichment_status, enrichment_retry_count, aggregation_status
+                   enrichment_status, enrichment_retry_count, aggregation_status, data_hash
             from raw_videos
             where id = ?
             """;
@@ -87,7 +87,8 @@ public class RawVideoMetadataRepository {
                 readLockedFields(rs.getString("locked_fields")),
                 rs.getString("enrichment_status"),
                 (Integer) rs.getObject("enrichment_retry_count"),
-                rs.getString("aggregation_status"));
+                rs.getString("aggregation_status"),
+                rs.getString("data_hash"));
     }
 
     private Set<String> readLockedFields(String json) {

@@ -547,7 +547,8 @@ class RawVideoTextNormalizerTest {
                 null,
                 null,
                 null,
-                dataSourceId);
+                dataSourceId,
+                "hash-v1");
     }
 
     private RawVideoRecord recordWithOverrides(
@@ -581,7 +582,8 @@ class RawVideoTextNormalizerTest {
                 null,
                 null,
                 null,
-                null);
+                null,
+                "hash-v1");
     }
 
     private DescriptionMetadataExtractor extractor(Set<String> actors, Set<String> directors) {

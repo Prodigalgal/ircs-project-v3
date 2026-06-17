@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.metadata.result;
 
+import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import java.math.BigDecimal;
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +24,7 @@ public class RawVideoMetadataRecord {
     private String enrichmentStatus;
     private Integer enrichmentRetryCount;
     private String aggregationStatus;
+    private String dataHash;
 
     public boolean isFieldLocked(String fieldName) {
         return lockedFields != null && lockedFields.contains(fieldName);
@@ -30,6 +32,18 @@ public class RawVideoMetadataRecord {
 
     public boolean hasAuthoritativeId() {
         return hasText(doubanId) || hasText(tmdbId) || hasText(imdbId) || hasText(rottenTomatoesId);
+    }
+
+    public boolean hasProviderId(ProviderType providerType) {
+        if (providerType == null) {
+            return false;
+        }
+        return switch (providerType) {
+            case DOUBAN -> hasText(doubanId);
+            case TMDB -> hasText(tmdbId);
+            case ROTTEN_TOMATOES -> hasText(rottenTomatoesId);
+            default -> false;
+        };
     }
 
     public static boolean hasText(String value) {

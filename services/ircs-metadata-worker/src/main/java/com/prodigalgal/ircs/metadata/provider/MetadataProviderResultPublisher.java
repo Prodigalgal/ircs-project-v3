@@ -19,7 +19,11 @@ public class MetadataProviderResultPublisher {
     private final ObjectMapper objectMapper;
 
     public void publishSuccess(MetadataSearchContext context, ProviderType providerType, EnrichedMetadataDTO metadata) {
-        publish(EnrichmentResultMsg.success(context.getVideoId(), providerType, metadata));
+        publish(EnrichmentResultMsg.success(
+                context.getVideoId(),
+                context.getPipelineVersion(),
+                providerType,
+                metadata));
     }
 
     public void publishFailure(
@@ -28,7 +32,13 @@ public class MetadataProviderResultPublisher {
             String reason,
             boolean retryable,
             String errorCode) {
-        publish(EnrichmentResultMsg.failure(context.getVideoId(), providerType, reason, retryable, errorCode));
+        publish(EnrichmentResultMsg.failure(
+                context.getVideoId(),
+                context.getPipelineVersion(),
+                providerType,
+                reason,
+                retryable,
+                errorCode));
     }
 
     private void publish(EnrichmentResultMsg message) {

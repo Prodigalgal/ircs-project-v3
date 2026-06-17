@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.metadata.dispatch;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.RawSearchSyncPublisher;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,7 +12,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @Slf4j
@@ -21,19 +22,22 @@ public class MetadataDispatchService {
     private final RawVideoEnrichmentRepository repository;
     private final MetadataConfigValues configValues;
     private final MetadataPendingRegistry pendingRegistry;
+    private final MetadataPipelineRunRepository pipelineRunRepository;
     private final MetadataProviderTaskPublisher providerTaskPublisher;
     private final RawSearchSyncPublisher searchSyncPublisher;
 
-    @Transactional
-    public MetadataDispatchResult dispatch(UUID videoId) {
+    public MetadataDispatchResult dispatch(UUID videoId, String pipelineVersion) {
         Optional<RawVideoEnrichmentRecord> recordOpt = repository.findById(videoId);
         if (recordOpt.isEmpty()) {
-            pendingRegistry.clear(videoId);
             log.warn("Metadata dispatch references missing raw video: {}", videoId);
             return new MetadataDispatchResult(videoId, false, null, List.of());
         }
 
         RawVideoEnrichmentRecord record = recordOpt.get();
+        if (isStale(pipelineVersion, record.getDataHash())) {
+            return new MetadataDispatchResult(videoId, true, "STALE", List.of());
+        }
+
         if ("SUCCESS".equals(record.getEnrichmentStatus())
                 || "PERMANENT_FAILURE".equals(record.getEnrichmentStatus())) {
             return new MetadataDispatchResult(videoId, true, record.getEnrichmentStatus(), List.of());
@@ -53,10 +57,23 @@ public class MetadataDispatchService {
         }
 
         MetadataSearchContext context = toContext(record);
-        pendingRegistry.register(videoId, providers, configValues.pendingTtl());
-        providers.forEach(provider -> providerTaskPublisher.publish(provider, context));
-        log.info("Dispatched metadata fetch tasks: videoId={}, providers={}", videoId, providers);
-        return new MetadataDispatchResult(videoId, true, "DISPATCHED", providers);
+        List<ProviderType> pendingProviders =
+                pipelineRunRepository.prepareDispatch(videoId, record.getDataHash(), providers);
+        registerPendingHint(videoId, record.getDataHash(), providers);
+        pendingProviders.forEach(provider -> providerTaskPublisher.publish(provider, context));
+        log.info("Dispatched metadata fetch tasks: videoId={}, providers={}", videoId, pendingProviders);
+        return new MetadataDispatchResult(videoId, true, "DISPATCHED", pendingProviders);
+    }
+
+    private void registerPendingHint(UUID videoId, String pipelineVersion, List<ProviderType> providers) {
+        try {
+            pendingRegistry.register(videoId, pipelineVersion, providers, configValues.pendingTtl());
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Metadata pending Redis hint registration failed: videoId={}, error={}",
+                    videoId,
+                    ex.getMessage());
+        }
     }
 
     private String finalizeImmediate(RawVideoEnrichmentRecord record) {
@@ -92,6 +109,7 @@ public class MetadataDispatchService {
     private MetadataSearchContext toContext(RawVideoEnrichmentRecord record) {
         return MetadataSearchContext.builder()
                 .videoId(record.getId())
+                .pipelineVersion(record.getDataHash())
                 .title(record.getTitle())
                 .aliasTitle(record.getAliasTitle())
                 .subtitle(record.getSubtitle())
@@ -103,5 +121,12 @@ public class MetadataDispatchService {
                 .imdbId(record.getImdbId())
                 .rottenTomatoesId(record.getRottenTomatoesId())
                 .build();
+    }
+
+    private boolean isStale(String pipelineVersion, String currentDataHash) {
+        if (StringUtils.hasText(currentDataHash)) {
+            return !StringUtils.hasText(pipelineVersion) || !pipelineVersion.trim().equals(currentDataHash);
+        }
+        return StringUtils.hasText(pipelineVersion);
     }
 }

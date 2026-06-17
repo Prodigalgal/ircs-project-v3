@@ -31,7 +31,7 @@ public class RawVideoIngestionService {
                 item.video().dataHash(),
                 item.video().playlists());
         publisher.publishPlaylistSync(syncMessage);
-        publisher.publishNormalize(rawVideoId);
+        publisher.publishNormalize(rawVideoId, item.video().dataHash());
         return IngestResult.persisted(rawVideoId);
     }
 

@@ -33,9 +33,9 @@ class MetadataPendingRegistryTest {
         UUID id = UUID.randomUUID();
         MetadataPendingRegistry registry = new MetadataPendingRegistry(redisTemplate);
 
-        registry.register(id, List.of(ProviderType.DOUBAN, ProviderType.TMDB), Duration.ofMinutes(30));
+        registry.register(id, "hash-v1", List.of(ProviderType.DOUBAN, ProviderType.TMDB), Duration.ofMinutes(30));
 
-        String key = registry.key(id);
+        String key = registry.key(id, "hash-v1");
         verify(redisTemplate).execute(
                 any(RedisScript.class),
                 eq(List.of(key)),
@@ -51,20 +51,20 @@ class MetadataPendingRegistryTest {
         UUID id = UUID.randomUUID();
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("enrich:pending:" + id)),
+                eq(List.of("enrich:pending:" + id + ":hash-v1")),
                 eq("TMDB")))
                 .thenReturn(1L);
         MetadataPendingRegistry registry = new MetadataPendingRegistry(redisTemplate);
 
-        MetadataPendingRegistry.PendingCompletion result = registry.complete(id, ProviderType.TMDB);
+        MetadataPendingRegistry.PendingCompletion result = registry.complete(id, "hash-v1", ProviderType.TMDB);
 
         assertEquals(true, result.tracked());
         assertEquals(1, result.remaining());
         verify(redisTemplate).execute(
                 any(RedisScript.class),
-                eq(List.of("enrich:pending:" + id)),
+                eq(List.of("enrich:pending:" + id + ":hash-v1")),
                 eq("TMDB"));
-        verify(redisTemplate, never()).hasKey("enrich:pending:" + id);
+        verify(redisTemplate, never()).hasKey("enrich:pending:" + id + ":hash-v1");
         verify(redisTemplate, never()).opsForSet();
     }
 
@@ -73,16 +73,16 @@ class MetadataPendingRegistryTest {
         UUID id = UUID.randomUUID();
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("enrich:pending:" + id)),
+                eq(List.of("enrich:pending:" + id + ":hash-v1")),
                 eq("TMDB")))
                 .thenReturn(-1L);
         MetadataPendingRegistry registry = new MetadataPendingRegistry(redisTemplate);
 
-        MetadataPendingRegistry.PendingCompletion result = registry.complete(id, ProviderType.TMDB);
+        MetadataPendingRegistry.PendingCompletion result = registry.complete(id, "hash-v1", ProviderType.TMDB);
 
         assertEquals(false, result.tracked());
         assertEquals(0, result.remaining());
-        verify(redisTemplate, never()).hasKey("enrich:pending:" + id);
+        verify(redisTemplate, never()).hasKey("enrich:pending:" + id + ":hash-v1");
         verify(redisTemplate, never()).opsForSet();
     }
 }

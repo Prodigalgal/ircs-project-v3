@@ -24,6 +24,8 @@ class MetadataConfigValuesTest {
         assertTrue(values.doubanEnabled());
         assertTrue(values.rottenTomatoesEnabled());
         assertEquals(Duration.ofMinutes(120), values.pendingTtl());
+        assertEquals(100, values.watchdogBatchSize());
+        assertEquals(300L, values.watchdogStalePendingSeconds());
     }
 
     @Test
@@ -53,7 +55,9 @@ class MetadataConfigValuesTest {
                 .withProperty("APP_METADATA_TMDB_ENABLED", "false")
                 .withProperty("APP_METADATA_DOUBAN_ENABLED", "false")
                 .withProperty("APP_METADATA_RT_ENABLED", "false")
-                .withProperty("APP_METADATA_PENDING_TTL", "15m");
+                .withProperty("APP_METADATA_PENDING_TTL", "15m")
+                .withProperty("APP_METADATA_WATCHDOG_BATCH_SIZE", "25")
+                .withProperty("APP_METADATA_WATCHDOG_STALE_PENDING_SECONDS", "PT10M");
 
         MetadataConfigValues values = values(environment);
 
@@ -61,6 +65,8 @@ class MetadataConfigValuesTest {
         assertFalse(values.doubanEnabled());
         assertFalse(values.rottenTomatoesEnabled());
         assertEquals(Duration.ofMinutes(15), values.pendingTtl());
+        assertEquals(25, values.watchdogBatchSize());
+        assertEquals(600L, values.watchdogStalePendingSeconds());
     }
 
     @Test

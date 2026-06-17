@@ -30,7 +30,7 @@ class RawVideoIngestionServiceTest {
 
         assertTrue(result.skipped());
         verify(repository, never()).upsertRawVideo(item.video(), rawVideoId);
-        verify(publisher, never()).publishNormalize(rawVideoId);
+        verify(publisher, never()).publishNormalize(rawVideoId, "data-hash");
     }
 
     @Test
@@ -45,7 +45,7 @@ class RawVideoIngestionServiceTest {
 
         assertFalse(result.skipped());
         verify(repository).upsertRawVideo(item.video(), rawVideoId);
-        verify(publisher).publishNormalize(rawVideoId);
+        verify(publisher).publishNormalize(rawVideoId, "new-data-hash");
     }
 
     private IngestionVideoDTO video(String sourceHash, String dataHash) {

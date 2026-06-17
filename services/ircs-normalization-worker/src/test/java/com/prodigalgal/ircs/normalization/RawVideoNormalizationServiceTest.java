@@ -30,6 +30,9 @@ class RawVideoNormalizationServiceTest {
     private RawSearchSyncPublisher searchSyncPublisher;
 
     @Mock
+    private MetadataEnrichPublisher metadataEnrichPublisher;
+
+    @Mock
     private NormalizationConfigValues configValues;
 
     private RawVideoNormalizationService service;
@@ -44,6 +47,7 @@ class RawVideoNormalizationServiceTest {
                         new DescriptionMetadataExtractor(),
                         new RawRelationAliasPolicy()),
                 searchSyncPublisher,
+                metadataEnrichPublisher,
                 objectMapper,
                 configValues);
     }
@@ -89,9 +93,10 @@ class RawVideoNormalizationServiceTest {
                 null,
                 null,
                 null,
-                dataSourceId)));
+                dataSourceId,
+                "hash-v1")));
 
-        RawVideoNormalizationService.NormalizationResult result = service.normalize(id);
+        RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
 
         assertEquals("READY", result.status());
         ArgumentCaptor<RawVideoPatch> patch = ArgumentCaptor.forClass(RawVideoPatch.class);
@@ -109,6 +114,7 @@ class RawVideoNormalizationServiceTest {
         assertEquals("movie", patch.getValue().rawCategorySourceCode());
         assertEquals("电影", patch.getValue().rawCategorySourceName());
         verify(searchSyncPublisher).publishIndex(id);
+        verify(metadataEnrichPublisher).publish(id, "hash-v1");
     }
 
     @Test
@@ -138,13 +144,15 @@ class RawVideoNormalizationServiceTest {
                 null,
                 null,
                 null,
-                null)));
+                null,
+                "hash-v1")));
 
-        RawVideoNormalizationService.NormalizationResult result = service.normalize(id);
+        RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
 
         assertEquals("FAILED", result.status());
         verify(repository).markFailure(eq(id), eq("FAILED"), eq(1), any());
         verify(searchSyncPublisher, never()).publishIndex(any());
+        verify(metadataEnrichPublisher, never()).publish(any(UUID.class), any());
     }
 
     @Test
@@ -174,13 +182,15 @@ class RawVideoNormalizationServiceTest {
                 null,
                 null,
                 null,
-                null)));
+                null,
+                "hash-v1")));
 
-        RawVideoNormalizationService.NormalizationResult result = service.normalize(id);
+        RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
 
         assertEquals("FAILED", result.status());
         verify(repository).markFailure(eq(id), eq("FAILED"), eq(1), any());
         verify(searchSyncPublisher, never()).publishIndex(any());
+        verify(metadataEnrichPublisher, never()).publish(any(UUID.class), any());
     }
 
     @Test
@@ -209,9 +219,10 @@ class RawVideoNormalizationServiceTest {
                 null,
                 null,
                 null,
-                null)));
+                null,
+                "hash-v1")));
 
-        RawVideoNormalizationService.NormalizationResult result = service.normalize(id);
+        RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
 
         assertEquals("PERMANENT_FAILURE", result.status());
         verify(repository).markFailure(eq(id), eq("PERMANENT_FAILURE"), eq(5), eq(null));

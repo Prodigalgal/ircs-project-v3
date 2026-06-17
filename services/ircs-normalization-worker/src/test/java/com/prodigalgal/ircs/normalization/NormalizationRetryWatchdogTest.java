@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 import java.time.Instant;
 import java.util.List;
 import java.util.OptionalInt;
@@ -39,53 +40,58 @@ class NormalizationRetryWatchdogTest {
     void runOnceRepublishesDueRecoveryIds() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
+        PipelineCommand firstCommand = PipelineCommand.normalize(first, "hash-1");
+        PipelineCommand secondCommand = PipelineCommand.normalize(second, "hash-2");
         when(configValues.watchdogBatchSize()).thenReturn(25);
         when(configValues.watchdogStalePendingSeconds()).thenReturn(3600L);
-        when(repository.claimDueFailedNormalizationRecoveryIds(any(Instant.class), eq(25)))
-                .thenReturn(List.of(first, second));
+        when(repository.claimDueFailedNormalizationRecoveryCommands(any(Instant.class), eq(25)))
+                .thenReturn(List.of(firstCommand, secondCommand));
         NormalizationRetryWatchdog watchdog = watchdog();
 
         int republished = watchdog.runOnce();
 
         assertEquals(2, republished);
-        verify(publisher).publish(first);
-        verify(publisher).publish(second);
+        verify(publisher).publish(firstCommand);
+        verify(publisher).publish(secondCommand);
     }
 
     @Test
     void runOnceResetsStaleProcessingWhenQueueIsEmpty() {
         UUID failed = UUID.randomUUID();
         UUID processing = UUID.randomUUID();
+        PipelineCommand failedCommand = PipelineCommand.normalize(failed, "hash-failed");
+        PipelineCommand processingCommand = PipelineCommand.normalize(processing, "hash-processing");
         when(configValues.watchdogBatchSize()).thenReturn(25);
         when(configValues.watchdogStalePendingSeconds()).thenReturn(3600L);
-        when(repository.claimDueFailedNormalizationRecoveryIds(any(Instant.class), eq(25)))
-                .thenReturn(List.of(failed));
+        when(repository.claimDueFailedNormalizationRecoveryCommands(any(Instant.class), eq(25)))
+                .thenReturn(List.of(failedCommand));
         when(queueDepthProbe.pendingMessages()).thenReturn(OptionalInt.of(0));
-        when(repository.claimStaleActiveNormalizationRecoveryIds(any(Instant.class), eq(24)))
-                .thenReturn(List.of(processing));
+        when(repository.claimStaleActiveNormalizationRecoveryCommands(any(Instant.class), eq(24)))
+                .thenReturn(List.of(processingCommand));
         NormalizationRetryWatchdog watchdog = watchdog();
 
         int republished = watchdog.runOnce();
 
         assertEquals(2, republished);
-        verify(publisher).publish(processing);
+        verify(publisher).publish(processingCommand);
     }
 
     @Test
     void runOnceSkipsStalePendingWhenQueueHasBacklogButStillRetriesDueFailed() {
         UUID failed = UUID.randomUUID();
+        PipelineCommand failedCommand = PipelineCommand.normalize(failed, "hash-failed");
         when(configValues.watchdogBatchSize()).thenReturn(25);
         when(configValues.watchdogStalePendingSeconds()).thenReturn(3600L);
-        when(repository.claimDueFailedNormalizationRecoveryIds(any(Instant.class), eq(25)))
-                .thenReturn(List.of(failed));
+        when(repository.claimDueFailedNormalizationRecoveryCommands(any(Instant.class), eq(25)))
+                .thenReturn(List.of(failedCommand));
         when(queueDepthProbe.pendingMessages()).thenReturn(OptionalInt.of(3));
         NormalizationRetryWatchdog watchdog = watchdog();
 
         int republished = watchdog.runOnce();
 
         assertEquals(1, republished);
-        verify(repository, never()).claimStaleActiveNormalizationRecoveryIds(any(), any(Integer.class));
-        verify(publisher).publish(failed);
+        verify(repository, never()).claimStaleActiveNormalizationRecoveryCommands(any(), any(Integer.class));
+        verify(publisher).publish(failedCommand);
     }
 
     @Test
@@ -93,28 +99,31 @@ class NormalizationRetryWatchdogTest {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
         UUID third = UUID.randomUUID();
+        PipelineCommand firstCommand = PipelineCommand.normalize(first, "hash-1");
+        PipelineCommand secondCommand = PipelineCommand.normalize(second, "hash-2");
+        PipelineCommand thirdCommand = PipelineCommand.normalize(third, "hash-3");
         RuntimeException failure = new IllegalStateException("rabbit down");
         when(configValues.watchdogBatchSize()).thenReturn(25);
         when(configValues.watchdogStalePendingSeconds()).thenReturn(3600L);
         when(configValues.backoffBaseSeconds()).thenReturn(60L);
-        when(repository.claimDueFailedNormalizationRecoveryIds(any(Instant.class), eq(25)))
-                .thenReturn(List.of(first, second, third));
+        when(repository.claimDueFailedNormalizationRecoveryCommands(any(Instant.class), eq(25)))
+                .thenReturn(List.of(firstCommand, secondCommand, thirdCommand));
         doAnswer(invocation -> {
-            UUID rawVideoId = invocation.getArgument(0);
-            if (second.equals(rawVideoId)) {
+            PipelineCommand command = invocation.getArgument(0);
+            if (second.equals(command.rawVideoId())) {
                 throw failure;
             }
             return null;
-        }).when(publisher).publish(any(UUID.class));
+        }).when(publisher).publish(any(PipelineCommand.class));
         NormalizationRetryWatchdog watchdog = watchdog();
 
         assertThatThrownBy(watchdog::runOnce)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("rabbit down");
 
-        verify(publisher).publish(first);
-        verify(publisher).publish(second);
-        verify(publisher, never()).publish(third);
+        verify(publisher).publish(firstCommand);
+        verify(publisher).publish(secondCommand);
+        verify(publisher, never()).publish(thirdCommand);
         verify(repository).releaseRecoveryPublishFailures(eq(List.of(second, third)), any(Instant.class));
     }
 
@@ -126,8 +135,8 @@ class NormalizationRetryWatchdogTest {
         int republished = watchdog.runOnce();
 
         assertEquals(0, republished);
-        verify(repository, never()).claimDueFailedNormalizationRecoveryIds(any(), any(Integer.class));
-        verify(publisher, never()).publish(any());
+        verify(repository, never()).claimDueFailedNormalizationRecoveryCommands(any(), any(Integer.class));
+        verify(publisher, never()).publish(any(PipelineCommand.class));
     }
 
     @Test

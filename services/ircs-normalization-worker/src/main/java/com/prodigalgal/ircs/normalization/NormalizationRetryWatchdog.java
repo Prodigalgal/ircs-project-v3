@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.normalization;
 
+import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,22 +47,25 @@ public class NormalizationRetryWatchdog {
         Instant now = Instant.now();
         long stalePendingSeconds = configValues.watchdogStalePendingSeconds();
         Instant stalePendingBefore = now.minusSeconds(Math.max(1, stalePendingSeconds));
-        List<UUID> dueIds = new ArrayList<>(repository.claimDueFailedNormalizationRecoveryIds(now, batchSize));
-        int remaining = batchSize - dueIds.size();
+        List<PipelineCommand> dueCommands = new ArrayList<>(
+                repository.claimDueFailedNormalizationRecoveryCommands(now, batchSize));
+        int remaining = batchSize - dueCommands.size();
         if (remaining > 0 && shouldRescueStaleActiveRecords()) {
-            dueIds.addAll(repository.claimStaleActiveNormalizationRecoveryIds(stalePendingBefore, remaining));
+            dueCommands.addAll(repository.claimStaleActiveNormalizationRecoveryCommands(stalePendingBefore, remaining));
         }
-        if (dueIds.isEmpty()) {
+        if (dueCommands.isEmpty()) {
             return 0;
         }
         int published = 0;
-        for (int i = 0; i < dueIds.size(); i++) {
-            UUID dueId = dueIds.get(i);
+        for (int i = 0; i < dueCommands.size(); i++) {
+            PipelineCommand command = dueCommands.get(i);
             try {
-                publisher.publish(dueId);
+                publisher.publish(command);
                 published++;
             } catch (RuntimeException ex) {
-                List<UUID> unpublished = dueIds.subList(i, dueIds.size());
+                List<UUID> unpublished = dueCommands.subList(i, dueCommands.size()).stream()
+                        .map(PipelineCommand::rawVideoId)
+                        .toList();
                 Instant nextRetryTime = Instant.now().plusSeconds(Math.max(1L, configValues.backoffBaseSeconds()));
                 int released = repository.releaseRecoveryPublishFailures(unpublished, nextRetryTime);
                 log.warn(

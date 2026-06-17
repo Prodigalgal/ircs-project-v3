@@ -3,6 +3,9 @@ package com.prodigalgal.ircs.normalization;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
+import com.prodigalgal.ircs.messaging.pipeline.PipelineCommandMessageCodec;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -12,31 +15,36 @@ import org.springframework.amqp.core.MessageProperties;
 
 class NormalizeVideoMessageParserTest {
 
-    private final NormalizeVideoMessageParser parser = new NormalizeVideoMessageParser();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final NormalizeVideoMessageParser parser =
+            new NormalizeVideoMessageParser(new PipelineCommandMessageCodec(objectMapper));
 
     @Test
-    void parsesLegacyUuidPayload() {
+    void parsesNormalizePipelineCommand() throws Exception {
         UUID id = UUID.randomUUID();
 
-        UUID actual = parser.parse(message(id.toString()));
+        PipelineCommand actual = parser.parse(message(objectMapper.writeValueAsString(
+                PipelineCommand.normalize(id, "hash-v1"))));
 
-        assertEquals(id, actual);
+        assertEquals(id, actual.rawVideoId());
+        assertEquals("hash-v1", actual.pipelineVersion());
     }
 
     @Test
-    void parsesQuotedUuidPayload() {
+    void rejectsUnexpectedStepWithoutRequeue() throws Exception {
         UUID id = UUID.randomUUID();
 
-        UUID actual = parser.parse(message("\"" + id + "\""));
-
-        assertEquals(id, actual);
-    }
-
-    @Test
-    void rejectsInvalidPayloadWithoutRequeue() {
         assertThrows(
                 AmqpRejectAndDontRequeueException.class,
-                () -> parser.parse(message("not-a-uuid")));
+                () -> parser.parse(message(objectMapper.writeValueAsString(
+                        PipelineCommand.enrich(id, "hash-v1")))));
+    }
+
+    @Test
+    void rejectsNonJsonUuidPayloadWithoutRequeue() {
+        assertThrows(
+                AmqpRejectAndDontRequeueException.class,
+                () -> parser.parse(message(UUID.randomUUID().toString())));
     }
 
     private Message message(String body) {

@@ -10,11 +10,16 @@ spring:
       simple:
         auto-startup: ${APP_METADATA_LISTENER_ENABLED:false}
         default-requeue-rejected: false
+        prefetch: ${APP_METADATA_RABBIT_PREFETCH:10}
+        concurrency: ${APP_METADATA_RABBIT_CONCURRENCY:2}
+        max-concurrency: ${APP_METADATA_RABBIT_MAX_CONCURRENCY:4}
   datasource:
     url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
     username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
     password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${APP_METADATA_DB_MAX_POOL_SIZE:8}
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:${VALKEY_HOST:localhost}}
@@ -36,6 +41,12 @@ app:
     dispatcher:
       enabled: ${APP_METADATA_DISPATCHER_ENABLED:false}
       pending-ttl: ${APP_METADATA_PENDING_TTL:30m}
+    watchdog:
+      enabled: ${APP_METADATA_WATCHDOG_ENABLED:false}
+      initial-delay-ms: ${APP_METADATA_WATCHDOG_INITIAL_DELAY_MS:60000}
+      fixed-delay-ms: ${APP_METADATA_WATCHDOG_FIXED_DELAY_MS:300000}
+      batch-size: ${APP_METADATA_WATCHDOG_BATCH_SIZE:100}
+      stale-pending-seconds: ${APP_METADATA_WATCHDOG_STALE_PENDING_SECONDS:300}
     providers:
       douban-enabled: ${APP_METADATA_DOUBAN_ENABLED:false}
       tmdb-enabled: ${APP_METADATA_TMDB_ENABLED:false}
