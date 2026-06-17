@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 class CommonApiExceptionHandlerTest {
@@ -42,6 +43,19 @@ class CommonApiExceptionHandlerTest {
         assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("internal.error");
+    }
+
+    @Test
+    void treatsClientDisconnectAsEmptyClientClosedResponse() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/actuator/prometheus");
+        AsyncRequestNotUsableException exception = new AsyncRequestNotUsableException(
+                "ServletOutputStream failed to write: java.io.IOException: Broken pipe");
+
+        var response = handler.handleUnexpected(exception, request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(499);
+        assertThat(response.getHeaders().getContentType()).isNull();
+        assertThat(response.getBody()).isNull();
     }
 
     @Test

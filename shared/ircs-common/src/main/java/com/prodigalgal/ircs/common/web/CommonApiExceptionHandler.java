@@ -5,13 +5,14 @@ import com.prodigalgal.ircs.common.maintenance.MaintenanceGateLockedException;
 import com.prodigalgal.ircs.common.security.IrcsAuthException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -23,6 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class CommonApiExceptionHandler {
 
+    private static final int CLIENT_CLOSED_REQUEST_STATUS = 499;
     private static final Logger log = LoggerFactory.getLogger(CommonApiExceptionHandler.class);
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -106,6 +108,14 @@ public class CommonApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleUnexpected(
             Exception exception,
             HttpServletRequest request) {
+        if (isDisconnectedClient(exception)) {
+            log.debug(
+                    "Client disconnected before API response completed path={} traceId={} correlationId={}",
+                    request == null ? null : request.getRequestURI(),
+                    request == null ? null : request.getHeader("X-Trace-Id"),
+                    request == null ? null : request.getHeader("X-Correlation-Id"));
+            return ResponseEntity.status(CLIENT_CLOSED_REQUEST_STATUS).body(null);
+        }
         log.error(
                 "Unhandled API exception path={} traceId={} correlationId={}",
                 request == null ? null : request.getRequestURI(),
@@ -118,5 +128,22 @@ public class CommonApiExceptionHandler {
                 "Internal server error",
                 "system",
                 request);
+    }
+
+    private static boolean isDisconnectedClient(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String className = current.getClass().getName();
+            if ("org.springframework.web.context.request.async.AsyncRequestNotUsableException".equals(className)
+                    || className.endsWith(".ClientAbortException")) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase(Locale.ROOT).contains("broken pipe")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
