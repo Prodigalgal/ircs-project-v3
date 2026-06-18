@@ -50,6 +50,10 @@ public final class TaskRuntimeHotKeys {
         return PREFIX + "mt:dirty";
     }
 
+    public static String eventStream() {
+        return PREFIX + "events";
+    }
+
     private TaskRuntimeHotKeys() {
     }
 }

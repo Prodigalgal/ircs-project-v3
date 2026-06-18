@@ -40,10 +40,10 @@ class DashboardQueryServiceTest {
     }
 
     @Test
-    void refreshResetsMetricsWindowOnly() {
+    void refreshDelegatesToRateMetricsRefresh() {
         service.refresh(14);
 
-        verify(metricsService).resetThroughputWindow();
+        verify(metricsService).refreshRateMetrics();
     }
 
     @Test

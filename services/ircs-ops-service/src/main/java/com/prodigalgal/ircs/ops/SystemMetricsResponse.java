@@ -4,9 +4,10 @@ import java.util.List;
 import java.util.Map;
 
 public record SystemMetricsResponse(
-        long ingestTpm,
-        long normalizeTpm,
-        long enrichTpm,
+        RateMetricResponse pageDiscoveryRate,
+        RateMetricResponse detailCollectionRate,
+        RateMetricResponse normalizationRate,
+        RateMetricResponse metadataRate,
         int ingestQueueDepth,
         int normalizeQueueDepth,
         int enrichQueueDepth,

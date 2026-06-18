@@ -10,26 +10,25 @@ import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
+import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import java.io.File;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
-import org.springframework.data.domain.Range;
-import org.springframework.data.redis.connection.Limit;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -43,13 +42,21 @@ public class SystemMetricsService {
     private final MeterRegistry meterRegistry;
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
-    private final Map<String, BacklogSample> previousBacklogSamples = new ConcurrentHashMap<>();
 
-    @Value("${app.pipeline.valkey.key-prefix:ircs:pipeline:v2}")
-    private String pipelineKeyPrefix;
+    @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}")
+    private String rateMetricsKeyPrefix;
 
-    @Value("${app.runtime-work-queue.key-prefix:ircs:work:v1}")
-    private String runtimeWorkKeyPrefix;
+    @Value("${app.rate-metrics.bucket-size:PT10S}")
+    private Duration rateBucketSize = RateMetricKeys.DEFAULT_BUCKET_SIZE;
+
+    @Value("${app.ops.metrics.instant-window:PT60S}")
+    private Duration instantRateWindow = Duration.ofSeconds(60);
+
+    @Value("${app.ops.metrics.stable-window:PT5M}")
+    private Duration stableRateWindow = Duration.ofMinutes(5);
+
+    @Value("${app.ops.metrics.ewma-alpha:0.25}")
+    private double ewmaAlpha = 0.25d;
 
     @PostConstruct
     void registerRabbitQueueGauges() {
@@ -67,18 +74,22 @@ public class SystemMetricsService {
     public SystemMetricsResponse currentMetrics() {
         Runtime runtime = Runtime.getRuntime();
         File disk = new File(".");
-        ValkeyThroughputSnapshot throughputSnapshot = valkeyThroughputSnapshot();
-        List<QueueGroupResponse> queueGroups = queueGroups(throughputSnapshot);
+        RateMetricSnapshot rateSnapshot = rateMetricSnapshot();
+        List<QueueGroupResponse> queueGroups = queueGroups(rateSnapshot);
         QueueMetricResponse ingest = findQueue(queueGroups, QueueTopic.INGEST_VIDEO.name());
         QueueMetricResponse image = findQueue(queueGroups, QueueTopic.DOWNLOAD_IMAGE.name());
         PipelineValkeyTaskCounts normalize = pipelineCounts(PipelineTaskTypes.NORMALIZE_VIDEO);
         PipelineValkeyTaskCounts enrich = pipelineCounts(PipelineTaskTypes.ENRICH_METADATA);
 
         return new SystemMetricsResponse(
-                throughput(ingest),
-                throughputSnapshot.pipelineCompleted(PipelineTaskTypes.NORMALIZE_VIDEO),
-                throughputSnapshot.pipelineCompleted(PipelineTaskTypes.ENRICH_METADATA)
-                        + throughputSnapshot.pipelineCompleted(PipelineTaskTypes.METADATA_PROVIDER),
+                rateSnapshot.metric(RateMetricKeys.COLLECTION_PAGE_DISCOVERED, "PT 发现速率"),
+                rateSnapshot.metric(RateMetricKeys.COLLECTION_DETAIL_COMPLETED, "DT 采集速率"),
+                rateSnapshot.metric(RateMetricKeys.pipelineMetric(
+                        PipelineTaskTypes.NORMALIZE_VIDEO,
+                        RateMetricKeys.ACTION_COMPLETED), "清洗速率"),
+                rateSnapshot.metric("metadata.combined", "元数据速率",
+                        RateMetricKeys.pipelineMetric(PipelineTaskTypes.ENRICH_METADATA, RateMetricKeys.ACTION_COMPLETED),
+                        RateMetricKeys.pipelineMetric(PipelineTaskTypes.METADATA_PROVIDER, RateMetricKeys.ACTION_COMPLETED)),
                 messageCount(ingest),
                 safeInt(normalize.activeBacklog()),
                 safeInt(enrich.activeBacklog()),
@@ -97,11 +108,11 @@ public class SystemMetricsService {
                 Map.of("data", List.of()));
     }
 
-    public void resetThroughputWindow() {
-        previousBacklogSamples.clear();
+    public void refreshRateMetrics() {
+        // Rate metrics are pre-aggregated in Valkey buckets; there is no local window to reset.
     }
 
-    private List<QueueGroupResponse> queueGroups(ValkeyThroughputSnapshot throughputSnapshot) {
+    private List<QueueGroupResponse> queueGroups(RateMetricSnapshot rateSnapshot) {
         Map<String, List<QueueMetricResponse>> normalGroups = new LinkedHashMap<>();
         List<QueueMetricResponse> dlqs = new ArrayList<>();
 
@@ -111,28 +122,30 @@ public class SystemMetricsService {
                     descriptor.displayName(),
                     topic.name(),
                     descriptor.color(),
-                    topic.queueName());
+                    topic.queueName(),
+                    rateSnapshot);
             normalGroups.computeIfAbsent(descriptor.group(), ignored -> new ArrayList<>()).add(normal);
 
             dlqs.add(queueMetric(
                     descriptor.displayName() + " DLQ",
                     "DLQ_" + topic.name(),
                     "#dc2626",
-                topic.dlqName()));
+                    topic.dlqName(),
+                    rateSnapshot));
         }
-        List<QueueMetricResponse> pipelineQueues = valkeyPipelineQueues(throughputSnapshot);
+        List<QueueMetricResponse> pipelineQueues = valkeyPipelineQueues(rateSnapshot);
         if (!pipelineQueues.isEmpty()) {
             normalGroups.put("Valkey Pipeline", pipelineQueues);
         }
-        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues(throughputSnapshot);
+        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues(rateSnapshot);
         if (!runtimeWorkQueues.isEmpty()) {
             normalGroups.put("Valkey Runtime Work", runtimeWorkQueues);
         }
 
         List<QueueGroupResponse> groups = new ArrayList<>();
         normalGroups.forEach((title, queues) -> groups.add(new QueueGroupResponse(title, false, queues)));
-        List<QueueMetricResponse> valkeyDlqs = valkeyPipelineDlqs(throughputSnapshot);
-        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs(throughputSnapshot));
+        List<QueueMetricResponse> valkeyDlqs = valkeyPipelineDlqs(rateSnapshot);
+        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs(rateSnapshot));
         if (!valkeyDlqs.isEmpty()) {
             dlqs.addAll(valkeyDlqs);
         }
@@ -140,52 +153,52 @@ public class SystemMetricsService {
         return groups;
     }
 
-    private List<QueueMetricResponse> valkeyPipelineQueues(ValkeyThroughputSnapshot throughputSnapshot) {
+    private List<QueueMetricResponse> valkeyPipelineQueues(RateMetricSnapshot rateSnapshot) {
         List<QueueMetricResponse> queues = new ArrayList<>();
         addValkeyQueueMetrics(queues, "Normalize Pending", "VALKEY_NORMALIZE_PENDING", "#0284c7",
-                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.PENDING, throughputSnapshot);
+                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.PENDING, rateSnapshot);
         addValkeyQueueMetrics(queues, "Normalize Inflight", "VALKEY_NORMALIZE_INFLIGHT", "#0ea5e9",
-                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.INFLIGHT, throughputSnapshot);
+                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.INFLIGHT, rateSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Dispatch Pending", "VALKEY_ENRICH_PENDING", "#7c3aed",
-                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.PENDING, throughputSnapshot);
+                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.PENDING, rateSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Dispatch Inflight", "VALKEY_ENRICH_INFLIGHT", "#8b5cf6",
-                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.INFLIGHT, throughputSnapshot);
+                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.INFLIGHT, rateSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Provider Pending", "VALKEY_PROVIDER_PENDING", "#059669",
-                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.PENDING, throughputSnapshot);
+                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.PENDING, rateSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Provider Inflight", "VALKEY_PROVIDER_INFLIGHT", "#10b981",
-                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.INFLIGHT, throughputSnapshot);
+                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.INFLIGHT, rateSnapshot);
         return queues;
     }
 
-    private List<QueueMetricResponse> valkeyPipelineDlqs(ValkeyThroughputSnapshot throughputSnapshot) {
+    private List<QueueMetricResponse> valkeyPipelineDlqs(RateMetricSnapshot rateSnapshot) {
         List<QueueMetricResponse> dlqs = new ArrayList<>();
         addValkeyQueueMetrics(dlqs, "Normalize Valkey DLQ", "VALKEY_NORMALIZE_DLQ", "#dc2626",
-                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.DLQ, throughputSnapshot);
+                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.DLQ, rateSnapshot);
         addValkeyQueueMetrics(dlqs, "Metadata Dispatch Valkey DLQ", "VALKEY_ENRICH_DLQ", "#dc2626",
-                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.DLQ, throughputSnapshot);
+                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.DLQ, rateSnapshot);
         addValkeyQueueMetrics(dlqs, "Metadata Provider Valkey DLQ", "VALKEY_PROVIDER_DLQ", "#dc2626",
-                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.DLQ, throughputSnapshot);
+                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.DLQ, rateSnapshot);
         return dlqs;
     }
 
-    private List<QueueMetricResponse> valkeyRuntimeWorkQueues(ValkeyThroughputSnapshot throughputSnapshot) {
+    private List<QueueMetricResponse> valkeyRuntimeWorkQueues(RateMetricSnapshot rateSnapshot) {
         List<QueueMetricResponse> queues = new ArrayList<>();
         runtimeWorkDescriptors().forEach(descriptor -> {
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Pending",
                     "RUNTIME_" + descriptor.key() + "_PENDING", descriptor.color(), descriptor.taskType(),
-                    RuntimeWorkMetricRole.PENDING, throughputSnapshot);
+                    RuntimeWorkMetricRole.PENDING, rateSnapshot);
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Inflight",
                     "RUNTIME_" + descriptor.key() + "_INFLIGHT", descriptor.inflightColor(), descriptor.taskType(),
-                    RuntimeWorkMetricRole.INFLIGHT, throughputSnapshot);
+                    RuntimeWorkMetricRole.INFLIGHT, rateSnapshot);
         });
         return queues;
     }
 
-    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs(ValkeyThroughputSnapshot throughputSnapshot) {
+    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs(RateMetricSnapshot rateSnapshot) {
         List<QueueMetricResponse> dlqs = new ArrayList<>();
         runtimeWorkDescriptors().forEach(descriptor -> addRuntimeWorkQueueMetrics(dlqs, descriptor.label() + " Runtime DLQ",
                 "RUNTIME_" + descriptor.key() + "_DLQ", "#dc2626", descriptor.taskType(),
-                RuntimeWorkMetricRole.DLQ, throughputSnapshot));
+                RuntimeWorkMetricRole.DLQ, rateSnapshot));
         return dlqs;
     }
 
@@ -196,21 +209,22 @@ public class SystemMetricsService {
             String color,
             String taskType,
             PipelineMetricRole role,
-            ValkeyThroughputSnapshot throughputSnapshot) {
+            RateMetricSnapshot rateSnapshot) {
         PipelineValkeyTaskCounts counts = pipelineCounts(taskType);
         long current = switch (role) {
             case PENDING -> counts.pending();
             case INFLIGHT -> counts.inflight();
             case DLQ -> counts.dlq();
         };
-        long throughput = pipelineThroughput(throughputSnapshot, taskType, role);
+        RateDescriptor rateDescriptor = pipelineRate(taskType, role);
         target.add(new QueueMetricResponse(
                 name,
                 key,
                 color,
                 safeInt(current),
                 role == PipelineMetricRole.DLQ ? 0 : safeInt(pipelineConsumerCount(taskType)),
-                throughput));
+                rateDescriptor.kind(),
+                rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
     }
 
     private void addRuntimeWorkQueueMetrics(
@@ -220,119 +234,101 @@ public class SystemMetricsService {
             String color,
             String taskType,
             RuntimeWorkMetricRole role,
-            ValkeyThroughputSnapshot throughputSnapshot) {
+            RateMetricSnapshot rateSnapshot) {
         RuntimeWorkQueueCounts counts = runtimeWorkCounts(taskType);
         long current = switch (role) {
             case PENDING -> counts.pending();
             case INFLIGHT -> counts.inflight();
             case DLQ -> counts.dlq();
         };
-        long throughput = runtimeWorkThroughput(throughputSnapshot, taskType, role);
+        RateDescriptor rateDescriptor = runtimeRate(taskType, role);
         target.add(new QueueMetricResponse(
                 name,
                 key,
                 color,
                 safeInt(current),
                 role == RuntimeWorkMetricRole.DLQ ? 0 : safeInt(runtimeWorkConsumerCount(taskType)),
-                throughput));
+                rateDescriptor.kind(),
+                rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
     }
 
-    private QueueMetricResponse queueMetric(String name, String key, String color, String queueName) {
+    private QueueMetricResponse queueMetric(
+            String name,
+            String key,
+            String color,
+            String queueName,
+            RateMetricSnapshot rateSnapshot) {
         QueueState state = queueState(queueName);
-        long current = state.messageCount();
-        long throughput = drainThroughputPerMinute(queueName, current);
         return new QueueMetricResponse(
                 name,
                 key,
                 color,
                 state.messageCount(),
                 state.consumerCount(),
-                throughput);
+                RateKind.NONE,
+                rateSnapshot.empty(key, name));
     }
 
-    private long pipelineThroughput(
-            ValkeyThroughputSnapshot throughputSnapshot,
-            String taskType,
-            PipelineMetricRole role) {
-        return switch (role) {
-            case PENDING -> throughputSnapshot.pipelineClaimed(taskType);
-            case INFLIGHT -> throughputSnapshot.pipelineCompleted(taskType);
-            case DLQ -> throughputSnapshot.pipelineFailed(taskType);
-        };
-    }
-
-    private long runtimeWorkThroughput(
-            ValkeyThroughputSnapshot throughputSnapshot,
-            String taskType,
-            RuntimeWorkMetricRole role) {
-        return switch (role) {
-            case PENDING -> throughputSnapshot.runtimeClaimed(taskType);
-            case INFLIGHT -> throughputSnapshot.runtimeCompleted(taskType);
-            case DLQ -> throughputSnapshot.runtimeFailed(taskType);
-        };
-    }
-
-    private long drainThroughputPerMinute(String queueName, long current) {
+    private RateMetricSnapshot rateMetricSnapshot() {
         long now = System.currentTimeMillis();
-        BacklogSample previous = previousBacklogSamples.put(queueName, new BacklogSample(current, now));
-        if (previous == null || previous.sampledAtMillis() >= now) {
-            return 0L;
+        long bucketMillis = RateMetricKeys.bucketSizeMillis(rateBucketSize);
+        long instantWindowMillis = durationMillis(instantRateWindow, Duration.ofSeconds(60));
+        long stableWindowMillis = Math.max(
+                instantWindowMillis,
+                durationMillis(stableRateWindow, Duration.ofMinutes(5)));
+        long start = Math.floorDiv(now - stableWindowMillis, bucketMillis) * bucketMillis;
+        long end = Math.floorDiv(now, bucketMillis) * bucketMillis;
+        Set<String> indexedBuckets = indexedRateBuckets(start, end);
+        List<RateMetricWindowCalculator.RateBucketPoint> points = new ArrayList<>();
+
+        for (long bucketStart = start; bucketStart <= end; bucketStart += bucketMillis) {
+            String bucketStartValue = Long.toString(bucketStart);
+            boolean shouldRead = indexedBuckets == null
+                    || indexedBuckets.contains(bucketStartValue);
+            points.add(new RateMetricWindowCalculator.RateBucketPoint(
+                    bucketStart,
+                    shouldRead ? rateBucketCounts(bucketStart) : Map.of()));
         }
-        long drained = Math.max(0L, previous.count() - current);
-        if (drained == 0L) {
-            return 0L;
-        }
-        long elapsedMillis = now - previous.sampledAtMillis();
-        return Math.max(1L, Math.round((drained * 60_000.0) / elapsedMillis));
+
+        RateMetricWindowCalculator calculator = new RateMetricWindowCalculator(
+                bucketMillis,
+                instantWindowMillis,
+                stableWindowMillis,
+                ewmaAlpha);
+        return new RateMetricSnapshot(calculator, points, now);
     }
 
-    private ValkeyThroughputSnapshot valkeyThroughputSnapshot() {
-        long now = System.currentTimeMillis();
-        long start = now - 60_000L;
-        Map<String, EventCounts> pipeline = streamEventCounts(pipelineEventStreamKey(), start, now);
-        Map<String, EventCounts> runtimeWork = streamEventCounts(runtimeWorkEventStreamKey(), start, now);
-        return new ValkeyThroughputSnapshot(pipeline, runtimeWork);
-    }
-
-    private Map<String, EventCounts> streamEventCounts(String streamKey, long startMillis, long endMillis) {
+    private Set<String> indexedRateBuckets(long start, long end) {
         try {
-            List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream().range(
-                    streamKey,
-                    Range.closed(startMillis + "-0", endMillis + "-999999"),
-                    Limit.limit().count(20_000));
-            if (records == null || records.isEmpty()) {
+            Set<String> buckets = redisTemplate.opsForZSet().rangeByScore(rateBucketIndexKey(), start, end);
+            return buckets == null ? Set.of() : buckets;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private Map<String, Long> rateBucketCounts(long bucketStart) {
+        try {
+            Map<Object, Object> raw = redisTemplate.opsForHash().entries(
+                    RateMetricKeys.bucketKey(rateMetricsKeyPrefix, bucketStart));
+            if (raw == null || raw.isEmpty()) {
                 return Map.of();
             }
-            Map<String, EventCounts> counts = new LinkedHashMap<>();
-            for (MapRecord<String, Object, Object> record : records) {
-                String taskType = valueAsString(record.getValue().get("taskType"));
-                String event = valueAsString(record.getValue().get("event"));
-                if (taskType == null || event == null) {
-                    continue;
+            Map<String, Long> counts = new LinkedHashMap<>();
+            raw.forEach((key, value) -> {
+                long count = parseLong(String.valueOf(value));
+                if (key != null && count > 0L) {
+                    counts.put(String.valueOf(key), count);
                 }
-                counts.compute(taskType, (ignored, current) ->
-                        (current == null ? EventCounts.empty() : current).with(event));
-            }
+            });
             return counts;
-        } catch (RuntimeException ex) {
+        } catch (RuntimeException ignored) {
             return Map.of();
         }
     }
 
-    private String pipelineEventStreamKey() {
-        return normalizeKeyPrefix(pipelineKeyPrefix, "ircs:pipeline:v2") + ":events";
-    }
-
-    private String runtimeWorkEventStreamKey() {
-        return normalizeKeyPrefix(runtimeWorkKeyPrefix, "ircs:work:v1") + ":events";
-    }
-
-    private String normalizeKeyPrefix(String value, String fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        String trimmed = value.trim();
-        return trimmed.endsWith(":") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
+    private String rateBucketIndexKey() {
+        return RateMetricKeys.bucketIndexKey(rateMetricsKeyPrefix);
     }
 
     private QueueState queueState(String queueName) {
@@ -429,12 +425,43 @@ public class SystemMetricsService {
         return queue == null ? 0 : queue.messageCount();
     }
 
-    private long throughput(QueueMetricResponse queue) {
-        return queue == null ? 0 : queue.throughput();
+    private RateDescriptor pipelineRate(String taskType, PipelineMetricRole role) {
+        return switch (role) {
+            case PENDING -> new RateDescriptor(
+                    RateKind.CLAIM,
+                    RateMetricKeys.pipelineMetric(taskType, RateMetricKeys.ACTION_CLAIMED),
+                    "领取速率");
+            case INFLIGHT -> new RateDescriptor(
+                    RateKind.COMPLETE,
+                    RateMetricKeys.pipelineMetric(taskType, RateMetricKeys.ACTION_COMPLETED),
+                    "完成速率");
+            case DLQ -> new RateDescriptor(
+                    RateKind.FAIL,
+                    RateMetricKeys.pipelineMetric(taskType, RateMetricKeys.ACTION_FAILED),
+                    "失败速率");
+        };
     }
 
-    private String valueAsString(Object value) {
-        return value == null ? null : String.valueOf(value);
+    private RateDescriptor runtimeRate(String taskType, RuntimeWorkMetricRole role) {
+        return switch (role) {
+            case PENDING -> new RateDescriptor(
+                    RateKind.CLAIM,
+                    RateMetricKeys.runtimeMetric(taskType, RateMetricKeys.ACTION_CLAIMED),
+                    "领取速率");
+            case INFLIGHT -> new RateDescriptor(
+                    RateKind.COMPLETE,
+                    RateMetricKeys.runtimeMetric(taskType, RateMetricKeys.ACTION_COMPLETED),
+                    "完成速率");
+            case DLQ -> new RateDescriptor(
+                    RateKind.FAIL,
+                    RateMetricKeys.runtimeMetric(taskType, RateMetricKeys.ACTION_FAILED),
+                    "失败速率");
+        };
+    }
+
+    private long durationMillis(Duration value, Duration fallback) {
+        Duration effective = value == null || value.isZero() || value.isNegative() ? fallback : value;
+        return Math.max(RateMetricKeys.DEFAULT_BUCKET_SIZE.toMillis(), effective.toMillis());
     }
 
     private int toInt(Object value) {
@@ -531,54 +558,20 @@ public class SystemMetricsService {
         }
     }
 
-    private record BacklogSample(long count, long sampledAtMillis) {
+    private record RateDescriptor(RateKind kind, String metricKey, String label) {
     }
 
-    private record EventCounts(long claimed, long completed, long failed) {
-        static EventCounts empty() {
-            return new EventCounts(0, 0, 0);
+    private record RateMetricSnapshot(
+            RateMetricWindowCalculator calculator,
+            List<RateMetricWindowCalculator.RateBucketPoint> buckets,
+            long nowMillis) {
+
+        RateMetricResponse metric(String metricKey, String label, String... sourceMetricKeys) {
+            return calculator.calculate(metricKey, label, buckets, nowMillis, sourceMetricKeys);
         }
 
-        EventCounts with(String event) {
-            return switch (event) {
-                case "claimed" -> new EventCounts(claimed + 1, completed, failed);
-                case "completed" -> new EventCounts(claimed, completed + 1, failed);
-                case "failed" -> new EventCounts(claimed, completed, failed + 1);
-                default -> this;
-            };
-        }
-    }
-
-    private record ValkeyThroughputSnapshot(
-            Map<String, EventCounts> pipeline,
-            Map<String, EventCounts> runtimeWork) {
-
-        long pipelineClaimed(String taskType) {
-            return counts(pipeline, taskType).claimed();
-        }
-
-        long pipelineCompleted(String taskType) {
-            return counts(pipeline, taskType).completed();
-        }
-
-        long pipelineFailed(String taskType) {
-            return counts(pipeline, taskType).failed();
-        }
-
-        long runtimeClaimed(String taskType) {
-            return counts(runtimeWork, taskType).claimed();
-        }
-
-        long runtimeCompleted(String taskType) {
-            return counts(runtimeWork, taskType).completed();
-        }
-
-        long runtimeFailed(String taskType) {
-            return counts(runtimeWork, taskType).failed();
-        }
-
-        private EventCounts counts(Map<String, EventCounts> source, String taskType) {
-            return source.getOrDefault(taskType, EventCounts.empty());
+        RateMetricResponse empty(String metricKey, String label) {
+            return calculator.empty(metricKey, label);
         }
     }
 

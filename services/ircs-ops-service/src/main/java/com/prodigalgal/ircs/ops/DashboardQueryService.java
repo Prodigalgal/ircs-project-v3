@@ -44,7 +44,7 @@ public class DashboardQueryService {
     }
 
     public void refresh(int days) {
-        systemMetricsService.resetThroughputWindow();
+        systemMetricsService.refreshRateMetrics();
     }
 
     private <T> List<T> safeList(Supplier<List<T>> supplier) {

@@ -76,7 +76,11 @@ class DashboardControllerTest {
     @Test
     void returnsMetricsStreamEmitter() {
         when(dashboardQueryService.getMetrics()).thenReturn(new SystemMetricsResponse(
-                0, 0, 0, 0, 0, 0, 0, List.of(), 0,
+                RateMetricResponse.empty("collection.page.discovered", "PT 发现速率", 60, 300),
+                RateMetricResponse.empty("collection.detail.completed", "DT 采集速率", 60, 300),
+                RateMetricResponse.empty("pipeline.normalize.completed", "清洗速率", 60, 300),
+                RateMetricResponse.empty("metadata.combined", "元数据速率", 60, 300),
+                0, 0, 0, 0, List.of(), 0,
                 null, 0, 0, true, 1, Map.of()));
 
         assertNotNull(controller.metricsStream());

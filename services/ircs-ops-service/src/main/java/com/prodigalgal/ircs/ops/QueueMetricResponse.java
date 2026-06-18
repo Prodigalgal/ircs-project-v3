@@ -6,6 +6,7 @@ public record QueueMetricResponse(
         String color,
         int messageCount,
         int consumerCount,
-        long throughput
+        RateKind rateKind,
+        RateMetricResponse rate
 ) {
 }

@@ -49,6 +49,10 @@ final class TaskHotKeys {
         return TaskRuntimeHotKeys.dirtyMasters();
     }
 
+    static String eventStream() {
+        return TaskRuntimeHotKeys.eventStream();
+    }
+
     private TaskHotKeys() {
     }
 }
