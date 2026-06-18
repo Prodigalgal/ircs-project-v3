@@ -72,7 +72,14 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
               local needed_intervals = math.ceil(missing / refill_tokens)
               retry_after = math.max(1, needed_intervals * refill_period_ms - (now - updated_at))
             end
-            redis.call('HMSET', key, 'tokens', tokens, 'updated_at', updated_at)
+            redis.call('HMSET', key,
+              'tokens', tokens,
+              'updated_at', updated_at,
+              'capacity', capacity,
+              'refill_tokens', refill_tokens,
+              'refill_period_ms', refill_period_ms,
+              'permits', permits,
+              'retry_after_ms', retry_after)
             redis.call('PEXPIRE', key, ttl_ms)
             return {allowed, tokens, retry_after}
             """,

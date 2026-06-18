@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.metadata.provider.MetadataProviderTrafficLimiter;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderTerminalException;
 import java.io.IOException;
@@ -14,26 +15,48 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
 public class RestClientTmdbHttpClient implements TmdbHttpClient {
 
+    private static final String PROVIDER_CODE = "TMDB";
+
     private OutboundHttpClient httpClient;
     private final Duration timeout;
+    private final MetadataProviderTrafficLimiter trafficLimiter;
 
-    public RestClientTmdbHttpClient(TmdbProviderProperties properties) {
+    @Autowired
+    public RestClientTmdbHttpClient(
+            TmdbProviderProperties properties,
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+        this(properties, trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop));
+    }
+
+    private RestClientTmdbHttpClient(
+            TmdbProviderProperties properties,
+            MetadataProviderTrafficLimiter trafficLimiter) {
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
                 new JdkOutboundTransport(properties.getRequestTimeout()));
         this.timeout = properties.getRequestTimeout();
+        this.trafficLimiter = trafficLimiter == null ? MetadataProviderTrafficLimiter.noop() : trafficLimiter;
     }
 
     static RestClientTmdbHttpClient forTest(OutboundHttpClient httpClient, Duration timeout) {
+        return forTest(httpClient, timeout, MetadataProviderTrafficLimiter.noop());
+    }
+
+    static RestClientTmdbHttpClient forTest(
+            OutboundHttpClient httpClient,
+            Duration timeout,
+            MetadataProviderTrafficLimiter trafficLimiter) {
         TmdbProviderProperties properties = new TmdbProviderProperties();
         properties.setRequestTimeout(timeout);
-        RestClientTmdbHttpClient client = new RestClientTmdbHttpClient(properties);
+        RestClientTmdbHttpClient client = new RestClientTmdbHttpClient(properties, trafficLimiter);
         client.httpClient = httpClient;
         return client;
     }
@@ -41,6 +64,7 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
     @Override
     public Optional<String> getJson(URI uri) {
         try {
+            trafficLimiter.acquireProviderSlot(PROVIDER_CODE);
             OutboundHttpResponse response = httpClient.execute(OutboundHttpRequest.get(
                     uri.toString(),
                     OutboundHttpPolicy.publicFetch(timeout)));

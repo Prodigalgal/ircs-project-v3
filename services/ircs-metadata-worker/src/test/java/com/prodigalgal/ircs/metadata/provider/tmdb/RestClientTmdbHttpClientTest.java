@@ -9,6 +9,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.metadata.provider.MetadataProviderTrafficLimiter;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.MetadataProviderTerminalException;
 import java.io.ByteArrayOutputStream;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class RestClientTmdbHttpClientTest {
 
@@ -112,6 +114,22 @@ class RestClientTmdbHttpClientTest {
                 .isInstanceOf(MetadataProviderTerminalException.class)
                 .extracting("errorCode")
                 .isEqualTo("HTTP_302");
+        assertThat(transport.requests).hasSize(1);
+    }
+
+    @Test
+    void reservesProviderTrafficSlotBeforeOutboundRequest() {
+        MetadataProviderTrafficLimiter trafficLimiter = Mockito.mock(MetadataProviderTrafficLimiter.class);
+        RestClientTmdbHttpClient limitedClient = RestClientTmdbHttpClient.forTest(
+                new OutboundHttpClient(new OutboundUrlPolicy(resolver), transport),
+                Duration.ofSeconds(10),
+                trafficLimiter);
+        transport.enqueue(response(200, "{\"id\":603}"));
+
+        assertThat(limitedClient.getJson(URI.create("https://api.themoviedb.org/3/movie/603")))
+                .contains("{\"id\":603}");
+
+        Mockito.verify(trafficLimiter).acquireProviderSlot("TMDB");
         assertThat(transport.requests).hasSize(1);
     }
 

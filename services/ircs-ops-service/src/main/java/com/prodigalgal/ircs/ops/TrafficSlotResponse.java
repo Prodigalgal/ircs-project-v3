@@ -6,6 +6,8 @@ public record TrafficSlotResponse(
         long waitingTasks,
         long nextAvailableInMs,
         double congestionRate,
-        boolean isBlocked) {
+        boolean isBlocked,
+        String limiterType,
+        Long remainingPermits,
+        Long capacity) {
 }
-

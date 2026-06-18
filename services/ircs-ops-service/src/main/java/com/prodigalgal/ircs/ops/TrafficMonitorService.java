@@ -3,8 +3,10 @@ package com.prodigalgal.ircs.ops;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -60,6 +62,17 @@ public class TrafficMonitorService {
     }
 
     private TrafficSlotResponse buildSlot(String rawKey, String redisKey) {
+        DataType type = redisType(redisKey);
+        if (DataType.HASH.equals(type)) {
+            return buildTokenBucketSlot(rawKey, redisKey);
+        }
+        if (type != null && !DataType.STRING.equals(type) && !DataType.NONE.equals(type)) {
+            return null;
+        }
+        return buildTimeSliceSlot(rawKey, redisKey);
+    }
+
+    private TrafficSlotResponse buildTimeSliceSlot(String rawKey, String redisKey) {
         String value = redisTemplate.opsForValue().get(redisKey);
         if (value == null || value.isBlank()) {
             return null;
@@ -85,7 +98,48 @@ public class TrafficMonitorService {
                 waitTime / 1000L,
                 waitTime,
                 congestion,
-                waitTime > MAX_BLOCKING_TIME_MS);
+                waitTime > MAX_BLOCKING_TIME_MS,
+                "TIME_SLICE",
+                null,
+                null);
+    }
+
+    private TrafficSlotResponse buildTokenBucketSlot(String rawKey, String redisKey) {
+        Map<Object, Object> values = redisTemplate.opsForHash().entries(redisKey);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        long remaining = parseLong(values.get("tokens"), -1L);
+        long capacity = parseLong(values.get("capacity"), 0L);
+        long permits = Math.max(1L, parseLong(values.get("permits"), 1L));
+        long retryAfterMs = Math.max(0L, parseLong(values.get("retry_after_ms"), 0L));
+        if (remaining < 0L && capacity <= 0L) {
+            return null;
+        }
+
+        long safeRemaining = Math.max(0L, remaining);
+        double congestion = capacity <= 0L
+                ? 0.0
+                : Math.round(((double) (capacity - Math.min(capacity, safeRemaining)) / capacity) * 100.0) / 100.0;
+        long waitingTasks = safeRemaining >= permits ? 0L : permits - safeRemaining;
+        return new TrafficSlotResponse(
+                rawKey,
+                resolveLabel(rawKey),
+                waitingTasks,
+                retryAfterMs,
+                congestion,
+                retryAfterMs > MAX_BLOCKING_TIME_MS,
+                "TOKEN_BUCKET",
+                safeRemaining,
+                capacity > 0L ? capacity : null);
+    }
+
+    private DataType redisType(String redisKey) {
+        try {
+            return redisTemplate.type(redisKey);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private String resolveLabel(String rawKey) {
@@ -143,6 +197,17 @@ public class TrafficMonitorService {
                     .orElse("Unknown Credential (" + idText + ")");
         } catch (RuntimeException ex) {
             return "Invalid ID: " + idText;
+        }
+    }
+
+    private long parseLong(Object value, long fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
         }
     }
 }

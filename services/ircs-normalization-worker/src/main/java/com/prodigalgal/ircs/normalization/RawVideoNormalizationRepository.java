@@ -1,6 +1,8 @@
 package com.prodigalgal.ircs.normalization;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
+import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
+import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -9,7 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -17,10 +20,22 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 @Repository
-@RequiredArgsConstructor
 public class RawVideoNormalizationRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
+
+    @Autowired
+    public RawVideoNormalizationRepository(
+            NamedParameterJdbcTemplate jdbcTemplate,
+            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.metadataNameCacheProvider = metadataNameCacheProvider;
+    }
+
+    RawVideoNormalizationRepository(NamedParameterJdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, null);
+    }
 
     public Optional<RawVideoRecord> findById(UUID id) {
         try {
@@ -105,6 +120,7 @@ public class RawVideoNormalizationRepository {
                 replaceRawRelations("raw_areas", "video_raw_areas", "raw_area_id", id, patch.rawAreaValues()));
         replaceNamedRelations("actors", "video_actors", "actor_id", id, patch.actorValues());
         replaceNamedRelations("directors", "video_directors", "director_id", id, patch.directorValues());
+        evictMetadataNameCache(id);
         return new MarkReadyResult(List.copyOf(llmCleaningTerms));
     }
 
@@ -448,6 +464,15 @@ public class RawVideoNormalizationRepository {
             case "raw_areas" -> "area";
             default -> throw new IllegalArgumentException("Unsupported LLM cleaning table: " + rawTable);
         };
+    }
+
+    private void evictMetadataNameCache(UUID rawVideoId) {
+        MetadataNameValkeyCache metadataNameCache = metadataNameCacheProvider == null
+                ? null
+                : metadataNameCacheProvider.getIfAvailable();
+        if (metadataNameCache != null) {
+            metadataNameCache.evictOwner(MetadataNameOwnerType.RAW, List.of(rawVideoId));
+        }
     }
 
     public record MarkReadyResult(List<LlmCleaningRawTerm> llmCleaningTerms) {

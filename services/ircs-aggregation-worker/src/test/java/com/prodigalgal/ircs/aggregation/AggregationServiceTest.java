@@ -117,8 +117,8 @@ class AggregationServiceTest {
         RawVideoAggregationCluster cluster =
                 new RawVideoAggregationCluster(firstRawVideo, List.of(firstRawVideo, secondRawVideo));
 
-        when(repository.findRawVideo(firstRawVideoId)).thenReturn(Optional.of(firstRawVideo));
-        when(repository.findRawVideo(secondRawVideoId)).thenReturn(Optional.of(secondRawVideo));
+        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
+                .thenReturn(List.of(firstRawVideo, secondRawVideo));
         when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of());
         when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of())).thenReturn(List.of(cluster));
         when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.empty());
@@ -162,8 +162,8 @@ class AggregationServiceTest {
         RawVideoAggregationCluster cluster =
                 new RawVideoAggregationCluster(firstRawVideo, List.of(firstRawVideo, secondRawVideo));
 
-        when(repository.findRawVideo(firstRawVideoId)).thenReturn(Optional.of(firstRawVideo));
-        when(repository.findRawVideo(secondRawVideoId)).thenReturn(Optional.of(secondRawVideo));
+        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
+                .thenReturn(List.of(firstRawVideo, secondRawVideo));
         when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of());
         when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of())).thenReturn(List.of(cluster));
         when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.of(rootUnifiedVideoId));
@@ -204,8 +204,8 @@ class AggregationServiceTest {
                 List.of(firstRawVideo, secondRawVideo),
                 List.of(contextUnifiedVideoId));
 
-        when(repository.findRawVideo(firstRawVideoId)).thenReturn(Optional.of(firstRawVideo));
-        when(repository.findRawVideo(secondRawVideoId)).thenReturn(Optional.of(secondRawVideo));
+        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
+                .thenReturn(List.of(firstRawVideo, secondRawVideo));
         when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of(context));
         when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of(context))).thenReturn(List.of(cluster));
         when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.empty());
@@ -247,8 +247,8 @@ class AggregationServiceTest {
                 List.of(firstRawVideo, secondRawVideo),
                 List.of(rootUnifiedVideoId, victimUnifiedVideoId));
 
-        when(repository.findRawVideo(firstRawVideoId)).thenReturn(Optional.of(firstRawVideo));
-        when(repository.findRawVideo(secondRawVideoId)).thenReturn(Optional.of(secondRawVideo));
+        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
+                .thenReturn(List.of(firstRawVideo, secondRawVideo));
         when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of(root, victim));
         when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of(root, victim))).thenReturn(List.of(cluster));
         when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.empty());
@@ -395,8 +395,8 @@ class AggregationServiceTest {
         RawVideoAggregationCluster cluster =
                 new RawVideoAggregationCluster(firstRawVideo, List.of(firstRawVideo, secondRawVideo));
 
-        when(repository.findRawVideo(firstRawVideoId)).thenReturn(Optional.of(firstRawVideo));
-        when(repository.findRawVideo(secondRawVideoId)).thenReturn(Optional.of(secondRawVideo));
+        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
+                .thenReturn(List.of(firstRawVideo, secondRawVideo));
         when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of());
         when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of())).thenReturn(List.of(cluster));
         when(matchKeyLock.tryAcquire(any())).thenReturn(Optional.empty());

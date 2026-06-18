@@ -7,10 +7,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -65,6 +68,38 @@ class TrafficMonitorServiceTest {
 
         assertTrue(status.globalLimiters().isEmpty());
         assertTrue(status.credentialLimiters().isEmpty());
+    }
+
+    @Test
+    void exposesCredentialTokenBucketsStoredAsRedisHashes() {
+        UUID credentialId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        String key = PREFIX + "cred:" + credentialId;
+        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
+        HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.type(key)).thenReturn(DataType.HASH);
+        when(redisTemplate.opsForHash()).thenReturn(hashOps);
+        when(cursor.hasNext()).thenReturn(true, false);
+        when(cursor.next()).thenReturn(key);
+        when(hashOps.entries(key)).thenReturn(Map.of(
+                "tokens", "17",
+                "capacity", "30",
+                "permits", "1",
+                "retry_after_ms", "0"));
+        when(credentialLabelRepository.findLabel(credentialId)).thenReturn(Optional.of("[TMDB] main"));
+
+        TrafficStatusResponse status = service.getTrafficStatus();
+
+        assertEquals(1, status.credentialLimiters().size());
+        TrafficSlotResponse slot = status.credentialLimiters().getFirst();
+        assertEquals("[TMDB] main", slot.label());
+        assertEquals("TOKEN_BUCKET", slot.limiterType());
+        assertEquals(17L, slot.remainingPermits());
+        assertEquals(30L, slot.capacity());
+        assertEquals(0L, slot.waitingTasks());
+        assertFalse(slot.isBlocked());
+        assertEquals(0.43, slot.congestionRate());
     }
 
     @Test

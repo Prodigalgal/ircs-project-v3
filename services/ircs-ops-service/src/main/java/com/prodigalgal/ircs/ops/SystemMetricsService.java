@@ -23,9 +23,14 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
+import org.springframework.data.domain.Range;
+import org.springframework.data.redis.connection.Limit;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.stream.MapRecord;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -34,10 +39,17 @@ public class SystemMetricsService {
 
     private final RabbitAdmin rabbitAdmin;
     private final RedisConnectionFactory redisConnectionFactory;
+    private final StringRedisTemplate redisTemplate;
     private final MeterRegistry meterRegistry;
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
-    private final Map<String, Long> previousQueueCounts = new ConcurrentHashMap<>();
+    private final Map<String, BacklogSample> previousBacklogSamples = new ConcurrentHashMap<>();
+
+    @Value("${app.pipeline.valkey.key-prefix:ircs:pipeline:v2}")
+    private String pipelineKeyPrefix;
+
+    @Value("${app.runtime-work-queue.key-prefix:ircs:work:v1}")
+    private String runtimeWorkKeyPrefix;
 
     @PostConstruct
     void registerRabbitQueueGauges() {
@@ -55,16 +67,18 @@ public class SystemMetricsService {
     public SystemMetricsResponse currentMetrics() {
         Runtime runtime = Runtime.getRuntime();
         File disk = new File(".");
-        List<QueueGroupResponse> queueGroups = queueGroups();
+        ValkeyThroughputSnapshot throughputSnapshot = valkeyThroughputSnapshot();
+        List<QueueGroupResponse> queueGroups = queueGroups(throughputSnapshot);
         QueueMetricResponse ingest = findQueue(queueGroups, QueueTopic.INGEST_VIDEO.name());
         QueueMetricResponse image = findQueue(queueGroups, QueueTopic.DOWNLOAD_IMAGE.name());
         PipelineValkeyTaskCounts normalize = pipelineCounts(PipelineTaskTypes.NORMALIZE_VIDEO);
         PipelineValkeyTaskCounts enrich = pipelineCounts(PipelineTaskTypes.ENRICH_METADATA);
 
         return new SystemMetricsResponse(
-                0,
-                0,
-                0,
+                throughput(ingest),
+                throughputSnapshot.pipelineCompleted(PipelineTaskTypes.NORMALIZE_VIDEO),
+                throughputSnapshot.pipelineCompleted(PipelineTaskTypes.ENRICH_METADATA)
+                        + throughputSnapshot.pipelineCompleted(PipelineTaskTypes.METADATA_PROVIDER),
                 messageCount(ingest),
                 safeInt(normalize.activeBacklog()),
                 safeInt(enrich.activeBacklog()),
@@ -84,10 +98,10 @@ public class SystemMetricsService {
     }
 
     public void resetThroughputWindow() {
-        previousQueueCounts.clear();
+        previousBacklogSamples.clear();
     }
 
-    private List<QueueGroupResponse> queueGroups() {
+    private List<QueueGroupResponse> queueGroups(ValkeyThroughputSnapshot throughputSnapshot) {
         Map<String, List<QueueMetricResponse>> normalGroups = new LinkedHashMap<>();
         List<QueueMetricResponse> dlqs = new ArrayList<>();
 
@@ -104,21 +118,21 @@ public class SystemMetricsService {
                     descriptor.displayName() + " DLQ",
                     "DLQ_" + topic.name(),
                     "#dc2626",
-                    topic.dlqName()));
+                topic.dlqName()));
         }
-        List<QueueMetricResponse> pipelineQueues = valkeyPipelineQueues();
+        List<QueueMetricResponse> pipelineQueues = valkeyPipelineQueues(throughputSnapshot);
         if (!pipelineQueues.isEmpty()) {
             normalGroups.put("Valkey Pipeline", pipelineQueues);
         }
-        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues();
+        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues(throughputSnapshot);
         if (!runtimeWorkQueues.isEmpty()) {
             normalGroups.put("Valkey Runtime Work", runtimeWorkQueues);
         }
 
         List<QueueGroupResponse> groups = new ArrayList<>();
         normalGroups.forEach((title, queues) -> groups.add(new QueueGroupResponse(title, false, queues)));
-        List<QueueMetricResponse> valkeyDlqs = valkeyPipelineDlqs();
-        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs());
+        List<QueueMetricResponse> valkeyDlqs = valkeyPipelineDlqs(throughputSnapshot);
+        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs(throughputSnapshot));
         if (!valkeyDlqs.isEmpty()) {
             dlqs.addAll(valkeyDlqs);
         }
@@ -126,51 +140,52 @@ public class SystemMetricsService {
         return groups;
     }
 
-    private List<QueueMetricResponse> valkeyPipelineQueues() {
+    private List<QueueMetricResponse> valkeyPipelineQueues(ValkeyThroughputSnapshot throughputSnapshot) {
         List<QueueMetricResponse> queues = new ArrayList<>();
         addValkeyQueueMetrics(queues, "Normalize Pending", "VALKEY_NORMALIZE_PENDING", "#0284c7",
-                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.PENDING);
+                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.PENDING, throughputSnapshot);
         addValkeyQueueMetrics(queues, "Normalize Inflight", "VALKEY_NORMALIZE_INFLIGHT", "#0ea5e9",
-                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.INFLIGHT);
+                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.INFLIGHT, throughputSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Dispatch Pending", "VALKEY_ENRICH_PENDING", "#7c3aed",
-                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.PENDING);
+                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.PENDING, throughputSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Dispatch Inflight", "VALKEY_ENRICH_INFLIGHT", "#8b5cf6",
-                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.INFLIGHT);
+                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.INFLIGHT, throughputSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Provider Pending", "VALKEY_PROVIDER_PENDING", "#059669",
-                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.PENDING);
+                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.PENDING, throughputSnapshot);
         addValkeyQueueMetrics(queues, "Metadata Provider Inflight", "VALKEY_PROVIDER_INFLIGHT", "#10b981",
-                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.INFLIGHT);
+                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.INFLIGHT, throughputSnapshot);
         return queues;
     }
 
-    private List<QueueMetricResponse> valkeyPipelineDlqs() {
+    private List<QueueMetricResponse> valkeyPipelineDlqs(ValkeyThroughputSnapshot throughputSnapshot) {
         List<QueueMetricResponse> dlqs = new ArrayList<>();
         addValkeyQueueMetrics(dlqs, "Normalize Valkey DLQ", "VALKEY_NORMALIZE_DLQ", "#dc2626",
-                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.DLQ);
+                PipelineTaskTypes.NORMALIZE_VIDEO, PipelineMetricRole.DLQ, throughputSnapshot);
         addValkeyQueueMetrics(dlqs, "Metadata Dispatch Valkey DLQ", "VALKEY_ENRICH_DLQ", "#dc2626",
-                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.DLQ);
+                PipelineTaskTypes.ENRICH_METADATA, PipelineMetricRole.DLQ, throughputSnapshot);
         addValkeyQueueMetrics(dlqs, "Metadata Provider Valkey DLQ", "VALKEY_PROVIDER_DLQ", "#dc2626",
-                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.DLQ);
+                PipelineTaskTypes.METADATA_PROVIDER, PipelineMetricRole.DLQ, throughputSnapshot);
         return dlqs;
     }
 
-    private List<QueueMetricResponse> valkeyRuntimeWorkQueues() {
+    private List<QueueMetricResponse> valkeyRuntimeWorkQueues(ValkeyThroughputSnapshot throughputSnapshot) {
         List<QueueMetricResponse> queues = new ArrayList<>();
         runtimeWorkDescriptors().forEach(descriptor -> {
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Pending",
                     "RUNTIME_" + descriptor.key() + "_PENDING", descriptor.color(), descriptor.taskType(),
-                    RuntimeWorkMetricRole.PENDING);
+                    RuntimeWorkMetricRole.PENDING, throughputSnapshot);
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Inflight",
                     "RUNTIME_" + descriptor.key() + "_INFLIGHT", descriptor.inflightColor(), descriptor.taskType(),
-                    RuntimeWorkMetricRole.INFLIGHT);
+                    RuntimeWorkMetricRole.INFLIGHT, throughputSnapshot);
         });
         return queues;
     }
 
-    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs() {
+    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs(ValkeyThroughputSnapshot throughputSnapshot) {
         List<QueueMetricResponse> dlqs = new ArrayList<>();
         runtimeWorkDescriptors().forEach(descriptor -> addRuntimeWorkQueueMetrics(dlqs, descriptor.label() + " Runtime DLQ",
-                "RUNTIME_" + descriptor.key() + "_DLQ", "#dc2626", descriptor.taskType(), RuntimeWorkMetricRole.DLQ));
+                "RUNTIME_" + descriptor.key() + "_DLQ", "#dc2626", descriptor.taskType(),
+                RuntimeWorkMetricRole.DLQ, throughputSnapshot));
         return dlqs;
     }
 
@@ -180,16 +195,15 @@ public class SystemMetricsService {
             String key,
             String color,
             String taskType,
-            PipelineMetricRole role) {
+            PipelineMetricRole role,
+            ValkeyThroughputSnapshot throughputSnapshot) {
         PipelineValkeyTaskCounts counts = pipelineCounts(taskType);
         long current = switch (role) {
             case PENDING -> counts.pending();
             case INFLIGHT -> counts.inflight();
             case DLQ -> counts.dlq();
         };
-        long previous = previousQueueCounts.getOrDefault(key, current);
-        long throughput = Math.max(0, current - previous);
-        previousQueueCounts.put(key, current);
+        long throughput = pipelineThroughput(throughputSnapshot, taskType, role);
         target.add(new QueueMetricResponse(
                 name,
                 key,
@@ -205,16 +219,15 @@ public class SystemMetricsService {
             String key,
             String color,
             String taskType,
-            RuntimeWorkMetricRole role) {
+            RuntimeWorkMetricRole role,
+            ValkeyThroughputSnapshot throughputSnapshot) {
         RuntimeWorkQueueCounts counts = runtimeWorkCounts(taskType);
         long current = switch (role) {
             case PENDING -> counts.pending();
             case INFLIGHT -> counts.inflight();
             case DLQ -> counts.dlq();
         };
-        long previous = previousQueueCounts.getOrDefault(key, current);
-        long throughput = Math.max(0, current - previous);
-        previousQueueCounts.put(key, current);
+        long throughput = runtimeWorkThroughput(throughputSnapshot, taskType, role);
         target.add(new QueueMetricResponse(
                 name,
                 key,
@@ -227,9 +240,7 @@ public class SystemMetricsService {
     private QueueMetricResponse queueMetric(String name, String key, String color, String queueName) {
         QueueState state = queueState(queueName);
         long current = state.messageCount();
-        long previous = previousQueueCounts.getOrDefault(queueName, current);
-        long throughput = Math.max(0, current - previous);
-        previousQueueCounts.put(queueName, current);
+        long throughput = drainThroughputPerMinute(queueName, current);
         return new QueueMetricResponse(
                 name,
                 key,
@@ -237,6 +248,91 @@ public class SystemMetricsService {
                 state.messageCount(),
                 state.consumerCount(),
                 throughput);
+    }
+
+    private long pipelineThroughput(
+            ValkeyThroughputSnapshot throughputSnapshot,
+            String taskType,
+            PipelineMetricRole role) {
+        return switch (role) {
+            case PENDING -> throughputSnapshot.pipelineClaimed(taskType);
+            case INFLIGHT -> throughputSnapshot.pipelineCompleted(taskType);
+            case DLQ -> throughputSnapshot.pipelineFailed(taskType);
+        };
+    }
+
+    private long runtimeWorkThroughput(
+            ValkeyThroughputSnapshot throughputSnapshot,
+            String taskType,
+            RuntimeWorkMetricRole role) {
+        return switch (role) {
+            case PENDING -> throughputSnapshot.runtimeClaimed(taskType);
+            case INFLIGHT -> throughputSnapshot.runtimeCompleted(taskType);
+            case DLQ -> throughputSnapshot.runtimeFailed(taskType);
+        };
+    }
+
+    private long drainThroughputPerMinute(String queueName, long current) {
+        long now = System.currentTimeMillis();
+        BacklogSample previous = previousBacklogSamples.put(queueName, new BacklogSample(current, now));
+        if (previous == null || previous.sampledAtMillis() >= now) {
+            return 0L;
+        }
+        long drained = Math.max(0L, previous.count() - current);
+        if (drained == 0L) {
+            return 0L;
+        }
+        long elapsedMillis = now - previous.sampledAtMillis();
+        return Math.max(1L, Math.round((drained * 60_000.0) / elapsedMillis));
+    }
+
+    private ValkeyThroughputSnapshot valkeyThroughputSnapshot() {
+        long now = System.currentTimeMillis();
+        long start = now - 60_000L;
+        Map<String, EventCounts> pipeline = streamEventCounts(pipelineEventStreamKey(), start, now);
+        Map<String, EventCounts> runtimeWork = streamEventCounts(runtimeWorkEventStreamKey(), start, now);
+        return new ValkeyThroughputSnapshot(pipeline, runtimeWork);
+    }
+
+    private Map<String, EventCounts> streamEventCounts(String streamKey, long startMillis, long endMillis) {
+        try {
+            List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream().range(
+                    streamKey,
+                    Range.closed(startMillis + "-0", endMillis + "-999999"),
+                    Limit.limit().count(20_000));
+            if (records == null || records.isEmpty()) {
+                return Map.of();
+            }
+            Map<String, EventCounts> counts = new LinkedHashMap<>();
+            for (MapRecord<String, Object, Object> record : records) {
+                String taskType = valueAsString(record.getValue().get("taskType"));
+                String event = valueAsString(record.getValue().get("event"));
+                if (taskType == null || event == null) {
+                    continue;
+                }
+                counts.compute(taskType, (ignored, current) ->
+                        (current == null ? EventCounts.empty() : current).with(event));
+            }
+            return counts;
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+    }
+
+    private String pipelineEventStreamKey() {
+        return normalizeKeyPrefix(pipelineKeyPrefix, "ircs:pipeline:v2") + ":events";
+    }
+
+    private String runtimeWorkEventStreamKey() {
+        return normalizeKeyPrefix(runtimeWorkKeyPrefix, "ircs:work:v1") + ":events";
+    }
+
+    private String normalizeKeyPrefix(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        String trimmed = value.trim();
+        return trimmed.endsWith(":") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
     }
 
     private QueueState queueState(String queueName) {
@@ -333,6 +429,14 @@ public class SystemMetricsService {
         return queue == null ? 0 : queue.messageCount();
     }
 
+    private long throughput(QueueMetricResponse queue) {
+        return queue == null ? 0 : queue.throughput();
+    }
+
+    private String valueAsString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
     private int toInt(Object value) {
         return value instanceof Number number ? number.intValue() : 0;
     }
@@ -424,6 +528,57 @@ public class SystemMetricsService {
     private record QueueState(int messageCount, int consumerCount) {
         static QueueState empty() {
             return new QueueState(0, 0);
+        }
+    }
+
+    private record BacklogSample(long count, long sampledAtMillis) {
+    }
+
+    private record EventCounts(long claimed, long completed, long failed) {
+        static EventCounts empty() {
+            return new EventCounts(0, 0, 0);
+        }
+
+        EventCounts with(String event) {
+            return switch (event) {
+                case "claimed" -> new EventCounts(claimed + 1, completed, failed);
+                case "completed" -> new EventCounts(claimed, completed + 1, failed);
+                case "failed" -> new EventCounts(claimed, completed, failed + 1);
+                default -> this;
+            };
+        }
+    }
+
+    private record ValkeyThroughputSnapshot(
+            Map<String, EventCounts> pipeline,
+            Map<String, EventCounts> runtimeWork) {
+
+        long pipelineClaimed(String taskType) {
+            return counts(pipeline, taskType).claimed();
+        }
+
+        long pipelineCompleted(String taskType) {
+            return counts(pipeline, taskType).completed();
+        }
+
+        long pipelineFailed(String taskType) {
+            return counts(pipeline, taskType).failed();
+        }
+
+        long runtimeClaimed(String taskType) {
+            return counts(runtimeWork, taskType).claimed();
+        }
+
+        long runtimeCompleted(String taskType) {
+            return counts(runtimeWork, taskType).completed();
+        }
+
+        long runtimeFailed(String taskType) {
+            return counts(runtimeWork, taskType).failed();
+        }
+
+        private EventCounts counts(Map<String, EventCounts> source, String taskType) {
+            return source.getOrDefault(taskType, EventCounts.empty());
         }
     }
 

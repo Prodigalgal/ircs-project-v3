@@ -52,15 +52,7 @@ public class AggregationService {
         }
 
         Map<UUID, AggregationResult> results = new LinkedHashMap<>();
-        List<RawVideoAggregationRecord> rawVideos = new ArrayList<>(orderedIds.size());
-        for (UUID rawVideoId : orderedIds) {
-            Optional<RawVideoAggregationRecord> rawVideo = repository.findRawVideo(rawVideoId);
-            if (rawVideo.isPresent()) {
-                rawVideos.add(rawVideo.orElseThrow());
-            } else {
-                results.put(rawVideoId, AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
-            }
-        }
+        List<RawVideoAggregationRecord> rawVideos = loadRawVideos(orderedIds, results);
         if (rawVideos.size() <= 1) {
             for (RawVideoAggregationRecord rawVideo : rawVideos) {
                 AggregationResult result = bindRawVideo(rawVideo);
@@ -96,6 +88,47 @@ public class AggregationService {
             recordClusterResults(results, result);
         }
         return orderedResults(orderedIds, results);
+    }
+
+    private List<RawVideoAggregationRecord> loadRawVideos(
+            List<UUID> orderedIds,
+            Map<UUID, AggregationResult> results) {
+        if (orderedIds.size() <= 1) {
+            return loadRawVideosOneByOne(orderedIds, results);
+        }
+        List<RawVideoAggregationRecord> loaded = repository.findRawVideos(orderedIds);
+        if (loaded == null) {
+            return loadRawVideosOneByOne(orderedIds, results);
+        }
+        Map<UUID, RawVideoAggregationRecord> rawById = new LinkedHashMap<>();
+        for (RawVideoAggregationRecord rawVideo : loaded) {
+            rawById.putIfAbsent(rawVideo.id(), rawVideo);
+        }
+        List<RawVideoAggregationRecord> rawVideos = new ArrayList<>(orderedIds.size());
+        for (UUID rawVideoId : orderedIds) {
+            RawVideoAggregationRecord rawVideo = rawById.get(rawVideoId);
+            if (rawVideo == null) {
+                results.put(rawVideoId, AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
+            } else {
+                rawVideos.add(rawVideo);
+            }
+        }
+        return rawVideos;
+    }
+
+    private List<RawVideoAggregationRecord> loadRawVideosOneByOne(
+            List<UUID> orderedIds,
+            Map<UUID, AggregationResult> results) {
+        List<RawVideoAggregationRecord> rawVideos = new ArrayList<>(orderedIds.size());
+        for (UUID rawVideoId : orderedIds) {
+            Optional<RawVideoAggregationRecord> rawVideo = repository.findRawVideo(rawVideoId);
+            if (rawVideo.isPresent()) {
+                rawVideos.add(rawVideo.orElseThrow());
+            } else {
+                results.put(rawVideoId, AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
+            }
+        }
+        return rawVideos;
     }
 
     private AggregationResult aggregateOneInternal(UUID rawVideoId) {

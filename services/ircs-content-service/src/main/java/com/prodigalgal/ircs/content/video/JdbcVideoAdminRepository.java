@@ -5,6 +5,8 @@ import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
+import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.content.video.VideoAdminDtos.NamedRef;
 import com.prodigalgal.ircs.content.video.VideoAdminDtos.RawAreaRef;
@@ -41,6 +43,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -64,6 +67,7 @@ public class JdbcVideoAdminRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
 
     public Page<RawVideoCardResponse> findRawVideos(
             Pageable pageable,
@@ -221,6 +225,7 @@ public class JdbcVideoAdminRepository {
         replaceUuidRelations("video_directors", "video_id", "director_id", "directors", id, request.directorIds());
         replaceUuidRelations("video_raw_genres", "video_id", "raw_genre_id", "raw_genres", id, request.rawGenreIds());
         replaceUuidRelations("video_raw_areas", "video_id", "raw_area_id", "raw_areas", id, request.rawAreaIds());
+        evictMetadataNameCache(MetadataNameOwnerType.RAW, List.of(id));
         return id;
     }
 
@@ -296,6 +301,9 @@ public class JdbcVideoAdminRepository {
         if (request.rawAreaIds() != null) {
             replaceUuidRelations("video_raw_areas", "video_id", "raw_area_id", "raw_areas", id, request.rawAreaIds());
         }
+        if (request.actorIds() != null || request.directorIds() != null || request.rawAreaIds() != null) {
+            evictMetadataNameCache(MetadataNameOwnerType.RAW, List.of(id));
+        }
     }
 
     public void setRawAggregationStatus(UUID rawVideoId, String status) {
@@ -364,6 +372,10 @@ public class JdbcVideoAdminRepository {
             return;
         }
         MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
+        List<UUID> unifiedIds = jdbcTemplate.queryForList(
+                "select distinct unified_video_id from raw_video_unified_video where raw_video_id in (:ids)",
+                params,
+                UUID.class);
         jdbcTemplate.update("delete from episodes where playlist_id in (select id from playlists where video_id in (:ids))", params);
         jdbcTemplate.update("delete from playlists where video_id in (:ids)", params);
         jdbcTemplate.update("delete from video_actors where video_id in (:ids)", params);
@@ -373,6 +385,8 @@ public class JdbcVideoAdminRepository {
         jdbcTemplate.update("delete from video_raw_areas where video_id in (:ids)", params);
         jdbcTemplate.update("delete from raw_video_unified_video where raw_video_id in (:ids)", params);
         jdbcTemplate.update("delete from raw_videos where id in (:ids)", params);
+        evictMetadataNameCache(MetadataNameOwnerType.RAW, ids);
+        evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, unifiedIds);
     }
 
     public Page<UnifiedVideoCardResponse> findUnifiedVideos(
@@ -510,6 +524,7 @@ public class JdbcVideoAdminRepository {
         replaceNamedRelations("unified_video_standard_languages", "unified_video_id", "standard_language_id",
                 "standard_languages", id, request.languages());
         bindRawVideosToUnified(id, request.bindVideoIds());
+        evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(id));
         return id;
     }
 
@@ -690,6 +705,9 @@ public class JdbcVideoAdminRepository {
         }
         unbindRawVideos(request.unbindVideoIds());
         bindRawVideosToUnified(id, request.bindVideoIds());
+        if (request.standardAreaIds() != null || request.actors() != null || request.directors() != null) {
+            evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(id));
+        }
     }
 
     public void bindRawVideosToUnified(UUID unifiedVideoId, Set<UUID> rawIds) {
@@ -785,6 +803,16 @@ public class JdbcVideoAdminRepository {
         jdbcTemplate.update("delete from unified_video_standard_languages where unified_video_id in (:ids)", params);
         jdbcTemplate.update("delete from unified_video_standard_areas where unified_video_id in (:ids)", params);
         jdbcTemplate.update("delete from unified_videos where id in (:ids)", params);
+        evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, ids);
+    }
+
+    private void evictMetadataNameCache(MetadataNameOwnerType ownerType, Collection<UUID> ownerIds) {
+        MetadataNameValkeyCache metadataNameCache = metadataNameCacheProvider == null
+                ? null
+                : metadataNameCacheProvider.getIfAvailable();
+        if (metadataNameCache != null) {
+            metadataNameCache.evictOwner(ownerType, ownerIds);
+        }
     }
 
     private String rawWhere(
