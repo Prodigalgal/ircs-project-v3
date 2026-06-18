@@ -128,7 +128,7 @@ public class JdbcConfigRepository {
                            when (coalesce(btrim(system_configs.config_value), '') = ''
                                    and coalesce(btrim(excluded.config_value), '') <> '')
                                 or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
-                                or (? is not null and btrim(system_configs.config_value) = ?)
+                                or (cast(? as text) is not null and btrim(system_configs.config_value) = ?)
                            then excluded.config_value
                            else system_configs.config_value
                        end,
@@ -137,7 +137,7 @@ public class JdbcConfigRepository {
                            when (coalesce(btrim(system_configs.config_value), '') = ''
                                    and coalesce(btrim(excluded.config_value), '') <> '')
                                 or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
-                                or (? is not null and btrim(system_configs.config_value) = ?)
+                                or (cast(? as text) is not null and btrim(system_configs.config_value) = ?)
                                 or coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
                            then now()
                            else system_configs.updated_at
@@ -146,7 +146,7 @@ public class JdbcConfigRepository {
                            when (coalesce(btrim(system_configs.config_value), '') = ''
                                    and coalesce(btrim(excluded.config_value), '') <> '')
                                 or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
-                                or (? is not null and btrim(system_configs.config_value) = ?)
+                                or (cast(? as text) is not null and btrim(system_configs.config_value) = ?)
                                 or coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
                            then coalesce(system_configs.version, 0) + 1
                            else system_configs.version
