@@ -10,6 +10,9 @@ spring:
       simple:
         auto-startup: ${APP_INGESTION_LISTENER_ENABLED:false}
         default-requeue-rejected: false
+        prefetch: ${APP_INGESTION_RABBIT_PREFETCH:1}
+        concurrency: ${APP_INGESTION_RABBIT_CONCURRENCY:2}
+        max-concurrency: ${APP_INGESTION_RABBIT_MAX_CONCURRENCY:2}
   datasource:
     url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
     username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}

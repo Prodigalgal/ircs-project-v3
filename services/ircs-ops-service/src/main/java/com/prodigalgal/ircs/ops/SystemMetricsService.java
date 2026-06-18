@@ -190,7 +190,13 @@ public class SystemMetricsService {
         long previous = previousQueueCounts.getOrDefault(key, current);
         long throughput = Math.max(0, current - previous);
         previousQueueCounts.put(key, current);
-        target.add(new QueueMetricResponse(name, key, color, safeInt(current), 0, throughput));
+        target.add(new QueueMetricResponse(
+                name,
+                key,
+                color,
+                safeInt(current),
+                role == PipelineMetricRole.DLQ ? 0 : safeInt(pipelineConsumerCount(taskType)),
+                throughput));
     }
 
     private void addRuntimeWorkQueueMetrics(
@@ -209,7 +215,13 @@ public class SystemMetricsService {
         long previous = previousQueueCounts.getOrDefault(key, current);
         long throughput = Math.max(0, current - previous);
         previousQueueCounts.put(key, current);
-        target.add(new QueueMetricResponse(name, key, color, safeInt(current), 0, throughput));
+        target.add(new QueueMetricResponse(
+                name,
+                key,
+                color,
+                safeInt(current),
+                role == RuntimeWorkMetricRole.DLQ ? 0 : safeInt(runtimeWorkConsumerCount(taskType)),
+                throughput));
     }
 
     private QueueMetricResponse queueMetric(String name, String key, String color, String queueName) {
@@ -279,6 +291,30 @@ public class SystemMetricsService {
             return counts == null ? emptyRuntimeWorkCounts() : counts;
         } catch (Exception ignored) {
             return emptyRuntimeWorkCounts();
+        }
+    }
+
+    private long pipelineConsumerCount(String taskType) {
+        PipelineValkeyQueue queue = pipelineValkeyQueueProvider.getIfAvailable();
+        if (queue == null) {
+            return 0L;
+        }
+        try {
+            return queue.consumerCount(taskType);
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private long runtimeWorkConsumerCount(String taskType) {
+        RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
+        if (queue == null) {
+            return 0L;
+        }
+        try {
+            return queue.consumerCount(taskType);
+        } catch (Exception ignored) {
+            return 0L;
         }
     }
 

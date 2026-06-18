@@ -99,6 +99,10 @@ class LlmCleaningWorkQueueWorker {
 
     private int runOnceLocked() {
         int effectiveBatchSize = Math.max(1, batchSize);
+        workQueue.heartbeatConsumer(
+                LlmCleaningWorkTypes.RAW_TERM,
+                workerId(),
+                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
         workQueue.requeueExpired(LlmCleaningWorkTypes.RAW_TERM, effectiveBatchSize);
         List<RuntimeWorkItem> items = workQueue.claim(
                 LlmCleaningWorkTypes.RAW_TERM,

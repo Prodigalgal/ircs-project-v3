@@ -22,4 +22,11 @@ public interface RuntimeWorkQueue {
     int requeueExpired(String taskType, int limit);
 
     RuntimeWorkQueueCounts counts(String taskType);
+
+    default void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
+    }
+
+    default long consumerCount(String taskType) {
+        return 0L;
+    }
 }

@@ -128,6 +128,9 @@ class SearchSyncWorkQueueWorker {
         RuntimeException fatal = null;
         try {
             int effectiveBatchSize = Math.max(1, batchSize);
+            Duration heartbeatTtl = Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1);
+            workQueue.heartbeatConsumer(SearchSyncWorkTypes.RAW, resolvedWorkerId, heartbeatTtl);
+            workQueue.heartbeatConsumer(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, heartbeatTtl);
             requeued += workQueue.requeueExpired(SearchSyncWorkTypes.RAW, effectiveBatchSize);
             requeued += workQueue.requeueExpired(SearchSyncWorkTypes.UNIFIED, effectiveBatchSize);
             WorkRunResult raw = processItems(SearchSyncWorkTypes.RAW, resolvedWorkerId, effectiveBatchSize);

@@ -313,6 +313,25 @@ public class PipelineValkeyQueue {
         return ids.size();
     }
 
+    public void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
+        validateTaskType(taskType);
+        if (!StringUtils.hasText(ownerId)) {
+            return;
+        }
+        Duration effectiveTtl = normalizePositive(ttl, Duration.ofMinutes(2));
+        String key = consumerKey(taskType);
+        redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
+        redisTemplate.opsForZSet().add(key, ownerId.trim(), nowMillis() + effectiveTtl.toMillis());
+        redisTemplate.expire(key, effectiveTtl.plusMinutes(5));
+    }
+
+    public long consumerCount(String taskType) {
+        validateTaskType(taskType);
+        String key = consumerKey(taskType);
+        redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
+        return zCard(key);
+    }
+
     public PipelineValkeyTaskCounts counts(String taskType) {
         validateTaskType(taskType);
         return new PipelineValkeyTaskCounts(
@@ -398,6 +417,10 @@ public class PipelineValkeyQueue {
 
     private String taskKeyPrefix(String taskType) {
         return keyPrefix + ":" + taskType + ":task:";
+    }
+
+    private String consumerKey(String taskType) {
+        return keyPrefix + ":" + taskType + ":consumers";
     }
 
     private String eventStreamKey() {

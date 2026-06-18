@@ -68,6 +68,7 @@ public class MetadataProviderValkeyWorker {
         if (!workerEnabled()) {
             return 0;
         }
+        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.METADATA_PROVIDER, workerId, visibilityTimeout.plusMinutes(1));
         int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.METADATA_PROVIDER, batchSize);
         if (reclaimed > 0) {
             log.info("Requeued expired metadata provider tasks from Valkey: count={}", reclaimed);

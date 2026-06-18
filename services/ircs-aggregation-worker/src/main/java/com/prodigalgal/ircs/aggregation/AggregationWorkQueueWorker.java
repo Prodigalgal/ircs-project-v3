@@ -98,6 +98,10 @@ class AggregationWorkQueueWorker {
 
     private int runOnceLocked() {
         int effectiveBatchSize = Math.max(1, batchSize);
+        workQueue.heartbeatConsumer(
+                AggregationWorkTypes.RAW_VIDEO,
+                workerId(),
+                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
         int requeued = workQueue.requeueExpired(AggregationWorkTypes.RAW_VIDEO, effectiveBatchSize);
         if (requeued > 0) {
             log.info("Requeued expired aggregation work: count={}", requeued);

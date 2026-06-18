@@ -15,6 +15,9 @@ spring:
       simple:
         auto-startup: ${APP_TASK_QUEUE_LISTENER_ENABLED:false}
         default-requeue-rejected: false
+        prefetch: ${APP_TASK_RABBIT_PREFETCH:10}
+        concurrency: ${APP_TASK_RABBIT_CONCURRENCY:2}
+        max-concurrency: ${APP_TASK_RABBIT_MAX_CONCURRENCY:4}
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:${VALKEY_HOST:localhost}}

@@ -69,6 +69,7 @@ public class NormalizeVideoValkeyWorker {
         if (!workerEnabled()) {
             return 0;
         }
+        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.NORMALIZE_VIDEO, workerId, visibilityTimeout.plusMinutes(1));
         int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.NORMALIZE_VIDEO, batchSize);
         if (reclaimed > 0) {
             log.info("Requeued expired normalization tasks from Valkey: count={}", reclaimed);

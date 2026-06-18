@@ -315,6 +315,27 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     }
 
     @Override
+    public void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        if (!StringUtils.hasText(ownerId)) {
+            return;
+        }
+        Duration effectiveTtl = normalizePositive(ttl, Duration.ofMinutes(2));
+        String key = consumerKey(normalizedTaskType);
+        redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
+        redisTemplate.opsForZSet().add(key, ownerId.trim(), nowMillis() + effectiveTtl.toMillis());
+        redisTemplate.expire(key, effectiveTtl.plusMinutes(5));
+    }
+
+    @Override
+    public long consumerCount(String taskType) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        String key = consumerKey(normalizedTaskType);
+        redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
+        return zCard(key);
+    }
+
+    @Override
     public RuntimeWorkQueueCounts counts(String taskType) {
         String normalizedTaskType = normalizeTaskType(taskType);
         return new RuntimeWorkQueueCounts(
@@ -391,6 +412,10 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
 
     private String taskKeyPrefix(String taskType) {
         return keyPrefix + ":" + taskType + ":task:";
+    }
+
+    private String consumerKey(String taskType) {
+        return keyPrefix + ":" + taskType + ":consumers";
     }
 
     private String eventStreamKey() {

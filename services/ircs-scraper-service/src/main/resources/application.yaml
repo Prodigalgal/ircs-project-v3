@@ -15,6 +15,9 @@ spring:
       simple:
         auto-startup: ${APP_SCRAPER_TASK_QUEUE_LISTENER_ENABLED:false}
         default-requeue-rejected: false
+        prefetch: ${APP_SCRAPER_RABBIT_PREFETCH:1}
+        concurrency: ${APP_SCRAPER_RABBIT_CONCURRENCY:2}
+        max-concurrency: ${APP_SCRAPER_RABBIT_MAX_CONCURRENCY:2}
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:${REDIS_HOST:localhost}}

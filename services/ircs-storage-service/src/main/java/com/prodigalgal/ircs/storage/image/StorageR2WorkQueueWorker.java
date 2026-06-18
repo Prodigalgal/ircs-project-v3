@@ -114,6 +114,10 @@ public class StorageR2WorkQueueWorker {
 
     private int runTask(String taskType, String jobName, Function<UUID, WorkResult> handler) {
         int effectiveBatchSize = Math.max(1, batchSize);
+        workQueue.heartbeatConsumer(
+                taskType,
+                workerId(),
+                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
         workQueue.requeueExpired(taskType, effectiveBatchSize);
         List<RuntimeWorkItem> items = workQueue.claim(
                 taskType,
