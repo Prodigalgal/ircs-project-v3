@@ -54,6 +54,10 @@ class TaskQueueDispatchService {
             log.warn("Task master dispatch skipped: execution plan missing, masterTaskId={}", taskId);
             return;
         }
+        if (!"QUEUED".equalsIgnoreCase(plan.status())) {
+            log.info("Task master dispatch skipped: masterTaskId={}, status={}", taskId, plan.status());
+            return;
+        }
         Instant now = Instant.now();
         TaskScrapeOptions options = scrapeOptions(plan);
         int firstPage = effectiveStartPage(plan.currentPage(), plan.startPage());
@@ -76,6 +80,10 @@ class TaskQueueDispatchService {
         TaskExecutionPlan plan = taskRepository.findExecutionPlan(masterTaskId).orElse(null);
         if (plan == null) {
             log.warn("Task page expansion skipped: execution plan missing, masterTaskId={}", masterTaskId);
+            return;
+        }
+        if (!allowsPageExpansion(plan.status()) || !progressService.allowsDispatch(masterTaskId)) {
+            log.info("Task page expansion skipped: masterTaskId={}, status={}", masterTaskId, plan.status());
             return;
         }
         int nextPage = completedPage + 1;
@@ -119,6 +127,10 @@ class TaskQueueDispatchService {
             throw ex;
         }
         append(plan.id(), "INFO", "Queued page task " + scheduledPage + " into RabbitMQ");
+    }
+
+    private boolean allowsPageExpansion(String status) {
+        return "QUEUED".equalsIgnoreCase(status) || "RUNNING".equalsIgnoreCase(status);
     }
 
     private Integer finalPage(TaskExecutionPlan plan, Integer observedTotalPages) {

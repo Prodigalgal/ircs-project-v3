@@ -36,6 +36,11 @@ class TaskQueueScraperServiceTest {
     private final ScraperMappingService mappingService = org.mockito.Mockito.mock(ScraperMappingService.class);
     private final IngestionPublisher ingestionPublisher = org.mockito.Mockito.mock(IngestionPublisher.class);
     private final ScraperTaskQueuePublisher queuePublisher = org.mockito.Mockito.mock(ScraperTaskQueuePublisher.class);
+    private final TaskRuntimeControlService runtimeControlService = org.mockito.Mockito.mock(
+            TaskRuntimeControlService.class,
+            invocation -> invocation.getMethod().getReturnType().equals(boolean.class)
+                    ? true
+                    : org.mockito.Mockito.RETURNS_DEFAULTS.answer(invocation));
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final TaskQueueScraperService service = new TaskQueueScraperService(
             dataSourceRepository,
@@ -43,6 +48,7 @@ class TaskQueueScraperServiceTest {
             mappingService,
             ingestionPublisher,
             queuePublisher,
+            runtimeControlService,
             auditWriter);
 
     @Test
@@ -93,6 +99,29 @@ class TaskQueueScraperServiceTest {
     }
 
     @Test
+    void pageTaskDoesNotFetchListWhenMasterIsPaused() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        when(runtimeControlService.canRun(masterTaskId)).thenReturn(false);
+
+        service.processPage(new TaskPageMessage(
+                masterTaskId,
+                UUID.randomUUID(),
+                dataSourceId,
+                2,
+                false,
+                0,
+                options(),
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z")));
+
+        verify(listScraperClient, never()).fetchListPage(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(queuePublisher, never()).publishDetail(any());
+        verify(queuePublisher, never()).publishPageDiscovered(any());
+        assertAudit("scraper.task-page", "skipped");
+    }
+
+    @Test
     void detailTaskFetchesDetailPublishesIngestionAndCompletionEvent() {
         UUID masterTaskId = UUID.randomUUID();
         UUID pageTaskId = UUID.randomUUID();
@@ -126,6 +155,33 @@ class TaskQueueScraperServiceTest {
         assertThat(doneCaptor.getValue().successful()).isTrue();
         assertThat(doneCaptor.getValue().errorMessage()).isNull();
         assertAudit("scraper.task-detail", "succeeded");
+    }
+
+    @Test
+    void detailTaskDoesNotFetchDetailWhenMasterIsPaused() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        UUID detailTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        when(runtimeControlService.canRun(masterTaskId)).thenReturn(false);
+
+        service.processDetail(new TaskDetailMessage(
+                masterTaskId,
+                pageTaskId,
+                detailTaskId,
+                dataSourceId,
+                "v-1",
+                null,
+                0,
+                "idempotent",
+                options(true),
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z")));
+
+        verify(listScraperClient, never()).fetchDetail(any(), any(), any());
+        verify(ingestionPublisher, never()).publish(any());
+        verify(queuePublisher, never()).publishDetailDone(any());
+        assertAudit("scraper.task-detail", "skipped");
     }
 
     @Test

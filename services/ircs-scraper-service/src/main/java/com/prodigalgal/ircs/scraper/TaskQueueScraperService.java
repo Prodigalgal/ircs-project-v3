@@ -35,10 +35,15 @@ class TaskQueueScraperService {
     private final ScraperMappingService mappingService;
     private final IngestionPublisher ingestionPublisher;
     private final ScraperTaskQueuePublisher queuePublisher;
+    private final TaskRuntimeControlService runtimeControlService;
     private final WorkerJobAuditWriter auditWriter;
 
     void processPage(TaskPageMessage message) {
         Instant startedAt = Instant.now();
+        if (!runtimeControlService.canRun(message.masterTaskId())) {
+            recordSkipped(JOB_NAME_PAGE, message.correlationId(), startedAt);
+            return;
+        }
         try {
             DataSourceRecord source = source(message.dataSourceId());
             ManualScrapeConfigRequest config = config(message.options(), message.pageNumber(), false);
@@ -76,6 +81,10 @@ class TaskQueueScraperService {
 
     void processDetail(TaskDetailMessage message) {
         Instant startedAt = Instant.now();
+        if (!runtimeControlService.canRun(message.masterTaskId())) {
+            recordSkipped(JOB_NAME_DETAIL, message.correlationId(), startedAt);
+            return;
+        }
         try {
             DataSourceRecord source = source(message.dataSourceId());
             ManualScrapeConfigRequest config = config(message.options(), 1, forceIngest(message.options()));
@@ -168,6 +177,16 @@ class TaskQueueScraperService {
                 correlationId,
                 elapsedSince(startedAt),
                 error));
+    }
+
+    private void recordSkipped(String jobName, String correlationId, Instant startedAt) {
+        recordAudit(new WorkerJobAuditEvent(
+                JOB_TYPE_QUEUE_CONSUMER,
+                jobName,
+                correlationId,
+                "skipped",
+                elapsedSince(startedAt),
+                null));
     }
 
     private void recordAudit(WorkerJobAuditEvent event) {

@@ -84,6 +84,22 @@ class TaskQueueDispatchServiceTest {
     }
 
     @Test
+    void skipsNextPageWhenMasterIsPaused() {
+        UUID taskId = UUID.randomUUID();
+        when(taskRepository.findExecutionPlan(taskId)).thenReturn(Optional.of(plan(taskId, 5, 20, 5, "PAUSED")));
+        TaskQueueDispatchService service = service(true);
+
+        service.dispatchNextPageIfNeeded(taskId, 5, null, "existing-correlation");
+
+        verify(queuePublisher, never()).publishPage(org.mockito.Mockito.any());
+        verify(progressService, never()).trySchedulePage(
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.anyInt(),
+                org.mockito.Mockito.any());
+    }
+
+    @Test
     void fullTaskDispatchesOnlyCurrentPageWhenEndPageIsOpenEnded() {
         UUID taskId = UUID.randomUUID();
         when(taskRepository.findExecutionPlan(taskId)).thenReturn(Optional.of(plan(taskId, 1, 0, 1)));
@@ -151,6 +167,7 @@ class TaskQueueDispatchServiceTest {
     }
 
     private TaskQueueDispatchService service(boolean enabled) {
+        when(progressService.allowsDispatch(org.mockito.Mockito.any())).thenReturn(true);
         return new TaskQueueDispatchService(
                 taskRepository,
                 snapshotService,
@@ -163,11 +180,20 @@ class TaskQueueDispatchServiceTest {
     }
 
     private TaskExecutionPlan plan(UUID taskId, Integer startPage, Integer endPage, Integer currentPage) {
+        return plan(taskId, startPage, endPage, currentPage, "QUEUED");
+    }
+
+    private TaskExecutionPlan plan(
+            UUID taskId,
+            Integer startPage,
+            Integer endPage,
+            Integer currentPage,
+            String status) {
         return new TaskExecutionPlan(
                 taskId,
                 "Codex task",
                 UUID.randomUUID(),
-                "QUEUED",
+                status,
                 true,
                 startPage,
                 endPage,

@@ -20,10 +20,11 @@ class TaskCommandServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ApplicationEventPublisher eventPublisher = org.mockito.Mockito.mock(ApplicationEventPublisher.class);
     private final TaskQueueDispatchService taskQueueDispatchService = org.mockito.Mockito.mock(TaskQueueDispatchService.class);
+    private final TaskProgressRedisService progressService = org.mockito.Mockito.mock(TaskProgressRedisService.class);
     private final RecordingExecutor taskQueueDispatchExecutor = new RecordingExecutor();
     private final TaskCommandService service =
             new TaskCommandService(taskRepository, objectMapper, eventPublisher, taskQueueDispatchService,
-                    taskQueueDispatchExecutor);
+                    progressService, taskQueueDispatchExecutor);
 
     @Test
     void startSubmitsPostCommitDispatchAsynchronouslyAfterTaskIsQueued() {
@@ -59,6 +60,20 @@ class TaskCommandServiceTest {
         assertThatCode(taskQueueDispatchExecutor::runPending).doesNotThrowAnyException();
         verify(taskRepository).markQueued(runtimeState, false);
         verify(taskQueueDispatchService).dispatchQueuedMaster(taskId, false);
+    }
+
+    @Test
+    void pauseMarksRuntimeMasterAsHeldAfterDbStatusChange() {
+        UUID taskId = UUID.randomUUID();
+
+        service.pause(taskId);
+
+        verify(taskRepository).pause(taskId);
+        verify(progressService).holdMaster(
+                org.mockito.Mockito.eq(taskId),
+                org.mockito.Mockito.eq("PAUSED"),
+                org.mockito.Mockito.anyString(),
+                org.mockito.Mockito.any());
     }
 
     private static final class RecordingExecutor implements Executor {

@@ -24,6 +24,7 @@ public class TaskCommandService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskQueueDispatchService taskQueueDispatchService;
+    private final TaskProgressRedisService progressService;
     private final Executor taskQueueDispatchExecutor;
 
     public TaskCommandService(
@@ -31,11 +32,13 @@ public class TaskCommandService {
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher,
             TaskQueueDispatchService taskQueueDispatchService,
+            TaskProgressRedisService progressService,
             @Qualifier("taskQueueDispatchExecutor") Executor taskQueueDispatchExecutor) {
         this.taskRepository = taskRepository;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
         this.taskQueueDispatchService = taskQueueDispatchService;
+        this.progressService = progressService;
         this.taskQueueDispatchExecutor = taskQueueDispatchExecutor;
     }
 
@@ -114,11 +117,13 @@ public class TaskCommandService {
     @Transactional
     public void pause(UUID id) {
         taskRepository.pause(id);
+        runAfterCommit(() -> progressService.holdMaster(id, "PAUSED", "Task paused by operator.", java.time.Instant.now()));
     }
 
     @Transactional
     public void stop(UUID id) {
         taskRepository.stop(id);
+        runAfterCommit(() -> progressService.holdMaster(id, "STOPPING", "Task stopped by operator.", java.time.Instant.now()));
     }
 
     private void ensureDataSourceExists(UUID dataSourceId) {

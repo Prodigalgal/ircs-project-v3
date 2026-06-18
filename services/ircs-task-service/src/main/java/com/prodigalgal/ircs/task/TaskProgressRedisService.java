@@ -21,6 +21,7 @@ class TaskProgressRedisService {
             """
             redis.call('SADD', KEYS[1], ARGV[1])
             local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
+            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
             local firstDiscovery = 0
             if previousStatus == '' or previousStatus == 'QUEUED' then
               firstDiscovery = 1
@@ -54,12 +55,19 @@ class TaskProgressRedisService {
             local masterDetailScheduled = tonumber(redis.call('HGET', KEYS[3], 'detailScheduled') or '0')
             local detailCompleted = tonumber(redis.call('HGET', KEYS[3], 'detailCompleted') or '0')
             local detailFailed = tonumber(redis.call('HGET', KEYS[3], 'detailFailed') or '0')
-            local masterStatus = 'RUNNING'
-            if pageScheduled > 0 and pageCompleted >= pageScheduled and detailCompleted >= masterDetailScheduled then
-              if pageFailed > 0 or detailFailed > 0 then
-                masterStatus = 'FAILED'
-              else
-                masterStatus = 'COMPLETED'
+            local masterStatus = previousMasterStatus
+            if masterStatus ~= 'PAUSED'
+              and masterStatus ~= 'STOPPING'
+              and masterStatus ~= 'FAILED'
+              and masterStatus ~= 'COMPLETED'
+              and masterStatus ~= 'COMPLETED_WITH_ERRORS' then
+              masterStatus = 'RUNNING'
+              if pageScheduled > 0 and pageCompleted >= pageScheduled and detailCompleted >= masterDetailScheduled then
+                if pageFailed > 0 or detailFailed > 0 then
+                  masterStatus = 'FAILED'
+                else
+                  masterStatus = 'COMPLETED'
+                end
               end
             end
             redis.call('HSET', KEYS[3],
@@ -81,6 +89,7 @@ class TaskProgressRedisService {
             """
             redis.call('SADD', KEYS[1], ARGV[1])
             local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
+            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
             local firstFailure = 0
             if previousStatus ~= 'FAILED'
               and previousStatus ~= 'COMPLETED'
@@ -109,9 +118,16 @@ class TaskProgressRedisService {
             local pageCompleted = tonumber(redis.call('HGET', KEYS[3], 'pageCompleted') or '0')
             local masterDetailScheduled = tonumber(redis.call('HGET', KEYS[3], 'detailScheduled') or '0')
             local masterDetailCompleted = tonumber(redis.call('HGET', KEYS[3], 'detailCompleted') or '0')
-            local masterStatus = 'RUNNING'
-            if pageScheduled > 0 and pageCompleted >= pageScheduled and masterDetailCompleted >= masterDetailScheduled then
-              masterStatus = 'FAILED'
+            local masterStatus = previousMasterStatus
+            if masterStatus ~= 'PAUSED'
+              and masterStatus ~= 'STOPPING'
+              and masterStatus ~= 'FAILED'
+              and masterStatus ~= 'COMPLETED'
+              and masterStatus ~= 'COMPLETED_WITH_ERRORS' then
+              masterStatus = 'RUNNING'
+              if pageScheduled > 0 and pageCompleted >= pageScheduled and masterDetailCompleted >= masterDetailScheduled then
+                masterStatus = 'FAILED'
+              end
             end
             redis.call('HSET', KEYS[3],
               'masterTaskId', ARGV[5],
@@ -169,14 +185,22 @@ class TaskProgressRedisService {
             local masterDetailScheduled = tonumber(redis.call('HGET', KEYS[3], 'detailScheduled') or '0')
             local masterDetailCompleted = tonumber(redis.call('HGET', KEYS[3], 'detailCompleted') or '0')
             local masterDetailFailed = tonumber(redis.call('HGET', KEYS[3], 'detailFailed') or '0')
-            local masterStatus = 'RUNNING'
-            if pageScheduled > 0
-              and pageCompleted >= pageScheduled
-              and masterDetailCompleted >= masterDetailScheduled then
-              if pageFailed > 0 or masterDetailFailed > 0 then
-                masterStatus = 'FAILED'
-              else
-                masterStatus = 'COMPLETED'
+            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
+            local masterStatus = previousMasterStatus
+            if masterStatus ~= 'PAUSED'
+              and masterStatus ~= 'STOPPING'
+              and masterStatus ~= 'FAILED'
+              and masterStatus ~= 'COMPLETED'
+              and masterStatus ~= 'COMPLETED_WITH_ERRORS' then
+              masterStatus = 'RUNNING'
+              if pageScheduled > 0
+                and pageCompleted >= pageScheduled
+                and masterDetailCompleted >= masterDetailScheduled then
+                if pageFailed > 0 or masterDetailFailed > 0 then
+                  masterStatus = 'FAILED'
+                else
+                  masterStatus = 'COMPLETED'
+                end
               end
             end
             redis.call('HSET', KEYS[2],
@@ -195,9 +219,18 @@ class TaskProgressRedisService {
 
     private static final DefaultRedisScript<Long> MASTER_DONE_SCRIPT = new DefaultRedisScript<>(
             """
+            local previousMasterStatus = redis.call('HGET', KEYS[1], 'status') or ''
+            local nextStatus = ARGV[2]
+            if previousMasterStatus == 'PAUSED'
+              or previousMasterStatus == 'STOPPING'
+              or previousMasterStatus == 'FAILED'
+              or previousMasterStatus == 'COMPLETED'
+              or previousMasterStatus == 'COMPLETED_WITH_ERRORS' then
+              nextStatus = previousMasterStatus
+            end
             redis.call('HSET', KEYS[1],
               'masterTaskId', ARGV[1],
-              'status', ARGV[2],
+              'status', nextStatus,
               'pageScheduled', ARGV[3],
               'pageCompleted', ARGV[4],
               'pageSucceeded', ARGV[5],
@@ -215,6 +248,14 @@ class TaskProgressRedisService {
 
     private static final DefaultRedisScript<Long> SCHEDULE_PAGE_SCRIPT = new DefaultRedisScript<>(
             """
+            local previousMasterStatus = redis.call('HGET', KEYS[2], 'status') or ''
+            if previousMasterStatus == 'PAUSED'
+              or previousMasterStatus == 'STOPPING'
+              or previousMasterStatus == 'FAILED'
+              or previousMasterStatus == 'COMPLETED'
+              or previousMasterStatus == 'COMPLETED_WITH_ERRORS' then
+              return -1
+            end
             local added = redis.call('SADD', KEYS[1], ARGV[3])
             if added == 0 then
               return 0
@@ -312,6 +353,32 @@ class TaskProgressRedisService {
                 Integer.toString(pageNumber),
                 Long.toString(effectiveAt.toEpochMilli()));
         return result == null ? 0 : result;
+    }
+
+    void holdMaster(UUID masterTaskId, String status, String reason, Instant heldAt) {
+        if (masterTaskId == null) {
+            return;
+        }
+        Instant effectiveAt = heldAt == null ? Instant.now() : heldAt;
+        String normalizedStatus = normalizeHoldStatus(status);
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put("masterTaskId", masterTaskId.toString());
+        values.put("status", normalizedStatus);
+        values.put("updatedAt", Long.toString(effectiveAt.toEpochMilli()));
+        if (reason != null && !reason.isBlank()) {
+            values.put("controlReason", safeError(reason));
+        }
+        redisTemplate.opsForHash().putAll(TaskHotKeys.masterState(masterTaskId), values);
+        redisTemplate.opsForSet().add(TaskHotKeys.activeMasters(), masterTaskId.toString());
+        redisTemplate.opsForZSet().add(TaskHotKeys.dirtyMasters(), masterTaskId.toString(), effectiveAt.toEpochMilli());
+    }
+
+    boolean allowsDispatch(UUID masterTaskId) {
+        if (masterTaskId == null) {
+            return false;
+        }
+        Object status = redisTemplate.opsForHash().get(TaskHotKeys.masterState(masterTaskId), "status");
+        return !isBlockedStatus(status == null ? null : status.toString());
     }
 
     Optional<PageProgressState> pageProgress(UUID masterTaskId, UUID pageTaskId) {
@@ -487,6 +554,19 @@ class TaskProgressRedisService {
 
     private String safeStatus(String status) {
         return status == null || status.isBlank() ? "COMPLETED" : status.trim().toUpperCase();
+    }
+
+    private String normalizeHoldStatus(String status) {
+        String normalized = status == null || status.isBlank() ? "PAUSED" : status.trim().toUpperCase();
+        return "STOPPING".equals(normalized) ? "STOPPING" : "PAUSED";
+    }
+
+    private boolean isBlockedStatus(String status) {
+        String normalized = status == null || status.isBlank() ? "" : status.trim().toUpperCase();
+        return switch (normalized) {
+            case "PAUSED", "STOPPING", "FAILED", "COMPLETED", "COMPLETED_WITH_ERRORS" -> true;
+            default -> false;
+        };
     }
 }
 
