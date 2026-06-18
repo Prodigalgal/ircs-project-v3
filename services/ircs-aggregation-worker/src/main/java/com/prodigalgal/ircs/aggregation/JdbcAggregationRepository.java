@@ -24,6 +24,7 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -42,6 +43,7 @@ public class JdbcAggregationRepository {
     private final AggregationContextSearchClient contextSearchClient;
     private final MetadataNameValkeyCache metadataNameCache;
 
+    @Autowired
     public JdbcAggregationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
             AggregationMatchingStrategy matchingStrategy,

@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -23,10 +24,21 @@ import org.springframework.util.StringUtils;
 class MetadataNameValkeyWarmup {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
-    private final MetadataNameValkeyCache metadataNameCache;
+    private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
 
     @EventListener(ApplicationReadyEvent.class)
     void warmup() {
+        Thread warmupThread = new Thread(this::warmupInBackground, "metadata-name-valkey-warmup");
+        warmupThread.setDaemon(true);
+        warmupThread.start();
+    }
+
+    private void warmupInBackground() {
+        MetadataNameValkeyCache metadataNameCache = metadataNameCacheProvider.getIfAvailable();
+        if (metadataNameCache == null) {
+            log.warn("Metadata name Valkey cache bean is unavailable; warmup skipped");
+            return;
+        }
         long started = System.nanoTime();
         try {
             Map<UUID, Set<String>> rawActors = queryNameSetById(
