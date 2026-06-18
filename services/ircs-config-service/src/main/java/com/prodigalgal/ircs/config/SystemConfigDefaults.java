@@ -200,6 +200,10 @@ public class SystemConfigDefaults {
             cfg("global.traffic.max-delay-ms", "5000", "全局默认最大请求间隔(毫秒)"),
             cfg("global.traffic.safety-floor-ms", "3000", "全局流量安全底线(毫秒)"),
             cfg("global.traffic.max-wait-ms", "120000", "流量控制最大容忍等待时间(毫秒)"),
+            cfg("app.metadata.public-traffic.enabled", "true", "是否启用元数据公网 Provider 全局流量闸门"),
+            cfg("app.metadata.public-traffic.default-gap-ms", "150", "元数据公网 Provider 同出口默认请求间隔(毫秒)"),
+            cfg("app.metadata.public-traffic.max-wait", "PT2M", "元数据公网 Provider 流量闸门最大等待时间"),
+            cfg("app.metadata.public-traffic.ttl", "PT10M", "元数据公网 Provider 流量闸门 Valkey 状态 TTL"),
             cfg("app.metadata.tmdb.enabled", "true", "启用 TMDB 数据源"),
             cfg("app.metadata.tmdb.min-delay-ms", "200", "TMDB 请求最小延迟"),
             cfg("app.metadata.tmdb.max-delay-ms", "500", "TMDB 请求最大延迟"),
@@ -234,7 +238,12 @@ public class SystemConfigDefaults {
             cfg("app.metadata.valkey-dispatcher.initial-delay-ms", "10000", "元数据分发 Valkey worker 启动延迟(毫秒)"),
             cfg("app.metadata.valkey-dispatcher.fixed-delay-ms", "1000", "元数据分发 Valkey worker 空转轮询间隔(毫秒)"),
             cfg("app.metadata.valkey-provider-worker.enabled", "true", "是否启用元数据 Provider Valkey pipeline worker"),
-            cfg("app.metadata.valkey-provider-worker.batch-size", "10", "元数据 Provider Valkey worker 每轮领取数量"),
+            cfgUpgradeLegacyValue(
+                    "app.metadata.valkey-provider-worker.batch-size",
+                    "40",
+                    "元数据 Provider Valkey worker 每轮领取数量",
+                    "10"),
+            cfg("app.metadata.valkey-provider-worker.parallelism", "16", "元数据 Provider Valkey worker 并行处理线程数"),
             cfg("app.metadata.valkey-provider-worker.visibility-timeout", "PT10M", "元数据 Provider Valkey worker 任务可见性超时"),
             cfg("app.metadata.valkey-provider-worker.retry-delay", "PT2M", "元数据 Provider Valkey worker 重试延迟"),
             cfg("app.metadata.valkey-provider-worker.initial-delay-ms", "10000", "元数据 Provider Valkey worker 启动延迟(毫秒)"),
@@ -274,7 +283,12 @@ public class SystemConfigDefaults {
                     config.description(),
                     config.upgradeLegacyFalse());
         }
-        return new ResolvedDefault(config.key(), config.defaultValue(), config.description(), config.upgradeLegacyFalse());
+        return new ResolvedDefault(
+                config.key(),
+                config.defaultValue(),
+                config.description(),
+                config.upgradeLegacyFalse(),
+                config.upgradeLegacyValue());
     }
 
     public boolean isCoreKey(String key) {
@@ -321,11 +335,19 @@ public class SystemConfigDefaults {
     }
 
     private static DefaultConfig cfg(String key, String defaultValue, String description) {
-        return new DefaultConfig(key, defaultValue, description, false);
+        return new DefaultConfig(key, defaultValue, description, false, null);
     }
 
     private static DefaultConfig cfgUpgradeLegacyFalse(String key, String defaultValue, String description) {
-        return new DefaultConfig(key, defaultValue, description, true);
+        return new DefaultConfig(key, defaultValue, description, true, null);
+    }
+
+    private static DefaultConfig cfgUpgradeLegacyValue(
+            String key,
+            String defaultValue,
+            String description,
+            String upgradeLegacyValue) {
+        return new DefaultConfig(key, defaultValue, description, false, upgradeLegacyValue);
     }
 
     private static String llmPrompt(String expert, String validList) {
@@ -347,15 +369,29 @@ public class SystemConfigDefaults {
         """.formatted(expert, validList).trim();
     }
 
-    public record DefaultConfig(String key, String defaultValue, String description, boolean upgradeLegacyFalse) {
+    public record DefaultConfig(
+            String key,
+            String defaultValue,
+            String description,
+            boolean upgradeLegacyFalse,
+            String upgradeLegacyValue) {
         public DefaultConfig(String key, String defaultValue, String description) {
-            this(key, defaultValue, description, false);
+            this(key, defaultValue, description, false, null);
         }
     }
 
-    public record ResolvedDefault(String key, String value, String description, boolean upgradeLegacyFalse) {
+    public record ResolvedDefault(
+            String key,
+            String value,
+            String description,
+            boolean upgradeLegacyFalse,
+            String upgradeLegacyValue) {
         public ResolvedDefault(String key, String value, String description) {
-            this(key, value, description, false);
+            this(key, value, description, false, null);
+        }
+
+        public ResolvedDefault(String key, String value, String description, boolean upgradeLegacyFalse) {
+            this(key, value, description, upgradeLegacyFalse, null);
         }
     }
 }

@@ -53,6 +53,9 @@ class SystemConfigDefaultsTest {
         assertEquals("true", defaults.staticDefaultValue("app.ai.llm.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.maintenance.playlist-repair.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.metadata.tmdb.proxy.enabled").orElseThrow());
+        assertEquals("150", defaults.staticDefaultValue("app.metadata.public-traffic.default-gap-ms").orElseThrow());
+        assertEquals("40", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.batch-size").orElseThrow());
+        assertEquals("16", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.parallelism").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("member.oauth.auto-register.enabled").orElseThrow());
@@ -269,6 +272,10 @@ class SystemConfigDefaultsTest {
             "global.traffic.max-delay-ms",
             "global.traffic.safety-floor-ms",
             "global.traffic.max-wait-ms",
+            "app.metadata.public-traffic.enabled",
+            "app.metadata.public-traffic.default-gap-ms",
+            "app.metadata.public-traffic.max-wait",
+            "app.metadata.public-traffic.ttl",
             "app.metadata.tmdb.enabled",
             "app.metadata.tmdb.min-delay-ms",
             "app.metadata.tmdb.max-delay-ms",
@@ -304,6 +311,7 @@ class SystemConfigDefaultsTest {
             "app.metadata.valkey-dispatcher.fixed-delay-ms",
             "app.metadata.valkey-provider-worker.enabled",
             "app.metadata.valkey-provider-worker.batch-size",
+            "app.metadata.valkey-provider-worker.parallelism",
             "app.metadata.valkey-provider-worker.visibility-timeout",
             "app.metadata.valkey-provider-worker.retry-delay",
             "app.metadata.valkey-provider-worker.initial-delay-ms",

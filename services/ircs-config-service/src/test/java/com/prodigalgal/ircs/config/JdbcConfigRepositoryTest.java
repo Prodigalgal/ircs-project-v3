@@ -27,6 +27,12 @@ class JdbcConfigRepositoryTest {
                         any(),
                         any(),
                         any(),
+                        any(),
+                        any(),
+                        any(),
+                        any(),
+                        any(),
+                        any(),
                         any()))
                 .thenReturn(List.of());
 
@@ -44,6 +50,12 @@ class JdbcConfigRepositoryTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
                 any());
 
         String sql = sqlCaptor.getValue().toLowerCase();
@@ -52,6 +64,7 @@ class JdbcConfigRepositoryTest {
         assertTrue(conflictClause.contains("config_value = case"));
         assertTrue(conflictClause.contains("btrim(system_configs.config_value)"));
         assertTrue(conflictClause.contains("lower(coalesce(btrim(system_configs.config_value), '')) = 'false'"));
+        assertTrue(conflictClause.contains("btrim(system_configs.config_value) = ?"));
         assertFalse(conflictClause.contains("config_value = excluded.config_value"));
     }
 }

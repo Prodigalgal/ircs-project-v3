@@ -98,7 +98,7 @@ class TmdbMetadataProviderTest {
         assertTrue(metadata.getActorNames().contains("Keanu Reeves"));
         assertTrue(metadata.getDirectorNames().contains("Lana Wachowski"));
         assertTrue(metadata.getGenreNames().contains("Science Fiction"));
-        verify(rateLimiter).acquire(credential);
+        verify(rateLimiter, times(2)).acquire(credential);
     }
 
     @Test

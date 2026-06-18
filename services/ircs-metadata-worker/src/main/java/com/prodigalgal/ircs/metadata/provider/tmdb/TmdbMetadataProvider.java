@@ -60,7 +60,6 @@ public class TmdbMetadataProvider implements MetadataProvider {
         for (int attempt = 0; attempt < credentials.size(); attempt++) {
             TmdbCredential credential = credentials.get((start + attempt) % credentials.size());
             try {
-                rateLimiter.acquire(credential);
                 return searchWithCredential(context, credential);
             } catch (MetadataProviderRetryableException ex) {
                 lastRetryable = ex;
@@ -76,7 +75,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
         String searchType = determineSearchType(context);
         int maxPages = "multi".equals(searchType) ? properties.getMaxMultiPages() : 1;
         for (int page = 1; page <= maxPages; page++) {
-            Optional<String> response = httpClient.getJson(buildSearchUri(searchType, credential.apiKey(), context, page));
+            Optional<String> response = getJson(credential, buildSearchUri(searchType, credential.apiKey(), context, page));
             if (response.isEmpty()) {
                 return Optional.empty();
             }
@@ -124,7 +123,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
     private Optional<EnrichedMetadataDTO> fetchDetails(TmdbCredential credential, String tmdbId, String mediaType) {
         try {
             String endpoint = "movie".equals(mediaType) ? "/movie" : "/tv";
-            Optional<String> response = httpClient.getJson(UriComponentsBuilder
+            Optional<String> response = getJson(credential, UriComponentsBuilder
                     .fromUriString(properties.getBaseUrl() + endpoint + "/" + tmdbId)
                     .queryParam("api_key", credential.apiKey())
                     .queryParam("language", properties.getLanguage())
@@ -142,6 +141,11 @@ public class TmdbMetadataProvider implements MetadataProvider {
             log.warn("Failed to fetch or parse TMDB details for id={}", tmdbId, ex);
             return Optional.empty();
         }
+    }
+
+    private Optional<String> getJson(TmdbCredential credential, URI uri) {
+        rateLimiter.acquire(credential);
+        return httpClient.getJson(uri);
     }
 
     private EnrichedMetadataDTO mapDetails(String tmdbId, String response) throws java.io.IOException {
