@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
     private final TmdbHttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final TmdbProviderProperties properties;
+    private final AtomicLong credentialCursor = new AtomicLong();
 
     @Override
     public ProviderType getType() {
@@ -54,7 +56,9 @@ public class TmdbMetadataProvider implements MetadataProvider {
         }
 
         MetadataProviderRetryableException lastRetryable = null;
-        for (TmdbCredential credential : credentials) {
+        int start = Math.floorMod(credentialCursor.getAndIncrement(), credentials.size());
+        for (int attempt = 0; attempt < credentials.size(); attempt++) {
+            TmdbCredential credential = credentials.get((start + attempt) % credentials.size());
             try {
                 rateLimiter.acquire(credential);
                 return searchWithCredential(context, credential);

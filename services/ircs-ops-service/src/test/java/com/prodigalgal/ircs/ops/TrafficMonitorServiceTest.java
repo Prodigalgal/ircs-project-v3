@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -100,6 +101,39 @@ class TrafficMonitorServiceTest {
         assertEquals(0L, slot.waitingTasks());
         assertFalse(slot.isBlocked());
         assertEquals(0.43, slot.congestionRate());
+    }
+
+    @Test
+    void includesEnabledTmdbCredentialsWithoutRuntimeBucket() {
+        UUID firstCredentialId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID secondCredentialId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
+
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(cursor.hasNext()).thenReturn(false);
+        when(credentialLabelRepository.findEnabledProviderLabels("TMDB", "api_key", 100))
+                .thenReturn(List.of(
+                        new CredentialLabelRepository.CredentialTrafficLabel(
+                                firstCredentialId,
+                                "TMDB",
+                                "Default TMDB Key 1",
+                                40),
+                        new CredentialLabelRepository.CredentialTrafficLabel(
+                                secondCredentialId,
+                                "TMDB",
+                                "Default TMDB Key 2",
+                                40)));
+
+        TrafficStatusResponse status = service.getTrafficStatus();
+
+        assertEquals(2, status.credentialLimiters().size());
+        TrafficSlotResponse first = status.credentialLimiters().getFirst();
+        assertEquals("cred:" + firstCredentialId, first.key());
+        assertEquals("[TMDB] Default TMDB Key 1", first.label());
+        assertEquals("TOKEN_BUCKET", first.limiterType());
+        assertEquals(40L, first.remainingPermits());
+        assertEquals(40L, first.capacity());
+        assertFalse(first.isBlocked());
     }
 
     @Test

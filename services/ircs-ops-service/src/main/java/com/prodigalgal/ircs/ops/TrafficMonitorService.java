@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -18,6 +19,9 @@ import org.springframework.util.StringUtils;
 public class TrafficMonitorService {
 
     private static final String PREFIX = "traffic:limit:";
+    private static final String TMDB_PROVIDER = "TMDB";
+    private static final String TMDB_API_KEY_PAYLOAD = "api_key";
+    private static final int MAX_CONFIGURED_CREDENTIALS = 100;
     private static final long MAX_BLOCKING_TIME_MS = 30_000L;
 
     private final StringRedisTemplate redisTemplate;
@@ -25,7 +29,7 @@ public class TrafficMonitorService {
 
     public TrafficStatusResponse getTrafficStatus() {
         List<TrafficSlotResponse> globals = new ArrayList<>();
-        List<TrafficSlotResponse> credentials = new ArrayList<>();
+        Map<String, TrafficSlotResponse> credentialSlots = new LinkedHashMap<>();
         ScanOptions options = ScanOptions.scanOptions().match(PREFIX + "*").count(100).build();
 
         try (Cursor<String> cursor = redisTemplate.scan(options)) {
@@ -40,7 +44,7 @@ public class TrafficMonitorService {
                     continue;
                 }
                 if (rawKey.startsWith("cred:")) {
-                    credentials.add(slot);
+                    credentialSlots.put(slot.key(), slot);
                 } else {
                     globals.add(slot);
                 }
@@ -49,6 +53,8 @@ public class TrafficMonitorService {
             return new TrafficStatusResponse(List.of(), List.of());
         }
 
+        addConfiguredCredentialSlots(credentialSlots);
+        List<TrafficSlotResponse> credentials = new ArrayList<>(credentialSlots.values());
         globals.sort(Comparator.comparing(TrafficSlotResponse::key));
         credentials.sort(Comparator.comparing(TrafficSlotResponse::key));
         return new TrafficStatusResponse(globals, credentials);
@@ -198,6 +204,46 @@ public class TrafficMonitorService {
         } catch (RuntimeException ex) {
             return "Invalid ID: " + idText;
         }
+    }
+
+    private void addConfiguredCredentialSlots(Map<String, TrafficSlotResponse> credentialSlots) {
+        List<CredentialLabelRepository.CredentialTrafficLabel> labels;
+        try {
+            labels = credentialLabelRepository.findEnabledProviderLabels(
+                    TMDB_PROVIDER,
+                    TMDB_API_KEY_PAYLOAD,
+                    MAX_CONFIGURED_CREDENTIALS);
+        } catch (RuntimeException ignored) {
+            return;
+        }
+        if (labels == null || labels.isEmpty()) {
+            return;
+        }
+        for (CredentialLabelRepository.CredentialTrafficLabel label : labels) {
+            if (label == null || label.id() == null) {
+                continue;
+            }
+            String key = "cred:" + label.id();
+            credentialSlots.putIfAbsent(key, idleCredentialSlot(key, label));
+        }
+    }
+
+    private TrafficSlotResponse idleCredentialSlot(
+            String key,
+            CredentialLabelRepository.CredentialTrafficLabel label) {
+        Long capacity = label.rateLimit() == null || label.rateLimit() <= 0
+                ? null
+                : label.rateLimit().longValue();
+        return new TrafficSlotResponse(
+                key,
+                label.label(),
+                0L,
+                0L,
+                0.0,
+                false,
+                "TOKEN_BUCKET",
+                capacity,
+                capacity);
     }
 
     private long parseLong(Object value, long fallback) {
