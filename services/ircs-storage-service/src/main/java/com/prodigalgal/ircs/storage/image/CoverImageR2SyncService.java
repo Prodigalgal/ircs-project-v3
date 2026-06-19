@@ -22,7 +22,7 @@ public class CoverImageR2SyncService {
     @Value("${app.storage.image.max-retries:3}")
     private int maxRetries;
 
-    @Value("${app.storage.image.download-enabled:true}")
+    @Value("${app.storage.image.download.enabled:true}")
     private boolean imageDownloadEnabled;
 
     @Transactional

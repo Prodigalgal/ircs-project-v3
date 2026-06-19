@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -196,10 +197,12 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     private final Duration rateBucketSize;
     private final Duration rateBucketTtl;
     private final Duration rateBucketIndexRetention;
+    private final ObjectProvider<WorkSubmissionGate> submissionGateProvider;
 
     @Autowired
     public RedisRuntimeWorkQueue(
             StringRedisTemplate redisTemplate,
+            ObjectProvider<WorkSubmissionGate> submissionGateProvider,
             @Value("${app.runtime-work-queue.key-prefix:ircs:work:v1}") String keyPrefix,
             @Value("${app.runtime-work-queue.event-stream-maxlen:10000}") int eventStreamMaxLen,
             @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}") String rateMetricsKeyPrefix,
@@ -207,7 +210,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
             @Value("${app.rate-metrics.bucket-ttl:PT30M}") Duration rateBucketTtl,
             @Value("${app.rate-metrics.bucket-index-retention:PT31M}") Duration rateBucketIndexRetention) {
         this(redisTemplate, Clock.systemUTC(), keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention);
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, submissionGateProvider);
     }
 
     RedisRuntimeWorkQueue(
@@ -219,6 +222,20 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
             Duration rateBucketSize,
             Duration rateBucketTtl,
             Duration rateBucketIndexRetention) {
+        this(redisTemplate, clock, keyPrefix, eventStreamMaxLen,
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, null);
+    }
+
+    RedisRuntimeWorkQueue(
+            StringRedisTemplate redisTemplate,
+            Clock clock,
+            String keyPrefix,
+            int eventStreamMaxLen,
+            String rateMetricsKeyPrefix,
+            Duration rateBucketSize,
+            Duration rateBucketTtl,
+            Duration rateBucketIndexRetention,
+            ObjectProvider<WorkSubmissionGate> submissionGateProvider) {
         if (redisTemplate == null) {
             throw new IllegalArgumentException("redisTemplate is required");
         }
@@ -232,6 +249,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
         this.rateBucketIndexRetention = rateBucketIndexRetention == null
                 ? RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION
                 : rateBucketIndexRetention;
+        this.submissionGateProvider = submissionGateProvider;
     }
 
     @Override
@@ -246,6 +264,9 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
         long dueAt = now + Math.max(0L, delay == null ? 0L : delay.toMillis());
         String taskType = request.taskType().trim();
         String taskId = request.taskId().trim();
+        if (!canSubmit(taskType)) {
+            return;
+        }
         RateBucket bucket = rateBucket(now);
         redisTemplate.execute(
                 SUBMIT_SCRIPT,
@@ -515,6 +536,11 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
             throw new IllegalArgumentException("taskType is required");
         }
         return taskType.trim();
+    }
+
+    private boolean canSubmit(String taskType) {
+        WorkSubmissionGate gate = submissionGateProvider == null ? null : submissionGateProvider.getIfAvailable();
+        return gate == null || gate.canSubmitRuntime(taskType);
     }
 
     private static String normalizeKeyPrefix(String keyPrefix) {

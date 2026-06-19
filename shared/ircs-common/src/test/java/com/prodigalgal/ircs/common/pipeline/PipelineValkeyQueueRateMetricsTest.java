@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
+import com.prodigalgal.ircs.common.work.WorkSubmissionGate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
@@ -48,6 +52,32 @@ class PipelineValkeyQueueRateMetricsTest {
                 6,
                 13,
                 RateMetricKeys.pipelineMetric(PipelineTaskTypes.NORMALIZE_VIDEO, RateMetricKeys.ACTION_SUBMITTED));
+    }
+
+    @Test
+    void submitSkipsRedisWhenSubmissionGateIsDisabled() {
+        WorkSubmissionGate gate = org.mockito.Mockito.mock(WorkSubmissionGate.class);
+        when(gate.canSubmitPipeline(PipelineTaskTypes.ENRICH_METADATA)).thenReturn(false);
+        PipelineValkeyQueue gatedQueue = new PipelineValkeyQueue(
+                redisTemplate,
+                clock,
+                "ircs:pipeline:v2",
+                10_000,
+                "ircs:metrics:rate",
+                Duration.ofSeconds(10),
+                Duration.ofMinutes(30),
+                Duration.ofMinutes(31),
+                gateProvider(gate));
+
+        gatedQueue.submit(
+                PipelineTaskTypes.ENRICH_METADATA,
+                "task-1",
+                UUID.randomUUID(),
+                "v1",
+                "",
+                Duration.ZERO);
+
+        verifyNoInteractions(redisTemplate);
     }
 
     @Test
@@ -132,5 +162,12 @@ class PipelineValkeyQueueRateMetricsTest {
     }
 
     private record CapturedExecution(List<?> keys, Object[] args) {
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<WorkSubmissionGate> gateProvider(WorkSubmissionGate gate) {
+        ObjectProvider<WorkSubmissionGate> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(gate);
+        return provider;
     }
 }

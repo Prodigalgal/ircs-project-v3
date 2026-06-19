@@ -48,7 +48,7 @@ public class CoverImageDownloadService {
     @Value("${app.storage.cover-path-prefix:covers}")
     private String coverPathPrefix;
 
-    @Value("${app.storage.image.download-enabled:true}")
+    @Value("${app.storage.image.download.enabled:true}")
     private boolean downloadEnabled;
 
     @Value("${app.storage.image.allow-local-addresses:false}")

@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
+import com.prodigalgal.ircs.common.work.SystemConfigWorkSubmissionGate;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
@@ -229,7 +230,7 @@ public class SystemMetricsService {
                 consumers,
                 role == PipelineMetricRole.DLQ
                         ? null
-                        : blockedReason(current, consumers, QueueConsumerPolicy.enabled(null, true)),
+                        : blockedReason(current, consumers, pipelineWorkPolicy(taskType)),
                 rateDescriptor.kind(),
                 rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
     }
@@ -276,7 +277,7 @@ public class SystemMetricsService {
                 state.messageCount(),
                 state.consumerCount(),
                 checkConsumers
-                        ? blockedReason(state.messageCount(), state.consumerCount(), QueueConsumerPolicy.enabled(null, true))
+                        ? blockedReason(state.messageCount(), state.consumerCount(), QueueConsumerPolicy.enabled())
                         : null,
                 RateKind.NONE,
                 rateSnapshot.empty(key, name));
@@ -430,26 +431,24 @@ public class SystemMetricsService {
         if (policy == null || !policy.hasConsumer()) {
             return "NO_CONSUMER_IMPL";
         }
-        if (policy.enabledKey() != null && !configEnabled(policy.enabledKey(), policy.defaultEnabled())) {
-            return "DISABLED_BY_CONFIG";
+        for (SystemConfigWorkSubmissionGate.ConfigFlag flag : policy.enabledFlags()) {
+            if (!configEnabled(flag.key(), flag.defaultEnabled())) {
+                return "DISABLED_BY_CONFIG";
+            }
         }
         return "CONSUMER_STALE";
     }
 
+    private QueueConsumerPolicy pipelineWorkPolicy(String taskType) {
+        List<SystemConfigWorkSubmissionGate.ConfigFlag> flags =
+                SystemConfigWorkSubmissionGate.pipelineFlags(taskType);
+        return flags.isEmpty() ? QueueConsumerPolicy.missing() : QueueConsumerPolicy.enabled(flags);
+    }
+
     private QueueConsumerPolicy runtimeWorkPolicy(String taskType) {
-        return switch (taskType) {
-            case SearchSyncWorkTypes.RAW, SearchSyncWorkTypes.UNIFIED ->
-                    QueueConsumerPolicy.enabled("app.search.work-queue.worker.enabled", true);
-            case AggregationWorkTypes.RAW_VIDEO ->
-                    QueueConsumerPolicy.enabled("app.aggregation.work-queue.worker.enabled", true);
-            case LlmCleaningWorkTypes.RAW_TERM ->
-                    QueueConsumerPolicy.enabled("app.normalization.llm-cleaning.work-queue.worker.enabled", true);
-            case StorageWorkTypes.AVATAR_SYNC, StorageWorkTypes.COVER_R2_SYNC ->
-                    QueueConsumerPolicy.enabled("app.storage.r2.work-queue.worker.enabled", true);
-            case AuditReplicationWorkTypes.ES_REPLICATION ->
-                    QueueConsumerPolicy.enabled("app.search.audit-es-replication.worker.enabled", true);
-            default -> QueueConsumerPolicy.missing();
-        };
+        List<SystemConfigWorkSubmissionGate.ConfigFlag> flags =
+                SystemConfigWorkSubmissionGate.runtimeFlags(taskType);
+        return flags.isEmpty() ? QueueConsumerPolicy.missing() : QueueConsumerPolicy.enabled(flags);
     }
 
     private boolean configEnabled(String key, boolean defaultValue) {
@@ -624,14 +623,20 @@ public class SystemMetricsService {
     private record RateDescriptor(RateKind kind, String metricKey, String label) {
     }
 
-    private record QueueConsumerPolicy(boolean hasConsumer, String enabledKey, boolean defaultEnabled) {
+    private record QueueConsumerPolicy(
+            boolean hasConsumer,
+            List<SystemConfigWorkSubmissionGate.ConfigFlag> enabledFlags) {
 
-        static QueueConsumerPolicy enabled(String enabledKey, boolean defaultEnabled) {
-            return new QueueConsumerPolicy(true, enabledKey, defaultEnabled);
+        static QueueConsumerPolicy enabled() {
+            return new QueueConsumerPolicy(true, List.of());
+        }
+
+        static QueueConsumerPolicy enabled(List<SystemConfigWorkSubmissionGate.ConfigFlag> enabledFlags) {
+            return new QueueConsumerPolicy(true, enabledFlags == null ? List.of() : enabledFlags);
         }
 
         static QueueConsumerPolicy missing() {
-            return new QueueConsumerPolicy(false, null, false);
+            return new QueueConsumerPolicy(false, List.of());
         }
     }
 

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
@@ -15,6 +17,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
@@ -48,6 +51,31 @@ class RedisRuntimeWorkQueueRateMetricsTest {
                 6,
                 14,
                 RateMetricKeys.runtimeMetric(SearchSyncWorkTypes.RAW, RateMetricKeys.ACTION_SUBMITTED));
+    }
+
+    @Test
+    void submitSkipsRedisWhenSubmissionGateIsDisabled() {
+        WorkSubmissionGate gate = org.mockito.Mockito.mock(WorkSubmissionGate.class);
+        when(gate.canSubmitRuntime(SearchSyncWorkTypes.RAW)).thenReturn(false);
+        RedisRuntimeWorkQueue gatedQueue = new RedisRuntimeWorkQueue(
+                redisTemplate,
+                clock,
+                "ircs:work:v1",
+                10_000,
+                "ircs:metrics:rate",
+                Duration.ofSeconds(10),
+                Duration.ofMinutes(30),
+                Duration.ofMinutes(31),
+                gateProvider(gate));
+
+        gatedQueue.submit(new RuntimeWorkItemRequest(
+                SearchSyncWorkTypes.RAW,
+                "task-1",
+                "raw-1",
+                "v1",
+                "{}"));
+
+        verifyNoInteractions(redisTemplate);
     }
 
     @Test
@@ -136,5 +164,12 @@ class RedisRuntimeWorkQueueRateMetricsTest {
     }
 
     private record CapturedExecution(List<?> keys, Object[] args) {
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<WorkSubmissionGate> gateProvider(WorkSubmissionGate gate) {
+        ObjectProvider<WorkSubmissionGate> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(gate);
+        return provider;
     }
 }

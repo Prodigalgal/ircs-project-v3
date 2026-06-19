@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.common.pipeline;
 import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 import com.prodigalgal.ircs.contracts.pipeline.PipelineStep;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
+import com.prodigalgal.ircs.common.work.WorkSubmissionGate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -182,10 +184,12 @@ public class PipelineValkeyQueue {
     private final Duration rateBucketSize;
     private final Duration rateBucketTtl;
     private final Duration rateBucketIndexRetention;
+    private final ObjectProvider<WorkSubmissionGate> submissionGateProvider;
 
     @Autowired
     public PipelineValkeyQueue(
             StringRedisTemplate redisTemplate,
+            ObjectProvider<WorkSubmissionGate> submissionGateProvider,
             @Value("${app.pipeline.valkey.key-prefix:ircs:pipeline:v2}") String keyPrefix,
             @Value("${app.pipeline.valkey.event-stream-maxlen:10000}") int eventStreamMaxLen,
             @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}") String rateMetricsKeyPrefix,
@@ -193,7 +197,7 @@ public class PipelineValkeyQueue {
             @Value("${app.rate-metrics.bucket-ttl:PT30M}") Duration rateBucketTtl,
             @Value("${app.rate-metrics.bucket-index-retention:PT31M}") Duration rateBucketIndexRetention) {
         this(redisTemplate, Clock.systemUTC(), keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention);
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, submissionGateProvider);
     }
 
     PipelineValkeyQueue(
@@ -205,6 +209,20 @@ public class PipelineValkeyQueue {
             Duration rateBucketSize,
             Duration rateBucketTtl,
             Duration rateBucketIndexRetention) {
+        this(redisTemplate, clock, keyPrefix, eventStreamMaxLen,
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, null);
+    }
+
+    PipelineValkeyQueue(
+            StringRedisTemplate redisTemplate,
+            Clock clock,
+            String keyPrefix,
+            int eventStreamMaxLen,
+            String rateMetricsKeyPrefix,
+            Duration rateBucketSize,
+            Duration rateBucketTtl,
+            Duration rateBucketIndexRetention,
+            ObjectProvider<WorkSubmissionGate> submissionGateProvider) {
         if (redisTemplate == null) {
             throw new IllegalArgumentException("redisTemplate is required");
         }
@@ -218,6 +236,7 @@ public class PipelineValkeyQueue {
         this.rateBucketIndexRetention = rateBucketIndexRetention == null
                 ? RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION
                 : rateBucketIndexRetention;
+        this.submissionGateProvider = submissionGateProvider;
     }
 
     public void submit(PipelineCommand command) {
@@ -253,15 +272,19 @@ public class PipelineValkeyQueue {
             String payload,
             Duration delay) {
         validateTask(taskType, taskId, rawVideoId);
+        String normalizedTaskType = taskType.trim();
+        if (!canSubmit(normalizedTaskType)) {
+            return;
+        }
         long now = nowMillis();
         long dueAt = now + Math.max(0L, delay == null ? 0L : delay.toMillis());
         RateBucket bucket = rateBucket(now);
         redisTemplate.execute(
                 SUBMIT_SCRIPT,
-                List.of(pendingKey(taskType), inflightKey(taskType), dlqKey(taskType), eventStreamKey(),
+                List.of(pendingKey(normalizedTaskType), inflightKey(normalizedTaskType), dlqKey(normalizedTaskType), eventStreamKey(),
                         bucket.bucketKey(), bucket.bucketIndexKey()),
-                taskKey(taskType, taskId),
-                taskType,
+                taskKey(normalizedTaskType, taskId),
+                normalizedTaskType,
                 taskId,
                 rawVideoId.toString(),
                 normalizeVersion(pipelineVersion),
@@ -272,7 +295,7 @@ public class PipelineValkeyQueue {
                 bucket.bucketStartMillis(),
                 bucket.bucketTtlSeconds(),
                 bucket.bucketIndexRetentionMillis(),
-                RateMetricKeys.pipelineMetric(taskType, RateMetricKeys.ACTION_SUBMITTED));
+                RateMetricKeys.pipelineMetric(normalizedTaskType, RateMetricKeys.ACTION_SUBMITTED));
     }
 
     public void submitAfterCommit(
@@ -459,6 +482,11 @@ public class PipelineValkeyQueue {
         if (!StringUtils.hasText(taskType)) {
             throw new IllegalArgumentException("taskType is required");
         }
+    }
+
+    private boolean canSubmit(String taskType) {
+        WorkSubmissionGate gate = submissionGateProvider == null ? null : submissionGateProvider.getIfAvailable();
+        return gate == null || gate.canSubmitPipeline(taskType);
     }
 
     private long nowMillis() {

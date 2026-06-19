@@ -1,7 +1,6 @@
 package com.prodigalgal.ircs.common.normalization;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
@@ -13,27 +12,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 
 class LlmCleaningWorkPublisherTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void skipsSubmitWhenGateIsDisabled() {
-        CapturingRuntimeWorkQueue queue = new CapturingRuntimeWorkQueue();
-        LlmCleaningWorkPublisher publisher = publisher(queue, () -> false, true);
-
-        publisher.enqueue("actor", UUID.randomUUID(), " raw ", "test");
-
-        assertThat(queue.requests).isEmpty();
-    }
-
-    @Test
-    void submitsWhenGateIsEnabled() throws Exception {
+    void submitsRuntimeWorkItem() throws Exception {
         CapturingRuntimeWorkQueue queue = new CapturingRuntimeWorkQueue();
         UUID rawId = UUID.randomUUID();
-        LlmCleaningWorkPublisher publisher = publisher(queue, () -> true, false);
+        LlmCleaningWorkPublisher publisher = publisher(queue);
 
         publisher.enqueue("actor", rawId, " raw ", "test");
 
@@ -47,28 +35,21 @@ class LlmCleaningWorkPublisherTest {
     }
 
     @Test
-    void fallsBackToDeploymentSwitchWhenNoGateExists() {
+    void ignoresInvalidWorkItem() {
         CapturingRuntimeWorkQueue queue = new CapturingRuntimeWorkQueue();
-        LlmCleaningWorkPublisher publisher = publisher(queue, null, false);
+        LlmCleaningWorkPublisher publisher = publisher(queue);
 
-        publisher.enqueue("director", UUID.randomUUID(), " raw ", "test");
+        publisher.enqueue("", UUID.randomUUID(), " raw ", "test");
+        publisher.enqueue("director", null, " raw ", "test");
 
         assertThat(queue.requests).isEmpty();
     }
 
-    @SuppressWarnings("unchecked")
-    private LlmCleaningWorkPublisher publisher(
-            RuntimeWorkQueue queue,
-            LlmCleaningWorkGate gate,
-            boolean enabledByDeployment) {
-        ObjectProvider<LlmCleaningWorkGate> gateProvider = org.mockito.Mockito.mock(ObjectProvider.class);
-        when(gateProvider.getIfAvailable()).thenReturn(gate);
+    private LlmCleaningWorkPublisher publisher(RuntimeWorkQueue queue) {
         return new LlmCleaningWorkPublisher(
                 queue,
                 objectMapper,
-                gateProvider,
-                "test-service",
-                enabledByDeployment);
+                "test-service");
     }
 
     private static class CapturingRuntimeWorkQueue implements RuntimeWorkQueue {
