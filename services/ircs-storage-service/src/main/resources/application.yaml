@@ -1,6 +1,10 @@
 spring:
   application:
     name: ircs-storage-service
+  task:
+    scheduling:
+      pool:
+        size: ${APP_STORAGE_SCHEDULING_POOL_SIZE:4}
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}
     port: ${RABBITMQ_PORT:${SPRING_RABBITMQ_PORT:5672}}

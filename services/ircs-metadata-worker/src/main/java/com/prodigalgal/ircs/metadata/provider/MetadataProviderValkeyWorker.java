@@ -88,11 +88,18 @@ public class MetadataProviderValkeyWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.metadata.valkey-provider-worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.metadata.valkey-provider-worker.heartbeat-fixed-delay-ms:15000}")
+    public void heartbeatScheduled() {
+        heartbeat();
+    }
+
     int runOnce() {
         WorkerSettings settings = workerSettings();
         int batchSize = settings.batchSize();
         int parallelism = applyParallelism(settings.parallelism());
-        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.METADATA_PROVIDER, workerId, visibilityTimeout.plusMinutes(1));
+        heartbeat();
         int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.METADATA_PROVIDER, batchSize);
         if (reclaimed > 0) {
             log.info("Requeued expired metadata provider tasks from Valkey: count={}", reclaimed);
@@ -104,6 +111,10 @@ public class MetadataProviderValkeyWorker {
                 visibilityTimeout);
         processBatch(tasks, parallelism);
         return tasks.size();
+    }
+
+    private void heartbeat() {
+        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.METADATA_PROVIDER, workerId, visibilityTimeout.plusMinutes(1));
     }
 
     private void processBatch(List<PipelineValkeyTask> tasks, int parallelism) {

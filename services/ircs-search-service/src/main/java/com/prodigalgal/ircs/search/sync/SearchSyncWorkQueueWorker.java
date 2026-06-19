@@ -91,6 +91,15 @@ class SearchSyncWorkQueueWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.search.work-queue.worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.search.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
+    public void heartbeatScheduled() {
+        if (workerEnabled()) {
+            heartbeatAll(workerId(), consumerHeartbeatTtl());
+        }
+    }
+
     int runOnce() {
         if (!workerEnabled()) {
             lastRunState = "DISABLED";
@@ -132,9 +141,8 @@ class SearchSyncWorkQueueWorker {
         RuntimeException fatal = null;
         try {
             int effectiveBatchSize = Math.max(1, batchSize);
-            Duration heartbeatTtl = Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1);
-            workQueue.heartbeatConsumer(SearchSyncWorkTypes.RAW, resolvedWorkerId, heartbeatTtl);
-            workQueue.heartbeatConsumer(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, heartbeatTtl);
+            Duration heartbeatTtl = consumerHeartbeatTtl();
+            heartbeatAll(resolvedWorkerId, heartbeatTtl);
             requeued += workQueue.requeueExpired(SearchSyncWorkTypes.RAW, effectiveBatchSize);
             requeued += workQueue.requeueExpired(SearchSyncWorkTypes.UNIFIED, effectiveBatchSize);
             WorkRunResult raw = processItemsSafely(SearchSyncWorkTypes.RAW, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
@@ -173,7 +181,7 @@ class SearchSyncWorkQueueWorker {
     }
 
     private WorkRunResult processItems(String taskType, String resolvedWorkerId, int limit, Duration heartbeatTtl) {
-        workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
+        heartbeatAll(resolvedWorkerId, heartbeatTtl);
         List<RuntimeWorkItem> items = workQueue.claim(
                 taskType,
                 resolvedWorkerId,
@@ -182,15 +190,24 @@ class SearchSyncWorkQueueWorker {
         int processed = 0;
         int failed = 0;
         for (RuntimeWorkItem item : items) {
-            workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
+            heartbeatAll(resolvedWorkerId, heartbeatTtl);
             if (processItem(item, resolvedWorkerId)) {
                 processed++;
             } else {
                 failed++;
             }
         }
-        workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
+        heartbeatAll(resolvedWorkerId, heartbeatTtl);
         return new WorkRunResult(processed, failed);
+    }
+
+    private void heartbeatAll(String resolvedWorkerId, Duration heartbeatTtl) {
+        workQueue.heartbeatConsumer(SearchSyncWorkTypes.RAW, resolvedWorkerId, heartbeatTtl);
+        workQueue.heartbeatConsumer(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, heartbeatTtl);
+    }
+
+    private Duration consumerHeartbeatTtl() {
+        return Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1);
     }
 
     private boolean processItem(RuntimeWorkItem item, String resolvedWorkerId) {

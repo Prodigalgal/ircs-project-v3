@@ -87,6 +87,16 @@ public class StorageR2WorkQueueWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.storage.r2.work-queue.worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.storage.r2.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
+    public void heartbeatScheduled() {
+        if (workerEnabled() && r2ObjectStorage.isActive()) {
+            heartbeat(StorageWorkTypes.AVATAR_SYNC);
+            heartbeat(StorageWorkTypes.COVER_R2_SYNC);
+        }
+    }
+
     int runOnce() {
         if (!workerEnabled()) {
             return 0;
@@ -114,10 +124,7 @@ public class StorageR2WorkQueueWorker {
 
     private int runTask(String taskType, String jobName, Function<UUID, WorkResult> handler) {
         int effectiveBatchSize = Math.max(1, batchSize);
-        workQueue.heartbeatConsumer(
-                taskType,
-                workerId(),
-                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
+        heartbeat(taskType);
         workQueue.requeueExpired(taskType, effectiveBatchSize);
         List<RuntimeWorkItem> items = workQueue.claim(
                 taskType,
@@ -128,6 +135,13 @@ public class StorageR2WorkQueueWorker {
             process(item, jobName, handler);
         }
         return items.size();
+    }
+
+    private void heartbeat(String taskType) {
+        workQueue.heartbeatConsumer(
+                taskType,
+                workerId(),
+                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
     }
 
     private void process(RuntimeWorkItem item, String jobName, Function<UUID, WorkResult> handler) {

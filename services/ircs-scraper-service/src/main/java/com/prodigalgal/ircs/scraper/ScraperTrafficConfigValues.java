@@ -12,6 +12,8 @@ class ScraperTrafficConfigValues {
     static final String GLOBAL_MAX_DELAY_KEY = "global.traffic.max-delay-ms";
     static final String GLOBAL_SAFETY_FLOOR_KEY = "global.traffic.safety-floor-ms";
     static final String GLOBAL_MAX_WAIT_KEY = "global.traffic.max-wait-ms";
+    static final String GLOBAL_ENABLED_KEY = "app.scraper.traffic.global-enabled";
+    static final String SOURCE_ENABLED_KEY = "app.scraper.traffic.source-enabled";
 
     static final int DEFAULT_GLOBAL_MIN_DELAY_MS = 3000;
     static final int DEFAULT_GLOBAL_MAX_DELAY_MS = 5000;
@@ -47,6 +49,14 @@ class ScraperTrafficConfigValues {
         return fallback == null || fallback.isNegative() ? Duration.ZERO : fallback;
     }
 
+    boolean globalEnabled(boolean fallback) {
+        return booleanValue(fallback, GLOBAL_ENABLED_KEY);
+    }
+
+    boolean sourceEnabled(boolean fallback) {
+        return booleanValue(fallback, SOURCE_ENABLED_KEY);
+    }
+
     private int globalMinDelayMs() {
         return Math.max(0, intValue(DEFAULT_GLOBAL_MIN_DELAY_MS, GLOBAL_MIN_DELAY_KEY));
     }
@@ -61,6 +71,18 @@ class ScraperTrafficConfigValues {
         } catch (NumberFormatException ignored) {
             return defaultValue;
         }
+    }
+
+    private boolean booleanValue(boolean defaultValue, String key, String... aliases) {
+        String raw = value(key, aliases);
+        if (!StringUtils.hasText(raw)) {
+            return defaultValue;
+        }
+        return switch (raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true", "1", "yes", "y", "on", "enabled" -> true;
+            case "false", "0", "no", "n", "off", "disabled" -> false;
+            default -> defaultValue;
+        };
     }
 
     private String value(String key, String... aliases) {

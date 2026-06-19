@@ -77,6 +77,15 @@ class AuditEsReplicationWorkQueueWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.search.audit-es-replication.worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.search.audit-es-replication.worker.heartbeat-fixed-delay-ms:15000}")
+    void heartbeatScheduled() {
+        if (workerEnabled()) {
+            heartbeat(workerId(), visibility());
+        }
+    }
+
     int runOnce() {
         if (!workerEnabled()) {
             return 0;
@@ -96,7 +105,7 @@ class AuditEsReplicationWorkQueueWorker {
 
     private int runOnceLocked() {
         int effectiveBatchSize = Math.max(1, batchSize);
-        Duration visibility = Duration.ofSeconds(Math.max(1, visibilitySeconds));
+        Duration visibility = visibility();
         String owner = workerId();
         heartbeat(owner, visibility);
         workQueue.requeueExpired(AuditReplicationWorkTypes.ES_REPLICATION, effectiveBatchSize);
@@ -114,6 +123,10 @@ class AuditEsReplicationWorkQueueWorker {
         }
         heartbeat(owner, visibility);
         return processed;
+    }
+
+    private Duration visibility() {
+        return Duration.ofSeconds(Math.max(1, visibilitySeconds));
     }
 
     private boolean processItem(RuntimeWorkItem item) {

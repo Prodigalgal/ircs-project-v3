@@ -83,6 +83,15 @@ class LlmCleaningWorkQueueWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.normalization.llm-cleaning.work-queue.worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.normalization.llm-cleaning.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
+    void heartbeatScheduled() {
+        if (workerEnabled()) {
+            heartbeat();
+        }
+    }
+
     int runOnce() {
         if (!workerEnabled()) {
             return 0;
@@ -99,10 +108,7 @@ class LlmCleaningWorkQueueWorker {
 
     private int runOnceLocked() {
         int effectiveBatchSize = Math.max(1, batchSize);
-        workQueue.heartbeatConsumer(
-                LlmCleaningWorkTypes.RAW_TERM,
-                workerId(),
-                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
+        heartbeat();
         workQueue.requeueExpired(LlmCleaningWorkTypes.RAW_TERM, effectiveBatchSize);
         List<RuntimeWorkItem> items = workQueue.claim(
                 LlmCleaningWorkTypes.RAW_TERM,
@@ -114,6 +120,13 @@ class LlmCleaningWorkQueueWorker {
         }
         process(items);
         return items.size();
+    }
+
+    private void heartbeat() {
+        workQueue.heartbeatConsumer(
+                LlmCleaningWorkTypes.RAW_TERM,
+                workerId(),
+                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
     }
 
     private void process(List<RuntimeWorkItem> items) {

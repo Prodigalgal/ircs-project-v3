@@ -71,6 +71,13 @@ class AggregationWorkQueueWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.aggregation.work-queue.worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.aggregation.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
+    public void heartbeatScheduled() {
+        heartbeat();
+    }
+
     int runOnce() {
         if (!running.compareAndSet(false, true)) {
             return 0;
@@ -84,10 +91,7 @@ class AggregationWorkQueueWorker {
 
     private int runOnceLocked() {
         int effectiveBatchSize = Math.max(1, batchSize);
-        workQueue.heartbeatConsumer(
-                AggregationWorkTypes.RAW_VIDEO,
-                workerId(),
-                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
+        heartbeat();
         int requeued = workQueue.requeueExpired(AggregationWorkTypes.RAW_VIDEO, effectiveBatchSize);
         if (requeued > 0) {
             log.info("Requeued expired aggregation work: count={}", requeued);
@@ -99,6 +103,13 @@ class AggregationWorkQueueWorker {
                 Duration.ofSeconds(Math.max(1, visibilitySeconds)));
         process(items);
         return items.size();
+    }
+
+    private void heartbeat() {
+        workQueue.heartbeatConsumer(
+                AggregationWorkTypes.RAW_VIDEO,
+                workerId(),
+                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
     }
 
     private void process(List<RuntimeWorkItem> items) {

@@ -54,8 +54,15 @@ public class NormalizeVideoValkeyWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.normalization.valkey-worker.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.normalization.valkey-worker.heartbeat-fixed-delay-ms:15000}")
+    public void heartbeatScheduled() {
+        heartbeat();
+    }
+
     int runOnce() {
-        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.NORMALIZE_VIDEO, workerId, visibilityTimeout.plusMinutes(1));
+        heartbeat();
         int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.NORMALIZE_VIDEO, batchSize);
         if (reclaimed > 0) {
             log.info("Requeued expired normalization tasks from Valkey: count={}", reclaimed);
@@ -67,6 +74,10 @@ public class NormalizeVideoValkeyWorker {
                 visibilityTimeout);
         tasks.forEach(this::process);
         return tasks.size();
+    }
+
+    private void heartbeat() {
+        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.NORMALIZE_VIDEO, workerId, visibilityTimeout.plusMinutes(1));
     }
 
     private void process(PipelineValkeyTask task) {

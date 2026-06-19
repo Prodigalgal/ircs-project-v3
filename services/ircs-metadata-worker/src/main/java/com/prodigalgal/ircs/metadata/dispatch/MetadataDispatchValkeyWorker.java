@@ -47,8 +47,15 @@ public class MetadataDispatchValkeyWorker {
         runOnce();
     }
 
+    @Scheduled(
+            initialDelayString = "${app.metadata.valkey-dispatcher.heartbeat-initial-delay-ms:5000}",
+            fixedDelayString = "${app.metadata.valkey-dispatcher.heartbeat-fixed-delay-ms:15000}")
+    public void heartbeatScheduled() {
+        heartbeat();
+    }
+
     int runOnce() {
-        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.ENRICH_METADATA, workerId, visibilityTimeout.plusMinutes(1));
+        heartbeat();
         int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.ENRICH_METADATA, batchSize);
         if (reclaimed > 0) {
             log.info("Requeued expired metadata dispatch tasks from Valkey: count={}", reclaimed);
@@ -60,6 +67,10 @@ public class MetadataDispatchValkeyWorker {
                 visibilityTimeout);
         tasks.forEach(this::process);
         return tasks.size();
+    }
+
+    private void heartbeat() {
+        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.ENRICH_METADATA, workerId, visibilityTimeout.plusMinutes(1));
     }
 
     private void process(PipelineValkeyTask task) {

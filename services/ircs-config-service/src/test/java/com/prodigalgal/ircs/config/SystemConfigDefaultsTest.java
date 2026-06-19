@@ -276,6 +276,8 @@ class SystemConfigDefaultsTest {
             "global.traffic.max-delay-ms",
             "global.traffic.safety-floor-ms",
             "global.traffic.max-wait-ms",
+            "app.scraper.traffic.global-enabled",
+            "app.scraper.traffic.source-enabled",
             "app.metadata.public-traffic.enabled",
             "app.metadata.public-traffic.default-gap-ms",
             "app.metadata.public-traffic.max-wait",

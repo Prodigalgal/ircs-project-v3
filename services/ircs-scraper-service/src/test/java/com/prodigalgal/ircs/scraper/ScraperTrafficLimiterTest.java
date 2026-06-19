@@ -44,10 +44,8 @@ class ScraperTrafficLimiterTest {
 
         limiter.acquireDataSourceSlot(source(), config(750));
 
-        assertThat(lockManager.timeSliceRequests).hasSize(2);
-        assertThat(lockManager.timeSliceRequests.getFirst().key()).isEqualTo(globalKey());
-        assertThat(lockManager.timeSliceRequests.getFirst().gap()).isEqualTo(Duration.ofMillis(250));
-        TimeSliceReservationRequest sourceRequest = lockManager.timeSliceRequests.get(1);
+        assertThat(lockManager.timeSliceRequests).hasSize(1);
+        TimeSliceReservationRequest sourceRequest = lockManager.timeSliceRequests.getFirst();
         assertThat(sourceRequest.key()).isEqualTo(sourceKey());
         assertThat(sourceRequest.gap()).isEqualTo(Duration.ofMillis(750));
         assertThat(sourceRequest.maxWait()).isEqualTo(Duration.ofMinutes(2));
@@ -72,7 +70,7 @@ class ScraperTrafficLimiterTest {
 
         limiter.acquireDataSourceSlot(source(), config(0));
 
-        assertThat(lockManager.timeSliceRequests.get(1).gap()).isEqualTo(Duration.ofMillis(1250));
+        assertThat(lockManager.timeSliceRequests.getFirst().gap()).isEqualTo(Duration.ofMillis(1250));
     }
 
     @Test
@@ -93,17 +91,12 @@ class ScraperTrafficLimiterTest {
 
         limiter.acquireDataSourceSlot(source(), config(500));
 
-        assertThat(lockManager.timeSliceRequests.get(1).gap()).isEqualTo(Duration.ofMillis(3000));
+        assertThat(lockManager.timeSliceRequests.getFirst().gap()).isEqualTo(Duration.ofMillis(3000));
     }
 
     @Test
     void rejectsWhenDatasourceQueueWaitExceedsMaxWait() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(
-                TimeSliceReservation.reserved(
-                        globalKey(),
-                        Duration.ZERO,
-                        Instant.parse("2026-06-11T00:00:00Z"),
-                        Instant.parse("2026-06-11T00:00:01Z")),
                 TimeSliceReservation.rejected(
                         sourceKey(),
                         Duration.ofMinutes(3),
@@ -124,7 +117,27 @@ class ScraperTrafficLimiterTest {
     }
 
     @Test
-    void rejectsWhenGlobalQueueWaitExceedsMaxWait() {
+    void reservesGlobalTimeSliceOnlyWhenExplicitlyEnabled() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
+        ScraperTrafficLimiter limiter = limiter(
+                lockManager,
+                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2), true, true),
+                true,
+                EGRESS_IP,
+                1000,
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+
+        limiter.acquireDataSourceSlot(source(), config(1000));
+
+        assertThat(lockManager.timeSliceRequests).hasSize(2);
+        assertThat(lockManager.timeSliceRequests.getFirst().key()).isEqualTo(globalKey());
+        assertThat(lockManager.timeSliceRequests.getFirst().gap()).isEqualTo(Duration.ofMillis(250));
+        assertThat(lockManager.timeSliceRequests.get(1).key()).isEqualTo(sourceKey());
+    }
+
+    @Test
+    void rejectsWhenExplicitGlobalQueueWaitExceedsMaxWait() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.rejected(
                 globalKey(),
                 Duration.ofMinutes(3),
@@ -132,7 +145,7 @@ class ScraperTrafficLimiterTest {
                 Instant.parse("2026-06-11T00:03:00Z")));
         ScraperTrafficLimiter limiter = limiter(
                 lockManager,
-                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2)),
+                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2), true, true),
                 true,
                 EGRESS_IP,
                 1000,
@@ -159,8 +172,6 @@ class ScraperTrafficLimiterTest {
         limiter.acquireDataSourceSlot(source(), config(1000));
 
         assertThat(lockManager.timeSliceRequests.getFirst().key())
-                .isEqualTo("traffic:limit:Global:Scraper:Ip:2001_db8__10");
-        assertThat(lockManager.timeSliceRequests.get(1).key())
                 .isEqualTo("traffic:limit:DataSource:Ip:2001_db8__10:" + SOURCE_ID);
     }
 
@@ -196,10 +207,21 @@ class ScraperTrafficLimiterTest {
     }
 
     private ScraperTrafficConfigValues trafficConfig(Duration globalGap, Duration safetyFloor, Duration maxWait) {
+        return trafficConfig(globalGap, safetyFloor, maxWait, false, true);
+    }
+
+    private ScraperTrafficConfigValues trafficConfig(
+            Duration globalGap,
+            Duration safetyFloor,
+            Duration maxWait,
+            boolean globalEnabled,
+            boolean sourceEnabled) {
         ScraperTrafficConfigValues values = org.mockito.Mockito.mock(ScraperTrafficConfigValues.class);
         org.mockito.Mockito.when(values.globalDelay()).thenReturn(globalGap);
         org.mockito.Mockito.when(values.safetyFloor()).thenReturn(safetyFloor);
         org.mockito.Mockito.when(values.maxWait(org.mockito.Mockito.any())).thenReturn(maxWait);
+        org.mockito.Mockito.when(values.globalEnabled(org.mockito.Mockito.anyBoolean())).thenReturn(globalEnabled);
+        org.mockito.Mockito.when(values.sourceEnabled(org.mockito.Mockito.anyBoolean())).thenReturn(sourceEnabled);
         return values;
     }
 
@@ -211,7 +233,7 @@ class ScraperTrafficLimiterTest {
             long defaultGapMs,
             Duration maxWait,
             Duration ttl) {
-        return new ScraperTrafficLimiter(lockManager, trafficConfig, enabled, egressIp, defaultGapMs, maxWait, ttl);
+        return new ScraperTrafficLimiter(lockManager, trafficConfig, enabled, false, true, egressIp, defaultGapMs, maxWait, ttl);
     }
 
     private static String globalKey() {

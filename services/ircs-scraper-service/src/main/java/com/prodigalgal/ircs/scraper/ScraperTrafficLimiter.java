@@ -25,11 +25,15 @@ class ScraperTrafficLimiter {
     private final Duration defaultGap;
     private final Duration maxWait;
     private final Duration ttl;
+    private final boolean globalEnabledByDeployment;
+    private final boolean sourceEnabledByDeployment;
 
     ScraperTrafficLimiter(
             DistributedLockManager lockManager,
             ScraperTrafficConfigValues configValues,
             @Value("${app.scraper.traffic.enabled:true}") boolean enabled,
+            @Value("${app.scraper.traffic.global-enabled:false}") boolean globalEnabledByDeployment,
+            @Value("${app.scraper.traffic.source-enabled:true}") boolean sourceEnabledByDeployment,
             @Value("${app.scraper.traffic.egress-id:${IRCS_SCRAPER_TRAFFIC_EGRESS_IP:${KUBERNETES_NODE_IP:${HOST_IP:${HOSTNAME:unknown}}}}}") String egressIdentity,
             @Value("${app.scraper.traffic.default-gap-ms:1000}") long defaultGapMs,
             @Value("${app.scraper.traffic.max-wait:PT2M}") Duration maxWait,
@@ -41,18 +45,25 @@ class ScraperTrafficLimiter {
         this.defaultGap = positiveOr(defaultGapMs, Duration.ofSeconds(1));
         this.maxWait = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
         this.ttl = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
+        this.globalEnabledByDeployment = globalEnabledByDeployment;
+        this.sourceEnabledByDeployment = sourceEnabledByDeployment;
     }
 
     static ScraperTrafficLimiter noop() {
-        return new ScraperTrafficLimiter(null, null, false, "unknown", 0, Duration.ZERO, Duration.ZERO);
+        return new ScraperTrafficLimiter(null, null, false, false, false, "unknown", 0, Duration.ZERO, Duration.ZERO);
     }
 
     void acquireDataSourceSlot(DataSourceRecord source, ManualScrapeConfigRequest config) {
         if (!enabled || lockManager == null) {
             return;
         }
-        reserve(globalKey(), globalGap(), "global crawler traffic limit");
+        if (globalEnabled()) {
+            reserve(globalKey(), globalGap(), "global crawler traffic limit");
+        }
         if (source == null || source.id() == null) {
+            return;
+        }
+        if (!sourceEnabled()) {
             return;
         }
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.DATA_SOURCE_SCRAPE);
@@ -96,6 +107,18 @@ class ScraperTrafficLimiter {
 
     private Duration effectiveMaxWait() {
         return configValues == null ? maxWait : configValues.maxWait(maxWait);
+    }
+
+    private boolean globalEnabled() {
+        return configValues == null
+                ? globalEnabledByDeployment
+                : configValues.globalEnabled(globalEnabledByDeployment);
+    }
+
+    private boolean sourceEnabled() {
+        return configValues == null
+                ? sourceEnabledByDeployment
+                : configValues.sourceEnabled(sourceEnabledByDeployment);
     }
 
     private void sleepIfNeeded(Duration waitTime, String label) {

@@ -221,6 +221,7 @@ public class SystemMetricsService {
             case DLQ -> counts.dlq();
         };
         RateDescriptor rateDescriptor = pipelineRate(taskType, role);
+        RateMetricResponse rate = rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label());
         int consumers = role == PipelineMetricRole.DLQ ? 0 : safeInt(pipelineConsumerCount(taskType));
         target.add(new QueueMetricResponse(
                 name,
@@ -230,9 +231,9 @@ public class SystemMetricsService {
                 consumers,
                 role == PipelineMetricRole.DLQ
                         ? null
-                        : blockedReason(current, consumers, pipelineWorkPolicy(taskType)),
+                        : blockedReason(current, consumers, pipelineWorkPolicy(taskType), rate),
                 rateDescriptor.kind(),
-                rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
+                rate));
     }
 
     private void addRuntimeWorkQueueMetrics(
@@ -250,6 +251,7 @@ public class SystemMetricsService {
             case DLQ -> counts.dlq();
         };
         RateDescriptor rateDescriptor = runtimeRate(taskType, role);
+        RateMetricResponse rate = rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label());
         int consumers = role == RuntimeWorkMetricRole.DLQ ? 0 : safeInt(runtimeWorkConsumerCount(taskType));
         target.add(new QueueMetricResponse(
                 name,
@@ -257,9 +259,9 @@ public class SystemMetricsService {
                 color,
                 safeInt(current),
                 consumers,
-                role == RuntimeWorkMetricRole.DLQ ? null : blockedReason(current, consumers, runtimeWorkPolicy(taskType)),
+                role == RuntimeWorkMetricRole.DLQ ? null : blockedReason(current, consumers, runtimeWorkPolicy(taskType), rate),
                 rateDescriptor.kind(),
-                rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
+                rate));
     }
 
     private QueueMetricResponse queueMetric(
@@ -425,7 +427,18 @@ public class SystemMetricsService {
     }
 
     private String blockedReason(long messageCount, int consumerCount, QueueConsumerPolicy policy) {
+        return blockedReason(messageCount, consumerCount, policy, null);
+    }
+
+    private String blockedReason(
+            long messageCount,
+            int consumerCount,
+            QueueConsumerPolicy policy,
+            RateMetricResponse rate) {
         if (messageCount <= 0L || consumerCount > 0) {
+            return null;
+        }
+        if (rateRecentlyActive(rate)) {
             return null;
         }
         if (policy == null || !policy.hasConsumer()) {
@@ -437,6 +450,15 @@ public class SystemMetricsService {
             }
         }
         return "CONSUMER_STALE";
+    }
+
+    private boolean rateRecentlyActive(RateMetricResponse rate) {
+        return rate != null
+                && (!rate.stale()
+                || rate.instantCount() > 0L
+                || rate.stableCount() > 0L
+                || rate.instantTpm() > 0L
+                || rate.stableTpm() > 0L);
     }
 
     private QueueConsumerPolicy pipelineWorkPolicy(String taskType) {

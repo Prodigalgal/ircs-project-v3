@@ -204,6 +204,8 @@ public class SystemConfigDefaults {
             cfg("global.traffic.max-delay-ms", "5000", "全局默认最大请求间隔(毫秒)"),
             cfg("global.traffic.safety-floor-ms", "3000", "全局流量安全底线(毫秒)"),
             cfg("global.traffic.max-wait-ms", "120000", "流量控制最大容忍等待时间(毫秒)"),
+            cfg("app.scraper.traffic.global-enabled", "false", "是否启用采集服务同出口全局流量闸门"),
+            cfg("app.scraper.traffic.source-enabled", "true", "是否启用采集服务按数据源流量闸门"),
             cfg("app.metadata.public-traffic.enabled", "true", "是否启用元数据公网 Provider 全局流量闸门"),
             cfg("app.metadata.public-traffic.default-gap-ms", "150", "元数据公网 Provider 同出口默认请求间隔(毫秒)"),
             cfg("app.metadata.public-traffic.max-wait", "PT2M", "元数据公网 Provider 流量闸门最大等待时间"),
