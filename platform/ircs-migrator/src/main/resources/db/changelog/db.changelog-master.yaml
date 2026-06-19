@@ -117,3 +117,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/drop-llm-cleaning-claim-lease-runtime-queue.sql
   - include:
       file: db/changelog/2026/07/drop-avatar-sync-claim-lease-runtime-queue.sql
+  - include:
+      file: db/changelog/2026/07/remove-core-pipeline-switch-configs.sql
