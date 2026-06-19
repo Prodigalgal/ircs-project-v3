@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.prodigalgal.ircs.common.security.IrcsAuthException;
-import com.prodigalgal.ircs.common.security.IrcsJwtRequestAuthenticator;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.prodigalgal.ircs.common.web.CommonApiExceptionHandler;
@@ -29,7 +28,7 @@ class AdminBffAuthGateTest {
     @Test
     void rejectsProtectedAdminRouteWithoutToken() throws Exception {
         BffProxyClient proxyClient = mock(BffProxyClient.class);
-        IrcsJwtRequestAuthenticator authenticator = mock(IrcsJwtRequestAuthenticator.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
         when(authenticator.requireRoleAndPermission(
                 any(HttpServletRequest.class),
                 eq(IrcsPermissions.ROLE_ADMIN),
@@ -47,7 +46,7 @@ class AdminBffAuthGateTest {
     @Test
     void permitsAdminLoginWithoutToken() throws Exception {
         BffProxyClient proxyClient = mock(BffProxyClient.class);
-        IrcsJwtRequestAuthenticator authenticator = mock(IrcsJwtRequestAuthenticator.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
         when(authenticator.authenticateIfPresent(any(HttpServletRequest.class))).thenReturn(Optional.empty());
 
         mvc(proxyClient, authenticator)
@@ -64,7 +63,7 @@ class AdminBffAuthGateTest {
     @Test
     void protectsAdminPasswordChange() throws Exception {
         BffProxyClient proxyClient = mock(BffProxyClient.class);
-        IrcsJwtRequestAuthenticator authenticator = mock(IrcsJwtRequestAuthenticator.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
         when(authenticator.requireRoleAndPermission(
                 any(HttpServletRequest.class),
                 eq(IrcsPermissions.ROLE_ADMIN),
@@ -85,7 +84,7 @@ class AdminBffAuthGateTest {
     @Test
     void rejectsAdminRouteWhenPermissionMissing() throws Exception {
         BffProxyClient proxyClient = mock(BffProxyClient.class);
-        IrcsJwtRequestAuthenticator authenticator = mock(IrcsJwtRequestAuthenticator.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
         when(authenticator.requireRoleAndPermission(
                 any(HttpServletRequest.class),
                 eq(IrcsPermissions.ROLE_ADMIN),
@@ -100,7 +99,48 @@ class AdminBffAuthGateTest {
         verify(proxyClient, never()).proxy(any(HttpServletRequest.class), any(HttpServletResponse.class), any(AdminBffRoutes.class));
     }
 
-    private static MockMvc mvc(BffProxyClient proxyClient, IrcsJwtRequestAuthenticator authenticator) {
+    @Test
+    void permitsProtectedAdminRouteWithApiTokenPrincipal() throws Exception {
+        BffProxyClient proxyClient = mock(BffProxyClient.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
+        when(authenticator.requireRoleAndPermission(
+                any(HttpServletRequest.class),
+                eq(IrcsPermissions.ROLE_ADMIN),
+                eq(IrcsPermissions.OPS_READ)))
+                .thenReturn(apiTokenPrincipal());
+
+        mvc(proxyClient, authenticator)
+                .perform(get("/api/v1/dashboard/metrics")
+                        .header(AdminApiTokenService.HEADER_API_TOKEN, "ircs_pat_test"))
+                .andExpect(status().isOk());
+
+        verify(authenticator).requireRoleAndPermission(
+                any(HttpServletRequest.class),
+                eq(IrcsPermissions.ROLE_ADMIN),
+                eq(IrcsPermissions.OPS_READ));
+        verify(proxyClient).proxy(any(HttpServletRequest.class), any(HttpServletResponse.class), any(AdminBffRoutes.class));
+    }
+
+    @Test
+    void rejectsProtectedAdminRouteWithInvalidApiToken() throws Exception {
+        BffProxyClient proxyClient = mock(BffProxyClient.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
+        when(authenticator.requireRoleAndPermission(
+                any(HttpServletRequest.class),
+                eq(IrcsPermissions.ROLE_ADMIN),
+                eq(IrcsPermissions.OPS_READ)))
+                .thenThrow(new IrcsAuthException(IrcsAuthException.Reason.INVALID, "API Token 无效或已撤销"));
+
+        mvc(proxyClient, authenticator)
+                .perform(get("/api/v1/dashboard/metrics")
+                        .header("Authorization", "Bearer ircs_pat_invalid"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("auth.token.invalid"));
+
+        verify(proxyClient, never()).proxy(any(HttpServletRequest.class), any(HttpServletResponse.class), any(AdminBffRoutes.class));
+    }
+
+    private static MockMvc mvc(BffProxyClient proxyClient, AdminBffAuthenticator authenticator) {
         return MockMvcBuilders
                 .standaloneSetup(new AdminBffProxyController(proxyClient, routes(), authenticator))
                 .setControllerAdvice(new CommonApiExceptionHandler())
@@ -125,6 +165,18 @@ class AdminBffAuthGateTest {
     private static IrcsRequestPrincipal adminPrincipal() {
         return new IrcsRequestPrincipal(
                 "admin",
+                IrcsPermissions.ROLE_ADMIN,
+                Set.of(IrcsPermissions.ALL),
+                Set.of(IrcsPermissions.SCOPE_ADMIN_ALL, IrcsPermissions.SCOPE_DATA_ALL),
+                Set.of(IrcsPermissions.ALL),
+                Set.of(IrcsPermissions.ALL),
+                Set.of(IrcsPermissions.ALL),
+                Set.of(IrcsPermissions.ALL));
+    }
+
+    private static IrcsRequestPrincipal apiTokenPrincipal() {
+        return new IrcsRequestPrincipal(
+                "api-token:ircs_pat_test",
                 IrcsPermissions.ROLE_ADMIN,
                 Set.of(IrcsPermissions.ALL),
                 Set.of(IrcsPermissions.SCOPE_ADMIN_ALL, IrcsPermissions.SCOPE_DATA_ALL),

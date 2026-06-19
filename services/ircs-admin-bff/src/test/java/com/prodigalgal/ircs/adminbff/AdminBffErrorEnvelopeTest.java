@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.prodigalgal.ircs.common.security.IrcsJwtRequestAuthenticator;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
@@ -31,7 +30,7 @@ class AdminBffErrorEnvelopeTest {
     void rendersUnifiedEnvelopeForBffOwnedErrors() throws Exception {
         BffProxyClient proxyClient = mock(BffProxyClient.class);
         AdminBffRoutes routes = routes();
-        IrcsJwtRequestAuthenticator authenticator = mock(IrcsJwtRequestAuthenticator.class);
+        AdminBffAuthenticator authenticator = mock(AdminBffAuthenticator.class);
         when(authenticator.requireRoleAndPermission(
                 any(HttpServletRequest.class),
                 eq(IrcsPermissions.ROLE_ADMIN),

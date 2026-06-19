@@ -19,6 +19,9 @@ app:
   bff:
     audit:
       enabled: ${APP_BFF_AUDIT_ENABLED:true}
+    api-token:
+      cache-ttl: ${APP_BFF_API_TOKEN_CACHE_TTL:PT30S}
+      touch-interval: ${APP_BFF_API_TOKEN_TOUCH_INTERVAL:PT5M}
     service-identity:
       service-id: ${APP_BFF_SERVICE_ID:admin-bff}
       ops-token: ${APP_BFF_OPS_SERVICE_TOKEN:}

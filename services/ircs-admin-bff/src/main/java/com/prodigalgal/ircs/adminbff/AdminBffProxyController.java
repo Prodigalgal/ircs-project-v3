@@ -1,7 +1,6 @@
 package com.prodigalgal.ircs.adminbff;
 
 import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
-import com.prodigalgal.ircs.common.security.IrcsJwtRequestAuthenticator;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -14,12 +13,12 @@ class AdminBffProxyController {
 
     private final BffProxyClient proxyClient;
     private final AdminBffRoutes routes;
-    private final IrcsJwtRequestAuthenticator authenticator;
+    private final AdminBffAuthenticator authenticator;
 
     AdminBffProxyController(
             BffProxyClient proxyClient,
             AdminBffRoutes routes,
-            IrcsJwtRequestAuthenticator authenticator) {
+            AdminBffAuthenticator authenticator) {
         this.proxyClient = proxyClient;
         this.routes = routes;
         this.authenticator = authenticator;

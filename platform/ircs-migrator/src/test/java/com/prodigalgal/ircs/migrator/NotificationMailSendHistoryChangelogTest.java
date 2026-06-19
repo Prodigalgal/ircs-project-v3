@@ -23,6 +23,8 @@ class NotificationMailSendHistoryChangelogTest {
             "db/changelog/2026/07/drop-llm-cleaning-claim-lease-runtime-queue.sql";
     private static final String AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG =
             "db/changelog/2026/07/drop-avatar-sync-claim-lease-runtime-queue.sql";
+    private static final String ADMIN_API_TOKENS_CHANGELOG =
+            "db/changelog/2026/07/add-admin-api-tokens.sql";
 
     @Test
     void masterChangelogIncludesNotificationMailSendHistory() throws IOException {
@@ -35,6 +37,7 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(master).contains("file: " + AUDIT_RUNTIME_QUEUE_DROP_CHANGELOG);
         assertThat(master).contains("file: " + LLM_CLEANING_RUNTIME_QUEUE_DROP_CHANGELOG);
         assertThat(master).contains("file: " + AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG);
+        assertThat(master).contains("file: " + ADMIN_API_TOKENS_CHANGELOG);
     }
 
     @Test
@@ -113,6 +116,20 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(drop).contains("DROP INDEX IF EXISTS idx_members_avatar_sync_claim");
         assertThat(drop).contains("DROP COLUMN IF EXISTS avatar_sync_claimed_by");
         assertThat(drop).contains("DROP COLUMN IF EXISTS avatar_sync_claimed_until");
+    }
+
+    @Test
+    void adminApiTokenChangelogStoresOnlyHashedTokens() throws IOException {
+        String changelog = normalize(readClasspath(ADMIN_API_TOKENS_CHANGELOG));
+
+        assertThat(changelog).contains("liquibase formatted sql");
+        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS admin_api_tokens");
+        assertThat(changelog).contains("token_prefix VARCHAR(32) NOT NULL");
+        assertThat(changelog).contains("token_hash VARCHAR(64) NOT NULL");
+        assertThat(changelog).contains("ux_admin_api_tokens_hash");
+        assertThat(changelog).contains("ck_admin_api_tokens_status");
+        assertThat(changelog).doesNotContain("token_value");
+        assertThat(changelog).doesNotContain("raw_token");
     }
 
     private static String readClasspath(String path) throws IOException {

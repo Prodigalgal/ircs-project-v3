@@ -163,6 +163,7 @@ class BffProxyClient {
             }
         }
         IrcsAuthHeaders.removeTrustedIdentityHeaders(headers);
+        removeExternalAuthHeaders(headers);
         removeInternalServiceHeaders(headers);
         IrcsAuthHeaders.fromRequestAttribute(request)
                 .ifPresent(principal -> IrcsAuthHeaders.writePrincipal(headers, principal));
@@ -185,6 +186,12 @@ class BffProxyClient {
                 name.equalsIgnoreCase(InternalServiceAuthHeaders.SERVICE_ID)
                         || name.equalsIgnoreCase(InternalServiceAuthHeaders.SERVICE_TOKEN)
                         || name.equalsIgnoreCase(InternalServiceAuthHeaders.SERVICE_SCOPES));
+    }
+
+    private void removeExternalAuthHeaders(Map<String, String> headers) {
+        headers.keySet().removeIf(name ->
+                name.equalsIgnoreCase("Authorization")
+                        || name.equalsIgnoreCase(AdminApiTokenService.HEADER_API_TOKEN));
     }
 
     private void writeResponse(OutboundStreamingHttpResponse upstream, HttpServletResponse response) throws IOException {

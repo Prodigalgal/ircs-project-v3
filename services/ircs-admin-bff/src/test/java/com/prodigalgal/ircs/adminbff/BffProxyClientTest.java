@@ -62,6 +62,8 @@ class BffProxyClientTest {
         request.addHeader("Connection", "keep-alive");
         request.addHeader("Host", "admin-bff");
         request.addHeader("Proxy-Authorization", "Basic secret");
+        request.addHeader("Authorization", "Bearer ircs_pat_should_not_forward");
+        request.addHeader(AdminApiTokenService.HEADER_API_TOKEN, "ircs_pat_header_should_not_forward");
         request.addHeader("X-Authenticated-User", "spoof@example.com");
         request.addHeader("X-IRCS-Auth-Role", "ROLE_MEMBER");
         request.addHeader("X-Trace-Id", "trace-1");
@@ -83,7 +85,12 @@ class BffProxyClientTest {
         assertThat(sent.headers()).containsEntry(IrcsAuthHeaders.AUTHENTICATED_USER, "admin");
         assertThat(sent.headers()).containsEntry(IrcsAuthHeaders.AUTH_ROLE, IrcsPermissions.ROLE_ADMIN);
         assertThat(sent.headers()).containsEntry(IrcsAuthHeaders.AUTH_PERMISSIONS, IrcsPermissions.ALL);
-        assertThat(sent.headers()).doesNotContainKeys("Connection", "Host", "Proxy-Authorization");
+        assertThat(sent.headers()).doesNotContainKeys(
+                "Connection",
+                "Host",
+                "Proxy-Authorization",
+                "Authorization",
+                AdminApiTokenService.HEADER_API_TOKEN);
         assertThat(response.getStatus()).isEqualTo(302);
         assertThat(response.getHeader("Location")).isEqualTo("http://content/next");
         assertThat(response.getHeader("X-Upstream")).isEqualTo("content");
