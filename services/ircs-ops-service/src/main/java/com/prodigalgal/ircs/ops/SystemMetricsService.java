@@ -42,6 +42,7 @@ public class SystemMetricsService {
     private final MeterRegistry meterRegistry;
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
+    private final SystemConfigRepository systemConfigRepository;
 
     @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}")
     private String rateMetricsKeyPrefix;
@@ -123,6 +124,7 @@ public class SystemMetricsService {
                     topic.name(),
                     descriptor.color(),
                     topic.queueName(),
+                    true,
                     rateSnapshot);
             normalGroups.computeIfAbsent(descriptor.group(), ignored -> new ArrayList<>()).add(normal);
 
@@ -131,6 +133,7 @@ public class SystemMetricsService {
                     "DLQ_" + topic.name(),
                     "#dc2626",
                     topic.dlqName(),
+                    false,
                     rateSnapshot));
         }
         List<QueueMetricResponse> pipelineQueues = valkeyPipelineQueues(rateSnapshot);
@@ -217,12 +220,16 @@ public class SystemMetricsService {
             case DLQ -> counts.dlq();
         };
         RateDescriptor rateDescriptor = pipelineRate(taskType, role);
+        int consumers = role == PipelineMetricRole.DLQ ? 0 : safeInt(pipelineConsumerCount(taskType));
         target.add(new QueueMetricResponse(
                 name,
                 key,
                 color,
                 safeInt(current),
-                role == PipelineMetricRole.DLQ ? 0 : safeInt(pipelineConsumerCount(taskType)),
+                consumers,
+                role == PipelineMetricRole.DLQ
+                        ? null
+                        : blockedReason(current, consumers, QueueConsumerPolicy.enabled(null, true)),
                 rateDescriptor.kind(),
                 rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
     }
@@ -242,12 +249,14 @@ public class SystemMetricsService {
             case DLQ -> counts.dlq();
         };
         RateDescriptor rateDescriptor = runtimeRate(taskType, role);
+        int consumers = role == RuntimeWorkMetricRole.DLQ ? 0 : safeInt(runtimeWorkConsumerCount(taskType));
         target.add(new QueueMetricResponse(
                 name,
                 key,
                 color,
                 safeInt(current),
-                role == RuntimeWorkMetricRole.DLQ ? 0 : safeInt(runtimeWorkConsumerCount(taskType)),
+                consumers,
+                role == RuntimeWorkMetricRole.DLQ ? null : blockedReason(current, consumers, runtimeWorkPolicy(taskType)),
                 rateDescriptor.kind(),
                 rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label())));
     }
@@ -257,6 +266,7 @@ public class SystemMetricsService {
             String key,
             String color,
             String queueName,
+            boolean checkConsumers,
             RateMetricSnapshot rateSnapshot) {
         QueueState state = queueState(queueName);
         return new QueueMetricResponse(
@@ -265,6 +275,9 @@ public class SystemMetricsService {
                 color,
                 state.messageCount(),
                 state.consumerCount(),
+                checkConsumers
+                        ? blockedReason(state.messageCount(), state.consumerCount(), QueueConsumerPolicy.enabled(null, true))
+                        : null,
                 RateKind.NONE,
                 rateSnapshot.empty(key, name));
     }
@@ -410,6 +423,45 @@ public class SystemMetricsService {
         }
     }
 
+    private String blockedReason(long messageCount, int consumerCount, QueueConsumerPolicy policy) {
+        if (messageCount <= 0L || consumerCount > 0) {
+            return null;
+        }
+        if (policy == null || !policy.hasConsumer()) {
+            return "NO_CONSUMER_IMPL";
+        }
+        if (policy.enabledKey() != null && !configEnabled(policy.enabledKey(), policy.defaultEnabled())) {
+            return "DISABLED_BY_CONFIG";
+        }
+        return "CONSUMER_STALE";
+    }
+
+    private QueueConsumerPolicy runtimeWorkPolicy(String taskType) {
+        return switch (taskType) {
+            case SearchSyncWorkTypes.RAW, SearchSyncWorkTypes.UNIFIED ->
+                    QueueConsumerPolicy.enabled("app.search.work-queue.worker.enabled", true);
+            case AggregationWorkTypes.RAW_VIDEO ->
+                    QueueConsumerPolicy.enabled("app.aggregation.work-queue.worker.enabled", true);
+            case LlmCleaningWorkTypes.RAW_TERM ->
+                    QueueConsumerPolicy.enabled("app.normalization.llm-cleaning.work-queue.worker.enabled", true);
+            case StorageWorkTypes.AVATAR_SYNC, StorageWorkTypes.COVER_R2_SYNC ->
+                    QueueConsumerPolicy.enabled("app.storage.r2.work-queue.worker.enabled", true);
+            case AuditReplicationWorkTypes.ES_REPLICATION ->
+                    QueueConsumerPolicy.enabled("app.search.audit-es-replication.worker.enabled", true);
+            default -> QueueConsumerPolicy.missing();
+        };
+    }
+
+    private boolean configEnabled(String key, boolean defaultValue) {
+        try {
+            return systemConfigRepository.findValue(key)
+                    .map(value -> parseBoolean(value, defaultValue))
+                    .orElse(defaultValue);
+        } catch (RuntimeException ignored) {
+            return defaultValue;
+        }
+    }
+
     private QueueMetricResponse findQueue(List<QueueGroupResponse> groups, String key) {
         for (QueueGroupResponse group : groups) {
             for (QueueMetricResponse queue : group.queues()) {
@@ -486,6 +538,17 @@ public class SystemMetricsService {
         }
     }
 
+    private boolean parseBoolean(String value, boolean defaultValue) {
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return switch (value.trim().toLowerCase()) {
+            case "true", "1", "yes", "on", "enabled" -> true;
+            case "false", "0", "no", "off", "disabled" -> false;
+            default -> defaultValue;
+        };
+    }
+
     private void registerQueueGauges(QueueTopic topic, String queueName, String queueRole, boolean dlq) {
         Gauge.builder("ircs.rabbit.queue.messages", () -> queueState(queueName).messageCount())
                 .description("RabbitMQ queue message depth observed by ops-service")
@@ -559,6 +622,17 @@ public class SystemMetricsService {
     }
 
     private record RateDescriptor(RateKind kind, String metricKey, String label) {
+    }
+
+    private record QueueConsumerPolicy(boolean hasConsumer, String enabledKey, boolean defaultEnabled) {
+
+        static QueueConsumerPolicy enabled(String enabledKey, boolean defaultEnabled) {
+            return new QueueConsumerPolicy(true, enabledKey, defaultEnabled);
+        }
+
+        static QueueConsumerPolicy missing() {
+            return new QueueConsumerPolicy(false, null, false);
+        }
     }
 
     private record RateMetricSnapshot(

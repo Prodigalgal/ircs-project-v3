@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.search.sync;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
@@ -48,6 +49,7 @@ class SearchSyncWorkQueueWorkerTest {
                         && message.getOperation() == SyncOperation.INDEX));
         assertThat(worker.state().lastProcessed()).isEqualTo(1);
         assertThat(worker.state().consecutiveFailures()).isZero();
+        assertThat(queue.heartbeats).contains(SearchSyncWorkTypes.RAW, SearchSyncWorkTypes.UNIFIED);
     }
 
     @Test
@@ -71,6 +73,50 @@ class SearchSyncWorkQueueWorkerTest {
         assertThat(worker.state().consecutiveFailures()).isEqualTo(1);
     }
 
+    @Test
+    void rawFailureDoesNotBlockUnifiedProcessing() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        RuntimeWorkItem raw = item(UUID.randomUUID(), 1, SyncOperation.INDEX);
+        RuntimeWorkItem unified = item(SearchSyncWorkTypes.UNIFIED, UUID.randomUUID(), 1,
+                SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        queue.rawItems.add(raw);
+        queue.unifiedItems.add(unified);
+        doAnswer(invocation -> {
+            SearchSyncMessage message = invocation.getArgument(0);
+            if (message.getEntityType() == SearchEntityType.RAW_VIDEO) {
+                throw new RuntimeException("raw es down");
+            }
+            return null;
+        }).when(syncProcessor).process(org.mockito.ArgumentMatchers.any(SearchSyncMessage.class));
+        SearchSyncWorkQueueWorker worker = worker(queue);
+
+        int processed = worker.runOnce();
+
+        assertThat(processed).isEqualTo(1);
+        assertThat(queue.failures).extracting(Failure::item).containsExactly(raw);
+        assertThat(queue.completed).containsExactly(unified);
+        assertThat(worker.state().lastProcessed()).isEqualTo(1);
+        assertThat(worker.state().lastFailed()).isEqualTo(1);
+        assertThat(worker.state().lastRunState()).isEqualTo("DEPENDENCY_FAILURE");
+    }
+
+    @Test
+    void transientClaimFailureDoesNotKillWorkerLoop() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        RuntimeWorkItem unified = item(SearchSyncWorkTypes.UNIFIED, UUID.randomUUID(), 1,
+                SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        queue.failRawClaim = true;
+        queue.unifiedItems.add(unified);
+        SearchSyncWorkQueueWorker worker = worker(queue);
+
+        int processed = worker.runOnce();
+
+        assertThat(processed).isEqualTo(1);
+        assertThat(queue.completed).containsExactly(unified);
+        assertThat(worker.state().lastFailed()).isEqualTo(1);
+        assertThat(queue.heartbeats).contains(SearchSyncWorkTypes.RAW, SearchSyncWorkTypes.UNIFIED);
+    }
+
     private SearchSyncWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {
         SearchSyncWorkQueueWorker worker = new SearchSyncWorkQueueWorker(
                 queue,
@@ -88,15 +134,24 @@ class SearchSyncWorkQueueWorkerTest {
     }
 
     private RuntimeWorkItem item(UUID id, int attempt, SyncOperation operation) throws Exception {
+        return item(SearchSyncWorkTypes.RAW, id, attempt, SearchEntityType.RAW_VIDEO, operation);
+    }
+
+    private RuntimeWorkItem item(
+            String taskType,
+            UUID id,
+            int attempt,
+            SearchEntityType entityType,
+            SyncOperation operation) throws Exception {
         SearchSyncWorkPayload payload = new SearchSyncWorkPayload(
                 id,
-                SearchEntityType.RAW_VIDEO,
+                entityType,
                 operation,
                 "test",
                 "trace-1");
         return new RuntimeWorkItem(
-                SearchSyncWorkTypes.RAW,
-                "raw_video:" + id,
+                taskType,
+                entityType.name().toLowerCase(java.util.Locale.ROOT) + ":" + id,
                 UUID.randomUUID().toString(),
                 id.toString(),
                 operation.name(),
@@ -119,8 +174,11 @@ class SearchSyncWorkQueueWorkerTest {
 
     private static class FakeRuntimeWorkQueue implements RuntimeWorkQueue {
         private final List<RuntimeWorkItem> rawItems = new ArrayList<>();
+        private final List<RuntimeWorkItem> unifiedItems = new ArrayList<>();
         private final List<RuntimeWorkItem> completed = new ArrayList<>();
         private final List<Failure> failures = new ArrayList<>();
+        private final List<String> heartbeats = new ArrayList<>();
+        private boolean failRawClaim;
 
         @Override
         public void submit(RuntimeWorkItemRequest request) {
@@ -140,10 +198,16 @@ class SearchSyncWorkQueueWorkerTest {
 
         @Override
         public List<RuntimeWorkItem> claim(String taskType, String ownerId, int limit, Duration visibilityTimeout) {
-            if (!SearchSyncWorkTypes.RAW.equals(taskType)) {
-                return List.of();
+            if (SearchSyncWorkTypes.RAW.equals(taskType)) {
+                if (failRawClaim) {
+                    throw new IllegalStateException("valkey loading");
+                }
+                return List.copyOf(rawItems);
             }
-            return List.copyOf(rawItems);
+            if (SearchSyncWorkTypes.UNIFIED.equals(taskType)) {
+                return List.copyOf(unifiedItems);
+            }
+            return List.of();
         }
 
         @Override
@@ -166,6 +230,11 @@ class SearchSyncWorkQueueWorkerTest {
         @Override
         public RuntimeWorkQueueCounts counts(String taskType) {
             return new RuntimeWorkQueueCounts(rawItems.size(), 0, failures.size());
+        }
+
+        @Override
+        public void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
+            heartbeats.add(taskType);
         }
     }
 

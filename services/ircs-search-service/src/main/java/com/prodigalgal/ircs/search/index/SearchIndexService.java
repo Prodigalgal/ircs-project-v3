@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.search.index;
 
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.search.SearchPortalReadModelCache;
+import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
 import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
 import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
 import jakarta.annotation.PostConstruct;
@@ -34,6 +35,7 @@ public class SearchIndexService {
     void ensureIndices() {
         ensureIndex(RawVideoSearchDocument.class);
         ensureIndex(UnifiedVideoSearchDocument.class);
+        ensureIndex(AuditEventSearchDocument.class);
     }
 
     public void saveRaw(RawVideoSearchDocument document) {
@@ -45,6 +47,11 @@ public class SearchIndexService {
         ensureIndex(UnifiedVideoSearchDocument.class);
         elasticsearchOperations.save(document);
         readModelCache.evictPortalPublicReadModel();
+    }
+
+    public void saveAudit(AuditEventSearchDocument document) {
+        ensureIndex(AuditEventSearchDocument.class);
+        elasticsearchOperations.save(document);
     }
 
     public void delete(UUID id, SearchEntityType type) {

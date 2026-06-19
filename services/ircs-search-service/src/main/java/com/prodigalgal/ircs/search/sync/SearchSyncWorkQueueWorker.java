@@ -42,6 +42,7 @@ class SearchSyncWorkQueueWorker {
     private volatile int lastProcessed;
     private volatile int lastFailed;
     private volatile int lastRequeued;
+    private volatile String lastRunState = "NEVER_RUN";
     private volatile String lastError;
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
@@ -92,9 +93,11 @@ class SearchSyncWorkQueueWorker {
 
     int runOnce() {
         if (!workerEnabled()) {
+            lastRunState = "DISABLED";
             return 0;
         }
         if (!running.compareAndSet(false, true)) {
+            lastRunState = "BUSY";
             return 0;
         }
         try {
@@ -115,6 +118,7 @@ class SearchSyncWorkQueueWorker {
                 lastFailed,
                 lastRequeued,
                 consecutiveFailures.get(),
+                lastRunState,
                 lastError);
     }
 
@@ -133,8 +137,8 @@ class SearchSyncWorkQueueWorker {
             workQueue.heartbeatConsumer(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, heartbeatTtl);
             requeued += workQueue.requeueExpired(SearchSyncWorkTypes.RAW, effectiveBatchSize);
             requeued += workQueue.requeueExpired(SearchSyncWorkTypes.UNIFIED, effectiveBatchSize);
-            WorkRunResult raw = processItems(SearchSyncWorkTypes.RAW, resolvedWorkerId, effectiveBatchSize);
-            WorkRunResult unified = processItems(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, effectiveBatchSize);
+            WorkRunResult raw = processItemsSafely(SearchSyncWorkTypes.RAW, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
+            WorkRunResult unified = processItemsSafely(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
             processed = raw.processed() + unified.processed();
             failed = raw.failed() + unified.failed();
             if (failed > 0) {
@@ -146,7 +150,8 @@ class SearchSyncWorkQueueWorker {
         } catch (RuntimeException ex) {
             fatal = ex;
             markFailure(processed, failed, requeued, ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            throw ex;
+            log.warn("Search sync work queue run failed: {}", ex.getMessage());
+            return processed;
         } finally {
             metrics.recordRun(
                     resolvedWorkerId,
@@ -158,7 +163,17 @@ class SearchSyncWorkQueueWorker {
         }
     }
 
-    private WorkRunResult processItems(String taskType, String resolvedWorkerId, int limit) {
+    private WorkRunResult processItemsSafely(String taskType, String resolvedWorkerId, int limit, Duration heartbeatTtl) {
+        try {
+            return processItems(taskType, resolvedWorkerId, limit, heartbeatTtl);
+        } catch (RuntimeException ex) {
+            log.warn("Search sync work queue task type failed: taskType={}, reason={}", taskType, ex.getMessage());
+            return new WorkRunResult(0, 1);
+        }
+    }
+
+    private WorkRunResult processItems(String taskType, String resolvedWorkerId, int limit, Duration heartbeatTtl) {
+        workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
         List<RuntimeWorkItem> items = workQueue.claim(
                 taskType,
                 resolvedWorkerId,
@@ -167,12 +182,14 @@ class SearchSyncWorkQueueWorker {
         int processed = 0;
         int failed = 0;
         for (RuntimeWorkItem item : items) {
+            workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
             if (processItem(item, resolvedWorkerId)) {
                 processed++;
             } else {
                 failed++;
             }
         }
+        workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
         return new WorkRunResult(processed, failed);
     }
 
@@ -192,11 +209,16 @@ class SearchSyncWorkQueueWorker {
             return true;
         } catch (RuntimeException | JsonProcessingException ex) {
             boolean retryable = item.attempt() < Math.max(1, maxRetries);
-            workQueue.fail(
-                    item,
-                    retryable,
-                    retryDelay(item.attempt()),
-                    ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            try {
+                workQueue.fail(
+                        item,
+                        retryable,
+                        retryDelay(item.attempt()),
+                        ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            } catch (RuntimeException failEx) {
+                log.warn("Search sync work queue fail write failed: {}", failEx.getMessage());
+                throw failEx;
+            }
             metrics.recordItem(resolvedWorkerId, item, retryable ? "retry" : "dlq", Instant.now());
             recordAudit(WorkerJobAuditEvent.failed(
                     JOB_TYPE,
@@ -214,6 +236,7 @@ class SearchSyncWorkQueueWorker {
         lastFailed = 0;
         lastRequeued = requeued;
         lastError = null;
+        lastRunState = processed > 0 || requeued > 0 ? "PROCESSED" : "IDLE";
         consecutiveFailures.set(0);
     }
 
@@ -223,6 +246,7 @@ class SearchSyncWorkQueueWorker {
         lastFailed = failed;
         lastRequeued = requeued;
         lastError = error;
+        lastRunState = "DEPENDENCY_FAILURE";
         consecutiveFailures.incrementAndGet();
     }
 

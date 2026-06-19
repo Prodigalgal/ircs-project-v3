@@ -12,5 +12,6 @@ record SearchSyncWorkQueueState(
         int lastFailed,
         int lastRequeued,
         long consecutiveFailures,
+        String lastRunState,
         String lastError) {
 }

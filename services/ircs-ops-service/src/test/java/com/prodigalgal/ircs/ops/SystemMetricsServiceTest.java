@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
+import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
@@ -18,6 +19,7 @@ import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,13 +42,15 @@ class SystemMetricsServiceTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
+    private final SystemConfigRepository systemConfigRepository = org.mockito.Mockito.mock(SystemConfigRepository.class);
     private final SystemMetricsService service = new SystemMetricsService(
             rabbitAdmin,
             redisConnectionFactory,
             redisTemplate,
             new SimpleMeterRegistry(),
             pipelineValkeyQueueProvider,
-            runtimeWorkQueueProvider);
+            runtimeWorkQueueProvider,
+            systemConfigRepository);
 
     @Test
     void metricsReturnQueueGroupsAndGracefullyHandleRedisFailure() {
@@ -111,6 +115,28 @@ class SystemMetricsServiceTest {
                 .filter(QueueGroupResponse::dlq)
                 .flatMap(group -> group.queues().stream())
                 .anyMatch(queue -> "RUNTIME_SEARCH_RAW_DLQ".equals(queue.key()) && queue.messageCount() == 1));
+    }
+
+    @Test
+    void runtimeWorkQueueExplainsDisabledConsumerBacklog() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(LlmCleaningWorkTypes.RAW_TERM))
+                .thenReturn(new RuntimeWorkQueueCounts(11, 0, 0));
+        when(runtimeWorkQueue.consumerCount(LlmCleaningWorkTypes.RAW_TERM)).thenReturn(0L);
+        when(systemConfigRepository.findValue("app.normalization.llm-cleaning.work-queue.worker.enabled"))
+                .thenReturn(Optional.of("false"));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_LLM_CLEANING_PENDING".equals(queue.key())
+                        && queue.messageCount() == 11
+                        && queue.consumerCount() == 0
+                        && "DISABLED_BY_CONFIG".equals(queue.blockedReason())));
     }
 
     @Test
