@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -44,12 +45,14 @@ class AdminApiTokenService {
     private final Duration touchInterval;
     private final ConcurrentMap<String, CachedToken> cache = new ConcurrentHashMap<>();
 
+    @Autowired
     AdminApiTokenService(
             AdminApiTokenRepository repository,
             Clock clock,
-            @Value("${app.bff.api-token.cache-ttl:PT30S}") Duration cacheTtl,
-            @Value("${app.bff.api-token.touch-interval:PT5M}") Duration touchInterval) {
-        this(repository, clock, cacheTtl, touchInterval, new SecureRandom());
+            @Value("${app.bff.api-token.cache-ttl:PT30S}") String cacheTtl,
+            @Value("${app.bff.api-token.touch-interval:PT5M}") String touchInterval) {
+        this(repository, clock, parseDuration(cacheTtl, Duration.ofSeconds(30)),
+                parseDuration(touchInterval, Duration.ofMinutes(5)), new SecureRandom());
     }
 
     AdminApiTokenService(
@@ -240,6 +243,11 @@ class AdminApiTokenService {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private static Duration parseDuration(String value, Duration fallback) {
+        String normalized = normalize(value);
+        return normalized == null ? fallback : Duration.parse(normalized);
     }
 
     private record CachedToken(
