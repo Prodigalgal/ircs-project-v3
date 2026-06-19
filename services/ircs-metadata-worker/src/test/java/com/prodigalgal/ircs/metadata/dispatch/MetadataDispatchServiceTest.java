@@ -101,7 +101,6 @@ class MetadataDispatchServiceTest {
         when(repository.findById(id)).thenReturn(Optional.of(record));
         PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
         MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
-        when(configValues.metadataEnabled()).thenReturn(true);
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
@@ -154,7 +153,6 @@ class MetadataDispatchServiceTest {
         when(repository.findById(id)).thenReturn(Optional.of(record));
         PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
         MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
-        when(configValues.metadataEnabled()).thenReturn(true);
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
@@ -210,7 +208,6 @@ class MetadataDispatchServiceTest {
     }
 
     private MetadataDispatchService newService(boolean tmdbEnabled) {
-        org.mockito.Mockito.lenient().when(configValues.metadataEnabled()).thenReturn(true);
         org.mockito.Mockito.lenient().when(configValues.tmdbEnabled()).thenReturn(tmdbEnabled);
         return new MetadataDispatchService(
                 repository,

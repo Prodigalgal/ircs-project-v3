@@ -28,7 +28,6 @@ public class MetadataProviderValkeyWorker {
 
     private static final int MAX_DYNAMIC_BATCH_SIZE = 1000;
     private static final int MAX_DYNAMIC_PARALLELISM = 128;
-    private static final String ENABLED_KEY = "app.metadata.valkey-provider-worker.enabled";
     private static final String BATCH_SIZE_KEY = "app.metadata.valkey-provider-worker.batch-size";
     private static final String PARALLELISM_KEY = "app.metadata.valkey-provider-worker.parallelism";
     private static final long SETTINGS_CACHE_TTL_NANOS = Duration.ofSeconds(10).toNanos();
@@ -46,9 +45,6 @@ public class MetadataProviderValkeyWorker {
 
     @Autowired(required = false)
     private SystemConfigRepository systemConfigRepository;
-
-    @Value("${app.metadata.valkey-provider-worker.enabled:false}")
-    private boolean enabledByDeployment = true;
 
     MetadataProviderValkeyWorker(
             PipelineValkeyQueue pipelineQueue,
@@ -93,9 +89,6 @@ public class MetadataProviderValkeyWorker {
     }
 
     int runOnce() {
-        if (!workerEnabled()) {
-            return 0;
-        }
         WorkerSettings settings = workerSettings();
         int batchSize = settings.batchSize();
         int parallelism = applyParallelism(settings.parallelism());
@@ -172,10 +165,6 @@ public class MetadataProviderValkeyWorker {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
     }
 
-    private boolean workerEnabled() {
-        return workerSettings().enabled();
-    }
-
     private WorkerSettings workerSettings() {
         SystemConfigRepository repository = systemConfigRepository;
         if (repository == null) {
@@ -194,9 +183,6 @@ public class MetadataProviderValkeyWorker {
             WorkerSettings refreshed = defaultSettings();
             try {
                 refreshed = new WorkerSettings(
-                        readConfig(repository, ENABLED_KEY)
-                                .map(raw -> parseBoolean(raw, enabledByDeployment))
-                                .orElse(enabledByDeployment),
                         readConfig(repository, BATCH_SIZE_KEY)
                                 .map(raw -> parsePositiveInt(raw, defaultBatchSize, MAX_DYNAMIC_BATCH_SIZE))
                                 .orElse(defaultBatchSize),
@@ -213,7 +199,7 @@ public class MetadataProviderValkeyWorker {
     }
 
     private WorkerSettings defaultSettings() {
-        return new WorkerSettings(enabledByDeployment, defaultBatchSize, defaultParallelism);
+        return new WorkerSettings(defaultBatchSize, defaultParallelism);
     }
 
     private static java.util.Optional<String> readConfig(SystemConfigRepository repository, String key) {
@@ -235,17 +221,6 @@ public class MetadataProviderValkeyWorker {
         return resolved;
     }
 
-    private static boolean parseBoolean(String raw, boolean defaultValue) {
-        if (raw == null || raw.isBlank()) {
-            return defaultValue;
-        }
-        return switch (raw.trim().toLowerCase(java.util.Locale.ROOT)) {
-            case "true", "1", "yes", "y", "on", "enabled" -> true;
-            case "false", "0", "no", "n", "off", "disabled" -> false;
-            default -> defaultValue;
-        };
-    }
-
     private static int parsePositiveInt(String raw, int defaultValue, int maxValue) {
         if (raw == null || raw.isBlank()) {
             return defaultValue;
@@ -262,6 +237,6 @@ public class MetadataProviderValkeyWorker {
         return Math.min(Math.max(value, minValue), maxValue);
     }
 
-    private record WorkerSettings(boolean enabled, int batchSize, int parallelism) {
+    private record WorkerSettings(int batchSize, int parallelism) {
     }
 }

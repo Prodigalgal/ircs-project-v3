@@ -229,8 +229,7 @@ function Capture-AggregationEnv {
     $snapshot = @{}
     foreach ($name in @(
         "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE",
-        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS",
-        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"
+        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS"
     )) {
         $snapshot[$name] = @{
             exists = $envMap.ContainsKey($name)
@@ -253,9 +252,8 @@ function Set-AggregationSmokeEnv {
     } else {
         5000
     }
-    $workerEnabled = if ($envMap.ContainsKey("APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED")) { $envMap["APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"] } else { "false" }
     $targetBatch = [Math]::Max(2, $SmokeBatchSize)
-    $needsPatch = $currentBatch -lt $targetBatch -or $currentDelay -gt 2000 -or $workerEnabled.ToLowerInvariant() -ne "true"
+    $needsPatch = $currentBatch -lt $targetBatch -or $currentDelay -gt 2000
     if (-not $needsPatch) {
         return
     }
@@ -270,8 +268,7 @@ function Set-AggregationSmokeEnv {
         "-n", $Namespace,
         "set", "env", "deployment/ircs-aggregation-worker",
         "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE=$targetBatch",
-        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS=2000",
-        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED=true"
+        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS=2000"
     )
     if ($result.exitCode -ne 0) {
         Finish-Smoke "FAILED" "AGGREGATION_ENV_PATCH_FAILED" $result
@@ -290,8 +287,7 @@ function Restore-AggregationEnv {
     $args = @("-n", $Namespace, "set", "env", "deployment/ircs-aggregation-worker")
     foreach ($name in @(
         "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE",
-        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS",
-        "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"
+        "APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS"
     )) {
         $entry = $script:aggregationEnvSnapshot[$name]
         if ($entry.exists) {

@@ -27,15 +27,13 @@ import org.springframework.stereotype.Component;
 @ConditionalOnBean(JdbcTemplate.class)
 public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
 
-    private static final Map<String, List<ConfigFlag>> RUNTIME_FLAGS = Map.ofEntries(
+    private static final Map<String, List<ConfigFlag>> RUNTIME_SUBMISSION_FLAGS = Map.ofEntries(
             Map.entry(SearchSyncWorkTypes.RAW, flags(
                     flag("app.search.sync.enabled", true),
                     flag("app.search.work-queue.worker.enabled", true))),
             Map.entry(SearchSyncWorkTypes.UNIFIED, flags(
                     flag("app.search.sync.enabled", true),
                     flag("app.search.work-queue.worker.enabled", true))),
-            Map.entry(AggregationWorkTypes.RAW_VIDEO, flags(
-                    flag("app.aggregation.work-queue.worker.enabled", true))),
             Map.entry(LlmCleaningWorkTypes.RAW_TERM, flags(
                     flag("app.ai.llm.enabled", true),
                     flag("app.normalization.llm-cleaning.work-queue.worker.enabled", true))),
@@ -48,15 +46,22 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
             Map.entry(AuditReplicationWorkTypes.ES_REPLICATION, flags(
                     flag("app.search.audit-es-replication.worker.enabled", true))));
 
-    private static final Map<String, List<ConfigFlag>> PIPELINE_FLAGS = Map.ofEntries(
-            Map.entry(PipelineTaskTypes.NORMALIZE_VIDEO, flags(
-                    flag("app.normalization.valkey-worker.enabled", true))),
-            Map.entry(PipelineTaskTypes.ENRICH_METADATA, flags(
-                    flag("app.metadata.enabled", true),
-                    flag("app.metadata.valkey-dispatcher.enabled", true))),
-            Map.entry(PipelineTaskTypes.METADATA_PROVIDER, flags(
-                    flag("app.metadata.enabled", true),
-                    flag("app.metadata.valkey-provider-worker.enabled", true))));
+    private static final Map<String, List<ConfigFlag>> RUNTIME_CONSUMER_FLAGS = Map.ofEntries(
+            Map.entry(AggregationWorkTypes.RAW_VIDEO, List.of()),
+            Map.entry(SearchSyncWorkTypes.RAW, runtimeSubmissionFlags(SearchSyncWorkTypes.RAW)),
+            Map.entry(SearchSyncWorkTypes.UNIFIED, runtimeSubmissionFlags(SearchSyncWorkTypes.UNIFIED)),
+            Map.entry(LlmCleaningWorkTypes.RAW_TERM, runtimeSubmissionFlags(LlmCleaningWorkTypes.RAW_TERM)),
+            Map.entry(StorageWorkTypes.AVATAR_SYNC, runtimeSubmissionFlags(StorageWorkTypes.AVATAR_SYNC)),
+            Map.entry(StorageWorkTypes.COVER_R2_SYNC, runtimeSubmissionFlags(StorageWorkTypes.COVER_R2_SYNC)),
+            Map.entry(AuditReplicationWorkTypes.ES_REPLICATION,
+                    runtimeSubmissionFlags(AuditReplicationWorkTypes.ES_REPLICATION)));
+
+    private static final Map<String, List<ConfigFlag>> PIPELINE_SUBMISSION_FLAGS = Map.of();
+
+    private static final Map<String, List<ConfigFlag>> PIPELINE_CONSUMER_FLAGS = Map.ofEntries(
+            Map.entry(PipelineTaskTypes.NORMALIZE_VIDEO, List.of()),
+            Map.entry(PipelineTaskTypes.ENRICH_METADATA, List.of()),
+            Map.entry(PipelineTaskTypes.METADATA_PROVIDER, List.of()));
 
     private final JdbcTemplate jdbcTemplate;
     private final Environment environment;
@@ -78,20 +83,28 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
 
     @Override
     public boolean canSubmitRuntime(String taskType) {
-        return enabled(RUNTIME_FLAGS.get(taskType));
+        return enabled(RUNTIME_SUBMISSION_FLAGS.get(taskType));
     }
 
     @Override
     public boolean canSubmitPipeline(String taskType) {
-        return enabled(PIPELINE_FLAGS.get(taskType));
+        return enabled(PIPELINE_SUBMISSION_FLAGS.get(taskType));
     }
 
-    public static List<ConfigFlag> runtimeFlags(String taskType) {
-        return RUNTIME_FLAGS.getOrDefault(taskType, List.of());
+    public static List<ConfigFlag> runtimeSubmissionFlags(String taskType) {
+        return RUNTIME_SUBMISSION_FLAGS.getOrDefault(taskType, List.of());
     }
 
-    public static List<ConfigFlag> pipelineFlags(String taskType) {
-        return PIPELINE_FLAGS.getOrDefault(taskType, List.of());
+    public static List<ConfigFlag> pipelineSubmissionFlags(String taskType) {
+        return PIPELINE_SUBMISSION_FLAGS.getOrDefault(taskType, List.of());
+    }
+
+    public static Optional<List<ConfigFlag>> runtimeConsumerFlags(String taskType) {
+        return Optional.ofNullable(RUNTIME_CONSUMER_FLAGS.get(taskType));
+    }
+
+    public static Optional<List<ConfigFlag>> pipelineConsumerFlags(String taskType) {
+        return Optional.ofNullable(PIPELINE_CONSUMER_FLAGS.get(taskType));
     }
 
     private boolean enabled(List<ConfigFlag> flags) {

@@ -10,11 +10,9 @@ import org.springframework.util.StringUtils;
 @Component
 public class MetadataConfigValues {
 
-    static final String METADATA_ENABLED_KEY = "app.metadata.enabled";
     static final String TMDB_ENABLED_KEY = "app.metadata.tmdb.enabled";
     static final String DOUBAN_ENABLED_KEY = "app.metadata.douban.enabled";
     static final String RT_ENABLED_KEY = "app.metadata.rotten-tomatoes.enabled";
-    static final boolean DEFAULT_METADATA_ENABLED = true;
     static final boolean DEFAULT_PROVIDER_ENABLED = true;
     static final Duration DEFAULT_RETRY_DELAY = Duration.ofMinutes(5);
 
@@ -26,13 +24,6 @@ public class MetadataConfigValues {
             SystemConfigRepository repository) {
         this.environment = environment;
         this.repository = repository;
-    }
-
-    public boolean metadataEnabled() {
-        return booleanValue(
-                DEFAULT_METADATA_ENABLED,
-                METADATA_ENABLED_KEY,
-                "APP_METADATA_ENABLED");
     }
 
     public boolean doubanEnabled() {

@@ -19,7 +19,6 @@ class MetadataConfigValuesTest {
     void usesCurrentDefaultsWhenNoRuntimeOrDbConfigExists() {
         MetadataConfigValues values = values(new MockEnvironment());
 
-        assertTrue(values.metadataEnabled());
         assertTrue(values.tmdbEnabled());
         assertTrue(values.doubanEnabled());
         assertTrue(values.rottenTomatoesEnabled());
@@ -28,14 +27,12 @@ class MetadataConfigValuesTest {
 
     @Test
     void dbCanonicalKeysOverrideDefaults() {
-        when(repository.findValue(MetadataConfigValues.METADATA_ENABLED_KEY)).thenReturn(Optional.of("false"));
         when(repository.findValue(MetadataConfigValues.TMDB_ENABLED_KEY)).thenReturn(Optional.of("false"));
         when(repository.findValue(MetadataConfigValues.DOUBAN_ENABLED_KEY)).thenReturn(Optional.of("false"));
         when(repository.findValue(MetadataConfigValues.RT_ENABLED_KEY)).thenReturn(Optional.of("false"));
 
         MetadataConfigValues values = values(new MockEnvironment());
 
-        assertFalse(values.metadataEnabled());
         assertFalse(values.tmdbEnabled());
         assertFalse(values.doubanEnabled());
         assertFalse(values.rottenTomatoesEnabled());
@@ -70,14 +67,14 @@ class MetadataConfigValuesTest {
     }
 
     @Test
-    void configListenerStartupFlagDoesNotOverrideMetadataGlobalSwitch() {
-        when(repository.findValue(MetadataConfigValues.METADATA_ENABLED_KEY)).thenReturn(Optional.of("false"));
+    void configListenerStartupFlagDoesNotOverrideProviderSwitches() {
+        when(repository.findValue(MetadataConfigValues.TMDB_ENABLED_KEY)).thenReturn(Optional.of("false"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("APP_METADATA_CONFIG_LISTENER_ENABLED", "true");
 
         MetadataConfigValues values = values(environment);
 
-        assertFalse(values.metadataEnabled());
+        assertFalse(values.tmdbEnabled());
     }
 
     @Test

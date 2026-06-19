@@ -44,13 +44,6 @@ public class MetadataDispatchService {
             return new MetadataDispatchResult(videoId, true, record.getEnrichmentStatus(), List.of());
         }
 
-        if (!configValues.metadataEnabled()) {
-            String status = finalizeImmediate(record);
-            searchSyncPublisher.publishIndex(videoId);
-            aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-immediate-finalized");
-            return new MetadataDispatchResult(videoId, true, status, List.of());
-        }
-
         List<ProviderType> providers = providersFor(record);
         if (providers.isEmpty()) {
             String status = finalizeImmediate(record);

@@ -68,10 +68,6 @@ spec:
               value: "30000"
             - name: APP_METADATA_CONFIG_LISTENER_ENABLED
               value: "true"
-            - name: APP_METADATA_VALKEY_DISPATCHER_ENABLED
-              value: "true"
-            - name: APP_METADATA_VALKEY_PROVIDER_WORKER_ENABLED
-              value: "true"
             - name: APP_METADATA_VALKEY_DISPATCHER_BATCH_SIZE
               value: "10"
             - name: APP_METADATA_VALKEY_PROVIDER_BATCH_SIZE

@@ -21,7 +21,6 @@ app:
   aggregation:
     work-queue:
       worker:
-        enabled: ${APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED:false}
         initial-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_INITIAL_DELAY_MS:10000}
         fixed-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS:1000}
         batch-size: ${APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE:100}

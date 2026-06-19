@@ -440,15 +440,15 @@ public class SystemMetricsService {
     }
 
     private QueueConsumerPolicy pipelineWorkPolicy(String taskType) {
-        List<SystemConfigWorkSubmissionGate.ConfigFlag> flags =
-                SystemConfigWorkSubmissionGate.pipelineFlags(taskType);
-        return flags.isEmpty() ? QueueConsumerPolicy.missing() : QueueConsumerPolicy.enabled(flags);
+        return SystemConfigWorkSubmissionGate.pipelineConsumerFlags(taskType)
+                .map(QueueConsumerPolicy::enabled)
+                .orElseGet(QueueConsumerPolicy::missing);
     }
 
     private QueueConsumerPolicy runtimeWorkPolicy(String taskType) {
-        List<SystemConfigWorkSubmissionGate.ConfigFlag> flags =
-                SystemConfigWorkSubmissionGate.runtimeFlags(taskType);
-        return flags.isEmpty() ? QueueConsumerPolicy.missing() : QueueConsumerPolicy.enabled(flags);
+        return SystemConfigWorkSubmissionGate.runtimeConsumerFlags(taskType)
+                .map(QueueConsumerPolicy::enabled)
+                .orElseGet(QueueConsumerPolicy::missing);
     }
 
     private boolean configEnabled(String key, boolean defaultValue) {

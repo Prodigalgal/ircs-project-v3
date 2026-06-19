@@ -68,8 +68,6 @@ spec:
               value: "0"
             - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
               value: "30000"
-            - name: APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED
-              value: "true"
             - name: APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE
               value: "1"
             - name: APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS

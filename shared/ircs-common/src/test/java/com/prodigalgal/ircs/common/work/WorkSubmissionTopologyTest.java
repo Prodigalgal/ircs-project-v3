@@ -14,43 +14,63 @@ import org.junit.jupiter.api.Test;
 class WorkSubmissionTopologyTest {
 
     @Test
-    void allRuntimeWorkTypesHaveSubmissionGates() {
-        assertThat(runtimeKeys(SearchSyncWorkTypes.RAW))
+    void onlyEnhancementRuntimeWorkTypesHaveSubmissionGates() {
+        assertThat(runtimeSubmissionKeys(SearchSyncWorkTypes.RAW))
                 .containsExactly("app.search.sync.enabled", "app.search.work-queue.worker.enabled");
-        assertThat(runtimeKeys(SearchSyncWorkTypes.UNIFIED))
+        assertThat(runtimeSubmissionKeys(SearchSyncWorkTypes.UNIFIED))
                 .containsExactly("app.search.sync.enabled", "app.search.work-queue.worker.enabled");
-        assertThat(runtimeKeys(AggregationWorkTypes.RAW_VIDEO))
-                .containsExactly("app.aggregation.work-queue.worker.enabled");
-        assertThat(runtimeKeys(LlmCleaningWorkTypes.RAW_TERM))
+        assertThat(runtimeSubmissionKeys(AggregationWorkTypes.RAW_VIDEO)).isEmpty();
+        assertThat(runtimeSubmissionKeys(LlmCleaningWorkTypes.RAW_TERM))
                 .containsExactly(
                         "app.ai.llm.enabled",
                         "app.normalization.llm-cleaning.work-queue.worker.enabled");
-        assertThat(runtimeKeys(StorageWorkTypes.AVATAR_SYNC))
+        assertThat(runtimeSubmissionKeys(StorageWorkTypes.AVATAR_SYNC))
                 .containsExactly("app.storage.r2.enabled", "app.storage.r2.work-queue.worker.enabled");
-        assertThat(runtimeKeys(StorageWorkTypes.COVER_R2_SYNC))
+        assertThat(runtimeSubmissionKeys(StorageWorkTypes.COVER_R2_SYNC))
                 .containsExactly("app.storage.r2.enabled", "app.storage.r2.work-queue.worker.enabled");
-        assertThat(runtimeKeys(AuditReplicationWorkTypes.ES_REPLICATION))
+        assertThat(runtimeSubmissionKeys(AuditReplicationWorkTypes.ES_REPLICATION))
                 .containsExactly("app.search.audit-es-replication.worker.enabled");
     }
 
     @Test
-    void allPipelineWorkTypesHaveSubmissionGates() {
-        assertThat(pipelineKeys(PipelineTaskTypes.NORMALIZE_VIDEO))
-                .containsExactly("app.normalization.valkey-worker.enabled");
-        assertThat(pipelineKeys(PipelineTaskTypes.ENRICH_METADATA))
-                .containsExactly("app.metadata.enabled", "app.metadata.valkey-dispatcher.enabled");
-        assertThat(pipelineKeys(PipelineTaskTypes.METADATA_PROVIDER))
-                .containsExactly("app.metadata.enabled", "app.metadata.valkey-provider-worker.enabled");
+    void corePipelineWorkTypesAreNotSubmissionGated() {
+        assertThat(pipelineSubmissionKeys(PipelineTaskTypes.NORMALIZE_VIDEO)).isEmpty();
+        assertThat(pipelineSubmissionKeys(PipelineTaskTypes.ENRICH_METADATA)).isEmpty();
+        assertThat(pipelineSubmissionKeys(PipelineTaskTypes.METADATA_PROVIDER)).isEmpty();
     }
 
-    private static List<String> runtimeKeys(String taskType) {
-        return SystemConfigWorkSubmissionGate.runtimeFlags(taskType).stream()
+    @Test
+    void consumerTopologyDistinguishesCoreAndEnhancementQueues() {
+        assertThat(runtimeConsumerKeys(AggregationWorkTypes.RAW_VIDEO)).isEmpty();
+        assertThat(runtimeConsumerKeys(LlmCleaningWorkTypes.RAW_TERM))
+                .containsExactly(
+                        "app.ai.llm.enabled",
+                        "app.normalization.llm-cleaning.work-queue.worker.enabled");
+        assertThat(pipelineConsumerKeys(PipelineTaskTypes.NORMALIZE_VIDEO)).isEmpty();
+        assertThat(pipelineConsumerKeys(PipelineTaskTypes.ENRICH_METADATA)).isEmpty();
+        assertThat(pipelineConsumerKeys(PipelineTaskTypes.METADATA_PROVIDER)).isEmpty();
+    }
+
+    private static List<String> runtimeSubmissionKeys(String taskType) {
+        return SystemConfigWorkSubmissionGate.runtimeSubmissionFlags(taskType).stream()
                 .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
                 .toList();
     }
 
-    private static List<String> pipelineKeys(String taskType) {
-        return SystemConfigWorkSubmissionGate.pipelineFlags(taskType).stream()
+    private static List<String> pipelineSubmissionKeys(String taskType) {
+        return SystemConfigWorkSubmissionGate.pipelineSubmissionFlags(taskType).stream()
+                .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
+                .toList();
+    }
+
+    private static List<String> runtimeConsumerKeys(String taskType) {
+        return SystemConfigWorkSubmissionGate.runtimeConsumerFlags(taskType).orElseThrow().stream()
+                .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
+                .toList();
+    }
+
+    private static List<String> pipelineConsumerKeys(String taskType) {
+        return SystemConfigWorkSubmissionGate.pipelineConsumerFlags(taskType).orElseThrow().stream()
                 .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
                 .toList();
     }

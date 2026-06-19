@@ -10,8 +10,11 @@ class AutoStartGateInspectorTest {
     @Test
     void missingGateUsesDefaultSourceAndBlocksWhenDefaultDisabled() {
         AutoStartGateState state = new AutoStartGateInspector(new MockEnvironment())
-                .inspect(new AutoStartGate("normalization-valkey-worker", "app.normalization.valkey-worker.enabled",
-                        "APP_NORMALIZATION_VALKEY_WORKER_ENABLED", false));
+                .inspect(new AutoStartGate(
+                        "normalization-llm-cleaning-work-queue-worker",
+                        "app.normalization.llm-cleaning.work-queue.worker.enabled",
+                        "APP_NORMALIZATION_LLM_CLEANING_WORK_QUEUE_WORKER_ENABLED",
+                        false));
 
         assertThat(state.enabled()).isFalse();
         assertThat(state.blocked()).isTrue();

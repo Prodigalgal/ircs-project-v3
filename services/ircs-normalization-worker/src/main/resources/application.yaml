@@ -48,7 +48,6 @@ app:
     hanlp-prewarm:
       enabled: ${APP_NORMALIZATION_HANLP_PREWARM_ENABLED:true}
     valkey-worker:
-      enabled: ${APP_NORMALIZATION_VALKEY_WORKER_ENABLED:false}
       initial-delay-ms: ${APP_NORMALIZATION_VALKEY_WORKER_INITIAL_DELAY_MS:10000}
       fixed-delay-ms: ${APP_NORMALIZATION_VALKEY_WORKER_FIXED_DELAY_MS:1000}
       batch-size: ${APP_NORMALIZATION_VALKEY_WORKER_BATCH_SIZE:10}

@@ -299,7 +299,6 @@ try {
         @{ deployment = "ircs-notification-worker"; env = "APP_MAIL_SEND_HISTORY_CLEANUP_EXECUTE_ENABLED"; expected = "false" },
         @{ deployment = "ircs-task-service"; env = "APP_TASK_SCHEDULER_ENABLED"; expected = "false" },
         @{ deployment = "ircs-task-service"; env = "APP_TASK_WATCHDOG_ENABLED"; expected = "false" },
-        @{ deployment = "ircs-aggregation-worker"; env = "APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED"; expected = "true" },
         @{ deployment = "ircs-aggregation-worker"; env = "APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE"; expected = "1" },
         @{ deployment = "ircs-normalization-worker"; env = "APP_NORMALIZATION_WATCHDOG_ENABLED"; expected = "false" },
         @{ deployment = "ircs-metadata-worker"; env = "APP_METADATA_DOUBAN_ENABLED"; expected = "false" },
