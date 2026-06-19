@@ -20,22 +20,28 @@ class TaskSnapshotFlushScheduler {
     static final String CORRELATION_FLUSH_DIRTY_MASTERS = "batch:flush-dirty-masters";
 
     private final TaskSnapshotFlushService flushService;
+    private final TaskRuntimeRepairService repairService;
     private final WorkerJobAuditWriter auditWriter;
     private final TaskDistributedLockRunner lockRunner;
     private final Duration minDirtyAge;
     private final int batchSize;
+    private final int repairBatchSize;
 
     TaskSnapshotFlushScheduler(
             TaskSnapshotFlushService flushService,
+            TaskRuntimeRepairService repairService,
             WorkerJobAuditWriter auditWriter,
             TaskDistributedLockRunner lockRunner,
             @Value("${app.task.snapshot.flush.min-dirty-age:PT5S}") Duration minDirtyAge,
-            @Value("${app.task.snapshot.flush.batch-size:100}") int batchSize) {
+            @Value("${app.task.snapshot.flush.batch-size:100}") int batchSize,
+            @Value("${app.task.runtime.repair.batch-size:100}") int repairBatchSize) {
         this.flushService = flushService;
+        this.repairService = repairService;
         this.auditWriter = auditWriter;
         this.lockRunner = lockRunner;
         this.minDirtyAge = minDirtyAge == null || minDirtyAge.isNegative() ? Duration.ZERO : minDirtyAge;
         this.batchSize = Math.max(1, batchSize);
+        this.repairBatchSize = Math.max(1, repairBatchSize);
     }
 
     @Scheduled(
@@ -53,9 +59,13 @@ class TaskSnapshotFlushScheduler {
             TaskSnapshotFlushResult result = flushService.flushDirtyMasters(
                     Instant.now().minus(minDirtyAge),
                     batchSize);
-            if (result.discovered() > 0 || result.failed() > 0) {
-                log.info("Task snapshot flush completed: discovered={}, flushed={}, failed={}",
-                        result.discovered(), result.flushed(), result.failed());
+            TaskRuntimeRepairResult repairResult = repairService.repairStuckActiveMasters(repairBatchSize);
+            if (result.discovered() > 0 || result.failed() > 0 || repairResult.repaired() > 0
+                    || repairResult.finalized() > 0 || repairResult.failed() > 0) {
+                log.info("Task snapshot flush completed: discovered={}, flushed={}, failed={}, "
+                                + "repairScanned={}, repaired={}, finalized={}, repairFailed={}",
+                        result.discovered(), result.flushed(), result.failed(),
+                        repairResult.scanned(), repairResult.repaired(), repairResult.finalized(), repairResult.failed());
                 recordAudit(WorkerJobAuditEvent.succeeded(
                         JOB_TYPE_TASK_SNAPSHOT_FLUSH,
                         JOB_NAME_FLUSH_DIRTY_MASTERS,

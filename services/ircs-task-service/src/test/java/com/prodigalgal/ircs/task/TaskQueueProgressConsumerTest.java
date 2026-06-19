@@ -22,6 +22,7 @@ import com.prodigalgal.ircs.messaging.RabbitTaskFailureClassifier;
 import com.prodigalgal.ircs.messaging.RabbitTaskRetryPublisher;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -90,6 +91,55 @@ class TaskQueueProgressConsumerTest {
         verify(progressService).recordDetailDone(message);
         verify(channel).basicAck(DELIVERY_TAG, false);
         assertAudit("task.detail-done", masterTaskId.toString(), "succeeded");
+    }
+
+    @Test
+    void dispatchesNextPageWhenDetailCompletionFinishesCurrentPage() throws Exception {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        TaskDetailDoneMessage message = new TaskDetailDoneMessage(
+                masterTaskId,
+                pageTaskId,
+                UUID.randomUUID(),
+                "v-1",
+                true,
+                null,
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z"));
+        when(progressService.pageProgress(masterTaskId, pageTaskId))
+                .thenReturn(Optional.of(new PageProgressState(54, 4191, "COMPLETED")));
+        when(dispatchService.dispatchNextPageIfNeeded(masterTaskId, 54, 4191, masterTaskId.toString()))
+                .thenReturn(DispatchNextPageResult.DISPATCHED);
+
+        consumer.consumeDetailDone(message(objectMapper.writeValueAsString(message)), channel, DELIVERY_TAG);
+
+        verify(dispatchService).dispatchNextPageIfNeeded(masterTaskId, 54, 4191, masterTaskId.toString());
+        verify(snapshotFlushService, never()).flushOne(masterTaskId);
+        verify(channel).basicAck(DELIVERY_TAG, false);
+    }
+
+    @Test
+    void flushesMasterWhenCurrentPageIsFinalPage() throws Exception {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        TaskDetailDoneMessage message = new TaskDetailDoneMessage(
+                masterTaskId,
+                pageTaskId,
+                UUID.randomUUID(),
+                "v-1",
+                true,
+                null,
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z"));
+        when(progressService.pageProgress(masterTaskId, pageTaskId))
+                .thenReturn(Optional.of(new PageProgressState(54, 54, "COMPLETED")));
+        when(dispatchService.dispatchNextPageIfNeeded(masterTaskId, 54, 54, masterTaskId.toString()))
+                .thenReturn(DispatchNextPageResult.NO_MORE_PAGES);
+
+        consumer.consumeDetailDone(message(objectMapper.writeValueAsString(message)), channel, DELIVERY_TAG);
+
+        verify(snapshotFlushService).flushOne(masterTaskId);
+        verify(channel).basicAck(DELIVERY_TAG, false);
     }
 
     @Test

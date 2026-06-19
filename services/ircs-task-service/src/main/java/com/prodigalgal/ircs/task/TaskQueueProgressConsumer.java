@@ -84,11 +84,14 @@ class TaskQueueProgressConsumer {
         try {
             progressService.recordPageDiscovered(message);
             if (message.detailScheduled() <= 0) {
-                dispatchService.dispatchNextPageIfNeeded(
+                DispatchNextPageResult result = dispatchService.dispatchNextPageIfNeeded(
                         message.masterTaskId(),
                         message.pageNumber(),
                         message.totalPages(),
                         message.correlationId());
+                if (result == DispatchNextPageResult.NO_MORE_PAGES) {
+                    snapshotFlushService.flushOne(message.masterTaskId());
+                }
             }
             recordSucceeded(JOB_NAME_PAGE_DISCOVERED, message.correlationId(), startedAt);
         } catch (RuntimeException ex) {
@@ -149,11 +152,16 @@ class TaskQueueProgressConsumer {
         try {
             progressService.recordDetailDone(message);
             progressService.pageProgress(message.masterTaskId(), message.pageTaskId())
-                    .ifPresent(page -> dispatchService.dispatchNextPageIfNeeded(
-                            message.masterTaskId(),
-                            page.pageNumber(),
-                            page.totalPages(),
-                            message.correlationId()));
+                    .ifPresent(page -> {
+                        DispatchNextPageResult result = dispatchService.dispatchNextPageIfNeeded(
+                                message.masterTaskId(),
+                                page.pageNumber(),
+                                page.totalPages(),
+                                message.correlationId());
+                        if (result == DispatchNextPageResult.NO_MORE_PAGES) {
+                            snapshotFlushService.flushOne(message.masterTaskId());
+                        }
+                    });
             recordSucceeded(JOB_NAME_DETAIL_DONE, message.correlationId(), startedAt);
         } catch (RuntimeException ex) {
             retryOrDeadLetter(QueueTopic.TASK_DETAIL_DONE, rawMessage, JOB_NAME_DETAIL_DONE,

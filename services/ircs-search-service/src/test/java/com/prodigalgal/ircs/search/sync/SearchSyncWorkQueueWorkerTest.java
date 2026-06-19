@@ -97,7 +97,10 @@ class SearchSyncWorkQueueWorkerTest {
         assertThat(queue.completed).containsExactly(unified);
         assertThat(worker.state().lastProcessed()).isEqualTo(1);
         assertThat(worker.state().lastFailed()).isEqualTo(1);
-        assertThat(worker.state().lastRunState()).isEqualTo("DEPENDENCY_FAILURE");
+        assertThat(worker.state().lanes().get(SearchSyncWorkTypes.RAW).lastRunState())
+                .isEqualTo("DEPENDENCY_FAILURE");
+        assertThat(worker.state().lanes().get(SearchSyncWorkTypes.UNIFIED).lastRunState())
+                .isEqualTo("PROCESSED");
     }
 
     @Test
@@ -113,8 +116,21 @@ class SearchSyncWorkQueueWorkerTest {
 
         assertThat(processed).isEqualTo(1);
         assertThat(queue.completed).containsExactly(unified);
-        assertThat(worker.state().lastFailed()).isEqualTo(1);
+        assertThat(worker.state().lanes().get(SearchSyncWorkTypes.RAW).lastFailed()).isEqualTo(1);
+        assertThat(worker.state().lanes().get(SearchSyncWorkTypes.UNIFIED).lastProcessed()).isEqualTo(1);
         assertThat(queue.heartbeats).contains(SearchSyncWorkTypes.RAW, SearchSyncWorkTypes.UNIFIED);
+    }
+
+    @Test
+    void singleLaneRunOnlyHeartbeatsThatLane() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        SearchSyncWorkQueueWorker worker = worker(queue);
+
+        int processed = worker.runOnce(SearchSyncWorkTypes.RAW);
+
+        assertThat(processed).isZero();
+        assertThat(queue.heartbeats).contains(SearchSyncWorkTypes.RAW);
+        assertThat(queue.heartbeats).doesNotContain(SearchSyncWorkTypes.UNIFIED);
     }
 
     private SearchSyncWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {

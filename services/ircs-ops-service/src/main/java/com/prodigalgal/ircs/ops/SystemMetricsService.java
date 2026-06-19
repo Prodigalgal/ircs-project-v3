@@ -436,6 +436,9 @@ public class SystemMetricsService {
             QueueConsumerPolicy policy,
             RateMetricResponse rate) {
         if (messageCount <= 0L || consumerCount > 0) {
+            if (messageCount > 0L && consumerCount > 0 && rate != null && !rateRecentlyActive(rate)) {
+                return "CONSUMER_NO_PROGRESS";
+            }
             return null;
         }
         if (rateRecentlyActive(rate)) {

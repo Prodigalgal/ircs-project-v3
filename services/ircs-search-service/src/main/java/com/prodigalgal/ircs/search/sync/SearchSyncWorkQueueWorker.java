@@ -12,7 +12,9 @@ import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import com.prodigalgal.ircs.search.support.SystemConfigRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
@@ -34,16 +36,8 @@ class SearchSyncWorkQueueWorker {
     private final SearchSyncProcessor syncProcessor;
     private final WorkerJobAuditWriter auditWriter;
     private final SearchSyncWorkQueueMetrics metrics;
-    private final AtomicBoolean running = new AtomicBoolean(false);
-    private final AtomicLong consecutiveFailures = new AtomicLong(0);
-    private volatile Instant lastRunAt;
-    private volatile Instant lastSuccessAt;
-    private volatile Instant lastFailureAt;
-    private volatile int lastProcessed;
-    private volatile int lastFailed;
-    private volatile int lastRequeued;
-    private volatile String lastRunState = "NEVER_RUN";
-    private volatile String lastError;
+    private final LaneRuntime rawLane = new LaneRuntime(SearchSyncWorkTypes.RAW);
+    private final LaneRuntime unifiedLane = new LaneRuntime(SearchSyncWorkTypes.UNIFIED);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
 
@@ -87,54 +81,63 @@ class SearchSyncWorkQueueWorker {
     @Scheduled(
             initialDelayString = "${app.search.work-queue.worker.initial-delay-ms:10000}",
             fixedDelayString = "${app.search.work-queue.worker.fixed-delay-ms:1000}")
-    public void runScheduled() {
-        runOnce();
+    public void runRawScheduled() {
+        runOnce(SearchSyncWorkTypes.RAW);
     }
 
     @Scheduled(
-            initialDelayString = "${app.search.work-queue.worker.heartbeat-initial-delay-ms:5000}",
-            fixedDelayString = "${app.search.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
-    public void heartbeatScheduled() {
-        if (workerEnabled()) {
-            heartbeatAll(workerId(), consumerHeartbeatTtl());
-        }
+            initialDelayString = "${app.search.work-queue.worker.initial-delay-ms:10000}",
+            fixedDelayString = "${app.search.work-queue.worker.fixed-delay-ms:1000}")
+    public void runUnifiedScheduled() {
+        runOnce(SearchSyncWorkTypes.UNIFIED);
     }
 
     int runOnce() {
+        return runOnce(SearchSyncWorkTypes.RAW) + runOnce(SearchSyncWorkTypes.UNIFIED);
+    }
+
+    int runOnce(String taskType) {
+        LaneRuntime lane = lane(taskType);
         if (!workerEnabled()) {
-            lastRunState = "DISABLED";
+            lane.lastRunState = "DISABLED";
             return 0;
         }
-        if (!running.compareAndSet(false, true)) {
-            lastRunState = "BUSY";
+        if (!lane.running.compareAndSet(false, true)) {
+            lane.lastRunState = "BUSY";
             return 0;
         }
         try {
-            return runOnceLocked();
+            return runOnceLocked(lane);
         } finally {
-            running.set(false);
+            lane.running.set(false);
         }
     }
 
     SearchSyncWorkQueueState state() {
+        Map<String, SearchSyncWorkLaneState> lanes = new LinkedHashMap<>();
+        lanes.put(SearchSyncWorkTypes.RAW, rawLane.snapshot(workerId()));
+        lanes.put(SearchSyncWorkTypes.UNIFIED, unifiedLane.snapshot(workerId()));
+        LaneRuntime latest = latestLane();
         return new SearchSyncWorkQueueState(
-                running.get(),
+                rawLane.running.get() || unifiedLane.running.get(),
                 workerId(),
-                lastRunAt,
-                lastSuccessAt,
-                lastFailureAt,
-                lastProcessed,
-                lastFailed,
-                lastRequeued,
-                consecutiveFailures.get(),
-                lastRunState,
-                lastError);
+                latest.lastRunAt,
+                latest.lastSuccessAt,
+                latest.lastFailureAt,
+                latest.lastProgressAt,
+                rawLane.lastProcessed + unifiedLane.lastProcessed,
+                rawLane.lastFailed + unifiedLane.lastFailed,
+                rawLane.lastRequeued + unifiedLane.lastRequeued,
+                rawLane.consecutiveFailures.get() + unifiedLane.consecutiveFailures.get(),
+                latest.lastRunState,
+                latest.lastError,
+                lanes);
     }
 
-    private int runOnceLocked() {
+    private int runOnceLocked(LaneRuntime lane) {
         Instant startedAt = Instant.now();
         String resolvedWorkerId = workerId();
-        lastRunAt = startedAt;
+        lane.lastRunAt = startedAt;
         int processed = 0;
         int failed = 0;
         int requeued = 0;
@@ -142,68 +145,80 @@ class SearchSyncWorkQueueWorker {
         try {
             int effectiveBatchSize = Math.max(1, batchSize);
             Duration heartbeatTtl = consumerHeartbeatTtl();
-            heartbeatAll(resolvedWorkerId, heartbeatTtl);
-            requeued += workQueue.requeueExpired(SearchSyncWorkTypes.RAW, effectiveBatchSize);
-            requeued += workQueue.requeueExpired(SearchSyncWorkTypes.UNIFIED, effectiveBatchSize);
-            WorkRunResult raw = processItemsSafely(SearchSyncWorkTypes.RAW, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
-            WorkRunResult unified = processItemsSafely(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
-            processed = raw.processed() + unified.processed();
-            failed = raw.failed() + unified.failed();
+            heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
+            requeued += workQueue.requeueExpired(lane.taskType, effectiveBatchSize);
+            if (requeued > 0) {
+                lane.lastProgressAt = Instant.now();
+            }
+            WorkRunResult result = processItemsSafely(lane, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
+            processed = result.processed();
+            failed = result.failed();
             if (failed > 0) {
-                markFailure(processed, failed, requeued, "search sync work item failures");
+                markFailure(lane, processed, failed, requeued, "search sync work item failures");
             } else {
-                markSuccess(processed, requeued);
+                markSuccess(lane, processed, requeued);
             }
             return processed;
         } catch (RuntimeException ex) {
             fatal = ex;
-            markFailure(processed, failed, requeued, ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            log.warn("Search sync work queue run failed: {}", ex.getMessage());
+            markFailure(lane, processed, failed, requeued, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            log.warn("Search sync work queue run failed: taskType={}, reason={}", lane.taskType, ex.getMessage());
             return processed;
         } finally {
             metrics.recordRun(
                     resolvedWorkerId,
                     elapsedSince(startedAt),
-                    fatal == null && lastFailed == 0 ? "success" : "failed",
+                    fatal == null && lane.lastFailed == 0 ? "success" : "failed",
                     processed,
-                    lastFailed,
+                    lane.lastFailed,
                     requeued);
         }
     }
 
-    private WorkRunResult processItemsSafely(String taskType, String resolvedWorkerId, int limit, Duration heartbeatTtl) {
+    private WorkRunResult processItemsSafely(
+            LaneRuntime lane,
+            String resolvedWorkerId,
+            int limit,
+            Duration heartbeatTtl) {
         try {
-            return processItems(taskType, resolvedWorkerId, limit, heartbeatTtl);
+            return processItems(lane, resolvedWorkerId, limit, heartbeatTtl);
         } catch (RuntimeException ex) {
-            log.warn("Search sync work queue task type failed: taskType={}, reason={}", taskType, ex.getMessage());
+            log.warn("Search sync work queue task type failed: taskType={}, reason={}", lane.taskType, ex.getMessage());
             return new WorkRunResult(0, 1);
         }
     }
 
-    private WorkRunResult processItems(String taskType, String resolvedWorkerId, int limit, Duration heartbeatTtl) {
-        heartbeatAll(resolvedWorkerId, heartbeatTtl);
+    private WorkRunResult processItems(
+            LaneRuntime lane,
+            String resolvedWorkerId,
+            int limit,
+            Duration heartbeatTtl) {
+        heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
         List<RuntimeWorkItem> items = workQueue.claim(
-                taskType,
+                lane.taskType,
                 resolvedWorkerId,
                 limit,
                 Duration.ofSeconds(Math.max(1, visibilitySeconds)));
+        if (!items.isEmpty()) {
+            lane.lastProgressAt = Instant.now();
+        }
         int processed = 0;
         int failed = 0;
         for (RuntimeWorkItem item : items) {
-            heartbeatAll(resolvedWorkerId, heartbeatTtl);
+            heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
             if (processItem(item, resolvedWorkerId)) {
                 processed++;
             } else {
                 failed++;
             }
+            lane.lastProgressAt = Instant.now();
         }
-        heartbeatAll(resolvedWorkerId, heartbeatTtl);
+        heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
         return new WorkRunResult(processed, failed);
     }
 
-    private void heartbeatAll(String resolvedWorkerId, Duration heartbeatTtl) {
-        workQueue.heartbeatConsumer(SearchSyncWorkTypes.RAW, resolvedWorkerId, heartbeatTtl);
-        workQueue.heartbeatConsumer(SearchSyncWorkTypes.UNIFIED, resolvedWorkerId, heartbeatTtl);
+    private void heartbeat(String taskType, String resolvedWorkerId, Duration heartbeatTtl) {
+        workQueue.heartbeatConsumer(taskType, resolvedWorkerId, heartbeatTtl);
     }
 
     private Duration consumerHeartbeatTtl() {
@@ -247,24 +262,37 @@ class SearchSyncWorkQueueWorker {
         }
     }
 
-    private void markSuccess(int processed, int requeued) {
-        lastSuccessAt = Instant.now();
-        lastProcessed = processed;
-        lastFailed = 0;
-        lastRequeued = requeued;
-        lastError = null;
-        lastRunState = processed > 0 || requeued > 0 ? "PROCESSED" : "IDLE";
-        consecutiveFailures.set(0);
+    private void markSuccess(LaneRuntime lane, int processed, int requeued) {
+        lane.lastSuccessAt = Instant.now();
+        lane.lastProcessed = processed;
+        lane.lastFailed = 0;
+        lane.lastRequeued = requeued;
+        lane.lastError = null;
+        lane.lastRunState = processed > 0 || requeued > 0 ? "PROCESSED" : "IDLE";
+        lane.consecutiveFailures.set(0);
     }
 
-    private void markFailure(int processed, int failed, int requeued, String error) {
-        lastFailureAt = Instant.now();
-        lastProcessed = processed;
-        lastFailed = failed;
-        lastRequeued = requeued;
-        lastError = error;
-        lastRunState = "DEPENDENCY_FAILURE";
-        consecutiveFailures.incrementAndGet();
+    private void markFailure(LaneRuntime lane, int processed, int failed, int requeued, String error) {
+        lane.lastFailureAt = Instant.now();
+        lane.lastProcessed = processed;
+        lane.lastFailed = failed;
+        lane.lastRequeued = requeued;
+        lane.lastError = error;
+        lane.lastRunState = "DEPENDENCY_FAILURE";
+        lane.consecutiveFailures.incrementAndGet();
+    }
+
+    private LaneRuntime lane(String taskType) {
+        if (SearchSyncWorkTypes.UNIFIED.equals(taskType)) {
+            return unifiedLane;
+        }
+        return rawLane;
+    }
+
+    private LaneRuntime latestLane() {
+        Instant rawLast = rawLane.lastRunAt == null ? Instant.EPOCH : rawLane.lastRunAt;
+        Instant unifiedLast = unifiedLane.lastRunAt == null ? Instant.EPOCH : unifiedLane.lastRunAt;
+        return rawLast.compareTo(unifiedLast) >= 0 ? rawLane : unifiedLane;
     }
 
     private String workerId() {
@@ -350,6 +378,42 @@ class SearchSyncWorkQueueWorker {
             case "false", "0", "no", "n", "off", "disabled" -> false;
             default -> defaultValue;
         };
+    }
+
+    private static class LaneRuntime {
+        private final String taskType;
+        private final AtomicBoolean running = new AtomicBoolean(false);
+        private final AtomicLong consecutiveFailures = new AtomicLong(0);
+        private volatile Instant lastRunAt;
+        private volatile Instant lastSuccessAt;
+        private volatile Instant lastFailureAt;
+        private volatile Instant lastProgressAt;
+        private volatile int lastProcessed;
+        private volatile int lastFailed;
+        private volatile int lastRequeued;
+        private volatile String lastRunState = "NEVER_RUN";
+        private volatile String lastError;
+
+        private LaneRuntime(String taskType) {
+            this.taskType = taskType;
+        }
+
+        private SearchSyncWorkLaneState snapshot(String workerId) {
+            return new SearchSyncWorkLaneState(
+                    taskType,
+                    running.get(),
+                    workerId,
+                    lastRunAt,
+                    lastSuccessAt,
+                    lastFailureAt,
+                    lastProgressAt,
+                    lastProcessed,
+                    lastFailed,
+                    lastRequeued,
+                    consecutiveFailures.get(),
+                    lastRunState,
+                    lastError);
+        }
     }
 
     private static class SearchSyncWorkQueueException extends RuntimeException {

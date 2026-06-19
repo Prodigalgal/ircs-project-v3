@@ -162,6 +162,26 @@ class SystemMetricsServiceTest {
     }
 
     @Test
+    void runtimeWorkQueueReportsNoProgressWhenConsumerExistsButRateIsStale() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(SearchSyncWorkTypes.RAW))
+                .thenReturn(new RuntimeWorkQueueCounts(11, 0, 0));
+        when(runtimeWorkQueue.consumerCount(SearchSyncWorkTypes.RAW)).thenReturn(1L);
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_SEARCH_RAW_PENDING".equals(queue.key())
+                        && queue.messageCount() == 11
+                        && queue.consumerCount() == 1
+                        && "CONSUMER_NO_PROGRESS".equals(queue.blockedReason())));
+    }
+
+    @Test
     void metricsExposeValkeyBucketRatesForTopCardsAndRows() {
         PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
         RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);

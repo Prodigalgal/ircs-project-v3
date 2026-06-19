@@ -6,12 +6,14 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 
 class SearchSyncTaskOpsRepositoryTest {
 
     private final RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
-    private final SearchSyncTaskOpsRepository repository = new SearchSyncTaskOpsRepository(workQueue);
+    private final ObjectProvider<SearchSyncWorkQueueWorker> workerProvider = org.mockito.Mockito.mock(ObjectProvider.class);
+    private final SearchSyncTaskOpsRepository repository = new SearchSyncTaskOpsRepository(workQueue, workerProvider);
 
     @Test
     void aggregatesRuntimeWorkQueueStats() {
@@ -29,6 +31,9 @@ class SearchSyncTaskOpsRepositoryTest {
         assertThat(stats.duePending()).isEqualTo(5);
         assertThat(stats.rawVideo()).isEqualTo(3);
         assertThat(stats.unifiedVideo()).isEqualTo(4);
+        assertThat(stats.rawQueue().pending()).isEqualTo(2);
+        assertThat(stats.rawQueue().processing()).isEqualTo(1);
+        assertThat(stats.unifiedQueue().failed()).isEqualTo(1);
     }
 
     @Test

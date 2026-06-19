@@ -12,6 +12,7 @@ class AdminBffRoutesTest {
             "http://catalog",
             "http://task",
             "http://ops",
+            "http://search",
             "http://storage",
             "http://config",
             "http://credential",
@@ -66,5 +67,13 @@ class AdminBffRoutesTest {
 
         assertThat(route.targetBaseUrl()).isEqualTo("http://task");
         assertThat(route.targetPath()).isEqualTo("/api/v1/collection-tasks/123/runtime");
+    }
+
+    @Test
+    void routesSearchOpsToSearchService() {
+        ResolvedRoute route = routes.resolve("/api/v1/search/ops/search-sync-tasks/stats").orElseThrow();
+
+        assertThat(route.targetBaseUrl()).isEqualTo("http://search");
+        assertThat(route.targetPath()).isEqualTo("/api/v1/search/ops/search-sync-tasks/stats");
     }
 }

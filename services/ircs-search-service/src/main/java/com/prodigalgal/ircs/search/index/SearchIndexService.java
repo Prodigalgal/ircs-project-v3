@@ -10,6 +10,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
@@ -24,6 +25,8 @@ public class SearchIndexService {
 
     private final ElasticsearchOperations elasticsearchOperations;
     private final SearchPortalReadModelCache readModelCache;
+    private final Set<Class<?>> ensuredIndexes = ConcurrentHashMap.newKeySet();
+
     public SearchIndexService(
             ElasticsearchOperations elasticsearchOperations,
             SearchPortalReadModelCache readModelCache) {
@@ -74,6 +77,7 @@ public class SearchIndexService {
             indexOperations.delete();
         }
         boolean recreated = indexOperations.createWithMapping();
+        ensuredIndexes.add(documentType);
         if (type == SearchEntityType.UNIFIED_VIDEO) {
             readModelCache.evictPortalPublicReadModel();
         }
@@ -89,11 +93,15 @@ public class SearchIndexService {
     }
 
     private void ensureIndex(Class<?> documentType) {
+        if (ensuredIndexes.contains(documentType)) {
+            return;
+        }
         IndexOperations indexOperations = elasticsearchOperations.indexOps(documentType);
         if (!indexOperations.exists()) {
             indexOperations.createWithMapping();
             log.info("Created Elasticsearch index for {}", documentType.getSimpleName());
         }
+        ensuredIndexes.add(documentType);
     }
 
     private Class<?> documentType(SearchEntityType type) {

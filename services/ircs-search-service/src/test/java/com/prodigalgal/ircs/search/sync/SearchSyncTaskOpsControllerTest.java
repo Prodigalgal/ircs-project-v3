@@ -16,7 +16,24 @@ class SearchSyncTaskOpsControllerTest {
     @Test
     void returnsNoStoreStats() {
         SearchSyncTaskStatsResponse stats = new SearchSyncTaskStatsResponse(
-                true, null, 2, 1, 0, 1, 0, 1, 1, 1, 2, 0, 3, null, null);
+                true,
+                null,
+                2,
+                1,
+                0,
+                1,
+                0,
+                1,
+                1,
+                1,
+                2,
+                0,
+                3,
+                null,
+                null,
+                SearchSyncQueueStats.empty(),
+                SearchSyncQueueStats.empty(),
+                SearchSyncWorkerStats.empty());
         when(repository.stats()).thenReturn(stats);
 
         var response = controller.stats();

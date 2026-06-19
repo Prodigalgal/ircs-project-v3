@@ -324,7 +324,6 @@ class TaskProgressRedisService {
             if previousMasterStatus == 'PAUSED'
               or previousMasterStatus == 'STOPPING'
               or previousMasterStatus == 'FAILED'
-              or previousMasterStatus == 'COMPLETED'
               or previousMasterStatus == 'COMPLETED_WITH_ERRORS' then
               return -1
             end
@@ -513,6 +512,22 @@ class TaskProgressRedisService {
                 pageNumber,
                 intValue(masterState, "totalPages", null),
                 status));
+    }
+
+    Optional<MasterProgressState> masterProgress(UUID masterTaskId) {
+        if (masterTaskId == null) {
+            return Optional.empty();
+        }
+        Map<String, String> masterState = hash(TaskHotKeys.masterState(masterTaskId));
+        if (masterState.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new MasterProgressState(
+                masterState.get("status"),
+                longValue(masterState, "pageScheduled", 0),
+                longValue(masterState, "pageCompleted", 0),
+                intValue(masterState, "totalPages", null),
+                intValue(masterState, "startPage", null)));
     }
 
     long recordPageDiscovered(TaskPageDiscoveredMessage message) {
@@ -719,7 +734,7 @@ class TaskProgressRedisService {
     private boolean isBlockedStatus(String status) {
         String normalized = status == null || status.isBlank() ? "" : status.trim().toUpperCase();
         return switch (normalized) {
-            case "PAUSED", "STOPPING", "FAILED", "COMPLETED", "COMPLETED_WITH_ERRORS" -> true;
+            case "PAUSED", "STOPPING", "FAILED", "COMPLETED_WITH_ERRORS" -> true;
             default -> false;
         };
     }
@@ -730,6 +745,20 @@ record PageProgressState(
         Integer totalPages,
         String status
 ) {
+}
+
+record MasterProgressState(
+        String status,
+        long pageScheduled,
+        long pageCompleted,
+        Integer totalPages,
+        Integer startPage
+) {
+    boolean completedCurrentSlice() {
+        return "COMPLETED".equalsIgnoreCase(status)
+                && pageScheduled > 0
+                && pageCompleted >= pageScheduled;
+    }
 }
 
 record TaskDetailCompletion(

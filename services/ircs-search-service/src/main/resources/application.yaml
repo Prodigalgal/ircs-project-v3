@@ -18,6 +18,8 @@ spring:
     uris: ${SPRING_ELASTICSEARCH_URIS:${ELASTICSEARCH_URIS:http://localhost:9200}}
     username: ${SPRING_ELASTICSEARCH_USERNAME:${ELASTICSEARCH_USERNAME:elastic}}
     password: ${SPRING_ELASTICSEARCH_PASSWORD:${ELASTICSEARCH_PASSWORD:}}
+    connection-timeout: ${SPRING_ELASTICSEARCH_CONNECTION_TIMEOUT:5s}
+    socket-timeout: ${SPRING_ELASTICSEARCH_SOCKET_TIMEOUT:10s}
   datasource:
     url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
     username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}

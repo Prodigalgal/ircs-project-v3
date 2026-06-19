@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 class RedisRuntimeWorkQueueRateMetricsTest {
@@ -119,6 +120,19 @@ class RedisRuntimeWorkQueueRateMetricsTest {
                 6,
                 13,
                 RateMetricKeys.runtimeMetric(AggregationWorkTypes.RAW_VIDEO, RateMetricKeys.ACTION_FAILED));
+    }
+
+    @Test
+    void expiredInflightCountReadsExpiredVisibilityScores() {
+        @SuppressWarnings("unchecked")
+        ZSetOperations<String, String> zSets = org.mockito.Mockito.mock(ZSetOperations.class);
+        when(redisTemplate.opsForZSet()).thenReturn(zSets);
+        when(zSets.count(
+                org.mockito.Mockito.eq("ircs:work:v1:" + SearchSyncWorkTypes.RAW + ":inflight"),
+                org.mockito.Mockito.eq(Double.NEGATIVE_INFINITY),
+                org.mockito.Mockito.anyDouble())).thenReturn(3L);
+
+        assertEquals(3L, queue.expiredInflightCount(SearchSyncWorkTypes.RAW));
     }
 
     private RuntimeWorkItem item(String taskType, String taskId) {

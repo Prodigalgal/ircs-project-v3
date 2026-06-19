@@ -249,6 +249,20 @@ public class JdbcCollectionTaskRepository {
         }
     }
 
+    public List<UUID> findActiveTaskIds(int limit) {
+        int safeLimit = Math.max(1, Math.min(MAX_PAGE_SIZE, limit));
+        return jdbcTemplate.query(
+                """
+                select id
+                from collection_tasks
+                where status in ('QUEUED', 'RUNNING')
+                order by updated_at asc, id asc
+                limit ?
+                """,
+                (rs, rowNum) -> rs.getObject("id", UUID.class),
+                safeLimit);
+    }
+
     public Optional<ScheduledTaskDefinition> findScheduledTask(UUID id) {
         return findScheduledTasks().stream()
                 .filter(task -> task.id().equals(id))

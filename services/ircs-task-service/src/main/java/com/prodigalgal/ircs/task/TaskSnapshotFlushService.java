@@ -227,9 +227,25 @@ class TaskSnapshotFlushService {
         long scheduled = longValue(masterState, "pageScheduled", snapshot == null ? 0 : snapshot.pageScheduled());
         Integer totalPages = intValue(masterState, "totalPages", null);
         if (totalPages != null && totalPages > 0) {
-            return capPageCount(Math.max(scheduled, totalPages));
+            int runStartPage = runtimeStartPage(task, snapshot, masterState);
+            long remainingRunPages = Math.max(0L, totalPages - runStartPage + 1L);
+            return capPageCount(Math.max(scheduled, remainingRunPages));
         }
         return capPageCount(scheduled);
+    }
+
+    private int runtimeStartPage(TaskDetailSummary task, TaskMasterSnapshot snapshot, Map<String, String> masterState) {
+        Integer stateStart = intValue(masterState, "startPage", null);
+        if (stateStart != null && stateStart > 0) {
+            return stateStart;
+        }
+        if (snapshot != null && snapshot.startPage() > 0) {
+            return snapshot.startPage();
+        }
+        if (task.currentPage() != null && task.currentPage() > 0) {
+            return task.currentPage();
+        }
+        return task.startPage() != null && task.startPage() > 0 ? task.startPage() : 1;
     }
 
     private long capPageCount(long pageCount) {

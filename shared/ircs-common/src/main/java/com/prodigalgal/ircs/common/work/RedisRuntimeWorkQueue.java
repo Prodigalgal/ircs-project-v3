@@ -43,6 +43,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
                 'visibleAt', '',
                 'ownerId', '',
                 'lastError', '')
+            redis.call('HDEL', ARGV[1], 'completedAt')
             redis.call('PERSIST', ARGV[1])
             redis.call('ZADD', KEYS[1], ARGV[9], ARGV[3])
             redis.call('ZREM', KEYS[2], ARGV[3])
@@ -76,6 +77,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
                   'ownerId', ARGV[5],
                   'updatedAt', ARGV[1],
                   'visibleAt', ARGV[2])
+              redis.call('HDEL', taskKey, 'completedAt')
               redis.call('XADD', KEYS[3], 'MAXLEN', '~', ARGV[6], '*',
                   'event', 'claimed',
                   'taskType', ARGV[7],
@@ -136,6 +138,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
                   'dueAt', ARGV[5],
                   'visibleAt', '',
                   'lastError', ARGV[6])
+              redis.call('HDEL', ARGV[2], 'completedAt')
               redis.call('ZADD', KEYS[1], ARGV[5], ARGV[1])
               redis.call('XADD', KEYS[4], 'MAXLEN', '~', ARGV[8], '*',
                   'event', 'retry_scheduled',
@@ -180,6 +183,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
                   'updatedAt', ARGV[1],
                   'dueAt', ARGV[1],
                   'visibleAt', '')
+              redis.call('HDEL', taskKey, 'completedAt')
               redis.call('XADD', KEYS[3], 'MAXLEN', '~', ARGV[4], '*',
                   'event', 'visibility_expired',
                   'taskType', ARGV[5],
@@ -421,6 +425,14 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
         String key = consumerKey(normalizedTaskType);
         redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
         return zCard(key);
+    }
+
+    @Override
+    public long expiredInflightCount(String taskType) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        Long value = redisTemplate.opsForZSet()
+                .count(inflightKey(normalizedTaskType), Double.NEGATIVE_INFINITY, nowMillis());
+        return value == null ? 0L : value;
     }
 
     @Override

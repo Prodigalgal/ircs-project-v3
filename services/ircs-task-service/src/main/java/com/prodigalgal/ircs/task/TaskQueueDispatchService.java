@@ -73,29 +73,40 @@ class TaskQueueDispatchService {
         }
     }
 
-    void dispatchNextPageIfNeeded(UUID masterTaskId, int completedPage, Integer observedTotalPages, String correlationId) {
+    DispatchNextPageResult dispatchNextPageIfNeeded(
+            UUID masterTaskId,
+            int completedPage,
+            Integer observedTotalPages,
+            String correlationId) {
         if (!enabled || masterTaskId == null || completedPage < 1) {
-            return;
+            return DispatchNextPageResult.BLOCKED;
         }
         TaskExecutionPlan plan = taskRepository.findExecutionPlan(masterTaskId).orElse(null);
         if (plan == null) {
             log.warn("Task page expansion skipped: execution plan missing, masterTaskId={}", masterTaskId);
-            return;
+            return DispatchNextPageResult.BLOCKED;
         }
-        if (!allowsPageExpansion(plan.status()) || !progressService.allowsDispatch(masterTaskId)) {
+        if (!allowsPageExpansion(plan.status())) {
             log.info("Task page expansion skipped: masterTaskId={}, status={}", masterTaskId, plan.status());
-            return;
+            return DispatchNextPageResult.BLOCKED;
         }
         int nextPage = completedPage + 1;
         Integer finalPage = finalPage(plan, observedTotalPages);
         if (finalPage == null || nextPage > finalPage) {
-            return;
+            return DispatchNextPageResult.NO_MORE_PAGES;
         }
         Instant now = Instant.now();
-        dispatchPage(plan, nextPage, false, scrapeOptions(plan), correlationId(plan.id(), correlationId), now);
+        boolean dispatched = dispatchPage(
+                plan,
+                nextPage,
+                false,
+                scrapeOptions(plan),
+                correlationId(plan.id(), correlationId),
+                now);
+        return dispatched ? DispatchNextPageResult.DISPATCHED : DispatchNextPageResult.BLOCKED;
     }
 
-    private void dispatchPage(
+    private boolean dispatchPage(
             TaskExecutionPlan plan,
             int pageNumber,
             boolean resume,
@@ -104,12 +115,12 @@ class TaskQueueDispatchService {
             Instant now) {
         Integer finalPage = finalPage(plan, null);
         if (finalPage != null && pageNumber > finalPage) {
-            return;
+            return false;
         }
         UUID pageTaskId = IrcsUuidGenerators.nextId();
         long scheduledPage = progressService.trySchedulePage(plan.id(), pageTaskId, pageNumber, now);
         if (scheduledPage <= 0) {
-            return;
+            return false;
         }
         try {
             queuePublisher.publishPage(new TaskPageMessage(
@@ -127,6 +138,7 @@ class TaskQueueDispatchService {
             throw ex;
         }
         append(plan.id(), "INFO", "Queued page task " + scheduledPage + " into RabbitMQ");
+        return true;
     }
 
     private boolean allowsPageExpansion(String status) {
@@ -252,4 +264,10 @@ class TaskQueueDispatchService {
         String message = ex.getMessage().replaceAll("\\s+", " ").trim();
         return message.length() <= 240 ? message : message.substring(0, 240);
     }
+}
+
+enum DispatchNextPageResult {
+    DISPATCHED,
+    NO_MORE_PAGES,
+    BLOCKED
 }

@@ -79,6 +79,7 @@ class AdminBffErrorEnvelopeTest {
                 "http://catalog",
                 "http://task",
                 "http://ops",
+                "http://search",
                 "http://storage",
                 "http://config",
                 "http://credential",

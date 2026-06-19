@@ -148,6 +148,66 @@ class TaskSnapshotFlushServiceTest {
     }
 
     @Test
+    void openEndedResumeUsesRemainingPagesFromRuntimeStartPage() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        UUID page = UUID.randomUUID();
+        Instant now = Instant.parse("2026-06-19T09:22:30Z");
+        wireRedisOps();
+        when(taskRepository.findById(masterTaskId))
+                .thenReturn(Optional.of(task(masterTaskId, dataSourceId, "RUNNING", 1, 0, 54)));
+        when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(new TaskMasterSnapshot(
+                masterTaskId,
+                dataSourceId,
+                "Codex task",
+                "COMPLETED",
+                true,
+                54,
+                null,
+                1,
+                1,
+                1,
+                0,
+                20,
+                20,
+                20,
+                0,
+                null,
+                masterTaskId.toString(),
+                now.minusSeconds(300),
+                now)));
+        when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.ofEntries(
+                Map.entry("status", "COMPLETED"),
+                Map.entry("startPage", "54"),
+                Map.entry("pageScheduled", "1"),
+                Map.entry("pageDiscovered", "1"),
+                Map.entry("pageCompleted", "1"),
+                Map.entry("detailScheduled", "20"),
+                Map.entry("detailCompleted", "20"),
+                Map.entry("detailSucceeded", "20"),
+                Map.entry("detailFailed", "0"),
+                Map.entry("totalPages", "4191"),
+                Map.entry("totalItems", "83814"),
+                Map.entry("updatedAt", Long.toString(now.toEpochMilli()))));
+        when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(page.toString()));
+        when(hashes.entries(TaskHotKeys.pageState(page))).thenReturn(Map.of(
+                "pageNumber", "54",
+                "detailScheduled", "20",
+                "detailCompleted", "20",
+                "detailFailed", "0",
+                "status", "COMPLETED"));
+
+        assertThat(service.flushOne(masterTaskId)).isTrue();
+
+        TaskDbRuntimeSnapshot ledger = captureLedger();
+        assertThat(ledger.status()).isEqualTo("RUNNING");
+        assertThat(ledger.currentPage()).isEqualTo(54);
+        assertThat(ledger.totalFound()).isEqualTo(83814);
+        assertThat(ledger.endedAt()).isNull();
+        verify(snapshotService, never()).deactivate(masterTaskId);
+    }
+
+    @Test
     void cleansDirtyMarkerWhenDbTaskNoLongerExists() {
         UUID masterTaskId = UUID.randomUUID();
         wireRedisOps();
@@ -170,6 +230,16 @@ class TaskSnapshotFlushServiceTest {
     }
 
     private TaskDetailSummary task(UUID taskId, UUID dataSourceId, String status, int startPage, int endPage) {
+        return task(taskId, dataSourceId, status, startPage, endPage, startPage);
+    }
+
+    private TaskDetailSummary task(
+            UUID taskId,
+            UUID dataSourceId,
+            String status,
+            int startPage,
+            int endPage,
+            int currentPage) {
         return new TaskDetailSummary(
                 taskId,
                 "Codex task",
@@ -182,7 +252,7 @@ class TaskSnapshotFlushServiceTest {
                 "BY_PAGE",
                 startPage,
                 endPage,
-                startPage,
+                currentPage,
                 null,
                 null,
                 null,

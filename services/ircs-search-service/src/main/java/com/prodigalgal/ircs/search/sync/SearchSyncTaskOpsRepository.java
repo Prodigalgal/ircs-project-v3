@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Repository;
 public class SearchSyncTaskOpsRepository {
 
     private final RuntimeWorkQueue workQueue;
+    private final ObjectProvider<SearchSyncWorkQueueWorker> workerProvider;
 
     public SearchSyncTaskStatsResponse stats() {
         try {
@@ -34,9 +36,25 @@ public class SearchSyncTaskOpsRepository {
                     0,
                     0,
                     null,
-                    null);
+                    null,
+                    new SearchSyncQueueStats(
+                            raw.pending(),
+                            raw.inflight(),
+                            raw.dlq(),
+                            workQueue.expiredInflightCount(SearchSyncWorkTypes.RAW)),
+                    new SearchSyncQueueStats(
+                            unified.pending(),
+                            unified.inflight(),
+                            unified.dlq(),
+                            workQueue.expiredInflightCount(SearchSyncWorkTypes.UNIFIED)),
+                    SearchSyncWorkerStats.from(workerState()));
         } catch (RuntimeException ex) {
             return SearchSyncTaskStatsResponse.unavailable("runtime_work_queue_unavailable");
         }
+    }
+
+    private SearchSyncWorkQueueState workerState() {
+        SearchSyncWorkQueueWorker worker = workerProvider == null ? null : workerProvider.getIfAvailable();
+        return worker == null ? null : worker.state();
     }
 }

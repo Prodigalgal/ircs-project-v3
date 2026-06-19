@@ -54,11 +54,13 @@ class SearchSyncWorkQueueHealthIndicator implements HealthIndicator {
                     .withDetail("lastRunAt", valueOrNever(state.lastRunAt()))
                     .withDetail("lastSuccessAt", valueOrNever(state.lastSuccessAt()))
                     .withDetail("lastFailureAt", valueOrNever(state.lastFailureAt()))
+                    .withDetail("lastProgressAt", valueOrNever(state.lastProgressAt()))
                     .withDetail("lastProcessed", state.lastProcessed())
                     .withDetail("lastFailed", state.lastFailed())
                     .withDetail("lastRequeued", state.lastRequeued())
                     .withDetail("consecutiveFailures", state.consecutiveFailures())
                     .withDetail("lastError", StringUtils.hasText(state.lastError()) ? state.lastError() : "none")
+                    .withDetail("lanes", state.lanes())
                     .withDetail("workQueue", workQueueDetails())
                     .build();
         } catch (RuntimeException ex) {

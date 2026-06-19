@@ -29,4 +29,8 @@ public interface RuntimeWorkQueue {
     default long consumerCount(String taskType) {
         return 0L;
     }
+
+    default long expiredInflightCount(String taskType) {
+        return 0L;
+    }
 }

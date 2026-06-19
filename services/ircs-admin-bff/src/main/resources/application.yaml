@@ -41,6 +41,7 @@ app:
       catalog: ${APP_BFF_CATALOG_BASE_URL:http://ircs-catalog-service.ircs-dev.svc.cluster.local:8080}
       task: ${APP_BFF_TASK_BASE_URL:http://ircs-task-service.ircs-dev.svc.cluster.local:8080}
       ops: ${APP_BFF_OPS_BASE_URL:http://ircs-ops-service.ircs-dev.svc.cluster.local:8080}
+      search: ${APP_BFF_SEARCH_BASE_URL:http://ircs-search-service.ircs-dev.svc.cluster.local:8080}
       storage: ${APP_BFF_STORAGE_BASE_URL:http://ircs-storage-service.ircs-dev.svc.cluster.local:8080}
       config: ${APP_BFF_CONFIG_BASE_URL:http://ircs-config-service.ircs-dev.svc.cluster.local:8080}
       credential: ${APP_BFF_CREDENTIAL_BASE_URL:http://ircs-credential-service.ircs-dev.svc.cluster.local:8080}
