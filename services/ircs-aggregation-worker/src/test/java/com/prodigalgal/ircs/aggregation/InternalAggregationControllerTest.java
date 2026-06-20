@@ -9,6 +9,7 @@ import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -17,8 +18,9 @@ class InternalAggregationControllerTest {
     private final AggregationService aggregationService = org.mockito.Mockito.mock(AggregationService.class);
     private final AggregationInternalAccessPolicy accessPolicy =
             org.mockito.Mockito.mock(AggregationInternalAccessPolicy.class);
+    private final ObjectProvider<AggregationWorkQueueWorker> workerProvider = org.mockito.Mockito.mock(ObjectProvider.class);
     private final InternalAggregationController controller =
-            new InternalAggregationController(aggregationService, accessPolicy);
+            new InternalAggregationController(aggregationService, accessPolicy, workerProvider);
 
     @Test
     void recalculateDirtyUnifiedChecksAccessAndDelegatesToService() {
@@ -108,5 +110,19 @@ class InternalAggregationControllerTest {
         assertEquals(response, result.getBody());
         verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
         verify(aggregationService).markAllRawAggregationPending(6);
+    }
+
+    @Test
+    void workQueueStateChecksAccessAndReturnsNullWhenWorkerUnavailable() {
+        when(workerProvider.getIfAvailable()).thenReturn(null);
+
+        ResponseEntity<AggregationWorkQueueState> result = controller.workQueueState(
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals(null, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
     }
 }

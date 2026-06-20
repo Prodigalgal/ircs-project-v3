@@ -41,6 +41,9 @@ class AggregationWorkQueueWorkerTest {
         assertThat(processed).isEqualTo(1);
         assertThat(queue.completed).containsExactly(item);
         assertThat(queue.failures).isEmpty();
+        assertThat(queue.heartbeats).isGreaterThan(0);
+        assertThat(worker.state().lastRunState()).isEqualTo("PROCESSED");
+        assertThat(worker.state().lastProcessed()).isEqualTo(1);
         verify(aggregationService).aggregateRuntimeWorkBatch(List.of(rawVideoId));
     }
 
@@ -61,6 +64,8 @@ class AggregationWorkQueueWorkerTest {
         assertThat(queue.failures).hasSize(1);
         assertThat(queue.failures.getFirst().retryable()).isTrue();
         assertThat(queue.failures.getFirst().reason()).isEqualTo("NOT_ELIGIBLE");
+        assertThat(worker.state().lastRunState()).isEqualTo("DEPENDENCY_FAILURE");
+        assertThat(worker.state().lastFailed()).isEqualTo(1);
     }
 
     private AggregationWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {
@@ -111,6 +116,7 @@ class AggregationWorkQueueWorkerTest {
         private final List<RuntimeWorkItem> items = new ArrayList<>();
         private final List<RuntimeWorkItem> completed = new ArrayList<>();
         private final List<Failure> failures = new ArrayList<>();
+        private int heartbeats;
 
         @Override
         public void submit(RuntimeWorkItemRequest request) {
@@ -153,6 +159,11 @@ class AggregationWorkQueueWorkerTest {
         @Override
         public RuntimeWorkQueueCounts counts(String taskType) {
             return new RuntimeWorkQueueCounts(items.size(), 0, failures.size());
+        }
+
+        @Override
+        public void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
+            heartbeats++;
         }
     }
 

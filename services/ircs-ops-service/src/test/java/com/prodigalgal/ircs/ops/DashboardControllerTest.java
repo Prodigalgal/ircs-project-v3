@@ -1,7 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -9,11 +8,13 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 class DashboardControllerTest {
 
     private final DashboardQueryService dashboardQueryService = org.mockito.Mockito.mock(DashboardQueryService.class);
-    private final DashboardController controller = new DashboardController(dashboardQueryService);
+    private final DashboardStreamService dashboardStreamService = org.mockito.Mockito.mock(DashboardStreamService.class);
+    private final DashboardController controller = new DashboardController(dashboardQueryService, dashboardStreamService);
 
     @Test
     void returnsStatistics() {
@@ -75,15 +76,10 @@ class DashboardControllerTest {
 
     @Test
     void returnsMetricsStreamEmitter() {
-        when(dashboardQueryService.getMetrics()).thenReturn(new SystemMetricsResponse(
-                RateMetricResponse.empty("collection.page.discovered", "PT 发现速率", 60, 300),
-                RateMetricResponse.empty("collection.detail.completed", "DT 采集速率", 60, 300),
-                RateMetricResponse.empty("pipeline.normalize.completed", "清洗速率", 60, 300),
-                RateMetricResponse.empty("metadata.combined", "元数据速率", 60, 300),
-                0, 0, 0, 0, List.of(), 0,
-                null, 0, 0, true, 1, Map.of()));
+        SseEmitter emitter = new SseEmitter();
+        when(dashboardStreamService.stream(25)).thenReturn(emitter);
 
-        assertNotNull(controller.metricsStream());
-        verify(dashboardQueryService).getMetrics();
+        assertEquals(emitter, controller.metricsStream(25));
+        verify(dashboardStreamService).stream(25);
     }
 }

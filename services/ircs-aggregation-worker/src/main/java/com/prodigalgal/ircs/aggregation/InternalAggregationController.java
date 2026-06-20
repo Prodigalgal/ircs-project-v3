@@ -5,7 +5,9 @@ import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunRespo
 import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -20,6 +22,7 @@ class InternalAggregationController {
 
     private final AggregationService aggregationService;
     private final AggregationInternalAccessPolicy accessPolicy;
+    private final ObjectProvider<AggregationWorkQueueWorker> workQueueWorkerProvider;
 
     @PostMapping("/unified-videos/{id}/recalculate")
     ResponseEntity<RecalculateResponse> recalculateUnified(
@@ -59,6 +62,16 @@ class InternalAggregationController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
         return ResponseEntity.accepted().body(aggregationService.markAllRawAggregationPending(sampleLimit));
+    }
+
+    @GetMapping("/work-queue/state")
+    ResponseEntity<AggregationWorkQueueState> workQueueState(
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
+        accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
+        AggregationWorkQueueWorker worker = workQueueWorkerProvider.getIfAvailable();
+        return ResponseEntity.ok(worker == null ? null : worker.state());
     }
 
     record RecalculateResponse(UUID unifiedVideoId, int sourceCount) {

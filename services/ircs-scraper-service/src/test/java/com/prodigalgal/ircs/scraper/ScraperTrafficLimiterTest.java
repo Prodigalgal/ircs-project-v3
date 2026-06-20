@@ -117,11 +117,11 @@ class ScraperTrafficLimiterTest {
     }
 
     @Test
-    void reservesGlobalTimeSliceOnlyWhenExplicitlyEnabled() {
+    void neverReservesGlobalTimeSliceForCrawlerTraffic() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
         ScraperTrafficLimiter limiter = limiter(
                 lockManager,
-                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2), true, true),
+                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2), true),
                 true,
                 EGRESS_IP,
                 1000,
@@ -130,31 +130,8 @@ class ScraperTrafficLimiterTest {
 
         limiter.acquireDataSourceSlot(source(), config(1000));
 
-        assertThat(lockManager.timeSliceRequests).hasSize(2);
-        assertThat(lockManager.timeSliceRequests.getFirst().key()).isEqualTo(globalKey());
-        assertThat(lockManager.timeSliceRequests.getFirst().gap()).isEqualTo(Duration.ofMillis(250));
-        assertThat(lockManager.timeSliceRequests.get(1).key()).isEqualTo(sourceKey());
-    }
-
-    @Test
-    void rejectsWhenExplicitGlobalQueueWaitExceedsMaxWait() {
-        FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.rejected(
-                globalKey(),
-                Duration.ofMinutes(3),
-                Instant.parse("2026-06-11T00:00:00Z"),
-                Instant.parse("2026-06-11T00:03:00Z")));
-        ScraperTrafficLimiter limiter = limiter(
-                lockManager,
-                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2), true, true),
-                true,
-                EGRESS_IP,
-                1000,
-                Duration.ofMinutes(2),
-                Duration.ofMinutes(10));
-
-        assertThatThrownBy(() -> limiter.acquireDataSourceSlot(source(), config(1000)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("global crawler traffic limit");
+        assertThat(lockManager.timeSliceRequests).hasSize(1);
+        assertThat(lockManager.timeSliceRequests.getFirst().key()).isEqualTo(sourceKey());
     }
 
     @Test
@@ -207,20 +184,17 @@ class ScraperTrafficLimiterTest {
     }
 
     private ScraperTrafficConfigValues trafficConfig(Duration globalGap, Duration safetyFloor, Duration maxWait) {
-        return trafficConfig(globalGap, safetyFloor, maxWait, false, true);
+        return trafficConfig(globalGap, safetyFloor, maxWait, true);
     }
 
     private ScraperTrafficConfigValues trafficConfig(
             Duration globalGap,
             Duration safetyFloor,
             Duration maxWait,
-            boolean globalEnabled,
             boolean sourceEnabled) {
         ScraperTrafficConfigValues values = org.mockito.Mockito.mock(ScraperTrafficConfigValues.class);
-        org.mockito.Mockito.when(values.globalDelay()).thenReturn(globalGap);
         org.mockito.Mockito.when(values.safetyFloor()).thenReturn(safetyFloor);
         org.mockito.Mockito.when(values.maxWait(org.mockito.Mockito.any())).thenReturn(maxWait);
-        org.mockito.Mockito.when(values.globalEnabled(org.mockito.Mockito.anyBoolean())).thenReturn(globalEnabled);
         org.mockito.Mockito.when(values.sourceEnabled(org.mockito.Mockito.anyBoolean())).thenReturn(sourceEnabled);
         return values;
     }
@@ -233,11 +207,7 @@ class ScraperTrafficLimiterTest {
             long defaultGapMs,
             Duration maxWait,
             Duration ttl) {
-        return new ScraperTrafficLimiter(lockManager, trafficConfig, enabled, false, true, egressIp, defaultGapMs, maxWait, ttl);
-    }
-
-    private static String globalKey() {
-        return "traffic:limit:Global:Scraper:Ip:" + EGRESS_IP;
+        return new ScraperTrafficLimiter(lockManager, trafficConfig, enabled, true, egressIp, defaultGapMs, maxWait, ttl);
     }
 
     private static String sourceKey() {

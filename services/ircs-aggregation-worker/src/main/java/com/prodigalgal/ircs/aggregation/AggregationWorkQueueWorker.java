@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,6 +35,16 @@ class AggregationWorkQueueWorker {
     private final AggregationService aggregationService;
     private final WorkerJobAuditWriter auditWriter;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong consecutiveFailures = new AtomicLong(0);
+    private volatile Instant lastRunAt;
+    private volatile Instant lastSuccessAt;
+    private volatile Instant lastFailureAt;
+    private volatile Instant lastProgressAt;
+    private volatile int lastProcessed;
+    private volatile int lastFailed;
+    private volatile int lastRequeued;
+    private volatile String lastRunState = "NEVER_RUN";
+    private volatile String lastError;
 
     @Value("${app.aggregation.work-queue.worker.batch-size:100}")
     private int batchSize;
@@ -71,15 +82,9 @@ class AggregationWorkQueueWorker {
         runOnce();
     }
 
-    @Scheduled(
-            initialDelayString = "${app.aggregation.work-queue.worker.heartbeat-initial-delay-ms:5000}",
-            fixedDelayString = "${app.aggregation.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
-    public void heartbeatScheduled() {
-        heartbeat();
-    }
-
     int runOnce() {
         if (!running.compareAndSet(false, true)) {
+            lastRunState = "BUSY";
             return 0;
         }
         try {
@@ -89,36 +94,79 @@ class AggregationWorkQueueWorker {
         }
     }
 
-    private int runOnceLocked() {
-        int effectiveBatchSize = Math.max(1, batchSize);
-        heartbeat();
-        int requeued = workQueue.requeueExpired(AggregationWorkTypes.RAW_VIDEO, effectiveBatchSize);
-        if (requeued > 0) {
-            log.info("Requeued expired aggregation work: count={}", requeued);
-        }
-        List<RuntimeWorkItem> items = workQueue.claim(
-                AggregationWorkTypes.RAW_VIDEO,
+    AggregationWorkQueueState state() {
+        return new AggregationWorkQueueState(
+                running.get(),
                 workerId(),
-                effectiveBatchSize,
-                Duration.ofSeconds(Math.max(1, visibilitySeconds)));
-        process(items);
-        return items.size();
+                lastRunAt,
+                lastSuccessAt,
+                lastFailureAt,
+                lastProgressAt,
+                lastProcessed,
+                lastFailed,
+                lastRequeued,
+                consecutiveFailures.get(),
+                lastRunState,
+                lastError);
     }
 
-    private void heartbeat() {
+    private int runOnceLocked() {
+        Instant startedAt = Instant.now();
+        lastRunAt = startedAt;
+        int effectiveBatchSize = Math.max(1, batchSize);
+        String resolvedWorkerId = workerId();
+        int requeued = 0;
+        ProcessResult result = ProcessResult.empty();
+        try {
+            heartbeat(resolvedWorkerId);
+            requeued = workQueue.requeueExpired(AggregationWorkTypes.RAW_VIDEO, effectiveBatchSize);
+            if (requeued > 0) {
+                lastProgressAt = Instant.now();
+                log.info("Requeued expired aggregation work: count={}", requeued);
+            }
+            List<RuntimeWorkItem> items = workQueue.claim(
+                    AggregationWorkTypes.RAW_VIDEO,
+                    resolvedWorkerId,
+                    effectiveBatchSize,
+                    Duration.ofSeconds(Math.max(1, visibilitySeconds)));
+            if (!items.isEmpty()) {
+                lastProgressAt = Instant.now();
+            }
+            result = process(items, resolvedWorkerId);
+            if (result.failed() > 0) {
+                markFailure(result.processed(), result.failed(), requeued, "aggregation work item failures");
+            } else {
+                markSuccess(result.processed(), requeued);
+            }
+            return items.size();
+        } catch (RuntimeException ex) {
+            markFailure(
+                    result.processed(),
+                    result.failed(),
+                    requeued,
+                    ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            log.warn("Aggregation work queue run failed: {}", ex.getMessage());
+            return result.processed();
+        }
+    }
+
+    private void heartbeat(String resolvedWorkerId) {
         workQueue.heartbeatConsumer(
                 AggregationWorkTypes.RAW_VIDEO,
-                workerId(),
+                resolvedWorkerId,
                 Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
     }
 
-    private void process(List<RuntimeWorkItem> items) {
+    private ProcessResult process(List<RuntimeWorkItem> items, String resolvedWorkerId) {
         if (items.isEmpty()) {
-            return;
+            return ProcessResult.empty();
         }
         Instant startedAt = Instant.now();
         Map<UUID, List<RuntimeWorkItem>> itemsByRawVideoId = new LinkedHashMap<>();
+        int processed = 0;
+        int failed = 0;
         for (RuntimeWorkItem item : items) {
+            heartbeat(resolvedWorkerId);
             UUID rawVideoId = null;
             try {
                 AggregationWorkPayload payload = objectMapper.readValue(item.payload(), AggregationWorkPayload.class);
@@ -126,14 +174,19 @@ class AggregationWorkQueueWorker {
                 itemsByRawVideoId.computeIfAbsent(rawVideoId, ignored -> new ArrayList<>()).add(item);
             } catch (RuntimeException | JsonProcessingException ex) {
                 failRetryable(item, startedAt, rawVideoId, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                processed++;
+                failed++;
+                lastProgressAt = Instant.now();
             }
         }
         if (itemsByRawVideoId.isEmpty()) {
-            return;
+            return new ProcessResult(processed, failed);
         }
         try {
+            heartbeat(resolvedWorkerId);
             List<AggregationResult> results =
                     aggregationService.aggregateRuntimeWorkBatch(List.copyOf(itemsByRawVideoId.keySet()));
+            heartbeat(resolvedWorkerId);
             Map<UUID, AggregationResult> resultByRawVideoId = new LinkedHashMap<>();
             for (AggregationResult result : results) {
                 resultByRawVideoId.put(result.rawVideoId(), result);
@@ -143,19 +196,29 @@ class AggregationWorkQueueWorker {
                         entry.getKey(),
                         AggregationResult.skipped(entry.getKey(), "MISSING_RAW_VIDEO"));
                 for (RuntimeWorkItem item : entry.getValue()) {
-                    finish(item, startedAt, result);
+                    heartbeat(resolvedWorkerId);
+                    if (!finish(item, startedAt, result)) {
+                        failed++;
+                    }
+                    processed++;
+                    lastProgressAt = Instant.now();
                 }
             }
         } catch (RuntimeException ex) {
             for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : itemsByRawVideoId.entrySet()) {
                 for (RuntimeWorkItem item : entry.getValue()) {
+                    heartbeat(resolvedWorkerId);
                     failRetryable(item, startedAt, entry.getKey(), ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                    processed++;
+                    failed++;
+                    lastProgressAt = Instant.now();
                 }
             }
         }
+        return new ProcessResult(processed, failed);
     }
 
-    private void finish(RuntimeWorkItem item, Instant startedAt, AggregationResult result) {
+    private boolean finish(RuntimeWorkItem item, Instant startedAt, AggregationResult result) {
         UUID rawVideoId = result.rawVideoId();
         if ("BOUND".equals(result.status())) {
             workQueue.complete(item);
@@ -164,7 +227,7 @@ class AggregationWorkQueueWorker {
                     JOB_NAME,
                     correlationId(rawVideoId, item),
                     elapsedSince(startedAt)));
-            return;
+            return true;
         }
         if ("MISSING_RAW_VIDEO".equals(result.status())) {
             workQueue.fail(item, false, Duration.ZERO, result.status());
@@ -174,9 +237,10 @@ class AggregationWorkQueueWorker {
                     correlationId(rawVideoId, item),
                     elapsedSince(startedAt),
                     new AggregationWorkQueueException(result.status())));
-            return;
+            return false;
         }
         failRetryable(item, startedAt, rawVideoId, result.status());
+        return false;
     }
 
     private void failRetryable(RuntimeWorkItem item, Instant startedAt, UUID rawVideoId, String reason) {
@@ -206,6 +270,26 @@ class AggregationWorkQueueWorker {
         return Duration.ofSeconds(Math.min(delaySeconds, maxSeconds));
     }
 
+    private void markSuccess(int processed, int requeued) {
+        lastSuccessAt = Instant.now();
+        lastProcessed = processed;
+        lastFailed = 0;
+        lastRequeued = requeued;
+        lastError = null;
+        lastRunState = processed > 0 || requeued > 0 ? "PROCESSED" : "IDLE";
+        consecutiveFailures.set(0);
+    }
+
+    private void markFailure(int processed, int failed, int requeued, String error) {
+        lastFailureAt = Instant.now();
+        lastProcessed = processed;
+        lastFailed = failed;
+        lastRequeued = requeued;
+        lastError = error;
+        lastRunState = "DEPENDENCY_FAILURE";
+        consecutiveFailures.incrementAndGet();
+    }
+
     private void recordAudit(WorkerJobAuditEvent event) {
         try {
             auditWriter.record(event);
@@ -228,6 +312,12 @@ class AggregationWorkQueueWorker {
     private static class AggregationWorkQueueException extends RuntimeException {
         AggregationWorkQueueException(String message) {
             super(message);
+        }
+    }
+
+    private record ProcessResult(int processed, int failed) {
+        static ProcessResult empty() {
+            return new ProcessResult(0, 0);
         }
     }
 }

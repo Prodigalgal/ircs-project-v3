@@ -16,8 +16,6 @@ import org.springframework.util.StringUtils;
 @Component
 class ScraperTrafficLimiter {
 
-    private static final String GLOBAL_KEY_PREFIX = "traffic:limit:Global:Scraper:Ip:";
-
     private final DistributedLockManager lockManager;
     private final ScraperTrafficConfigValues configValues;
     private final boolean enabled;
@@ -25,14 +23,12 @@ class ScraperTrafficLimiter {
     private final Duration defaultGap;
     private final Duration maxWait;
     private final Duration ttl;
-    private final boolean globalEnabledByDeployment;
     private final boolean sourceEnabledByDeployment;
 
     ScraperTrafficLimiter(
             DistributedLockManager lockManager,
             ScraperTrafficConfigValues configValues,
             @Value("${app.scraper.traffic.enabled:true}") boolean enabled,
-            @Value("${app.scraper.traffic.global-enabled:false}") boolean globalEnabledByDeployment,
             @Value("${app.scraper.traffic.source-enabled:true}") boolean sourceEnabledByDeployment,
             @Value("${app.scraper.traffic.egress-id:${IRCS_SCRAPER_TRAFFIC_EGRESS_IP:${KUBERNETES_NODE_IP:${HOST_IP:${HOSTNAME:unknown}}}}}") String egressIdentity,
             @Value("${app.scraper.traffic.default-gap-ms:1000}") long defaultGapMs,
@@ -45,20 +41,16 @@ class ScraperTrafficLimiter {
         this.defaultGap = positiveOr(defaultGapMs, Duration.ofSeconds(1));
         this.maxWait = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
         this.ttl = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
-        this.globalEnabledByDeployment = globalEnabledByDeployment;
         this.sourceEnabledByDeployment = sourceEnabledByDeployment;
     }
 
     static ScraperTrafficLimiter noop() {
-        return new ScraperTrafficLimiter(null, null, false, false, false, "unknown", 0, Duration.ZERO, Duration.ZERO);
+        return new ScraperTrafficLimiter(null, null, false, false, "unknown", 0, Duration.ZERO, Duration.ZERO);
     }
 
     void acquireDataSourceSlot(DataSourceRecord source, ManualScrapeConfigRequest config) {
         if (!enabled || lockManager == null) {
             return;
-        }
-        if (globalEnabled()) {
-            reserve(globalKey(), globalGap(), "global crawler traffic limit");
         }
         if (source == null || source.id() == null) {
             return;
@@ -87,10 +79,6 @@ class ScraperTrafficLimiter {
         return profile.keyPrefix() + "Ip:" + egressIdentity + ":" + sourceId;
     }
 
-    private String globalKey() {
-        return GLOBAL_KEY_PREFIX + egressIdentity;
-    }
-
     private Duration sourceGap(ManualScrapeConfigRequest config) {
         Duration requestedGap = defaultGap;
         if (config != null && config.fixedDelayMs() != null && config.fixedDelayMs() > 0) {
@@ -100,19 +88,8 @@ class ScraperTrafficLimiter {
         return requestedGap.compareTo(floor) >= 0 ? requestedGap : floor;
     }
 
-    private Duration globalGap() {
-        Duration gap = configValues == null ? defaultGap : configValues.globalDelay();
-        return gap != null && gap.isPositive() ? gap : Duration.ofMillis(1);
-    }
-
     private Duration effectiveMaxWait() {
         return configValues == null ? maxWait : configValues.maxWait(maxWait);
-    }
-
-    private boolean globalEnabled() {
-        return configValues == null
-                ? globalEnabledByDeployment
-                : configValues.globalEnabled(globalEnabledByDeployment);
     }
 
     private boolean sourceEnabled() {

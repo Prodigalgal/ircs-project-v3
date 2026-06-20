@@ -3,11 +3,6 @@ package com.prodigalgal.ircs.ops;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
-import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
-import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
-import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
-import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
-import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import com.prodigalgal.ircs.common.work.SystemConfigWorkSubmissionGate;
@@ -70,7 +65,7 @@ public class SystemMetricsService {
         registerValkeyPipelineGauges(PipelineTaskTypes.NORMALIZE_VIDEO);
         registerValkeyPipelineGauges(PipelineTaskTypes.ENRICH_METADATA);
         registerValkeyPipelineGauges(PipelineTaskTypes.METADATA_PROVIDER);
-        runtimeWorkDescriptors().forEach(descriptor -> registerRuntimeWorkGauges(descriptor.taskType()));
+        RuntimeWorkQueueCatalog.descriptors().forEach(descriptor -> registerRuntimeWorkGauges(descriptor.taskType()));
     }
 
     public SystemMetricsResponse currentMetrics() {
@@ -187,7 +182,7 @@ public class SystemMetricsService {
 
     private List<QueueMetricResponse> valkeyRuntimeWorkQueues(RateMetricSnapshot rateSnapshot) {
         List<QueueMetricResponse> queues = new ArrayList<>();
-        runtimeWorkDescriptors().forEach(descriptor -> {
+        RuntimeWorkQueueCatalog.descriptors().forEach(descriptor -> {
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Pending",
                     "RUNTIME_" + descriptor.key() + "_PENDING", descriptor.color(), descriptor.taskType(),
                     RuntimeWorkMetricRole.PENDING, rateSnapshot);
@@ -200,7 +195,7 @@ public class SystemMetricsService {
 
     private List<QueueMetricResponse> valkeyRuntimeWorkDlqs(RateMetricSnapshot rateSnapshot) {
         List<QueueMetricResponse> dlqs = new ArrayList<>();
-        runtimeWorkDescriptors().forEach(descriptor -> addRuntimeWorkQueueMetrics(dlqs, descriptor.label() + " Runtime DLQ",
+        RuntimeWorkQueueCatalog.descriptors().forEach(descriptor -> addRuntimeWorkQueueMetrics(dlqs, descriptor.label() + " Runtime DLQ",
                 "RUNTIME_" + descriptor.key() + "_DLQ", "#dc2626", descriptor.taskType(),
                 RuntimeWorkMetricRole.DLQ, rateSnapshot));
         return dlqs;
@@ -252,7 +247,9 @@ public class SystemMetricsService {
         };
         RateDescriptor rateDescriptor = runtimeRate(taskType, role);
         RateMetricResponse rate = rateSnapshot.metric(rateDescriptor.metricKey(), rateDescriptor.label());
-        int consumers = role == RuntimeWorkMetricRole.DLQ ? 0 : safeInt(runtimeWorkConsumerCount(taskType));
+        int consumers = role == RuntimeWorkMetricRole.DLQ
+                ? safeInt(runtimeWorkDlqConsumerCount(taskType))
+                : safeInt(runtimeWorkConsumerCount(taskType));
         target.add(new QueueMetricResponse(
                 name,
                 key,
@@ -421,6 +418,18 @@ public class SystemMetricsService {
         }
         try {
             return queue.consumerCount(taskType);
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private long runtimeWorkDlqConsumerCount(String taskType) {
+        RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
+        if (queue == null) {
+            return 0L;
+        }
+        try {
+            return queue.dlqConsumerCount(taskType);
         } catch (Exception ignored) {
             return 0L;
         }
@@ -628,17 +637,6 @@ public class SystemMetricsService {
         return new RuntimeWorkQueueCounts(0, 0, 0);
     }
 
-    private List<RuntimeWorkDescriptor> runtimeWorkDescriptors() {
-        return List.of(
-                new RuntimeWorkDescriptor("SEARCH_RAW", "Search Raw", SearchSyncWorkTypes.RAW, "#2563eb", "#60a5fa"),
-                new RuntimeWorkDescriptor("SEARCH_UNIFIED", "Search Unified", SearchSyncWorkTypes.UNIFIED, "#1d4ed8", "#3b82f6"),
-                new RuntimeWorkDescriptor("AGGREGATION", "Aggregation", AggregationWorkTypes.RAW_VIDEO, "#c2410c", "#fb923c"),
-                new RuntimeWorkDescriptor("LLM_CLEANING", "LLM Cleaning", LlmCleaningWorkTypes.RAW_TERM, "#9333ea", "#c084fc"),
-                new RuntimeWorkDescriptor("STORAGE_AVATAR", "Avatar R2", StorageWorkTypes.AVATAR_SYNC, "#0891b2", "#22d3ee"),
-                new RuntimeWorkDescriptor("STORAGE_COVER", "Cover R2", StorageWorkTypes.COVER_R2_SYNC, "#0f766e", "#2dd4bf"),
-                new RuntimeWorkDescriptor("AUDIT_ES", "Audit ES", AuditReplicationWorkTypes.ES_REPLICATION, "#4b5563", "#9ca3af"));
-    }
-
     private record QueueState(int messageCount, int consumerCount) {
         static QueueState empty() {
             return new QueueState(0, 0);
@@ -691,11 +689,4 @@ public class SystemMetricsService {
         DLQ
     }
 
-    private record RuntimeWorkDescriptor(
-            String key,
-            String label,
-            String taskType,
-            String color,
-            String inflightColor) {
-    }
 }

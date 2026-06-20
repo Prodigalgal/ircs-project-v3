@@ -52,6 +52,7 @@ class BffProxyClient {
     private final BffRequestAuditWriter auditWriter;
     private final OutboundUrlPolicy targetUrlPolicy;
     private final Duration requestTimeout;
+    private final Duration streamRequestTimeout;
     private final String circuitKey;
     private final OutboundCircuitBreakerConfig circuitBreakerConfig;
     private final String serviceId;
@@ -60,6 +61,7 @@ class BffProxyClient {
     BffProxyClient(
             @Value("${app.bff.proxy.connect-timeout:PT5S}") Duration connectTimeout,
             @Value("${app.bff.proxy.request-timeout:PT5S}") Duration requestTimeout,
+            @Value("${app.bff.proxy.stream-request-timeout:PT1H}") Duration streamRequestTimeout,
             @Value("${app.bff.proxy.circuit-key:admin-bff-proxy}") String circuitKey,
             @Value("${app.bff.proxy.circuit.enabled:true}") boolean circuitEnabled,
             @Value("${app.bff.proxy.circuit.failure-threshold:5}") int failureThreshold,
@@ -75,6 +77,7 @@ class BffProxyClient {
         this.auditWriter = auditWriter;
         this.targetUrlPolicy = targetUrlPolicy(targetUrlPolicyProvider);
         this.requestTimeout = requestTimeout;
+        this.streamRequestTimeout = normalizePositive(streamRequestTimeout, Duration.ofHours(1));
         this.circuitKey = circuitKey;
         this.circuitBreakerConfig = new OutboundCircuitBreakerConfig(
                 circuitEnabled,
@@ -139,7 +142,7 @@ class BffProxyClient {
     private OutboundHttpRequest outboundRequest(HttpServletRequest request, URI target) throws IOException {
         Map<String, String> headers = requestHeaders(request);
         String method = request.getMethod();
-        OutboundHttpPolicy policy = OutboundHttpPolicy.bffProxy(requestTimeout)
+        OutboundHttpPolicy policy = OutboundHttpPolicy.bffProxy(timeoutFor(request))
                 .withCircuitBreaker(circuitBreakerConfig)
                 .withCircuitBreakerKey(circuitKey);
         if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method) || "OPTIONS".equalsIgnoreCase(method)) {
@@ -179,6 +182,16 @@ class BffProxyClient {
         return path.startsWith("/api/v1/ops")
                 || path.startsWith("/api/v1/dashboard")
                 || path.startsWith("/api/v1/debug");
+    }
+
+    private Duration timeoutFor(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String accept = request.getHeader("Accept");
+        if ((path != null && path.endsWith("/stream"))
+                || (accept != null && accept.toLowerCase(Locale.ROOT).contains("text/event-stream"))) {
+            return streamRequestTimeout;
+        }
+        return requestTimeout;
     }
 
     private void removeInternalServiceHeaders(Map<String, String> headers) {
@@ -232,5 +245,9 @@ class BffProxyClient {
             }
         }
         return new OutboundUrlPolicy(new DefaultOutboundAddressResolver());
+    }
+
+    private static Duration normalizePositive(Duration value, Duration fallback) {
+        return value == null || value.isZero() || value.isNegative() ? fallback : value;
     }
 }

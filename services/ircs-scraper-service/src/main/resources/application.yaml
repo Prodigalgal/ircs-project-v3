@@ -30,7 +30,6 @@ app:
     http-timeout-ms: ${APP_SCRAPER_HTTP_TIMEOUT_MS:20000}
     traffic:
       enabled: ${APP_SCRAPER_TRAFFIC_ENABLED:true}
-      global-enabled: ${APP_SCRAPER_TRAFFIC_GLOBAL_ENABLED:false}
       source-enabled: ${APP_SCRAPER_TRAFFIC_SOURCE_ENABLED:true}
       default-gap-ms: ${APP_SCRAPER_TRAFFIC_DEFAULT_GAP_MS:1000}
       max-wait: ${APP_SCRAPER_TRAFFIC_MAX_WAIT:PT2M}

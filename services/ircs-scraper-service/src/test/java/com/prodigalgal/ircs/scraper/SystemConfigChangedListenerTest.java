@@ -23,7 +23,7 @@ class SystemConfigChangedListenerTest {
     void evictsChangedKey() throws Exception {
         String payload = objectMapper.writeValueAsString(new SystemConfigChangedEvent(
                 UUID.randomUUID(),
-                "global.traffic.min-delay-ms",
+                "app.scraper.traffic.source-enabled",
                 SystemConfigChangedEvent.Action.UPDATED,
                 "DB",
                 false,
@@ -33,7 +33,7 @@ class SystemConfigChangedListenerTest {
 
         listener.handle(payload);
 
-        verify(repository).evict("global.traffic.min-delay-ms");
+        verify(repository).evict("app.scraper.traffic.source-enabled");
     }
 
     @Test

@@ -8,15 +8,10 @@ import org.springframework.util.StringUtils;
 @Component
 class ScraperTrafficConfigValues {
 
-    static final String GLOBAL_MIN_DELAY_KEY = "global.traffic.min-delay-ms";
-    static final String GLOBAL_MAX_DELAY_KEY = "global.traffic.max-delay-ms";
     static final String GLOBAL_SAFETY_FLOOR_KEY = "global.traffic.safety-floor-ms";
     static final String GLOBAL_MAX_WAIT_KEY = "global.traffic.max-wait-ms";
-    static final String GLOBAL_ENABLED_KEY = "app.scraper.traffic.global-enabled";
     static final String SOURCE_ENABLED_KEY = "app.scraper.traffic.source-enabled";
 
-    static final int DEFAULT_GLOBAL_MIN_DELAY_MS = 3000;
-    static final int DEFAULT_GLOBAL_MAX_DELAY_MS = 5000;
     static final int DEFAULT_GLOBAL_SAFETY_FLOOR_MS = 3000;
     static final int DEFAULT_GLOBAL_MAX_WAIT_MS = 120000;
 
@@ -26,15 +21,6 @@ class ScraperTrafficConfigValues {
     ScraperTrafficConfigValues(Environment environment, SystemConfigRepository repository) {
         this.environment = environment;
         this.repository = repository;
-    }
-
-    Duration globalDelay() {
-        int min = globalMinDelayMs();
-        int max = Math.max(min, intValue(DEFAULT_GLOBAL_MAX_DELAY_MS, GLOBAL_MAX_DELAY_KEY));
-        if (max == min) {
-            return Duration.ofMillis(min);
-        }
-        return Duration.ofMillis(java.util.concurrent.ThreadLocalRandom.current().nextInt(min, max + 1));
     }
 
     Duration safetyFloor() {
@@ -49,16 +35,8 @@ class ScraperTrafficConfigValues {
         return fallback == null || fallback.isNegative() ? Duration.ZERO : fallback;
     }
 
-    boolean globalEnabled(boolean fallback) {
-        return booleanValue(fallback, GLOBAL_ENABLED_KEY);
-    }
-
     boolean sourceEnabled(boolean fallback) {
         return booleanValue(fallback, SOURCE_ENABLED_KEY);
-    }
-
-    private int globalMinDelayMs() {
-        return Math.max(0, intValue(DEFAULT_GLOBAL_MIN_DELAY_MS, GLOBAL_MIN_DELAY_KEY));
     }
 
     private int intValue(int defaultValue, String key, String... aliases) {

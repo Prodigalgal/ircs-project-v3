@@ -34,6 +34,7 @@ class BffProxyClientTest {
     private final BffProxyClient proxyClient = new BffProxyClient(
             Duration.ofSeconds(5),
             Duration.ofSeconds(2),
+            Duration.ofMinutes(30),
             "admin-bff-proxy-test",
             false,
             5,
@@ -128,6 +129,21 @@ class BffProxyClientTest {
         assertThat(sent.headers()).containsEntry("Content-Type", "application/json");
         assertThat(response.getStatus()).isEqualTo(200);
         assertThat(response.getContentAsString()).isEqualTo("{\"ok\":true}");
+    }
+
+    @Test
+    void usesLongTimeoutForEventStreamProxyRequests() throws Exception {
+        transport.response = response(200, Map.of("Content-Type", List.of("text/event-stream")), "data: {}\n\n");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/metrics/stream");
+        request.addHeader("Accept", "text/event-stream");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/dashboard", "http://ops-service", "/api/v1/dashboard")));
+
+        proxyClient.proxy(request, response, routes);
+
+        assertThat(transport.requests.getFirst().policy().timeout()).isEqualTo(Duration.ofMinutes(30));
+        assertThat(response.getContentAsString()).isEqualTo("data: {}\n\n");
     }
 
     @Test

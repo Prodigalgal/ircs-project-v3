@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -190,6 +191,43 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
                   'taskId', id)
             end
             return ids
+            """,
+            List.class);
+
+    private static final DefaultRedisScript<List> REQUEUE_DLQ_SCRIPT = new DefaultRedisScript<>(
+            """
+            local ids = redis.call('ZRANGE', KEYS[1], 0, tonumber(ARGV[2]) - 1)
+            local requeued = {}
+            local maxReplay = tonumber(ARGV[5])
+            for _, id in ipairs(ids) do
+              local taskKey = ARGV[3] .. id
+              local replayCount = tonumber(redis.call('HGET', taskKey, 'dlqReplayCount') or '0')
+              if replayCount < maxReplay then
+                replayCount = redis.call('HINCRBY', taskKey, 'dlqReplayCount', 1)
+                redis.call('ZREM', KEYS[1], id)
+                redis.call('ZREM', KEYS[3], id)
+                redis.call('ZADD', KEYS[2], ARGV[1], id)
+                redis.call('HSET', taskKey,
+                    'status', 'PENDING',
+                    'ownerId', '',
+                    'updatedAt', ARGV[1],
+                    'dueAt', ARGV[1],
+                    'visibleAt', '',
+                    'lastError', ARGV[6])
+                redis.call('HDEL', taskKey, 'completedAt')
+                redis.call('XADD', KEYS[4], 'MAXLEN', '~', ARGV[4], '*',
+                    'event', 'dlq_requeued',
+                    'taskType', ARGV[7],
+                    'taskId', id,
+                    'dlqReplayCount', replayCount)
+                table.insert(requeued, id)
+              else
+                redis.call('HSET', taskKey,
+                    'status', 'DLQ_REPLAY_EXHAUSTED',
+                    'updatedAt', ARGV[1])
+              end
+            end
+            return requeued
             """,
             List.class);
 
@@ -407,6 +445,38 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     }
 
     @Override
+    public List<RuntimeWorkItem> sampleDlq(String taskType, int limit) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        if (limit <= 0) {
+            return List.of();
+        }
+        long safeLimit = Math.min(Math.max(1, limit), 100);
+        List<String> ids = stringList(redisTemplate.opsForZSet()
+                .range(dlqKey(normalizedTaskType), 0, safeLimit - 1));
+        return readItems(normalizedTaskType, ids);
+    }
+
+    @Override
+    public int requeueDlq(String taskType, int limit, int maxReplayAttempts) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        if (limit <= 0 || maxReplayAttempts <= 0) {
+            return 0;
+        }
+        List<String> ids = stringList(redisTemplate.execute(
+                REQUEUE_DLQ_SCRIPT,
+                List.of(dlqKey(normalizedTaskType), pendingKey(normalizedTaskType),
+                        inflightKey(normalizedTaskType), eventStreamKey()),
+                Long.toString(nowMillis()),
+                Integer.toString(Math.min(limit, 100)),
+                taskKeyPrefix(normalizedTaskType),
+                Integer.toString(eventStreamMaxLen),
+                Integer.toString(maxReplayAttempts),
+                "DLQ_REPLAY",
+                normalizedTaskType));
+        return ids.size();
+    }
+
+    @Override
     public void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
         String normalizedTaskType = normalizeTaskType(taskType);
         if (!StringUtils.hasText(ownerId)) {
@@ -423,6 +493,27 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     public long consumerCount(String taskType) {
         String normalizedTaskType = normalizeTaskType(taskType);
         String key = consumerKey(normalizedTaskType);
+        redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
+        return zCard(key);
+    }
+
+    @Override
+    public void heartbeatDlqConsumer(String taskType, String ownerId, Duration ttl) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        if (!StringUtils.hasText(ownerId)) {
+            return;
+        }
+        Duration effectiveTtl = normalizePositive(ttl, Duration.ofMinutes(2));
+        String key = dlqConsumerKey(normalizedTaskType);
+        redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
+        redisTemplate.opsForZSet().add(key, ownerId.trim(), nowMillis() + effectiveTtl.toMillis());
+        redisTemplate.expire(key, effectiveTtl.plusMinutes(5));
+    }
+
+    @Override
+    public long dlqConsumerCount(String taskType) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        String key = dlqConsumerKey(normalizedTaskType);
         redisTemplate.opsForZSet().removeRangeByScore(key, Double.NEGATIVE_INFINITY, nowMillis());
         return zCard(key);
     }
@@ -477,7 +568,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     }
 
     private static List<String> stringList(Object value) {
-        if (!(value instanceof List<?> raw)) {
+        if (!(value instanceof Collection<?> raw)) {
             return List.of();
         }
         return raw.stream()
@@ -516,6 +607,10 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
 
     private String consumerKey(String taskType) {
         return keyPrefix + ":" + taskType + ":consumers";
+    }
+
+    private String dlqConsumerKey(String taskType) {
+        return keyPrefix + ":" + taskType + ":dlq:consumers";
     }
 
     private String eventStreamKey() {

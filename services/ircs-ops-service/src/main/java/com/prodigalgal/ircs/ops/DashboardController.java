@@ -17,6 +17,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class DashboardController {
 
     private final DashboardQueryService dashboardQueryService;
+    private final DashboardStreamService dashboardStreamService;
 
     @GetMapping("/statistics")
     public ResponseEntity<DashboardStatsResponse> statistics() {
@@ -45,15 +46,8 @@ public class DashboardController {
     }
 
     @GetMapping(value = "/metrics/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter metricsStream() {
-        SseEmitter emitter = new SseEmitter(30_000L);
-        try {
-            emitter.send(dashboardQueryService.getMetrics());
-            emitter.complete();
-        } catch (Exception e) {
-            emitter.completeWithError(e);
-        }
-        return emitter;
+    public SseEmitter metricsStream(@RequestParam(defaultValue = "50") int limit) {
+        return dashboardStreamService.stream(limit);
     }
 
     @GetMapping("/source-quality")

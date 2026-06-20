@@ -21,12 +21,27 @@ public interface RuntimeWorkQueue {
 
     int requeueExpired(String taskType, int limit);
 
+    default List<RuntimeWorkItem> sampleDlq(String taskType, int limit) {
+        return List.of();
+    }
+
+    default int requeueDlq(String taskType, int limit, int maxReplayAttempts) {
+        return 0;
+    }
+
     RuntimeWorkQueueCounts counts(String taskType);
 
     default void heartbeatConsumer(String taskType, String ownerId, Duration ttl) {
     }
 
     default long consumerCount(String taskType) {
+        return 0L;
+    }
+
+    default void heartbeatDlqConsumer(String taskType, String ownerId, Duration ttl) {
+    }
+
+    default long dlqConsumerCount(String taskType) {
         return 0L;
     }
 

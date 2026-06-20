@@ -135,6 +135,21 @@ class RedisRuntimeWorkQueueRateMetricsTest {
         assertEquals(3L, queue.expiredInflightCount(SearchSyncWorkTypes.RAW));
     }
 
+    @Test
+    void requeueDlqPassesReplayLimitAndQueueKeys() {
+        queue.requeueDlq(AggregationWorkTypes.RAW_VIDEO, 7, 3);
+
+        CapturedExecution execution = captureExecution();
+
+        assertEquals(4, execution.keys().size());
+        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.RAW_VIDEO + ":dlq"));
+        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.RAW_VIDEO + ":pending"));
+        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.RAW_VIDEO + ":inflight"));
+        assertEquals("7", execution.args()[1]);
+        assertEquals("3", execution.args()[4]);
+        assertEquals(AggregationWorkTypes.RAW_VIDEO, execution.args()[6]);
+    }
+
     private RuntimeWorkItem item(String taskType, String taskId) {
         return new RuntimeWorkItem(
                 taskType,
