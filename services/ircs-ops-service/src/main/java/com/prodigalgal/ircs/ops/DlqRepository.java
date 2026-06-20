@@ -56,8 +56,8 @@ public class DlqRepository {
             params.addValue("queueName", "%" + queueName + "%");
         }
 
-        String where = predicates.isEmpty() ? "" : " where " + String.join(" and ", predicates);
-        long total = count("select count(*) from failed_messages" + where, params);
+        boolean filtered = !predicates.isEmpty();
+        String where = filtered ? " where " + String.join(" and ", predicates) : "";
         String sql = """
                 select id, created_at, updated_at, version, queue_name, routing_key,
                        exchange, payload, exception_stack, retry_count, status
@@ -67,6 +67,9 @@ public class DlqRepository {
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<FailedMessageResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
+        long total = filtered
+                ? count("select count(*) from failed_messages" + where, params)
+                : estimatedTotal(pageable, content.size());
         return new PageImpl<>(content, pageable, total);
     }
 
@@ -116,6 +119,11 @@ public class DlqRepository {
     private long count(String sql, MapSqlParameterSource params) {
         Long value = jdbcTemplate.queryForObject(sql, params, Long.class);
         return value == null ? 0L : value;
+    }
+
+    private static long estimatedTotal(Pageable pageable, int contentSize) {
+        long floor = pageable.getOffset() + contentSize;
+        return contentSize >= pageable.getPageSize() ? floor + 1 : floor;
     }
 
     private static FailedMessageResponse mapRow(ResultSet rs, int rowNum) throws SQLException {

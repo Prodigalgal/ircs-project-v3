@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class WorkerJobAuditRepository {
 
+    private static final int DEFAULT_SUMMARY_SAMPLE_LIMIT = 50_000;
     private static final Map<String, String> SORT_COLUMNS = Map.ofEntries(
             Map.entry("id", "id"),
             Map.entry("createdAt", "created_at"),
@@ -38,6 +40,8 @@ public class WorkerJobAuditRepository {
     private static final RowMapper<WorkerJobAuditEventResponse> ROW_MAPPER = WorkerJobAuditRepository::mapRow;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
+    @Value("${app.ops.worker-job-audit.summary-sample-limit:50000}")
+    private int summarySampleLimit = DEFAULT_SUMMARY_SAMPLE_LIMIT;
 
     public Page<WorkerJobAuditEventResponse> findAll(
             Pageable pageable,
@@ -85,8 +89,8 @@ public class WorkerJobAuditRepository {
             params.addValue("to", Timestamp.from(to));
         }
 
-        String where = predicates.isEmpty() ? "" : " where " + String.join(" and ", predicates);
-        long total = count("select count(*) from worker_job_audit_events" + where, params);
+        boolean filtered = !predicates.isEmpty();
+        String where = filtered ? " where " + String.join(" and ", predicates) : "";
         String sql = """
                 select id, created_at, updated_at, version, audit_class, job_source, job_type, job_name,
                        correlation_id, status, duration_ms, error_class, error_message
@@ -96,22 +100,36 @@ public class WorkerJobAuditRepository {
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<WorkerJobAuditEventResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
+        long total = filtered
+                ? count("select count(*) from worker_job_audit_events" + where, params)
+                : estimatedTotal(pageable, content.size());
         return new PageImpl<>(content, pageable, total);
     }
 
     public WorkerJobAuditSummaryResponse summarize(Instant since) {
-        MapSqlParameterSource params = new MapSqlParameterSource("since", Timestamp.from(since));
-        return new WorkerJobAuditSummaryResponse(
-                count("select count(*) from worker_job_audit_events where created_at >= :since", params),
-                count("""
-                        select count(*) from worker_job_audit_events
-                         where created_at >= :since and lower(status) = 'failed'
-                        """, params),
-                count("""
-                        select count(*) from worker_job_audit_events
-                         where created_at >= :since and lower(status) = 'succeeded'
-                        """, params),
-                maxDurationSince(params));
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("since", Timestamp.from(since))
+                .addValue("sampleLimit", summarySampleLimit());
+        return jdbcTemplate.queryForObject(
+                """
+                        select count(*) as total_count,
+                               coalesce(sum(case when lower(status) = 'failed' then 1 else 0 end), 0) as failed_count,
+                               coalesce(sum(case when lower(status) = 'succeeded' then 1 else 0 end), 0) as succeeded_count,
+                               max(duration_ms) as max_duration_ms
+                          from (
+                                select status, duration_ms
+                                  from worker_job_audit_events
+                                 where created_at >= :since
+                                 order by created_at desc
+                                 limit :sampleLimit
+                               ) recent
+                        """,
+                params,
+                (rs, rowNum) -> new WorkerJobAuditSummaryResponse(
+                        rs.getLong("total_count"),
+                        rs.getLong("failed_count"),
+                        rs.getLong("succeeded_count"),
+                        getLong(rs, "max_duration_ms")));
     }
 
     private long count(String sql, MapSqlParameterSource params) {
@@ -119,11 +137,13 @@ public class WorkerJobAuditRepository {
         return value == null ? 0L : value;
     }
 
-    private Long maxDurationSince(MapSqlParameterSource params) {
-        return jdbcTemplate.queryForObject(
-                "select max(duration_ms) from worker_job_audit_events where created_at >= :since",
-                params,
-                Long.class);
+    private int summarySampleLimit() {
+        return summarySampleLimit <= 0 ? DEFAULT_SUMMARY_SAMPLE_LIMIT : summarySampleLimit;
+    }
+
+    private static long estimatedTotal(Pageable pageable, int contentSize) {
+        long floor = pageable.getOffset() + contentSize;
+        return contentSize >= pageable.getPageSize() ? floor + 1 : floor;
     }
 
     private static WorkerJobAuditEventResponse mapRow(ResultSet rs, int rowNum) throws SQLException {

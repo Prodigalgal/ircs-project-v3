@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -23,6 +24,7 @@ import org.springframework.util.StringUtils;
 public class RequestAuditRepository {
 
     private static final long SLOW_REQUEST_THRESHOLD_MS = 3000L;
+    private static final int DEFAULT_SUMMARY_SAMPLE_LIMIT = 50_000;
     private static final Map<String, String> SORT_COLUMNS = Map.ofEntries(
             Map.entry("id", "id"),
             Map.entry("createdAt", "created_at"),
@@ -41,6 +43,8 @@ public class RequestAuditRepository {
     private static final RowMapper<RequestAuditLogResponse> ROW_MAPPER = RequestAuditRepository::mapRow;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
+    @Value("${app.ops.request-audit.summary-sample-limit:50000}")
+    private int summarySampleLimit = DEFAULT_SUMMARY_SAMPLE_LIMIT;
 
     public Page<RequestAuditLogResponse> findAll(
             Pageable pageable,
@@ -96,8 +100,8 @@ public class RequestAuditRepository {
             params.addValue("to", Timestamp.from(to));
         }
 
-        String where = predicates.isEmpty() ? "" : " where " + String.join(" and ", predicates);
-        long total = count("select count(*) from request_audit_logs" + where, params);
+        boolean filtered = !predicates.isEmpty();
+        String where = filtered ? " where " + String.join(" and ", predicates) : "";
         String sql = """
                 select id, created_at, updated_at, version, audit_class, request_source, username, method, path,
                        query_string, status_code, success, duration_ms, client_ip,
@@ -108,17 +112,37 @@ public class RequestAuditRepository {
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<RequestAuditLogResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
+        long total = filtered
+                ? count("select count(*) from request_audit_logs" + where, params)
+                : estimatedTotal(pageable, content.size());
         return new PageImpl<>(content, pageable, total);
     }
 
     public RequestAuditSummaryResponse summarize(Instant since) {
-        MapSqlParameterSource params = new MapSqlParameterSource("since", Timestamp.from(since));
-        return new RequestAuditSummaryResponse(
-                count("select count(*) from request_audit_logs where created_at >= :since", params),
-                count("select count(*) from request_audit_logs where created_at >= :since and status_code >= 400", params),
-                count("select count(*) from request_audit_logs where created_at >= :since and duration_ms >= "
-                        + SLOW_REQUEST_THRESHOLD_MS, params),
-                maxDurationSince(params));
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("since", Timestamp.from(since))
+                .addValue("slowThresholdMs", SLOW_REQUEST_THRESHOLD_MS)
+                .addValue("sampleLimit", summarySampleLimit());
+        return jdbcTemplate.queryForObject(
+                """
+                        select count(*) as total_count,
+                               coalesce(sum(case when status_code >= 400 then 1 else 0 end), 0) as error_count,
+                               coalesce(sum(case when duration_ms >= :slowThresholdMs then 1 else 0 end), 0) as slow_count,
+                               max(duration_ms) as max_duration_ms
+                          from (
+                                select status_code, duration_ms
+                                  from request_audit_logs
+                                 where created_at >= :since
+                                 order by created_at desc
+                                 limit :sampleLimit
+                               ) recent
+                        """,
+                params,
+                (rs, rowNum) -> new RequestAuditSummaryResponse(
+                        rs.getLong("total_count"),
+                        rs.getLong("error_count"),
+                        rs.getLong("slow_count"),
+                        getLong(rs, "max_duration_ms")));
     }
 
     private static int parseStatusClass(String statusClass) {
@@ -136,11 +160,13 @@ public class RequestAuditRepository {
         return value == null ? 0L : value;
     }
 
-    private Long maxDurationSince(MapSqlParameterSource params) {
-        return jdbcTemplate.queryForObject(
-                "select max(duration_ms) from request_audit_logs where created_at >= :since",
-                params,
-                Long.class);
+    private int summarySampleLimit() {
+        return summarySampleLimit <= 0 ? DEFAULT_SUMMARY_SAMPLE_LIMIT : summarySampleLimit;
+    }
+
+    private static long estimatedTotal(Pageable pageable, int contentSize) {
+        long floor = pageable.getOffset() + contentSize;
+        return contentSize >= pageable.getPageSize() ? floor + 1 : floor;
     }
 
     private static RequestAuditLogResponse mapRow(ResultSet rs, int rowNum) throws SQLException {
