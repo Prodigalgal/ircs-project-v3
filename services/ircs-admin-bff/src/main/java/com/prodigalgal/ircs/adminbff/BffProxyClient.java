@@ -15,6 +15,7 @@ import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.time.Duration;
@@ -217,8 +218,14 @@ class BffProxyClient {
                 response.addHeader(name, value);
             }
         });
-        try (OutputStream output = response.getOutputStream()) {
-            upstream.body().transferTo(output);
+        copyBody(upstream.body(), response.getOutputStream());
+    }
+
+    private void copyBody(InputStream input, OutputStream output) throws IOException {
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            output.write(buffer, 0, read);
             output.flush();
         }
     }
