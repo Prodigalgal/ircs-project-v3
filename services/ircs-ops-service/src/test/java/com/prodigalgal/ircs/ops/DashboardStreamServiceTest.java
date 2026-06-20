@@ -40,6 +40,7 @@ class DashboardStreamServiceTest {
     @Test
     void snapshotReturnsDegradedPartialWhenCacheMisses() {
         when(cacheService.read(50)).thenReturn(Optional.empty());
+        when(snapshotRefresher.composeSnapshot(50)).thenThrow(new IllegalStateException("snapshot unavailable"));
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
@@ -55,6 +56,25 @@ class DashboardStreamServiceTest {
         assertThat(result.metrics()).isNotNull();
         assertThat(result.taskRuntime()).isNotNull();
         assertThat(result.aggregationOps()).containsEntry("available", false);
+        verify(snapshotRefresher).refreshAsync(50);
+    }
+
+    @Test
+    void snapshotUsesBoundedOnDemandSnapshotWhenCacheMisses() {
+        DashboardStreamSnapshot snapshot = snapshot();
+        when(cacheService.read(50)).thenReturn(Optional.empty());
+        when(snapshotRefresher.composeSnapshot(50)).thenReturn(snapshot);
+        DashboardStreamService service = new DashboardStreamService(
+                cacheService,
+                snapshotRefresher,
+                taskExecutorProvider,
+                Duration.ofSeconds(3),
+                Duration.ofMinutes(1));
+
+        DashboardStreamSnapshot result = service.snapshot(50);
+
+        assertThat(result.sequence()).isEqualTo(1L);
+        assertThat(result.stale()).isTrue();
         verify(snapshotRefresher).refreshAsync(50);
     }
 

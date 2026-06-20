@@ -49,7 +49,11 @@ class DashboardStreamService {
         return cacheService.read(safeLimit)
                 .orElseGet(() -> {
                     snapshotRefresher.refreshAsync(safeLimit);
-                    return DashboardSnapshotFallbacks.snapshot(safeLimit, "CACHE_MISS");
+                    try {
+                        return snapshotRefresher.composeSnapshot(safeLimit).withStale(true);
+                    } catch (RuntimeException ex) {
+                        return DashboardSnapshotFallbacks.snapshot(safeLimit, "CACHE_MISS");
+                    }
                 });
     }
 

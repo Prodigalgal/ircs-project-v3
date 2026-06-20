@@ -80,6 +80,10 @@ class DashboardSnapshotRefresher {
         return lastState;
     }
 
+    DashboardStreamSnapshot composeSnapshot(int taskRuntimeLimit) {
+        return composer.compose(Math.max(1, taskRuntimeLimit));
+    }
+
     private void refreshDefaultSnapshot(boolean force) {
         refreshWithLease(Math.max(1, defaultTaskRuntimeLimit), force);
     }
