@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
@@ -39,6 +40,7 @@ public class SystemMetricsService {
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider;
+    private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
     private final SystemConfigRepository systemConfigRepository;
 
     @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}")
@@ -55,6 +57,9 @@ public class SystemMetricsService {
 
     @Value("${app.ops.metrics.ewma-alpha:0.25}")
     private double ewmaAlpha = 0.25d;
+
+    @Value("${app.aggregation.work-queue.worker.processing-stall-threshold:PT120S}")
+    private Duration aggregationProcessingStallThreshold = Duration.ofSeconds(120);
 
     @PostConstruct
     void registerRabbitQueueGauges() {
@@ -73,7 +78,8 @@ public class SystemMetricsService {
         Runtime runtime = Runtime.getRuntime();
         File disk = new File(".");
         RateMetricSnapshot rateSnapshot = rateMetricSnapshot();
-        List<QueueGroupResponse> queueGroups = queueGroups(rateSnapshot);
+        Map<String, Object> aggregationOpsStats = aggregationOpsStats();
+        List<QueueGroupResponse> queueGroups = queueGroups(rateSnapshot, aggregationOpsStats);
         QueueMetricResponse ingest = findQueue(queueGroups, QueueTopic.INGEST_VIDEO.name());
         QueueMetricResponse image = findQueue(queueGroups, QueueTopic.DOWNLOAD_IMAGE.name());
         PipelineValkeyTaskCounts normalize = pipelineCounts(PipelineTaskTypes.NORMALIZE_VIDEO);
@@ -110,7 +116,9 @@ public class SystemMetricsService {
         // Rate metrics are pre-aggregated in Valkey buckets; there is no local window to reset.
     }
 
-    private List<QueueGroupResponse> queueGroups(RateMetricSnapshot rateSnapshot) {
+    private List<QueueGroupResponse> queueGroups(
+            RateMetricSnapshot rateSnapshot,
+            Map<String, Object> aggregationOpsStats) {
         Map<String, List<QueueMetricResponse>> normalGroups = new LinkedHashMap<>();
         List<QueueMetricResponse> dlqs = new ArrayList<>();
 
@@ -141,7 +149,7 @@ public class SystemMetricsService {
         if (!pipelineQueues.isEmpty()) {
             normalGroups.put("Valkey Pipeline", pipelineQueues);
         }
-        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues(rateSnapshot);
+        List<QueueMetricResponse> runtimeWorkQueues = valkeyRuntimeWorkQueues(rateSnapshot, aggregationOpsStats);
         if (!runtimeWorkQueues.isEmpty()) {
             normalGroups.put("Valkey Runtime Work", runtimeWorkQueues);
         }
@@ -149,7 +157,7 @@ public class SystemMetricsService {
         List<QueueGroupResponse> groups = new ArrayList<>();
         normalGroups.forEach((title, queues) -> groups.add(new QueueGroupResponse(title, false, queues)));
         List<QueueMetricResponse> valkeyDlqs = valkeyPipelineDlqs(rateSnapshot);
-        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs(rateSnapshot));
+        valkeyDlqs.addAll(valkeyRuntimeWorkDlqs(rateSnapshot, aggregationOpsStats));
         if (!valkeyDlqs.isEmpty()) {
             dlqs.addAll(valkeyDlqs);
         }
@@ -185,24 +193,28 @@ public class SystemMetricsService {
         return dlqs;
     }
 
-    private List<QueueMetricResponse> valkeyRuntimeWorkQueues(RateMetricSnapshot rateSnapshot) {
+    private List<QueueMetricResponse> valkeyRuntimeWorkQueues(
+            RateMetricSnapshot rateSnapshot,
+            Map<String, Object> aggregationOpsStats) {
         List<QueueMetricResponse> queues = new ArrayList<>();
         RuntimeWorkQueueCatalog.descriptors().forEach(descriptor -> {
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Pending",
                     "RUNTIME_" + descriptor.key() + "_PENDING", descriptor.color(), descriptor.taskType(),
-                    RuntimeWorkMetricRole.PENDING, rateSnapshot);
+                    RuntimeWorkMetricRole.PENDING, rateSnapshot, aggregationOpsStats);
             addRuntimeWorkQueueMetrics(queues, descriptor.label() + " Inflight",
                     "RUNTIME_" + descriptor.key() + "_INFLIGHT", descriptor.inflightColor(), descriptor.taskType(),
-                    RuntimeWorkMetricRole.INFLIGHT, rateSnapshot);
+                    RuntimeWorkMetricRole.INFLIGHT, rateSnapshot, aggregationOpsStats);
         });
         return queues;
     }
 
-    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs(RateMetricSnapshot rateSnapshot) {
+    private List<QueueMetricResponse> valkeyRuntimeWorkDlqs(
+            RateMetricSnapshot rateSnapshot,
+            Map<String, Object> aggregationOpsStats) {
         List<QueueMetricResponse> dlqs = new ArrayList<>();
         RuntimeWorkQueueCatalog.descriptors().forEach(descriptor -> addRuntimeWorkQueueMetrics(dlqs, descriptor.label() + " Runtime DLQ",
                 "RUNTIME_" + descriptor.key() + "_DLQ", "#dc2626", descriptor.taskType(),
-                RuntimeWorkMetricRole.DLQ, rateSnapshot));
+                RuntimeWorkMetricRole.DLQ, rateSnapshot, aggregationOpsStats));
         return dlqs;
     }
 
@@ -243,7 +255,8 @@ public class SystemMetricsService {
             String color,
             String taskType,
             RuntimeWorkMetricRole role,
-            RateMetricSnapshot rateSnapshot) {
+            RateMetricSnapshot rateSnapshot,
+            Map<String, Object> aggregationOpsStats) {
         RuntimeWorkQueueCounts counts = runtimeWorkCounts(taskType);
         long current = switch (role) {
             case PENDING -> counts.pending();
@@ -261,7 +274,9 @@ public class SystemMetricsService {
                 color,
                 safeInt(current),
                 consumers,
-                role == RuntimeWorkMetricRole.DLQ ? null : blockedReason(current, consumers, runtimeWorkPolicy(taskType), rate),
+                role == RuntimeWorkMetricRole.DLQ
+                        ? null
+                        : blockedReason(current, consumers, runtimeWorkPolicy(taskType), rate, taskType, role, aggregationOpsStats),
                 rateDescriptor.kind(),
                 rate));
     }
@@ -443,8 +458,43 @@ public class SystemMetricsService {
         }
     }
 
+    private Map<String, Object> aggregationOpsStats() {
+        AggregationOpsStatsClient client = aggregationOpsStatsClientProvider == null
+                ? null
+                : aggregationOpsStatsClientProvider.getIfAvailable();
+        if (client == null) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> stats = client.currentStats();
+            return stats == null ? Map.of() : stats;
+        } catch (RuntimeException ignored) {
+            return Map.of();
+        }
+    }
+
     private String blockedReason(long messageCount, int consumerCount, QueueConsumerPolicy policy) {
         return blockedReason(messageCount, consumerCount, policy, null);
+    }
+
+    private String blockedReason(
+            long messageCount,
+            int consumerCount,
+            QueueConsumerPolicy policy,
+            RateMetricResponse rate,
+            String taskType,
+            RuntimeWorkMetricRole role,
+            Map<String, Object> aggregationOpsStats) {
+        String aggregationProcessingReason = aggregationProcessingReason(
+                messageCount,
+                consumerCount,
+                rate,
+                taskType,
+                role,
+                aggregationOpsStats);
+        return aggregationProcessingReason == null
+                ? blockedReason(messageCount, consumerCount, policy, rate)
+                : aggregationProcessingReason;
     }
 
     private String blockedReason(
@@ -470,6 +520,35 @@ public class SystemMetricsService {
             }
         }
         return "CONSUMER_STALE";
+    }
+
+    private String aggregationProcessingReason(
+            long messageCount,
+            int consumerCount,
+            RateMetricResponse rate,
+            String taskType,
+            RuntimeWorkMetricRole role,
+            Map<String, Object> aggregationOpsStats) {
+        if (!AggregationWorkTypes.RAW_VIDEO.equals(taskType)
+                || (role != RuntimeWorkMetricRole.PENDING && role != RuntimeWorkMetricRole.INFLIGHT)
+                || messageCount <= 0L
+                || consumerCount <= 0
+                || rateRecentlyActive(rate)) {
+            return null;
+        }
+        Map<String, Object> worker = mapValue(aggregationOpsStats, "worker");
+        if (!boolValue(worker.get("running"))) {
+            return null;
+        }
+        String currentStage = stringValue(worker.get("currentStage"));
+        if (currentStage == null || currentStage.isBlank()) {
+            return null;
+        }
+        long runningForSeconds = longValue(worker.get("runningForSeconds"));
+        long thresholdSeconds = Math.max(
+                1L,
+                positiveOr(aggregationProcessingStallThreshold, Duration.ofSeconds(120)).toSeconds());
+        return runningForSeconds >= thresholdSeconds ? "CONSUMER_PROCESSING_STUCK" : "PROCESSING";
     }
 
     private boolean rateRecentlyActive(RateMetricResponse rate) {
@@ -597,6 +676,10 @@ public class SystemMetricsService {
         return Math.max(RateMetricKeys.DEFAULT_BUCKET_SIZE.toMillis(), effective.toMillis());
     }
 
+    private Duration positiveOr(Duration value, Duration fallback) {
+        return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
     private int toInt(Object value) {
         return value instanceof Number number ? number.intValue() : 0;
     }
@@ -617,6 +700,40 @@ public class SystemMetricsService {
         } catch (NumberFormatException ignored) {
             return 0L;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return Map.of();
+        }
+        Object value = source.get(key);
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private boolean boolValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return value != null && Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private long longValue(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private boolean parseBoolean(String value, boolean defaultValue) {

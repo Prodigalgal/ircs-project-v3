@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -19,11 +21,19 @@ public class AggregationPipelineRuntime {
     private final JdbcAggregationRepository repository;
     private TransactionOperations stageTransaction;
 
+    @Autowired
     public AggregationPipelineRuntime(
             JdbcAggregationRepository repository,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            @Value("${app.aggregation.pipeline.stage-transaction-timeout-seconds:30}") int stageTransactionTimeoutSeconds) {
         this.repository = repository;
-        this.stageTransaction = nestedStageTransaction(transactionManager);
+        this.stageTransaction = nestedStageTransaction(transactionManager, stageTransactionTimeoutSeconds);
+    }
+
+    AggregationPipelineRuntime(
+            JdbcAggregationRepository repository,
+            PlatformTransactionManager transactionManager) {
+        this(repository, transactionManager, 30);
     }
 
     static AggregationPipelineRuntime forTest(
@@ -116,9 +126,14 @@ public class AggregationPipelineRuntime {
         }
     }
 
-    private static TransactionOperations nestedStageTransaction(PlatformTransactionManager transactionManager) {
+    private static TransactionOperations nestedStageTransaction(
+            PlatformTransactionManager transactionManager,
+            int timeoutSeconds) {
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+        if (timeoutSeconds > 0) {
+            transactionTemplate.setTimeout(timeoutSeconds);
+        }
         return transactionTemplate;
     }
 

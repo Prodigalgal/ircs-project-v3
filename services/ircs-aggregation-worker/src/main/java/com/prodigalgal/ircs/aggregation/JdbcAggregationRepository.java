@@ -25,6 +25,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -48,12 +49,14 @@ public class JdbcAggregationRepository {
             NamedParameterJdbcTemplate jdbcTemplate,
             AggregationMatchingStrategy matchingStrategy,
             AggregationContextSearchClient contextSearchClient,
-            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider) {
+            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {
         this(
                 jdbcTemplate,
                 matchingStrategy,
                 contextSearchClient,
-                metadataNameCacheProvider == null ? null : metadataNameCacheProvider.getIfAvailable());
+                metadataNameCacheProvider == null ? null : metadataNameCacheProvider.getIfAvailable(),
+                queryTimeoutSeconds);
     }
 
     JdbcAggregationRepository(
@@ -61,10 +64,22 @@ public class JdbcAggregationRepository {
             AggregationMatchingStrategy matchingStrategy,
             AggregationContextSearchClient contextSearchClient,
             MetadataNameValkeyCache metadataNameCache) {
+        this(jdbcTemplate, matchingStrategy, contextSearchClient, metadataNameCache, 30);
+    }
+
+    JdbcAggregationRepository(
+            NamedParameterJdbcTemplate jdbcTemplate,
+            AggregationMatchingStrategy matchingStrategy,
+            AggregationContextSearchClient contextSearchClient,
+            MetadataNameValkeyCache metadataNameCache,
+            int queryTimeoutSeconds) {
         this.jdbcTemplate = jdbcTemplate;
         this.matchingStrategy = matchingStrategy;
         this.contextSearchClient = contextSearchClient;
         this.metadataNameCache = metadataNameCache;
+        if (queryTimeoutSeconds > 0 && this.jdbcTemplate.getJdbcTemplate() != null) {
+            this.jdbcTemplate.getJdbcTemplate().setQueryTimeout(queryTimeoutSeconds);
+        }
     }
 
     static JdbcAggregationRepository forTest(

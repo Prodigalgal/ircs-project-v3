@@ -46,6 +46,16 @@ app:
       fixed-delay-ms: ${APP_OPS_RABBIT_MANAGEMENT_FIXED_DELAY_MS:10000}
       connect-timeout: ${APP_OPS_RABBIT_MANAGEMENT_CONNECT_TIMEOUT:PT3S}
       request-timeout: ${APP_OPS_RABBIT_MANAGEMENT_REQUEST_TIMEOUT:PT5S}
+    dashboard:
+      snapshot:
+        enabled: ${APP_OPS_DASHBOARD_SNAPSHOT_ENABLED:true}
+        key-prefix: ${APP_OPS_DASHBOARD_SNAPSHOT_KEY_PREFIX:ircs:ops:dashboard:snapshot:v1}
+        refresh-interval: ${APP_OPS_DASHBOARD_SNAPSHOT_REFRESH_INTERVAL:PT2S}
+        fresh-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_FRESH_TTL:PT6S}
+        stale-grace: ${APP_OPS_DASHBOARD_SNAPSHOT_STALE_GRACE:PT60S}
+        redis-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_REDIS_TTL:PT2M}
+        lease-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_LEASE_TTL:PT10S}
+        default-task-runtime-limit: ${APP_OPS_DASHBOARD_SNAPSHOT_DEFAULT_TASK_RUNTIME_LIMIT:50}
     runtime-expired-inflight-reaper:
       enabled: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_ENABLED:true}
       initial-delay-ms: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_INITIAL_DELAY_MS:10000}
@@ -96,3 +106,7 @@ app:
         service-id: ${APP_OPS_SERVICE_ID:ops-service}
         service-token: ${APP_OPS_SCRAPER_SERVICE_TOKEN:${APP_SCRAPER_SERVICE_TOKEN:}}
         scopes: ${APP_OPS_SCRAPER_SERVICE_SCOPES:scraper:maintenance}
+  aggregation:
+    work-queue:
+      worker:
+        processing-stall-threshold: ${APP_AGGREGATION_WORK_QUEUE_WORKER_PROCESSING_STALL_THRESHOLD:PT120S}

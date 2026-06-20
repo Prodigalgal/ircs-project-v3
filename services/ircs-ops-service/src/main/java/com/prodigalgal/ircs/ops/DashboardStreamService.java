@@ -2,7 +2,6 @@ package com.prodigalgal.ircs.ops;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,24 +15,23 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Slf4j
 class DashboardStreamService {
 
-    private final DashboardQueryService dashboardQueryService;
+    private final DashboardSnapshotCacheService cacheService;
+    private final DashboardSnapshotRefresher snapshotRefresher;
     private final TaskExecutor taskExecutor;
     private final Duration interval;
     private final Duration timeout;
-    private final Duration cacheTtl;
-    private volatile CachedSnapshot cachedSnapshot;
 
     DashboardStreamService(
-            DashboardQueryService dashboardQueryService,
+            DashboardSnapshotCacheService cacheService,
+            DashboardSnapshotRefresher snapshotRefresher,
             ObjectProvider<TaskExecutor> taskExecutorProvider,
             @Value("${app.ops.dashboard.stream.interval:PT3S}") Duration interval,
-            @Value("${app.ops.dashboard.stream.timeout:PT1H}") Duration timeout,
-            @Value("${app.ops.dashboard.stream.cache-ttl:PT2S}") Duration cacheTtl) {
-        this.dashboardQueryService = dashboardQueryService;
+            @Value("${app.ops.dashboard.stream.timeout:PT1H}") Duration timeout) {
+        this.cacheService = cacheService;
+        this.snapshotRefresher = snapshotRefresher;
         this.taskExecutor = taskExecutor(taskExecutorProvider);
         this.interval = positiveOr(interval, Duration.ofSeconds(3));
         this.timeout = positiveOr(timeout, Duration.ofHours(1));
-        this.cacheTtl = positiveOr(cacheTtl, Duration.ofSeconds(2));
     }
 
     SseEmitter stream(int taskRuntimeLimit) {
@@ -47,24 +45,9 @@ class DashboardStreamService {
     }
 
     DashboardStreamSnapshot snapshot(int taskRuntimeLimit) {
-        long now = System.currentTimeMillis();
-        CachedSnapshot current = cachedSnapshot;
-        if (current != null && current.expiresAtMillis() > now && current.limit() == taskRuntimeLimit) {
-            return current.snapshot();
-        }
-        synchronized (this) {
-            current = cachedSnapshot;
-            if (current != null && current.expiresAtMillis() > now && current.limit() == taskRuntimeLimit) {
-                return current.snapshot();
-            }
-            DashboardStreamSnapshot refreshed = new DashboardStreamSnapshot(
-                    Instant.now(),
-                    dashboardQueryService.getMetrics(),
-                    dashboardQueryService.getTaskRuntimeOverview(taskRuntimeLimit),
-                    dashboardQueryService.getSearchOpsStats());
-            cachedSnapshot = new CachedSnapshot(taskRuntimeLimit, now + cacheTtl.toMillis(), refreshed);
-            return refreshed;
-        }
+        int safeLimit = Math.max(1, taskRuntimeLimit);
+        return cacheService.read(safeLimit)
+                .orElseGet(() -> snapshotRefresher.refresh(safeLimit));
     }
 
     private void pump(SseEmitter emitter, AtomicBoolean open, int taskRuntimeLimit) {
@@ -107,11 +90,5 @@ class DashboardStreamService {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
-    }
-
-    private record CachedSnapshot(
-            int limit,
-            long expiresAtMillis,
-            DashboardStreamSnapshot snapshot) {
     }
 }

@@ -45,6 +45,9 @@ class SystemMetricsServiceTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider =
+            org.mockito.Mockito.mock(ObjectProvider.class);
     private final SystemConfigRepository systemConfigRepository = org.mockito.Mockito.mock(SystemConfigRepository.class);
     private final SystemMetricsService service = new SystemMetricsService(
             rabbitAdmin,
@@ -54,6 +57,7 @@ class SystemMetricsServiceTest {
             pipelineValkeyQueueProvider,
             runtimeWorkQueueProvider,
             rabbitRateProbeProvider,
+            aggregationOpsStatsClientProvider,
             systemConfigRepository);
 
     @Test
@@ -183,6 +187,62 @@ class SystemMetricsServiceTest {
                         && queue.messageCount() == 11
                         && queue.consumerCount() == 1
                         && "CONSUMER_NO_PROGRESS".equals(queue.blockedReason())));
+    }
+
+    @Test
+    void aggregationInflightReportsProcessingWhileWorkerStageIsFresh() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        AggregationOpsStatsClient aggregationOpsStatsClient = org.mockito.Mockito.mock(AggregationOpsStatsClient.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(aggregationOpsStatsClientProvider.getIfAvailable()).thenReturn(aggregationOpsStatsClient);
+        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
+                .thenReturn(new RuntimeWorkQueueCounts(0, 25, 0));
+        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
+                .thenReturn(1L);
+        when(aggregationOpsStatsClient.currentStats()).thenReturn(Map.of(
+                "available", true,
+                "worker", Map.of(
+                        "running", true,
+                        "currentStage", "AGGREGATE_BATCH",
+                        "runningForSeconds", 30)));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_AGGREGATION_INFLIGHT".equals(queue.key())
+                        && queue.messageCount() == 25
+                        && queue.consumerCount() == 1
+                        && "PROCESSING".equals(queue.blockedReason())));
+    }
+
+    @Test
+    void aggregationInflightReportsProcessingStuckAfterThreshold() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        AggregationOpsStatsClient aggregationOpsStatsClient = org.mockito.Mockito.mock(AggregationOpsStatsClient.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(aggregationOpsStatsClientProvider.getIfAvailable()).thenReturn(aggregationOpsStatsClient);
+        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
+                .thenReturn(new RuntimeWorkQueueCounts(0, 25, 0));
+        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
+                .thenReturn(1L);
+        when(aggregationOpsStatsClient.currentStats()).thenReturn(Map.of(
+                "available", true,
+                "worker", Map.of(
+                        "running", true,
+                        "currentStage", "AGGREGATE_BATCH",
+                        "runningForSeconds", 180)));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_AGGREGATION_INFLIGHT".equals(queue.key())
+                        && "CONSUMER_PROCESSING_STUCK".equals(queue.blockedReason())));
     }
 
     @Test

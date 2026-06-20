@@ -14,5 +14,11 @@ record AggregationWorkQueueState(
         int lastRequeued,
         long consecutiveFailures,
         String lastRunState,
-        String lastError) {
+        String lastError,
+        String currentStage,
+        String currentRawVideoId,
+        String currentTaskId,
+        int currentBatchSize,
+        Instant currentStageStartedAt,
+        long runningForSeconds) {
 }

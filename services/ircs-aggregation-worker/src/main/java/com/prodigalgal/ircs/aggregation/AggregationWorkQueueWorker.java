@@ -45,9 +45,17 @@ class AggregationWorkQueueWorker {
     private volatile int lastRequeued;
     private volatile String lastRunState = "NEVER_RUN";
     private volatile String lastError;
+    private volatile String currentStage;
+    private volatile String currentRawVideoId;
+    private volatile String currentTaskId;
+    private volatile int currentBatchSize;
+    private volatile Instant currentStageStartedAt;
 
     @Value("${app.aggregation.work-queue.worker.batch-size:100}")
     private int batchSize;
+
+    @Value("${app.aggregation.work-queue.worker.processing-chunk-size:5}")
+    private int processingChunkSize;
 
     @Value("${app.aggregation.work-queue.worker.visibility-seconds:600}")
     private long visibilitySeconds;
@@ -90,11 +98,13 @@ class AggregationWorkQueueWorker {
         try {
             return runOnceLocked();
         } finally {
+            clearStage();
             running.set(false);
         }
     }
 
     AggregationWorkQueueState state() {
+        Instant stageStartedAt = currentStageStartedAt;
         return new AggregationWorkQueueState(
                 running.get(),
                 workerId(),
@@ -107,7 +117,13 @@ class AggregationWorkQueueWorker {
                 lastRequeued,
                 consecutiveFailures.get(),
                 lastRunState,
-                lastError);
+                lastError,
+                currentStage,
+                currentRawVideoId,
+                currentTaskId,
+                currentBatchSize,
+                stageStartedAt,
+                runningForSeconds(stageStartedAt));
     }
 
     private int runOnceLocked() {
@@ -118,12 +134,14 @@ class AggregationWorkQueueWorker {
         int requeued = 0;
         ProcessResult result = ProcessResult.empty();
         try {
+            setStage("REQUEUE_EXPIRED", null, null, 0);
             heartbeat(resolvedWorkerId);
             requeued = workQueue.requeueExpired(AggregationWorkTypes.RAW_VIDEO, effectiveBatchSize);
             if (requeued > 0) {
                 lastProgressAt = Instant.now();
                 log.info("Requeued expired aggregation work: count={}", requeued);
             }
+            setStage("CLAIM", null, null, effectiveBatchSize);
             List<RuntimeWorkItem> items = workQueue.claim(
                     AggregationWorkTypes.RAW_VIDEO,
                     resolvedWorkerId,
@@ -166,6 +184,7 @@ class AggregationWorkQueueWorker {
         int processed = 0;
         int failed = 0;
         for (RuntimeWorkItem item : items) {
+            setStage("PARSE_PAYLOAD", null, item.taskId(), 1);
             heartbeat(resolvedWorkerId);
             UUID rawVideoId = null;
             try {
@@ -182,20 +201,49 @@ class AggregationWorkQueueWorker {
         if (itemsByRawVideoId.isEmpty()) {
             return new ProcessResult(processed, failed);
         }
+        List<Map.Entry<UUID, List<RuntimeWorkItem>>> entries = new ArrayList<>(itemsByRawVideoId.entrySet());
+        int chunkSize = Math.max(1, processingChunkSize);
+        for (int start = 0; start < entries.size(); start += chunkSize) {
+            List<Map.Entry<UUID, List<RuntimeWorkItem>>> chunk =
+                    entries.subList(start, Math.min(start + chunkSize, entries.size()));
+            ProcessResult chunkResult = processChunk(chunk, startedAt, resolvedWorkerId);
+            processed += chunkResult.processed();
+            failed += chunkResult.failed();
+        }
+        return new ProcessResult(processed, failed);
+    }
+
+    private ProcessResult processChunk(
+            List<Map.Entry<UUID, List<RuntimeWorkItem>>> chunk,
+            Instant startedAt,
+            String resolvedWorkerId) {
+        if (chunk.isEmpty()) {
+            return ProcessResult.empty();
+        }
+        int processed = 0;
+        int failed = 0;
+        List<UUID> rawVideoIds = chunk.stream()
+                .map(Map.Entry::getKey)
+                .toList();
         try {
+            setStage("AGGREGATE_BATCH", rawVideoIds.getFirst(), firstTaskId(chunk), rawVideoIds.size());
             heartbeat(resolvedWorkerId);
-            List<AggregationResult> results =
-                    aggregationService.aggregateRuntimeWorkBatch(List.copyOf(itemsByRawVideoId.keySet()));
+            List<AggregationResult> results = aggregationService.aggregateRuntimeWorkBatch(rawVideoIds);
             heartbeat(resolvedWorkerId);
             Map<UUID, AggregationResult> resultByRawVideoId = new LinkedHashMap<>();
             for (AggregationResult result : results) {
                 resultByRawVideoId.put(result.rawVideoId(), result);
             }
-            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : itemsByRawVideoId.entrySet()) {
+            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : chunk) {
                 AggregationResult result = resultByRawVideoId.getOrDefault(
                         entry.getKey(),
                         AggregationResult.skipped(entry.getKey(), "MISSING_RAW_VIDEO"));
                 for (RuntimeWorkItem item : entry.getValue()) {
+                    setStage(
+                            "BOUND".equals(result.status()) ? "FINISH_COMPLETE" : "FINISH_FAIL",
+                            entry.getKey(),
+                            item.taskId(),
+                            1);
                     heartbeat(resolvedWorkerId);
                     if (!finish(item, startedAt, result)) {
                         failed++;
@@ -205,8 +253,9 @@ class AggregationWorkQueueWorker {
                 }
             }
         } catch (RuntimeException ex) {
-            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : itemsByRawVideoId.entrySet()) {
+            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : chunk) {
                 for (RuntimeWorkItem item : entry.getValue()) {
+                    setStage("FINISH_FAIL", entry.getKey(), item.taskId(), 1);
                     heartbeat(resolvedWorkerId);
                     failRetryable(item, startedAt, entry.getKey(), ex.getClass().getSimpleName() + ": " + ex.getMessage());
                     processed++;
@@ -307,6 +356,36 @@ class AggregationWorkQueueWorker {
 
     private static Duration elapsedSince(Instant startedAt) {
         return Duration.between(startedAt, Instant.now());
+    }
+
+    private void setStage(String stage, UUID rawVideoId, String taskId, int batchSize) {
+        currentStage = stage;
+        currentRawVideoId = rawVideoId == null ? null : rawVideoId.toString();
+        currentTaskId = taskId;
+        currentBatchSize = Math.max(0, batchSize);
+        currentStageStartedAt = Instant.now();
+    }
+
+    private void clearStage() {
+        currentStage = null;
+        currentRawVideoId = null;
+        currentTaskId = null;
+        currentBatchSize = 0;
+        currentStageStartedAt = null;
+    }
+
+    private long runningForSeconds(Instant stageStartedAt) {
+        if (stageStartedAt == null) {
+            return 0L;
+        }
+        return Math.max(0L, Duration.between(stageStartedAt, Instant.now()).toSeconds());
+    }
+
+    private String firstTaskId(List<Map.Entry<UUID, List<RuntimeWorkItem>>> chunk) {
+        if (chunk.isEmpty() || chunk.getFirst().getValue().isEmpty()) {
+            return null;
+        }
+        return chunk.getFirst().getValue().getFirst().taskId();
     }
 
     private static class AggregationWorkQueueException extends RuntimeException {

@@ -28,10 +28,16 @@ app:
         initial-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_INITIAL_DELAY_MS:10000}
         fixed-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_FIXED_DELAY_MS:1000}
         batch-size: ${APP_AGGREGATION_WORK_QUEUE_BATCH_SIZE:100}
+        processing-chunk-size: ${APP_AGGREGATION_WORK_QUEUE_PROCESSING_CHUNK_SIZE:5}
+        processing-stall-threshold: ${APP_AGGREGATION_WORK_QUEUE_WORKER_PROCESSING_STALL_THRESHOLD:PT120S}
         visibility-seconds: ${APP_AGGREGATION_WORK_QUEUE_VISIBILITY_SECONDS:600}
         max-retries: ${APP_AGGREGATION_WORK_QUEUE_MAX_RETRIES:8}
         max-backoff-seconds: ${APP_AGGREGATION_WORK_QUEUE_MAX_BACKOFF_SECONDS:900}
         worker-id: ${APP_AGGREGATION_WORK_QUEUE_WORKER_ID:}
+    jdbc:
+      query-timeout-seconds: ${APP_AGGREGATION_JDBC_QUERY_TIMEOUT_SECONDS:30}
+    pipeline:
+      stage-transaction-timeout-seconds: ${APP_AGGREGATION_PIPELINE_STAGE_TRANSACTION_TIMEOUT_SECONDS:30}
     stuck-timeout-minutes: ${APP_AGGREGATION_STUCK_TIMEOUT_MINUTES:30}
     match-lock:
       enabled: ${APP_AGGREGATION_MATCH_LOCK_ENABLED:true}

@@ -14,6 +14,7 @@ public class DashboardQueryService {
     private final SystemMetricsService systemMetricsService;
     private final TaskRuntimeOverviewService taskRuntimeOverviewService;
     private final SearchOpsStatsClient searchOpsStatsClient;
+    private final AggregationOpsStatsClient aggregationOpsStatsClient;
 
     public DashboardStatsResponse getStatistics() {
         return dashboardRepository.loadStats();
@@ -42,6 +43,10 @@ public class DashboardQueryService {
 
     public Map<String, Object> getSearchOpsStats() {
         return safeMap(searchOpsStatsClient::currentStats);
+    }
+
+    public Map<String, Object> getAggregationOpsStats() {
+        return safeMap(aggregationOpsStatsClient::currentStats);
     }
 
     public List<SourceQualityResponse> getSourceQuality() {

@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -68,6 +69,53 @@ class AggregationWorkQueueWorkerTest {
         assertThat(worker.state().lastFailed()).isEqualTo(1);
     }
 
+    @Test
+    void processesClaimedItemsInSmallChunks() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        List<UUID> rawVideoIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        for (UUID rawVideoId : rawVideoIds) {
+            queue.items.add(item(rawVideoId, 1));
+        }
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(0), rawVideoIds.get(1))))
+                .thenReturn(List.of(
+                        AggregationResult.bound(rawVideoIds.get(0), UUID.randomUUID()),
+                        AggregationResult.bound(rawVideoIds.get(1), UUID.randomUUID())));
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(2))))
+                .thenReturn(List.of(AggregationResult.bound(rawVideoIds.get(2), UUID.randomUUID())));
+        AggregationWorkQueueWorker worker = worker(queue);
+        set(worker, "processingChunkSize", 2);
+
+        int processed = worker.runOnce();
+
+        assertThat(processed).isEqualTo(3);
+        assertThat(queue.completed).hasSize(3);
+        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(0), rawVideoIds.get(1)));
+        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(2)));
+    }
+
+    @Test
+    void exposesCurrentStageWhileAggregationBatchIsRunning() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        UUID rawVideoId = UUID.randomUUID();
+        RuntimeWorkItem item = item(rawVideoId, 1);
+        queue.items.add(item);
+        AggregationWorkQueueWorker worker = worker(queue);
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoId))).thenAnswer(invocation -> {
+            AggregationWorkQueueState state = worker.state();
+            assertThat(state.currentStage()).isEqualTo("AGGREGATE_BATCH");
+            assertThat(state.currentRawVideoId()).isEqualTo(rawVideoId.toString());
+            assertThat(state.currentTaskId()).isEqualTo(item.taskId());
+            assertThat(state.currentBatchSize()).isEqualTo(1);
+            assertThat(state.currentStageStartedAt()).isNotNull();
+            return List.of(AggregationResult.bound(rawVideoId, UUID.randomUUID()));
+        });
+
+        worker.runOnce();
+
+        assertThat(worker.state().currentStage()).isNull();
+        verify(aggregationService, times(1)).aggregateRuntimeWorkBatch(List.of(rawVideoId));
+    }
+
     private AggregationWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {
         AggregationWorkQueueWorker worker = new AggregationWorkQueueWorker(
                 queue,
@@ -75,6 +123,7 @@ class AggregationWorkQueueWorkerTest {
                 aggregationService,
                 auditWriter);
         set(worker, "batchSize", 10);
+        set(worker, "processingChunkSize", 5);
         set(worker, "visibilitySeconds", 60L);
         set(worker, "maxRetries", 5);
         set(worker, "maxBackoffSeconds", 300L);
