@@ -65,9 +65,9 @@ class DashboardSnapshotCacheService {
         }
     }
 
-    void write(int taskRuntimeLimit, DashboardStreamSnapshot snapshot) {
+    boolean write(int taskRuntimeLimit, DashboardStreamSnapshot snapshot) {
         if (snapshot == null) {
-            return;
+            return false;
         }
         try {
             Instant now = Instant.now(clock);
@@ -83,8 +83,10 @@ class DashboardSnapshotCacheService {
                     key(taskRuntimeLimit),
                     objectMapper.writeValueAsString(cached),
                     effectiveRedisTtl);
+            return true;
         } catch (RuntimeException | JsonProcessingException ex) {
             log.debug("Dashboard snapshot cache write failed: {}", ex.getMessage());
+            return false;
         }
     }
 

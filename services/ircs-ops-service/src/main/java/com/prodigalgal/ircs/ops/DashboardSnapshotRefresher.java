@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ class DashboardSnapshotRefresher {
     private final DashboardSnapshotCacheService cacheService;
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile SnapshotRefreshState lastState = SnapshotRefreshState.never();
 
     @Value("${app.ops.dashboard.snapshot.enabled:true}")
     private boolean enabled;
@@ -60,19 +62,46 @@ class DashboardSnapshotRefresher {
             initialDelayString = "#{T(java.time.Duration).parse('${app.ops.dashboard.snapshot.refresh-interval:PT2S}').toMillis()}",
             fixedDelayString = "#{T(java.time.Duration).parse('${app.ops.dashboard.snapshot.refresh-interval:PT2S}').toMillis()}")
     void refreshDefaultSnapshot() {
+        refreshDefaultSnapshot(false);
+    }
+
+    void refreshAsync(int taskRuntimeLimit) {
+        if (!enabled || running.get()) {
+            return;
+        }
+        Thread refresh = new Thread(
+                () -> refreshWithLease(Math.max(1, taskRuntimeLimit), false),
+                "dashboard-snapshot-refresh-on-demand");
+        refresh.setDaemon(true);
+        refresh.start();
+    }
+
+    SnapshotRefreshState lastState() {
+        return lastState;
+    }
+
+    private void refreshDefaultSnapshot(boolean force) {
+        refreshWithLease(Math.max(1, defaultTaskRuntimeLimit), force);
+    }
+
+    private void refreshWithLease(int taskRuntimeLimit, boolean force) {
         if (!enabled || !running.compareAndSet(false, true)) {
             return;
         }
+        Instant startedAt = Instant.now();
         ClusterLease lease = null;
         try {
-            if (clusterLeaseEnabled && leaseService() != null) {
+            if (!force && clusterLeaseEnabled && leaseService() != null) {
                 lease = acquireLease().orElse(null);
                 if (lease == null) {
+                    lastState = SnapshotRefreshState.skipped(startedAt, "LEASE_NOT_ACQUIRED");
                     return;
                 }
             }
-            refresh(Math.max(1, defaultTaskRuntimeLimit));
+            DashboardStreamSnapshot snapshot = refresh(taskRuntimeLimit);
+            lastState = SnapshotRefreshState.success(startedAt, Instant.now(), snapshot);
         } catch (RuntimeException ex) {
+            lastState = SnapshotRefreshState.failed(startedAt, Instant.now(), ex);
             log.debug("Dashboard snapshot refresh failed: {}", ex.getMessage());
         } finally {
             releaseLease(lease);
@@ -82,7 +111,9 @@ class DashboardSnapshotRefresher {
 
     DashboardStreamSnapshot refresh(int taskRuntimeLimit) {
         DashboardStreamSnapshot snapshot = composer.compose(Math.max(1, taskRuntimeLimit));
-        cacheService.write(taskRuntimeLimit, snapshot);
+        if (!cacheService.write(taskRuntimeLimit, snapshot)) {
+            throw new IllegalStateException("dashboard snapshot cache write failed");
+        }
         return snapshot;
     }
 
@@ -123,5 +154,45 @@ class DashboardSnapshotRefresher {
 
     private Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    record SnapshotRefreshState(
+            Instant startedAt,
+            Instant finishedAt,
+            boolean success,
+            String status,
+            long sequence,
+            boolean partial) {
+
+        static SnapshotRefreshState never() {
+            return new SnapshotRefreshState(null, null, false, "NEVER_RUN", 0, true);
+        }
+
+        static SnapshotRefreshState skipped(Instant startedAt, String reason) {
+            return new SnapshotRefreshState(startedAt, Instant.now(), false, reason, 0, true);
+        }
+
+        static SnapshotRefreshState success(
+                Instant startedAt,
+                Instant finishedAt,
+                DashboardStreamSnapshot snapshot) {
+            return new SnapshotRefreshState(
+                    startedAt,
+                    finishedAt,
+                    true,
+                    "OK",
+                    snapshot == null ? 0 : snapshot.sequence(),
+                    snapshot == null || snapshot.partial());
+        }
+
+        static SnapshotRefreshState failed(Instant startedAt, Instant finishedAt, RuntimeException ex) {
+            return new SnapshotRefreshState(
+                    startedAt,
+                    finishedAt,
+                    false,
+                    ex.getClass().getSimpleName(),
+                    0,
+                    true);
+        }
     }
 }

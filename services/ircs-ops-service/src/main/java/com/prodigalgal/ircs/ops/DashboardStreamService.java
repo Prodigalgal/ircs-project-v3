@@ -16,16 +16,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 class DashboardStreamService {
 
     private final DashboardSnapshotCacheService cacheService;
+    private final DashboardSnapshotRefresher snapshotRefresher;
     private final TaskExecutor taskExecutor;
     private final Duration interval;
     private final Duration timeout;
 
     DashboardStreamService(
             DashboardSnapshotCacheService cacheService,
+            DashboardSnapshotRefresher snapshotRefresher,
             ObjectProvider<TaskExecutor> taskExecutorProvider,
             @Value("${app.ops.dashboard.stream.interval:PT3S}") Duration interval,
             @Value("${app.ops.dashboard.stream.timeout:PT1H}") Duration timeout) {
         this.cacheService = cacheService;
+        this.snapshotRefresher = snapshotRefresher;
         this.taskExecutor = taskExecutor();
         this.interval = positiveOr(interval, Duration.ofSeconds(3));
         this.timeout = positiveOr(timeout, Duration.ofHours(1));
@@ -44,7 +47,10 @@ class DashboardStreamService {
     DashboardStreamSnapshot snapshot(int taskRuntimeLimit) {
         int safeLimit = Math.max(1, taskRuntimeLimit);
         return cacheService.read(safeLimit)
-                .orElseGet(() -> DashboardSnapshotFallbacks.snapshot(safeLimit, "CACHE_MISS"));
+                .orElseGet(() -> {
+                    snapshotRefresher.refreshAsync(safeLimit);
+                    return DashboardSnapshotFallbacks.snapshot(safeLimit, "CACHE_MISS");
+                });
     }
 
     private void pump(SseEmitter emitter, AtomicBoolean open, int taskRuntimeLimit) {
