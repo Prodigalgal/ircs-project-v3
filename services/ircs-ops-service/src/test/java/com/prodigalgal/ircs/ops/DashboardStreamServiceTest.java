@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -40,7 +41,6 @@ class DashboardStreamServiceTest {
     @Test
     void snapshotReturnsDegradedPartialWhenCacheMisses() {
         when(cacheService.read(50)).thenReturn(Optional.empty());
-        when(snapshotRefresher.composeSnapshot(50)).thenThrow(new IllegalStateException("snapshot unavailable"));
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
@@ -57,13 +57,13 @@ class DashboardStreamServiceTest {
         assertThat(result.taskRuntime()).isNotNull();
         assertThat(result.aggregationOps()).containsEntry("available", false);
         verify(snapshotRefresher).refreshAsync(50);
+        verify(snapshotRefresher, never()).composeSnapshot(50);
     }
 
     @Test
-    void snapshotUsesBoundedOnDemandSnapshotWhenCacheMisses() {
+    void snapshotUsesLocalSnapshotWhenRedisCacheMissesAfterFirstRead() {
         DashboardStreamSnapshot snapshot = snapshot();
-        when(cacheService.read(50)).thenReturn(Optional.empty());
-        when(snapshotRefresher.composeSnapshot(50)).thenReturn(snapshot);
+        when(cacheService.read(50)).thenReturn(Optional.of(snapshot), Optional.empty());
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
@@ -71,11 +71,14 @@ class DashboardStreamServiceTest {
                 Duration.ofSeconds(3),
                 Duration.ofMinutes(1));
 
+        DashboardStreamSnapshot cached = service.snapshot(50);
         DashboardStreamSnapshot result = service.snapshot(50);
 
+        assertThat(cached).isSameAs(snapshot);
         assertThat(result.sequence()).isEqualTo(1L);
         assertThat(result.stale()).isTrue();
         verify(snapshotRefresher).refreshAsync(50);
+        verify(snapshotRefresher, never()).composeSnapshot(50);
     }
 
     private DashboardStreamSnapshot snapshot() {

@@ -30,19 +30,19 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
     private static final Map<String, List<ConfigFlag>> RUNTIME_SUBMISSION_FLAGS = Map.ofEntries(
             Map.entry(SearchSyncWorkTypes.RAW, flags(
                     flag("app.search.sync.enabled", true),
-                    flag("app.search.work-queue.worker.enabled", true))),
+                    flag("app.search.work-queue.worker.enabled", false))),
             Map.entry(SearchSyncWorkTypes.UNIFIED, flags(
                     flag("app.search.sync.enabled", true),
-                    flag("app.search.work-queue.worker.enabled", true))),
+                    flag("app.search.work-queue.worker.enabled", false))),
             Map.entry(LlmCleaningWorkTypes.RAW_TERM, flags(
-                    flag("app.ai.llm.enabled", true),
-                    flag("app.normalization.llm-cleaning.work-queue.worker.enabled", true))),
+                    flag("app.ai.llm.enabled", false),
+                    flag("app.normalization.llm-cleaning.work-queue.worker.enabled", false))),
             Map.entry(StorageWorkTypes.AVATAR_SYNC, flags(
-                    flag("app.storage.r2.enabled", true),
-                    flag("app.storage.r2.work-queue.worker.enabled", true))),
+                    flag("app.storage.r2.enabled", false),
+                    flag("app.storage.r2.work-queue.worker.enabled", false))),
             Map.entry(StorageWorkTypes.COVER_R2_SYNC, flags(
-                    flag("app.storage.r2.enabled", true),
-                    flag("app.storage.r2.work-queue.worker.enabled", true))),
+                    flag("app.storage.r2.enabled", false),
+                    flag("app.storage.r2.work-queue.worker.enabled", false))),
             Map.entry(AuditReplicationWorkTypes.ES_REPLICATION, flags(
                     flag("app.search.audit-es-replication.worker.enabled", true))));
 

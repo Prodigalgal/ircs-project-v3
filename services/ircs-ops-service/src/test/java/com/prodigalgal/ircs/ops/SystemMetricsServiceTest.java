@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
@@ -23,6 +25,9 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.time.Duration;
+import java.lang.reflect.Field;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
@@ -59,6 +64,11 @@ class SystemMetricsServiceTest {
             rabbitRateProbeProvider,
             aggregationOpsStatsClientProvider,
             systemConfigRepository);
+
+    @BeforeEach
+    void setUp() throws Exception {
+        setMetricsCacheTtl(Duration.ZERO);
+    }
 
     @Test
     void metricsReturnQueueGroupsAndGracefullyHandleRedisFailure() {
@@ -187,6 +197,41 @@ class SystemMetricsServiceTest {
                         && queue.messageCount() == 11
                         && queue.consumerCount() == 1
                         && "CONSUMER_NO_PROGRESS".equals(queue.blockedReason())));
+    }
+
+    @Test
+    void runtimeWorkQueueReportsNoActiveConsumerInsteadOfHeartbeatTimeout() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
+                .thenReturn(new RuntimeWorkQueueCounts(9, 0, 0));
+        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
+                .thenReturn(0L);
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> "RUNTIME_AGGREGATION_PENDING".equals(queue.key())
+                        && queue.messageCount() == 9
+                        && queue.consumerCount() == 0
+                        && "NO_ACTIVE_CONSUMER".equals(queue.blockedReason())));
+    }
+
+    @Test
+    void metricsUseShortLocalCacheForRepeatedReads() throws Exception {
+        setMetricsCacheTtl(Duration.ofSeconds(5));
+        when(rabbitAdmin.getQueueProperties(QueueTopic.INGEST_VIDEO.queueName()))
+                .thenReturn(queueProps(3, 1));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse first = service.currentMetrics();
+        SystemMetricsResponse second = service.currentMetrics();
+
+        assertEquals(first, second);
+        verify(rabbitAdmin, times(1)).getQueueProperties(QueueTopic.INGEST_VIDEO.queueName());
     }
 
     @Test
@@ -322,6 +367,13 @@ class SystemMetricsServiceTest {
         props.put(RabbitAdmin.QUEUE_MESSAGE_COUNT, messages);
         props.put(RabbitAdmin.QUEUE_CONSUMER_COUNT, consumers);
         return props;
+    }
+
+    private void setMetricsCacheTtl(Duration ttl) throws Exception {
+        Field field = SystemMetricsService.class.getDeclaredField("metricsCacheTtl");
+        field.setAccessible(true);
+        field.set(service, ttl);
+        service.refreshRateMetrics();
     }
 
     @SuppressWarnings("unchecked")

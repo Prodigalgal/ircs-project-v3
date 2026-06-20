@@ -58,6 +58,10 @@ class SystemConfigDefaultsTest {
         assertEquals("16", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.parallelism").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.search.work-queue.worker.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.storage.r2.work-queue.worker.enabled").orElseThrow());
+        assertEquals("false",
+                defaults.staticDefaultValue("app.normalization.llm-cleaning.work-queue.worker.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("member.oauth.auto-register.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.bind-existing-email.enabled").orElseThrow());
         assertEquals("true",

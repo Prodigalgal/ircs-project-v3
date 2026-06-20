@@ -2,6 +2,8 @@ package com.prodigalgal.ircs.ops;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -18,6 +20,7 @@ class DashboardStreamService {
     private final DashboardSnapshotCacheService cacheService;
     private final DashboardSnapshotRefresher snapshotRefresher;
     private final TaskExecutor taskExecutor;
+    private final ConcurrentMap<Integer, DashboardStreamSnapshot> localSnapshots = new ConcurrentHashMap<>();
     private final Duration interval;
     private final Duration timeout;
 
@@ -47,14 +50,8 @@ class DashboardStreamService {
     DashboardStreamSnapshot snapshot(int taskRuntimeLimit) {
         int safeLimit = Math.max(1, taskRuntimeLimit);
         return cacheService.read(safeLimit)
-                .orElseGet(() -> {
-                    snapshotRefresher.refreshAsync(safeLimit);
-                    try {
-                        return snapshotRefresher.composeSnapshot(safeLimit).withStale(true);
-                    } catch (RuntimeException ex) {
-                        return DashboardSnapshotFallbacks.snapshot(safeLimit, "CACHE_MISS");
-                    }
-                });
+                .map(snapshot -> remember(safeLimit, snapshot))
+                .orElseGet(() -> snapshotFromLocalFallback(safeLimit));
     }
 
     private void pump(SseEmitter emitter, AtomicBoolean open, int taskRuntimeLimit) {
@@ -77,6 +74,22 @@ class DashboardStreamService {
         emitter.send(SseEmitter.event()
                 .name("snapshot")
                 .data(snapshot(taskRuntimeLimit)));
+    }
+
+    private DashboardStreamSnapshot snapshotFromLocalFallback(int safeLimit) {
+        snapshotRefresher.refreshAsync(safeLimit);
+        DashboardStreamSnapshot localSnapshot = localSnapshots.get(safeLimit);
+        if (localSnapshot != null) {
+            return localSnapshot.withStale(true);
+        }
+        return DashboardSnapshotFallbacks.snapshot(safeLimit, "CACHE_MISS");
+    }
+
+    private DashboardStreamSnapshot remember(int safeLimit, DashboardStreamSnapshot snapshot) {
+        if (snapshot != null) {
+            localSnapshots.put(safeLimit, snapshot);
+        }
+        return snapshot;
     }
 
     private static void sleep(Duration duration) {

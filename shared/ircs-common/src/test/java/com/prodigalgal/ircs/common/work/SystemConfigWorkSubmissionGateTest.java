@@ -74,6 +74,24 @@ class SystemConfigWorkSubmissionGateTest {
     }
 
     @Test
+    void enhancementRuntimeWorkersDefaultToDeploymentDisabledState() {
+        SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
+
+        assertThat(gate.canSubmitRuntime(SearchSyncWorkTypes.RAW)).isFalse();
+        assertThat(gate.canSubmitRuntime(SearchSyncWorkTypes.UNIFIED)).isFalse();
+        assertThat(gate.canSubmitRuntime(LlmCleaningWorkTypes.RAW_TERM)).isFalse();
+    }
+
+    @Test
+    void explicitRuntimeWorkerConfigEnablesEnhancementSubmission() {
+        insert("app.search.work-queue.worker.enabled", "true");
+        SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
+
+        assertThat(gate.canSubmitRuntime(SearchSyncWorkTypes.RAW)).isTrue();
+        assertThat(gate.canSubmitRuntime(SearchSyncWorkTypes.UNIFIED)).isTrue();
+    }
+
+    @Test
     void allowsUnknownWorkTypes() {
         SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
 
