@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ class DashboardSnapshotCacheService {
     @Value("${app.ops.dashboard.snapshot.redis-ttl:PT2M}")
     private Duration redisTtl;
 
+    @Autowired
     DashboardSnapshotCacheService(ObjectMapper objectMapper, StringRedisTemplate redisTemplate) {
         this(objectMapper, redisTemplate, Clock.systemUTC());
     }
