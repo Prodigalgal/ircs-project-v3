@@ -34,6 +34,9 @@ class DashboardSnapshotRefresher {
     @Value("${app.ops.dashboard.snapshot.lease-ttl:PT10S}")
     private Duration leaseTtl;
 
+    @Value("${app.ops.dashboard.snapshot.cluster-lease.enabled:true}")
+    private boolean clusterLeaseEnabled;
+
     @Value("${spring.application.name:ircs-ops-service}")
     private String applicationName;
 
@@ -62,9 +65,11 @@ class DashboardSnapshotRefresher {
         }
         ClusterLease lease = null;
         try {
-            lease = acquireLease().orElse(null);
-            if (lease == null && leaseService() != null) {
-                return;
+            if (clusterLeaseEnabled && leaseService() != null) {
+                lease = acquireLease().orElse(null);
+                if (lease == null) {
+                    return;
+                }
             }
             refresh(Math.max(1, defaultTaskRuntimeLimit));
         } catch (RuntimeException ex) {
@@ -86,10 +91,15 @@ class DashboardSnapshotRefresher {
         if (leaseService == null) {
             return Optional.empty();
         }
-        return leaseService.tryAcquire(
-                LEASE_NAME,
-                WorkerInstanceIds.resolve(applicationName, null),
-                positiveOr(leaseTtl, Duration.ofSeconds(10)));
+        try {
+            return leaseService.tryAcquire(
+                    LEASE_NAME,
+                    WorkerInstanceIds.resolve(applicationName, null),
+                    positiveOr(leaseTtl, Duration.ofSeconds(10)));
+        } catch (RuntimeException ex) {
+            log.debug("Dashboard snapshot lease acquire failed: {}", ex.getMessage());
+            return Optional.empty();
+        }
     }
 
     private void releaseLease(ClusterLease lease) {

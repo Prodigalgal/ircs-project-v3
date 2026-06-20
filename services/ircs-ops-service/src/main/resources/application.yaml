@@ -55,6 +55,8 @@ app:
         stale-grace: ${APP_OPS_DASHBOARD_SNAPSHOT_STALE_GRACE:PT60S}
         redis-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_REDIS_TTL:PT2M}
         lease-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_LEASE_TTL:PT10S}
+        cluster-lease:
+          enabled: ${APP_OPS_DASHBOARD_SNAPSHOT_CLUSTER_LEASE_ENABLED:true}
         default-task-runtime-limit: ${APP_OPS_DASHBOARD_SNAPSHOT_DEFAULT_TASK_RUNTIME_LIMIT:50}
     runtime-expired-inflight-reaper:
       enabled: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_ENABLED:true}
