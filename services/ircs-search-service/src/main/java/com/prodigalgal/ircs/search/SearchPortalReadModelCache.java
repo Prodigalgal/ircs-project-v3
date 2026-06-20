@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -62,6 +63,7 @@ public class SearchPortalReadModelCache {
                 DEFAULT_VERSION_REFRESH_INTERVAL);
     }
 
+    @Autowired
     SearchPortalReadModelCache(
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
