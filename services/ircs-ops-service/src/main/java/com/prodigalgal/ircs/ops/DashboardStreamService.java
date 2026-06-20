@@ -19,20 +19,17 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 class DashboardStreamService {
 
     private final DashboardSnapshotCacheService cacheService;
-    private final DashboardSnapshotRefresher snapshotRefresher;
     private final TaskExecutor taskExecutor;
     private final Duration interval;
     private final Duration timeout;
 
     DashboardStreamService(
             DashboardSnapshotCacheService cacheService,
-            DashboardSnapshotRefresher snapshotRefresher,
             ObjectProvider<TaskExecutor> taskExecutorProvider,
             @Value("${app.ops.dashboard.stream.interval:PT3S}") Duration interval,
             @Value("${app.ops.dashboard.stream.timeout:PT1H}") Duration timeout) {
         this.cacheService = cacheService;
-        this.snapshotRefresher = snapshotRefresher;
-        this.taskExecutor = taskExecutor(taskExecutorProvider);
+        this.taskExecutor = taskExecutor();
         this.interval = positiveOr(interval, Duration.ofSeconds(3));
         this.timeout = positiveOr(timeout, Duration.ofHours(1));
     }
@@ -43,6 +40,13 @@ class DashboardStreamService {
         emitter.onCompletion(() -> open.set(false));
         emitter.onTimeout(() -> open.set(false));
         emitter.onError(error -> open.set(false));
+        try {
+            sendSnapshot(emitter, taskRuntimeLimit);
+        } catch (IOException ex) {
+            open.set(false);
+            emitter.completeWithError(ex);
+            return emitter;
+        }
         taskExecutor.execute(() -> pump(emitter, open, taskRuntimeLimit));
         return emitter;
     }
@@ -56,10 +60,10 @@ class DashboardStreamService {
     private void pump(SseEmitter emitter, AtomicBoolean open, int taskRuntimeLimit) {
         try {
             while (open.get()) {
-                emitter.send(SseEmitter.event()
-                        .name("snapshot")
-                        .data(snapshot(taskRuntimeLimit)));
                 sleep(interval);
+                if (open.get()) {
+                    sendSnapshot(emitter, taskRuntimeLimit);
+                }
             }
         } catch (IOException ex) {
             log.debug("Dashboard stream client disconnected: {}", ex.getMessage());
@@ -71,6 +75,12 @@ class DashboardStreamService {
         emitter.complete();
     }
 
+    private void sendSnapshot(SseEmitter emitter, int taskRuntimeLimit) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name("snapshot")
+                .data(snapshot(taskRuntimeLimit)));
+    }
+
     private static void sleep(Duration duration) {
         try {
             Thread.sleep(duration.toMillis());
@@ -80,15 +90,8 @@ class DashboardStreamService {
         }
     }
 
-    private static TaskExecutor taskExecutor(ObjectProvider<TaskExecutor> provider) {
-        if (provider != null) {
-            TaskExecutor provided = provider.getIfUnique();
-            if (provided != null) {
-                return provided;
-            }
-        }
-        SimpleAsyncTaskExecutor fallback = new SimpleAsyncTaskExecutor("dashboard-stream-");
-        return fallback;
+    private static TaskExecutor taskExecutor() {
+        return new SimpleAsyncTaskExecutor("dashboard-stream-");
     }
 
     private static Duration positiveOr(Duration value, Duration fallback) {

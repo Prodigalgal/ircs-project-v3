@@ -1,8 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -17,8 +15,6 @@ class DashboardStreamServiceTest {
 
     private final DashboardSnapshotCacheService cacheService =
             org.mockito.Mockito.mock(DashboardSnapshotCacheService.class);
-    private final DashboardSnapshotRefresher snapshotRefresher =
-            org.mockito.Mockito.mock(DashboardSnapshotRefresher.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<TaskExecutor> taskExecutorProvider = org.mockito.Mockito.mock(ObjectProvider.class);
 
@@ -28,7 +24,6 @@ class DashboardStreamServiceTest {
         when(cacheService.read(50)).thenReturn(Optional.of(snapshot));
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
-                snapshotRefresher,
                 taskExecutorProvider,
                 Duration.ofSeconds(3),
                 Duration.ofMinutes(1));
@@ -36,7 +31,6 @@ class DashboardStreamServiceTest {
         DashboardStreamSnapshot result = service.snapshot(50);
 
         assertThat(result).isSameAs(snapshot);
-        verify(snapshotRefresher, never()).refresh(50);
     }
 
     @Test
@@ -44,7 +38,6 @@ class DashboardStreamServiceTest {
         when(cacheService.read(50)).thenReturn(Optional.empty());
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
-                snapshotRefresher,
                 taskExecutorProvider,
                 Duration.ofSeconds(3),
                 Duration.ofMinutes(1));
@@ -57,7 +50,6 @@ class DashboardStreamServiceTest {
         assertThat(result.metrics()).isNotNull();
         assertThat(result.taskRuntime()).isNotNull();
         assertThat(result.aggregationOps()).containsEntry("available", false);
-        verify(snapshotRefresher, never()).refresh(50);
     }
 
     private DashboardStreamSnapshot snapshot() {
