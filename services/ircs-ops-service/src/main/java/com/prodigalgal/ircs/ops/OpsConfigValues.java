@@ -37,6 +37,8 @@ class OpsConfigValues {
     static final String AGGREGATION_DEV_LIMIT_KEY = "app.ops.maintenance.aggregation.dev-limit";
     static final String AGGREGATION_OWNER_BASE_URL_KEY = "app.ops.maintenance.aggregation.owner-base-url";
     static final String AGGREGATION_OWNER_REQUEST_TIMEOUT_KEY = "app.ops.maintenance.aggregation.request-timeout";
+    static final String AGGREGATION_STATS_REQUEST_TIMEOUT_KEY =
+            "app.ops.maintenance.aggregation.stats-request-timeout";
     static final String AGGREGATION_OWNER_SERVICE_ID_KEY = "app.ops.maintenance.aggregation.service-id";
     static final String AGGREGATION_OWNER_SERVICE_TOKEN_KEY = "app.ops.maintenance.aggregation.service-token";
     static final String AGGREGATION_OWNER_SCOPES_KEY = "app.ops.maintenance.aggregation.scopes";
@@ -55,6 +57,7 @@ class OpsConfigValues {
     private static final Duration DEFAULT_NORMALIZATION_OWNER_REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration DEFAULT_NORMALIZATION_LLM_OWNER_REQUEST_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration DEFAULT_AGGREGATION_OWNER_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_AGGREGATION_STATS_REQUEST_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration DEFAULT_SCRAPER_OWNER_REQUEST_TIMEOUT = Duration.ofMinutes(3);
     private static final Duration DEFAULT_GATE_DEFAULT_TTL = Duration.ofMinutes(15);
     private static final Duration DEFAULT_GATE_MAX_TTL = Duration.ofHours(6);
@@ -241,6 +244,13 @@ class OpsConfigValues {
                 DEFAULT_AGGREGATION_OWNER_REQUEST_TIMEOUT,
                 AGGREGATION_OWNER_REQUEST_TIMEOUT_KEY,
                 "APP_OPS_AGGREGATION_WORKER_REQUEST_TIMEOUT");
+    }
+
+    Duration aggregationStatsRequestTimeout() {
+        return durationValue(
+                DEFAULT_AGGREGATION_STATS_REQUEST_TIMEOUT,
+                AGGREGATION_STATS_REQUEST_TIMEOUT_KEY,
+                "APP_OPS_AGGREGATION_STATS_REQUEST_TIMEOUT");
     }
 
     String aggregationOwnerServiceId() {

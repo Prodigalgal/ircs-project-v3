@@ -97,6 +97,7 @@ app:
         dev-limit: ${APP_OPS_MAINTENANCE_AGGREGATION_DEV_LIMIT:5}
         owner-base-url: ${APP_OPS_AGGREGATION_WORKER_BASE_URL:http://ircs-aggregation-worker.ircs-dev.svc.cluster.local:8080}
         request-timeout: ${APP_OPS_AGGREGATION_WORKER_REQUEST_TIMEOUT:30s}
+        stats-request-timeout: ${APP_OPS_AGGREGATION_STATS_REQUEST_TIMEOUT:2s}
         service-id: ${APP_OPS_SERVICE_ID:ops-service}
         service-token: ${APP_OPS_AGGREGATION_SERVICE_TOKEN:${APP_AGGREGATION_SERVICE_TOKEN:}}
         scopes: ${APP_OPS_AGGREGATION_WORKER_SCOPES:aggregation:maintenance}

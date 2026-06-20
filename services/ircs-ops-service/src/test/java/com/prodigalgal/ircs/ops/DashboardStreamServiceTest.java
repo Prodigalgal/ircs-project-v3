@@ -40,10 +40,8 @@ class DashboardStreamServiceTest {
     }
 
     @Test
-    void snapshotRefreshesAndWritesWhenCacheMisses() {
-        DashboardStreamSnapshot snapshot = snapshot();
+    void snapshotReturnsDegradedPartialWhenCacheMisses() {
         when(cacheService.read(50)).thenReturn(Optional.empty());
-        when(snapshotRefresher.refresh(50)).thenReturn(snapshot);
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
@@ -53,8 +51,13 @@ class DashboardStreamServiceTest {
 
         DashboardStreamSnapshot result = service.snapshot(50);
 
-        assertThat(result).isSameAs(snapshot);
-        verify(snapshotRefresher).refresh(50);
+        assertThat(result.partial()).isTrue();
+        assertThat(result.stale()).isTrue();
+        assertThat(result.partialErrors()).containsEntry("snapshot", "CACHE_MISS");
+        assertThat(result.metrics()).isNotNull();
+        assertThat(result.taskRuntime()).isNotNull();
+        assertThat(result.aggregationOps()).containsEntry("available", false);
+        verify(snapshotRefresher, never()).refresh(50);
     }
 
     private DashboardStreamSnapshot snapshot() {

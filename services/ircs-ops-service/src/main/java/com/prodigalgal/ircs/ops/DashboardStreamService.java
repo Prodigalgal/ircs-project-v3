@@ -2,6 +2,9 @@ package com.prodigalgal.ircs.ops;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -47,7 +50,7 @@ class DashboardStreamService {
     DashboardStreamSnapshot snapshot(int taskRuntimeLimit) {
         int safeLimit = Math.max(1, taskRuntimeLimit);
         return cacheService.read(safeLimit)
-                .orElseGet(() -> snapshotRefresher.refresh(safeLimit));
+                .orElseGet(() -> degradedSnapshot(safeLimit));
     }
 
     private void pump(SseEmitter emitter, AtomicBoolean open, int taskRuntimeLimit) {
@@ -90,5 +93,62 @@ class DashboardStreamService {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private static DashboardStreamSnapshot degradedSnapshot(int taskRuntimeLimit) {
+        Instant now = Instant.now();
+        return new DashboardStreamSnapshot(
+                now,
+                now,
+                0L,
+                true,
+                true,
+                Map.of("snapshot", "CACHE_MISS"),
+                degradedMetrics(),
+                degradedTaskRuntime(taskRuntimeLimit),
+                Map.of("available", false, "unavailableReason", "CACHE_MISS"),
+                Map.of("available", false, "unavailableReason", "CACHE_MISS"));
+    }
+
+    private static SystemMetricsResponse degradedMetrics() {
+        return new SystemMetricsResponse(
+                RateMetricResponse.empty("collection.page.discovered", "PT 发现速率", 60, 300),
+                RateMetricResponse.empty("collection.detail.completed", "DT 采集速率", 60, 300),
+                RateMetricResponse.empty("runtime.aggregation.completed", "清洗速率", 60, 300),
+                RateMetricResponse.empty("pipeline.metadata_provider.completed", "元数据速率", 60, 300),
+                0,
+                0,
+                0,
+                0,
+                List.of(),
+                0,
+                new RedisMetricResponse(0, 0, 0, "unknown"),
+                0,
+                0,
+                false,
+                0,
+                Map.of("dashboardSnapshot", "CACHE_MISS"));
+    }
+
+    private static TaskRuntimeOverviewResponse degradedTaskRuntime(int taskRuntimeLimit) {
+        Instant now = Instant.now();
+        return new TaskRuntimeOverviewResponse(
+                now,
+                Math.max(1, taskRuntimeLimit),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                Map.of(),
+                Map.of(),
+                List.of());
     }
 }

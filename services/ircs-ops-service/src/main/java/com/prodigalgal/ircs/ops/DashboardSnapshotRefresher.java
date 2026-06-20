@@ -48,7 +48,9 @@ class DashboardSnapshotRefresher {
 
     @EventListener(ApplicationReadyEvent.class)
     void warmup() {
-        refreshDefaultSnapshot();
+        Thread warmup = new Thread(this::refreshDefaultSnapshot, "dashboard-snapshot-warmup");
+        warmup.setDaemon(true);
+        warmup.start();
     }
 
     @Scheduled(

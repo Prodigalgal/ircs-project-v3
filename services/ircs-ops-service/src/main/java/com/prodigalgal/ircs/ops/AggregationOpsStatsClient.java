@@ -36,7 +36,7 @@ class AggregationOpsStatsClient {
 
     Map<String, Object> currentStats() {
         try {
-            OutboundHttpPolicy policy = OutboundHttpPolicy.internalService(configValues.aggregationOwnerRequestTimeout())
+            OutboundHttpPolicy policy = OutboundHttpPolicy.internalService(configValues.aggregationStatsRequestTimeout())
                     .withCallerCircuitBreakerKey("ops-aggregation-stats");
             OutboundHttpRequest request = OutboundHttpRequest.get(stateUri(), policy)
                     .withHeader("Accept", "application/json");
