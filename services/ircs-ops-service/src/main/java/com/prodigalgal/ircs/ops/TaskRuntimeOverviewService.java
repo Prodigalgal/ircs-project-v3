@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ops;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.contracts.task.TaskRuntimeHotKeys;
 import java.time.Instant;
@@ -12,7 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -20,19 +21,34 @@ import org.springframework.stereotype.Service;
 class TaskRuntimeOverviewService {
 
     private static final int DEFAULT_LIMIT = 50;
+    private static final int DEFAULT_MAX_LIMIT = 200;
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
-    private final int maxLimit;
+    private final RuntimeConfigService runtimeConfig;
+    private final int fallbackMaxLimit;
+
+    @Autowired
+    TaskRuntimeOverviewService(
+            StringRedisTemplate redisTemplate,
+            ObjectMapper objectMapper,
+            RuntimeConfigService runtimeConfig
+    ) {
+        this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
+        this.runtimeConfig = runtimeConfig;
+        this.fallbackMaxLimit = DEFAULT_MAX_LIMIT;
+    }
 
     TaskRuntimeOverviewService(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
-            @Value("${app.ops.task-runtime.overview.max-limit:200}") int maxLimit
+            int maxLimit
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
-        this.maxLimit = Math.max(1, maxLimit);
+        this.runtimeConfig = null;
+        this.fallbackMaxLimit = Math.max(1, maxLimit);
     }
 
     TaskRuntimeOverviewResponse currentOverview(int limit) {
@@ -175,10 +191,21 @@ class TaskRuntimeOverviewService {
     }
 
     private int sanitizeLimit(int limit) {
+        int maxLimit = maxLimit();
         if (limit <= 0) {
             return Math.min(DEFAULT_LIMIT, maxLimit);
         }
         return Math.min(limit, maxLimit);
+    }
+
+    private int maxLimit() {
+        return runtimeConfig == null
+                ? fallbackMaxLimit
+                : runtimeConfig.boundedIntValue(
+                        "app.ops.task-runtime.overview.max-limit",
+                        fallbackMaxLimit,
+                        1,
+                        1000);
     }
 
     private long longValue(Map<String, String> values, String key, long fallback) {

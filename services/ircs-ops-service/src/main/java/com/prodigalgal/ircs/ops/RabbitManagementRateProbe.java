@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.net.URI;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,69 +34,61 @@ class RabbitManagementRateProbe {
 
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
+    private final RuntimeConfigService runtimeConfig;
     private final Map<String, Long> counters = new ConcurrentHashMap<>();
     private volatile HttpClient httpClient;
+    private volatile Duration httpClientConnectTimeout;
+    private volatile Instant nextSampleAt;
     private volatile boolean lastSampleSuccessful;
     private volatile Instant lastSampleAt;
     private volatile String lastError;
 
-    @Value("${app.ops.rabbit-management.enabled:true}")
-    private boolean enabled;
-
-    @Value("${app.ops.rabbit-management.base-url:}")
-    private String baseUrl;
-
     @Value("${spring.rabbitmq.host:localhost}")
-    private String rabbitHost;
+    private String fallbackRabbitHost;
 
     @Value("${spring.rabbitmq.username:guest}")
-    private String username;
+    private String fallbackUsername;
 
     @Value("${spring.rabbitmq.password:guest}")
-    private String password;
+    private String fallbackPassword;
 
-    @Value("${app.ops.rabbit-management.vhost:/}")
-    private String vhost;
-
-    @Value("${app.ops.rabbit-management.connect-timeout:PT3S}")
-    private Duration connectTimeout;
-
-    @Value("${app.ops.rabbit-management.request-timeout:PT5S}")
-    private Duration requestTimeout;
-
-    @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}")
-    private String rateMetricsKeyPrefix;
-
-    @Value("${app.rate-metrics.bucket-size:PT10S}")
-    private Duration rateBucketSize;
-
-    @Value("${app.rate-metrics.bucket-ttl:PT30M}")
-    private Duration rateBucketTtl;
-
-    @Value("${app.rate-metrics.bucket-index-retention:PT31M}")
-    private Duration rateBucketIndexRetention;
-
-    RabbitManagementRateProbe(ObjectMapper objectMapper, StringRedisTemplate redisTemplate) {
+    RabbitManagementRateProbe(
+            ObjectMapper objectMapper,
+            StringRedisTemplate redisTemplate,
+            RuntimeConfigService runtimeConfig) {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
+        this.runtimeConfig = runtimeConfig;
     }
 
-    @Scheduled(
-            initialDelayString = "${app.ops.rabbit-management.initial-delay-ms:10000}",
-            fixedDelayString = "${app.ops.rabbit-management.fixed-delay-ms:10000}")
+    RabbitManagementRateProbe(ObjectMapper objectMapper, StringRedisTemplate redisTemplate) {
+        this(objectMapper, redisTemplate, null);
+    }
+
+    @Scheduled(initialDelayString = "1000", fixedDelayString = "1000")
     public void sampleScheduled() {
+        Instant now = Instant.now();
+        Instant scheduledAt = nextSampleAt;
+        if (scheduledAt == null) {
+            nextSampleAt = now.plus(initialDelay());
+            return;
+        }
+        if (now.isBefore(scheduledAt)) {
+            return;
+        }
+        nextSampleAt = now.plus(fixedDelay());
         sampleOnce();
     }
 
     int sampleOnce() {
-        if (!enabled) {
+        if (!enabled()) {
             lastSampleSuccessful = false;
             lastError = "disabled";
             return 0;
         }
         try {
             HttpRequest request = HttpRequest.newBuilder(queueEndpoint())
-                    .timeout(positiveOr(requestTimeout, Duration.ofSeconds(5)))
+                    .timeout(requestTimeout())
                     .header("Accept", "application/json")
                     .header("Authorization", "Basic " + basicAuth())
                     .GET()
@@ -123,7 +117,7 @@ class RabbitManagementRateProbe {
         if (!lastSampleSuccessful || sampledAt == null) {
             return false;
         }
-        return sampledAt.isAfter(Instant.now().minus(positiveOr(requestTimeout, Duration.ofSeconds(5)).multipliedBy(12)));
+        return sampledAt.isAfter(Instant.now().minus(requestTimeout().multipliedBy(12)));
     }
 
     String lastError() {
@@ -173,17 +167,17 @@ class RabbitManagementRateProbe {
 
     private void recordRate(String metricKey, long delta) {
         long now = System.currentTimeMillis();
-        long bucketStart = RateMetricKeys.bucketStartMillis(now, rateBucketSize);
-        String normalizedPrefix = RateMetricKeys.normalizeKeyPrefix(rateMetricsKeyPrefix);
+        long bucketStart = RateMetricKeys.bucketStartMillis(now, rateBucketSize());
+        String normalizedPrefix = RateMetricKeys.normalizeKeyPrefix(rateMetricsKeyPrefix());
         String bucketKey = RateMetricKeys.bucketKey(normalizedPrefix, bucketStart);
         String bucketIndexKey = RateMetricKeys.bucketIndexKey(normalizedPrefix);
         redisTemplate.opsForHash().increment(bucketKey, metricKey, delta);
         redisTemplate.expire(bucketKey, Duration.ofSeconds(RateMetricKeys.ttlSeconds(
-                rateBucketTtl,
+                rateBucketTtl(),
                 RateMetricKeys.DEFAULT_BUCKET_TTL)));
         redisTemplate.opsForZSet().add(bucketIndexKey, Long.toString(bucketStart), bucketStart);
         long retentionMillis = RateMetricKeys.retentionMillis(
-                rateBucketIndexRetention,
+                rateBucketIndexRetention(),
                 RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION);
         redisTemplate.opsForZSet().removeRangeByScore(
                 bucketIndexKey,
@@ -193,9 +187,10 @@ class RabbitManagementRateProbe {
     }
 
     private URI queueEndpoint() {
+        String baseUrl = baseUrl();
         String root = StringUtils.hasText(baseUrl)
                 ? baseUrl.trim()
-                : "http://" + rabbitHost + ":" + DEFAULT_BASE_URL_PORT;
+                : "http://" + rabbitHost() + ":" + DEFAULT_BASE_URL_PORT;
         while (root.endsWith("/")) {
             root = root.substring(0, root.length() - 1);
         }
@@ -203,26 +198,28 @@ class RabbitManagementRateProbe {
     }
 
     private String encodeVhost() {
-        String raw = StringUtils.hasText(vhost) ? vhost.trim() : "/";
+        String raw = StringUtils.hasText(vhost()) ? vhost().trim() : "/";
         return URLEncoder.encode(raw, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private String basicAuth() {
-        String raw = (StringUtils.hasText(username) ? username : "guest") + ":"
-                + (password == null ? "" : password);
+        String raw = (StringUtils.hasText(username()) ? username() : "guest") + ":"
+                + (password() == null ? "" : password());
         return Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
     private HttpClient client() {
+        Duration desiredConnectTimeout = connectTimeout();
         HttpClient existing = httpClient;
-        if (existing != null) {
+        if (existing != null && Objects.equals(httpClientConnectTimeout, desiredConnectTimeout)) {
             return existing;
         }
         synchronized (this) {
-            if (httpClient == null) {
+            if (httpClient == null || !Objects.equals(httpClientConnectTimeout, desiredConnectTimeout)) {
                 httpClient = HttpClient.newBuilder()
-                        .connectTimeout(positiveOr(connectTimeout, Duration.ofSeconds(3)))
+                        .connectTimeout(desiredConnectTimeout)
                         .build();
+                httpClientConnectTimeout = desiredConnectTimeout;
             }
             return httpClient;
         }
@@ -236,6 +233,93 @@ class RabbitManagementRateProbe {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private boolean enabled() {
+        return runtimeConfig == null
+                || runtimeConfig.booleanValue("app.ops.rabbit-management.enabled", true);
+    }
+
+    private String baseUrl() {
+        return runtimeConfig == null
+                ? ""
+                : runtimeConfig.stringValue("app.ops.rabbit-management.base-url", "");
+    }
+
+    private String rabbitHost() {
+        return runtimeConfig == null
+                ? fallbackRabbitHost
+                : runtimeConfig.stringValue("spring.rabbitmq.host", fallbackRabbitHost);
+    }
+
+    private String username() {
+        return runtimeConfig == null
+                ? fallbackUsername
+                : runtimeConfig.stringValue("spring.rabbitmq.username", fallbackUsername);
+    }
+
+    private String password() {
+        return runtimeConfig == null
+                ? fallbackPassword
+                : runtimeConfig.stringValue("spring.rabbitmq.password", fallbackPassword);
+    }
+
+    private String vhost() {
+        return runtimeConfig == null
+                ? "/"
+                : runtimeConfig.stringValue("app.ops.rabbit-management.vhost", "/");
+    }
+
+    private Duration connectTimeout() {
+        return runtimeConfig == null
+                ? Duration.ofSeconds(3)
+                : runtimeConfig.positiveDurationValue("app.ops.rabbit-management.connect-timeout", Duration.ofSeconds(3));
+    }
+
+    private Duration requestTimeout() {
+        return runtimeConfig == null
+                ? Duration.ofSeconds(5)
+                : runtimeConfig.positiveDurationValue("app.ops.rabbit-management.request-timeout", Duration.ofSeconds(5));
+    }
+
+    private String rateMetricsKeyPrefix() {
+        return runtimeConfig == null
+                ? RateMetricKeys.DEFAULT_KEY_PREFIX
+                : runtimeConfig.stringValue("app.rate-metrics.key-prefix", RateMetricKeys.DEFAULT_KEY_PREFIX);
+    }
+
+    private Duration rateBucketSize() {
+        return runtimeConfig == null
+                ? RateMetricKeys.DEFAULT_BUCKET_SIZE
+                : runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-size", RateMetricKeys.DEFAULT_BUCKET_SIZE);
+    }
+
+    private Duration rateBucketTtl() {
+        return runtimeConfig == null
+                ? RateMetricKeys.DEFAULT_BUCKET_TTL
+                : runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-ttl", RateMetricKeys.DEFAULT_BUCKET_TTL);
+    }
+
+    private Duration rateBucketIndexRetention() {
+        return runtimeConfig == null
+                ? RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION
+                : runtimeConfig.positiveDurationValue(
+                        "app.rate-metrics.bucket-index-retention",
+                        RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION);
+    }
+
+    private Duration initialDelay() {
+        long delayMs = runtimeConfig == null
+                ? 10_000L
+                : Math.max(0L, runtimeConfig.longValue("app.ops.rabbit-management.initial-delay-ms", 10_000L));
+        return Duration.ofMillis(delayMs);
+    }
+
+    private Duration fixedDelay() {
+        long delayMs = runtimeConfig == null
+                ? 10_000L
+                : Math.max(1_000L, runtimeConfig.longValue("app.ops.rabbit-management.fixed-delay-ms", 10_000L));
+        return Duration.ofMillis(delayMs);
     }
 
     private static Map<String, QueueBinding> queueBindings() {

@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +18,12 @@ class SystemConfigChangedListener {
     static final String QUEUE_NAME = "q.ops.config_changed";
 
     private final SystemConfigRepository repository;
+    private final RuntimeConfigService runtimeConfig;
     private final ObjectMapper objectMapper;
+
+    SystemConfigChangedListener(SystemConfigRepository repository, ObjectMapper objectMapper) {
+        this(repository, null, objectMapper);
+    }
 
     @RabbitListener(queues = QUEUE_NAME, autoStartup = "${app.ops.config-listener.enabled:false}")
     void handle(String payload) {
@@ -25,6 +31,9 @@ class SystemConfigChangedListener {
             SystemConfigChangedEvent event = objectMapper.readValue(payload, SystemConfigChangedEvent.class);
             if (StringUtils.hasText(event.key())) {
                 repository.evict(event.key());
+                if (runtimeConfig != null) {
+                    runtimeConfig.evict(event.key());
+                }
             }
         } catch (JsonProcessingException ex) {
             log.warn("Failed to parse ops system config change event", ex);

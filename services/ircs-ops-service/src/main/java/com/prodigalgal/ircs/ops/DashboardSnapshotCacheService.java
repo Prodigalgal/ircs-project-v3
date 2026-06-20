@@ -2,13 +2,13 @@ package com.prodigalgal.ircs.ops;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -20,28 +20,29 @@ class DashboardSnapshotCacheService {
 
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
+    private final RuntimeConfigService runtimeConfig;
     private final Clock clock;
 
-    @Value("${app.ops.dashboard.snapshot.key-prefix:" + DEFAULT_PREFIX + "}")
-    private String keyPrefix;
-
-    @Value("${app.ops.dashboard.snapshot.fresh-ttl:PT6S}")
-    private Duration freshTtl;
-
-    @Value("${app.ops.dashboard.snapshot.stale-grace:PT60S}")
-    private Duration staleGrace;
-
-    @Value("${app.ops.dashboard.snapshot.redis-ttl:PT2M}")
-    private Duration redisTtl;
-
     @Autowired
-    DashboardSnapshotCacheService(ObjectMapper objectMapper, StringRedisTemplate redisTemplate) {
-        this(objectMapper, redisTemplate, Clock.systemUTC());
+    DashboardSnapshotCacheService(
+            ObjectMapper objectMapper,
+            StringRedisTemplate redisTemplate,
+            RuntimeConfigService runtimeConfig) {
+        this(objectMapper, redisTemplate, runtimeConfig, Clock.systemUTC());
     }
 
     DashboardSnapshotCacheService(ObjectMapper objectMapper, StringRedisTemplate redisTemplate, Clock clock) {
+        this(objectMapper, redisTemplate, null, clock);
+    }
+
+    private DashboardSnapshotCacheService(
+            ObjectMapper objectMapper,
+            StringRedisTemplate redisTemplate,
+            RuntimeConfigService runtimeConfig,
+            Clock clock) {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
+        this.runtimeConfig = runtimeConfig;
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -71,9 +72,9 @@ class DashboardSnapshotCacheService {
         }
         try {
             Instant now = Instant.now(clock);
-            Duration effectiveFreshTtl = positiveOr(freshTtl, Duration.ofSeconds(6));
-            Duration effectiveStaleGrace = positiveOr(staleGrace, Duration.ofSeconds(60));
-            Duration effectiveRedisTtl = positiveOr(redisTtl, Duration.ofMinutes(2));
+            Duration effectiveFreshTtl = freshTtl();
+            Duration effectiveStaleGrace = staleGrace();
+            Duration effectiveRedisTtl = redisTtl();
             CachedDashboardSnapshot cached = new CachedDashboardSnapshot(
                     snapshot.withStale(false),
                     now,
@@ -95,7 +96,30 @@ class DashboardSnapshotCacheService {
     }
 
     private String prefix() {
-        return keyPrefix == null || keyPrefix.isBlank() ? DEFAULT_PREFIX : keyPrefix.trim();
+        return runtimeConfig == null
+                ? DEFAULT_PREFIX
+                : runtimeConfig.stringValue("app.ops.dashboard.snapshot.key-prefix", DEFAULT_PREFIX);
+    }
+
+    private Duration freshTtl() {
+        Duration fallback = Duration.ofSeconds(6);
+        return runtimeConfig == null
+                ? fallback
+                : runtimeConfig.positiveDurationValue("app.ops.dashboard.snapshot.fresh-ttl", fallback);
+    }
+
+    private Duration staleGrace() {
+        Duration fallback = Duration.ofSeconds(60);
+        return runtimeConfig == null
+                ? fallback
+                : runtimeConfig.positiveDurationValue("app.ops.dashboard.snapshot.stale-grace", fallback);
+    }
+
+    private Duration redisTtl() {
+        Duration fallback = Duration.ofMinutes(2);
+        return runtimeConfig == null
+                ? fallback
+                : runtimeConfig.positiveDurationValue("app.ops.dashboard.snapshot.redis-ttl", fallback);
     }
 
     private Duration positiveOr(Duration value, Duration fallback) {

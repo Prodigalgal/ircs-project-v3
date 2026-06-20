@@ -56,6 +56,11 @@ class SystemConfigDefaultsTest {
         assertEquals("150", defaults.staticDefaultValue("app.metadata.public-traffic.default-gap-ms").orElseThrow());
         assertEquals("40", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.batch-size").orElseThrow());
         assertEquals("16", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.parallelism").orElseThrow());
+        assertEquals("PT2S", defaults.staticDefaultValue("app.runtime-config.local-cache.ttl").orElseThrow());
+        assertEquals("PT2S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-interval").orElseThrow());
+        assertEquals("PT120S", defaults.staticDefaultValue(
+                "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
+        assertEquals("PT10S", defaults.staticDefaultValue("app.rate-metrics.bucket-size").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.search.work-queue.worker.enabled").orElseThrow());
@@ -201,6 +206,39 @@ class SystemConfigDefaultsTest {
             "app.adaptive.enabled",
             "app.adaptive.load-threshold",
             "app.adaptive.check-interval-ms",
+            "app.runtime-config.local-cache.ttl",
+            "app.ops.config-listener.enabled",
+            "app.ops.dashboard.snapshot.enabled",
+            "app.ops.dashboard.snapshot.default-task-runtime-limit",
+            "app.ops.dashboard.snapshot.refresh-interval",
+            "app.ops.dashboard.snapshot.refresh-budget",
+            "app.ops.dashboard.snapshot.lease-ttl",
+            "app.ops.dashboard.snapshot.cluster-lease.enabled",
+            "app.ops.dashboard.snapshot.key-prefix",
+            "app.ops.dashboard.snapshot.fresh-ttl",
+            "app.ops.dashboard.snapshot.stale-grace",
+            "app.ops.dashboard.snapshot.redis-ttl",
+            "app.ops.dashboard.stream.interval",
+            "app.ops.dashboard.stream.timeout",
+            "app.ops.metrics.cache-ttl",
+            "app.ops.metrics.instant-window",
+            "app.ops.metrics.stable-window",
+            "app.ops.metrics.ewma-alpha",
+            "app.aggregation.work-queue.worker.processing-stall-threshold",
+            "app.ops.task-runtime.overview.max-limit",
+            "app.ops.request-audit.summary-sample-limit",
+            "app.ops.worker-job-audit.summary-sample-limit",
+            "app.ops.rabbit-management.enabled",
+            "app.ops.rabbit-management.base-url",
+            "app.ops.rabbit-management.vhost",
+            "app.ops.rabbit-management.connect-timeout",
+            "app.ops.rabbit-management.request-timeout",
+            "app.ops.rabbit-management.initial-delay-ms",
+            "app.ops.rabbit-management.fixed-delay-ms",
+            "app.rate-metrics.key-prefix",
+            "app.rate-metrics.bucket-size",
+            "app.rate-metrics.bucket-ttl",
+            "app.rate-metrics.bucket-index-retention",
             "app.aggregation.work-queue.batch-size",
             "app.aggregation.work-queue.batch-size.min",
             "app.aggregation.work-queue.batch-size.max",

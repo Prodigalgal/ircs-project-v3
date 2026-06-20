@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
@@ -24,20 +25,10 @@ class DashboardSnapshotRefresher {
     private final DashboardSnapshotComposer composer;
     private final DashboardSnapshotCacheService cacheService;
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
+    private final RuntimeConfigService runtimeConfig;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile Instant nextDefaultRefreshAt = Instant.EPOCH;
     private volatile SnapshotRefreshState lastState = SnapshotRefreshState.never();
-
-    @Value("${app.ops.dashboard.snapshot.enabled:true}")
-    private boolean enabled;
-
-    @Value("${app.ops.dashboard.snapshot.default-task-runtime-limit:50}")
-    private int defaultTaskRuntimeLimit;
-
-    @Value("${app.ops.dashboard.snapshot.lease-ttl:PT10S}")
-    private Duration leaseTtl;
-
-    @Value("${app.ops.dashboard.snapshot.cluster-lease.enabled:true}")
-    private boolean clusterLeaseEnabled;
 
     @Value("${spring.application.name:ircs-ops-service}")
     private String applicationName;
@@ -45,10 +36,12 @@ class DashboardSnapshotRefresher {
     DashboardSnapshotRefresher(
             DashboardSnapshotComposer composer,
             DashboardSnapshotCacheService cacheService,
-            ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider) {
+            ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider,
+            RuntimeConfigService runtimeConfig) {
         this.composer = composer;
         this.cacheService = cacheService;
         this.clusterLeaseServiceProvider = clusterLeaseServiceProvider;
+        this.runtimeConfig = runtimeConfig;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -58,15 +51,18 @@ class DashboardSnapshotRefresher {
         warmup.start();
     }
 
-    @Scheduled(
-            initialDelayString = "#{T(java.time.Duration).parse('${app.ops.dashboard.snapshot.refresh-interval:PT2S}').toMillis()}",
-            fixedDelayString = "#{T(java.time.Duration).parse('${app.ops.dashboard.snapshot.refresh-interval:PT2S}').toMillis()}")
+    @Scheduled(initialDelayString = "1000", fixedDelayString = "1000")
     void refreshDefaultSnapshot() {
+        Instant now = Instant.now();
+        if (now.isBefore(nextDefaultRefreshAt)) {
+            return;
+        }
+        nextDefaultRefreshAt = now.plus(refreshInterval());
         refreshDefaultSnapshot(false);
     }
 
     void refreshAsync(int taskRuntimeLimit) {
-        if (!enabled || running.get()) {
+        if (!enabled() || running.get()) {
             return;
         }
         Thread refresh = new Thread(
@@ -85,17 +81,17 @@ class DashboardSnapshotRefresher {
     }
 
     private void refreshDefaultSnapshot(boolean force) {
-        refreshWithLease(Math.max(1, defaultTaskRuntimeLimit), force);
+        refreshWithLease(defaultTaskRuntimeLimit(), force);
     }
 
     private void refreshWithLease(int taskRuntimeLimit, boolean force) {
-        if (!enabled || !running.compareAndSet(false, true)) {
+        if (!enabled() || !running.compareAndSet(false, true)) {
             return;
         }
         Instant startedAt = Instant.now();
         ClusterLease lease = null;
         try {
-            if (!force && clusterLeaseEnabled && leaseService() != null) {
+            if (!force && clusterLeaseEnabled() && leaseService() != null) {
                 lease = acquireLease().orElse(null);
                 if (lease == null) {
                     lastState = SnapshotRefreshState.skipped(startedAt, "LEASE_NOT_ACQUIRED");
@@ -130,7 +126,7 @@ class DashboardSnapshotRefresher {
             return leaseService.tryAcquire(
                     LEASE_NAME,
                     WorkerInstanceIds.resolve(applicationName, null),
-                    positiveOr(leaseTtl, Duration.ofSeconds(10)));
+                    leaseTtl());
         } catch (RuntimeException ex) {
             log.debug("Dashboard snapshot lease acquire failed: {}", ex.getMessage());
             return Optional.empty();
@@ -158,6 +154,26 @@ class DashboardSnapshotRefresher {
 
     private Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private boolean enabled() {
+        return runtimeConfig.booleanValue("app.ops.dashboard.snapshot.enabled", true);
+    }
+
+    private int defaultTaskRuntimeLimit() {
+        return runtimeConfig.boundedIntValue("app.ops.dashboard.snapshot.default-task-runtime-limit", 50, 1, 1000);
+    }
+
+    private Duration leaseTtl() {
+        return runtimeConfig.positiveDurationValue("app.ops.dashboard.snapshot.lease-ttl", Duration.ofSeconds(10));
+    }
+
+    private boolean clusterLeaseEnabled() {
+        return runtimeConfig.booleanValue("app.ops.dashboard.snapshot.cluster-lease.enabled", true);
+    }
+
+    private Duration refreshInterval() {
+        return runtimeConfig.positiveDurationValue("app.ops.dashboard.snapshot.refresh-interval", Duration.ofSeconds(2));
     }
 
     record SnapshotRefreshState(

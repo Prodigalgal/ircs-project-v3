@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -9,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -43,8 +43,11 @@ public class RequestAuditRepository {
     private static final RowMapper<RequestAuditLogResponse> ROW_MAPPER = RequestAuditRepository::mapRow;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
-    @Value("${app.ops.request-audit.summary-sample-limit:50000}")
-    private int summarySampleLimit = DEFAULT_SUMMARY_SAMPLE_LIMIT;
+    private final RuntimeConfigService runtimeConfig;
+
+    RequestAuditRepository(NamedParameterJdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, null);
+    }
 
     public Page<RequestAuditLogResponse> findAll(
             Pageable pageable,
@@ -161,7 +164,14 @@ public class RequestAuditRepository {
     }
 
     private int summarySampleLimit() {
-        return summarySampleLimit <= 0 ? DEFAULT_SUMMARY_SAMPLE_LIMIT : summarySampleLimit;
+        if (runtimeConfig == null) {
+            return DEFAULT_SUMMARY_SAMPLE_LIMIT;
+        }
+        return runtimeConfig.boundedIntValue(
+                "app.ops.request-audit.summary-sample-limit",
+                DEFAULT_SUMMARY_SAMPLE_LIMIT,
+                1,
+                1_000_000);
     }
 
     private static long estimatedTotal(Pageable pageable, int contentSize) {

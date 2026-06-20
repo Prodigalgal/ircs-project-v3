@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
@@ -15,7 +16,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -24,19 +25,33 @@ class DashboardSnapshotComposer {
     private final DashboardQueryService dashboardQueryService;
     private final ExecutorService executor;
     private final AtomicLong sequence = new AtomicLong(0);
-    private final Duration refreshBudget;
+    private final RuntimeConfigService runtimeConfig;
+    private final Duration fallbackRefreshBudget;
 
+    @Autowired
     DashboardSnapshotComposer(
             DashboardQueryService dashboardQueryService,
-            @Value("${app.ops.dashboard.snapshot.refresh-budget:PT3S}") Duration refreshBudget) {
+            RuntimeConfigService runtimeConfig) {
+        this(dashboardQueryService, runtimeConfig, Duration.ofSeconds(3));
+    }
+
+    DashboardSnapshotComposer(DashboardQueryService dashboardQueryService, Duration refreshBudget) {
+        this(dashboardQueryService, null, refreshBudget);
+    }
+
+    private DashboardSnapshotComposer(
+            DashboardQueryService dashboardQueryService,
+            RuntimeConfigService runtimeConfig,
+            Duration refreshBudget) {
         this.dashboardQueryService = dashboardQueryService;
-        this.refreshBudget = positiveOr(refreshBudget, Duration.ofSeconds(3));
+        this.runtimeConfig = runtimeConfig;
+        this.fallbackRefreshBudget = positiveOr(refreshBudget, Duration.ofSeconds(3));
         this.executor = Executors.newFixedThreadPool(4, threadFactory());
     }
 
     DashboardStreamSnapshot compose(int taskRuntimeLimit) {
         Instant generatedAt = Instant.now();
-        long deadlineNanos = System.nanoTime() + refreshBudget.toNanos();
+        long deadlineNanos = System.nanoTime() + refreshBudget().toNanos();
         Map<String, String> partialErrors = new LinkedHashMap<>();
         CompletableFuture<SystemMetricsResponse> metricsFuture =
                 CompletableFuture.supplyAsync(dashboardQueryService::getMetrics, executor);
@@ -129,6 +144,14 @@ class DashboardSnapshotComposer {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private Duration refreshBudget() {
+        return runtimeConfig == null
+                ? fallbackRefreshBudget
+                : runtimeConfig.positiveDurationValue(
+                        "app.ops.dashboard.snapshot.refresh-budget",
+                        fallbackRefreshBudget);
     }
 
     private static ThreadFactory threadFactory() {

@@ -14,6 +14,9 @@ final class RuntimeInjectedConfig {
     }
 
     static Optional<String> find(Environment environment, Iterable<String> keys) {
+        if (environment == null) {
+            return Optional.empty();
+        }
         if (environment instanceof ConfigurableEnvironment configurableEnvironment) {
             for (PropertySource<?> source : configurableEnvironment.getPropertySources()) {
                 if (!isRuntimeInjectionSource(source.getName())) {
@@ -50,6 +53,8 @@ final class RuntimeInjectedConfig {
                 || name.equals("systemenvironment")
                 || name.equals("spring.application.json")
                 || name.equals("mockproperties")
+                || name.contains("config resource")
+                || name.contains("applicationconfig")
                 || name.contains("config tree")
                 || name.contains("configtree")
                 || name.contains("kubernetes")

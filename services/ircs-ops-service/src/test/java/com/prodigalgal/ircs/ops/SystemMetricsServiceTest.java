@@ -10,6 +10,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
@@ -21,12 +22,10 @@ import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.time.Duration;
-import java.lang.reflect.Field;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -53,7 +52,7 @@ class SystemMetricsServiceTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
-    private final SystemConfigRepository systemConfigRepository = org.mockito.Mockito.mock(SystemConfigRepository.class);
+    private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
     private final SystemMetricsService service = new SystemMetricsService(
             rabbitAdmin,
             redisConnectionFactory,
@@ -63,11 +62,11 @@ class SystemMetricsServiceTest {
             runtimeWorkQueueProvider,
             rabbitRateProbeProvider,
             aggregationOpsStatsClientProvider,
-            systemConfigRepository);
+            runtimeConfig);
 
     @BeforeEach
-    void setUp() throws Exception {
-        setMetricsCacheTtl(Duration.ZERO);
+    void setUp() {
+        stubRuntimeConfigDefaults();
     }
 
     @Test
@@ -142,8 +141,8 @@ class SystemMetricsServiceTest {
         when(runtimeWorkQueue.counts(LlmCleaningWorkTypes.RAW_TERM))
                 .thenReturn(new RuntimeWorkQueueCounts(11, 0, 0));
         when(runtimeWorkQueue.consumerCount(LlmCleaningWorkTypes.RAW_TERM)).thenReturn(0L);
-        when(systemConfigRepository.findValue("app.normalization.llm-cleaning.work-queue.worker.enabled"))
-                .thenReturn(Optional.of("false"));
+        when(runtimeConfig.booleanValue("app.normalization.llm-cleaning.work-queue.worker.enabled", false))
+                .thenReturn(false);
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 
         SystemMetricsResponse metrics = service.currentMetrics();
@@ -222,7 +221,8 @@ class SystemMetricsServiceTest {
 
     @Test
     void metricsUseShortLocalCacheForRepeatedReads() throws Exception {
-        setMetricsCacheTtl(Duration.ofSeconds(5));
+        when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(2)))
+                .thenReturn(Duration.ofSeconds(5));
         when(rabbitAdmin.getQueueProperties(QueueTopic.INGEST_VIDEO.queueName()))
                 .thenReturn(queueProps(3, 1));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
@@ -369,13 +369,6 @@ class SystemMetricsServiceTest {
         return props;
     }
 
-    private void setMetricsCacheTtl(Duration ttl) throws Exception {
-        Field field = SystemMetricsService.class.getDeclaredField("metricsCacheTtl");
-        field.setAccessible(true);
-        field.set(service, ttl);
-        service.refreshRateMetrics();
-    }
-
     @SuppressWarnings("unchecked")
     private void stubRateBucket(Map<Object, Object> counts) {
         HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
@@ -396,5 +389,22 @@ class SystemMetricsServiceTest {
             boolean indexed = indexedBuckets.stream().anyMatch(key::endsWith);
             return indexed && emitted.compareAndSet(false, true) ? counts : Map.of();
         });
+    }
+
+    private void stubRuntimeConfigDefaults() {
+        when(runtimeConfig.stringValue("app.rate-metrics.key-prefix", RateMetricKeys.DEFAULT_KEY_PREFIX))
+                .thenReturn(RateMetricKeys.DEFAULT_KEY_PREFIX);
+        when(runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-size", RateMetricKeys.DEFAULT_BUCKET_SIZE))
+                .thenReturn(RateMetricKeys.DEFAULT_BUCKET_SIZE);
+        when(runtimeConfig.positiveDurationValue("app.ops.metrics.instant-window", Duration.ofSeconds(60)))
+                .thenReturn(Duration.ofSeconds(60));
+        when(runtimeConfig.positiveDurationValue("app.ops.metrics.stable-window", Duration.ofMinutes(5)))
+                .thenReturn(Duration.ofMinutes(5));
+        when(runtimeConfig.doubleValue("app.ops.metrics.ewma-alpha", 0.25d)).thenReturn(0.25d);
+        when(runtimeConfig.positiveDurationValue(
+                "app.aggregation.work-queue.worker.processing-stall-threshold",
+                Duration.ofSeconds(120))).thenReturn(Duration.ofSeconds(120));
+        when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(2)))
+                .thenReturn(Duration.ZERO);
     }
 }

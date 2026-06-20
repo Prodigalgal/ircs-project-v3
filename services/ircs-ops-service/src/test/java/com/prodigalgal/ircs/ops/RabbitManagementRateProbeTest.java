@@ -9,8 +9,6 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
-import java.lang.reflect.Field;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,10 +28,6 @@ class RabbitManagementRateProbeTest {
         when(redisTemplate.opsForHash()).thenReturn(hashOps);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOps);
         RabbitManagementRateProbe probe = new RabbitManagementRateProbe(objectMapper, redisTemplate);
-        set(probe, "rateMetricsKeyPrefix", "ircs:metrics:rate");
-        set(probe, "rateBucketSize", Duration.ofSeconds(10));
-        set(probe, "rateBucketTtl", Duration.ofMinutes(30));
-        set(probe, "rateBucketIndexRetention", Duration.ofMinutes(31));
 
         probe.recordCounters(objectMapper.readTree(queueJson(1, 2, 3, 0)));
         probe.recordCounters(objectMapper.readTree(queueJson(5, 7, 9, 1)));
@@ -71,9 +65,4 @@ class RabbitManagementRateProbeTest {
                 """.formatted(QueueTopic.INGEST_VIDEO.queueName(), publish, deliverGet, ack, redeliver);
     }
 
-    private void set(Object target, String fieldName, Object value) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(target, value);
-    }
 }

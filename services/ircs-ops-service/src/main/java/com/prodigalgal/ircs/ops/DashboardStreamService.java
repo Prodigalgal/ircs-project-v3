@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
@@ -7,7 +8,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
@@ -20,25 +21,41 @@ class DashboardStreamService {
     private final DashboardSnapshotCacheService cacheService;
     private final DashboardSnapshotRefresher snapshotRefresher;
     private final TaskExecutor taskExecutor;
+    private final RuntimeConfigService runtimeConfig;
+    private final Duration fallbackInterval;
+    private final Duration fallbackTimeout;
     private final ConcurrentMap<Integer, DashboardStreamSnapshot> localSnapshots = new ConcurrentHashMap<>();
-    private final Duration interval;
-    private final Duration timeout;
+
+    @Autowired
+    DashboardStreamService(
+            DashboardSnapshotCacheService cacheService,
+            DashboardSnapshotRefresher snapshotRefresher,
+            ObjectProvider<TaskExecutor> taskExecutorProvider,
+            RuntimeConfigService runtimeConfig) {
+        this.cacheService = cacheService;
+        this.snapshotRefresher = snapshotRefresher;
+        this.taskExecutor = taskExecutor();
+        this.runtimeConfig = runtimeConfig;
+        this.fallbackInterval = Duration.ofSeconds(3);
+        this.fallbackTimeout = Duration.ofHours(1);
+    }
 
     DashboardStreamService(
             DashboardSnapshotCacheService cacheService,
             DashboardSnapshotRefresher snapshotRefresher,
             ObjectProvider<TaskExecutor> taskExecutorProvider,
-            @Value("${app.ops.dashboard.stream.interval:PT3S}") Duration interval,
-            @Value("${app.ops.dashboard.stream.timeout:PT1H}") Duration timeout) {
+            Duration interval,
+            Duration timeout) {
         this.cacheService = cacheService;
         this.snapshotRefresher = snapshotRefresher;
         this.taskExecutor = taskExecutor();
-        this.interval = positiveOr(interval, Duration.ofSeconds(3));
-        this.timeout = positiveOr(timeout, Duration.ofHours(1));
+        this.runtimeConfig = null;
+        this.fallbackInterval = positiveOr(interval, Duration.ofSeconds(3));
+        this.fallbackTimeout = positiveOr(timeout, Duration.ofHours(1));
     }
 
     SseEmitter stream(int taskRuntimeLimit) {
-        SseEmitter emitter = new SseEmitter(timeout.toMillis());
+        SseEmitter emitter = new SseEmitter(timeout().toMillis());
         AtomicBoolean open = new AtomicBoolean(true);
         emitter.onCompletion(() -> open.set(false));
         emitter.onTimeout(() -> open.set(false));
@@ -58,7 +75,7 @@ class DashboardStreamService {
         try {
             while (open.get()) {
                 sendSnapshot(emitter, taskRuntimeLimit);
-                sleep(interval);
+                sleep(interval());
             }
         } catch (IOException ex) {
             log.debug("Dashboard stream client disconnected: {}", ex.getMessage());
@@ -107,5 +124,17 @@ class DashboardStreamService {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    private Duration interval() {
+        return runtimeConfig == null
+                ? fallbackInterval
+                : runtimeConfig.positiveDurationValue("app.ops.dashboard.stream.interval", fallbackInterval);
+    }
+
+    private Duration timeout() {
+        return runtimeConfig == null
+                ? fallbackTimeout
+                : runtimeConfig.positiveDurationValue("app.ops.dashboard.stream.timeout", fallbackTimeout);
     }
 }

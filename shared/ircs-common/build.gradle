@@ -19,6 +19,7 @@ dependencies {
     compileOnly 'org.springframework:spring-webmvc'
     compileOnly 'org.springframework:spring-context'
     compileOnly 'org.springframework.data:spring-data-redis'
+    compileOnly 'org.springframework.boot:spring-boot'
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure'
     compileOnly 'org.springframework.boot:spring-boot-actuator'
 
@@ -33,6 +34,7 @@ dependencies {
     testImplementation 'org.springframework:spring-web'
     testImplementation 'org.springframework:spring-webmvc'
     testImplementation 'org.springframework.data:spring-data-redis'
+    testImplementation 'org.springframework.boot:spring-boot'
     testImplementation 'org.springframework.boot:spring-boot-actuator'
     testImplementation 'org.springframework.boot:spring-boot-autoconfigure'
     testImplementation 'com.h2database:h2'

@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -18,6 +19,7 @@ class SystemConfigInitializerRunner implements ApplicationRunner {
     private final JdbcConfigRepository repository;
     private final SystemConfigDefaults defaults;
     private final DistributedLockManager lockManager;
+    private final Environment environment;
     private final String workerId;
     private final boolean clusterLockEnabled;
     private final Duration clusterLockTtl;
@@ -26,6 +28,7 @@ class SystemConfigInitializerRunner implements ApplicationRunner {
             JdbcConfigRepository repository,
             SystemConfigDefaults defaults,
             DistributedLockManager lockManager,
+            Environment environment,
             @Value("${spring.application.name:ircs-config-service}") String applicationName,
             @Value("${app.config.cluster-lock.worker-id:${APP_CONFIG_CLUSTER_LOCK_WORKER_ID:}}") String configuredWorkerId,
             @Value("${app.config.cluster-lock.enabled:true}") boolean clusterLockEnabled,
@@ -33,6 +36,7 @@ class SystemConfigInitializerRunner implements ApplicationRunner {
         this.repository = repository;
         this.defaults = defaults;
         this.lockManager = lockManager;
+        this.environment = environment;
         this.workerId = WorkerInstanceIds.resolve(applicationName, configuredWorkerId);
         this.clusterLockEnabled = clusterLockEnabled;
         this.clusterLockTtl = clusterLockTtl == null || !clusterLockTtl.isPositive()
@@ -44,6 +48,7 @@ class SystemConfigInitializerRunner implements ApplicationRunner {
         return new SystemConfigInitializerRunner(
                 repository,
                 defaults,
+                null,
                 null,
                 "ircs-config-service",
                 "local-test",
@@ -72,7 +77,7 @@ class SystemConfigInitializerRunner implements ApplicationRunner {
         int inserted = 0;
         int updatedDescriptions = 0;
         for (SystemConfigDefaults.DefaultConfig config : defaults.all()) {
-            SystemConfigDefaults.ResolvedDefault resolved = defaults.resolve(config);
+            SystemConfigDefaults.ResolvedDefault resolved = defaults.resolve(config, environment);
             JdbcConfigRepository.UpsertResult result = repository.upsertDefault(resolved);
             checked++;
             if (result.inserted()) {

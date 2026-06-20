@@ -7,7 +7,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -53,9 +52,6 @@ class DashboardSnapshotCacheServiceTest {
                 JsonMapper.builder().findAndAddModules().build(),
                 redisTemplate,
                 Clock.fixed(now, ZoneOffset.UTC));
-        set(service, "freshTtl", Duration.ofSeconds(6));
-        set(service, "staleGrace", Duration.ofSeconds(60));
-        set(service, "redisTtl", Duration.ofMinutes(2));
         return service;
     }
 
@@ -71,11 +67,5 @@ class DashboardSnapshotCacheServiceTest {
                 null,
                 Map.of("available", true),
                 Map.of("available", true));
-    }
-
-    private void set(Object target, String fieldName, Object value) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(target, value);
     }
 }

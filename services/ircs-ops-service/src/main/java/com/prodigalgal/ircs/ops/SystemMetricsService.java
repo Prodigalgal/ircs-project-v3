@@ -1,13 +1,14 @@
 package com.prodigalgal.ircs.ops;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import com.prodigalgal.ircs.common.work.SystemConfigWorkSubmissionGate;
-import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -23,7 +24,6 @@ import java.util.Properties;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -42,28 +42,7 @@ public class SystemMetricsService {
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider;
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
-    private final SystemConfigRepository systemConfigRepository;
-
-    @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}")
-    private String rateMetricsKeyPrefix;
-
-    @Value("${app.rate-metrics.bucket-size:PT10S}")
-    private Duration rateBucketSize = RateMetricKeys.DEFAULT_BUCKET_SIZE;
-
-    @Value("${app.ops.metrics.instant-window:PT60S}")
-    private Duration instantRateWindow = Duration.ofSeconds(60);
-
-    @Value("${app.ops.metrics.stable-window:PT5M}")
-    private Duration stableRateWindow = Duration.ofMinutes(5);
-
-    @Value("${app.ops.metrics.ewma-alpha:0.25}")
-    private double ewmaAlpha = 0.25d;
-
-    @Value("${app.aggregation.work-queue.worker.processing-stall-threshold:PT120S}")
-    private Duration aggregationProcessingStallThreshold = Duration.ofSeconds(120);
-
-    @Value("${app.ops.metrics.cache-ttl:PT2S}")
-    private Duration metricsCacheTtl = Duration.ofSeconds(2);
+    private final RuntimeConfigService runtimeConfig;
 
     private volatile CachedMetrics cachedMetrics;
 
@@ -81,7 +60,7 @@ public class SystemMetricsService {
     }
 
     public SystemMetricsResponse currentMetrics() {
-        Duration cacheTtl = metricsCacheTtl;
+        Duration cacheTtl = metricsCacheTtl();
         if (cacheTtl == null || cacheTtl.isZero() || cacheTtl.isNegative()) {
             return loadCurrentMetrics();
         }
@@ -330,11 +309,11 @@ public class SystemMetricsService {
 
     private RateMetricSnapshot rateMetricSnapshot() {
         long now = System.currentTimeMillis();
-        long bucketMillis = RateMetricKeys.bucketSizeMillis(rateBucketSize);
-        long instantWindowMillis = durationMillis(instantRateWindow, Duration.ofSeconds(60));
+        long bucketMillis = RateMetricKeys.bucketSizeMillis(rateBucketSize());
+        long instantWindowMillis = durationMillis(instantRateWindow(), Duration.ofSeconds(60));
         long stableWindowMillis = Math.max(
                 instantWindowMillis,
-                durationMillis(stableRateWindow, Duration.ofMinutes(5)));
+                durationMillis(stableRateWindow(), Duration.ofMinutes(5)));
         long start = Math.floorDiv(now - stableWindowMillis, bucketMillis) * bucketMillis;
         long end = Math.floorDiv(now, bucketMillis) * bucketMillis;
         Set<String> indexedBuckets = indexedRateBuckets(start, end);
@@ -353,7 +332,7 @@ public class SystemMetricsService {
                 bucketMillis,
                 instantWindowMillis,
                 stableWindowMillis,
-                ewmaAlpha);
+                ewmaAlpha());
         return new RateMetricSnapshot(calculator, points, now);
     }
 
@@ -369,7 +348,7 @@ public class SystemMetricsService {
     private Map<String, Long> rateBucketCounts(long bucketStart) {
         try {
             Map<Object, Object> raw = redisTemplate.opsForHash().entries(
-                    RateMetricKeys.bucketKey(rateMetricsKeyPrefix, bucketStart));
+                    RateMetricKeys.bucketKey(rateMetricsKeyPrefix(), bucketStart));
             if (raw == null || raw.isEmpty()) {
                 return Map.of();
             }
@@ -387,7 +366,38 @@ public class SystemMetricsService {
     }
 
     private String rateBucketIndexKey() {
-        return RateMetricKeys.bucketIndexKey(rateMetricsKeyPrefix);
+        return RateMetricKeys.bucketIndexKey(rateMetricsKeyPrefix());
+    }
+
+    private String rateMetricsKeyPrefix() {
+        return runtimeConfig.stringValue("app.rate-metrics.key-prefix", RateMetricKeys.DEFAULT_KEY_PREFIX);
+    }
+
+    private Duration rateBucketSize() {
+        return runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-size", RateMetricKeys.DEFAULT_BUCKET_SIZE);
+    }
+
+    private Duration instantRateWindow() {
+        return runtimeConfig.positiveDurationValue("app.ops.metrics.instant-window", Duration.ofSeconds(60));
+    }
+
+    private Duration stableRateWindow() {
+        return runtimeConfig.positiveDurationValue("app.ops.metrics.stable-window", Duration.ofMinutes(5));
+    }
+
+    private double ewmaAlpha() {
+        double value = runtimeConfig.doubleValue("app.ops.metrics.ewma-alpha", 0.25d);
+        return Math.max(0.0d, Math.min(1.0d, value));
+    }
+
+    private Duration aggregationProcessingStallThreshold() {
+        return runtimeConfig.positiveDurationValue(
+                "app.aggregation.work-queue.worker.processing-stall-threshold",
+                Duration.ofSeconds(120));
+    }
+
+    private Duration metricsCacheTtl() {
+        return runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(2));
     }
 
     private QueueState queueState(String queueName) {
@@ -570,7 +580,7 @@ public class SystemMetricsService {
         long runningForSeconds = longValue(worker.get("runningForSeconds"));
         long thresholdSeconds = Math.max(
                 1L,
-                positiveOr(aggregationProcessingStallThreshold, Duration.ofSeconds(120)).toSeconds());
+                aggregationProcessingStallThreshold().toSeconds());
         return runningForSeconds >= thresholdSeconds ? "CONSUMER_PROCESSING_STUCK" : "PROCESSING";
     }
 
@@ -596,13 +606,7 @@ public class SystemMetricsService {
     }
 
     private boolean configEnabled(String key, boolean defaultValue) {
-        try {
-            return systemConfigRepository.findValue(key)
-                    .map(value -> parseBoolean(value, defaultValue))
-                    .orElse(defaultValue);
-        } catch (RuntimeException ignored) {
-            return defaultValue;
-        }
+        return runtimeConfig.booleanValue(key, defaultValue);
     }
 
     private QueueMetricResponse findQueue(List<QueueGroupResponse> groups, String key) {

@@ -1,9 +1,10 @@
 package com.prodigalgal.ircs.common.pipeline;
 
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineStep;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.work.WorkSubmissionGate;
+import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
+import com.prodigalgal.ircs.contracts.pipeline.PipelineStep;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -184,12 +185,14 @@ public class PipelineValkeyQueue {
     private final Duration rateBucketSize;
     private final Duration rateBucketTtl;
     private final Duration rateBucketIndexRetention;
+    private final RuntimeConfigService runtimeConfig;
     private final ObjectProvider<WorkSubmissionGate> submissionGateProvider;
 
     @Autowired
     public PipelineValkeyQueue(
             StringRedisTemplate redisTemplate,
             ObjectProvider<WorkSubmissionGate> submissionGateProvider,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.pipeline.valkey.key-prefix:ircs:pipeline:v2}") String keyPrefix,
             @Value("${app.pipeline.valkey.event-stream-maxlen:10000}") int eventStreamMaxLen,
             @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}") String rateMetricsKeyPrefix,
@@ -197,7 +200,8 @@ public class PipelineValkeyQueue {
             @Value("${app.rate-metrics.bucket-ttl:PT30M}") Duration rateBucketTtl,
             @Value("${app.rate-metrics.bucket-index-retention:PT31M}") Duration rateBucketIndexRetention) {
         this(redisTemplate, Clock.systemUTC(), keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, submissionGateProvider);
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention,
+                submissionGateProvider, runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable());
     }
 
     PipelineValkeyQueue(
@@ -210,7 +214,7 @@ public class PipelineValkeyQueue {
             Duration rateBucketTtl,
             Duration rateBucketIndexRetention) {
         this(redisTemplate, clock, keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, null);
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, null, null);
     }
 
     PipelineValkeyQueue(
@@ -223,6 +227,22 @@ public class PipelineValkeyQueue {
             Duration rateBucketTtl,
             Duration rateBucketIndexRetention,
             ObjectProvider<WorkSubmissionGate> submissionGateProvider) {
+        this(redisTemplate, clock, keyPrefix, eventStreamMaxLen,
+                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention,
+                submissionGateProvider, null);
+    }
+
+    PipelineValkeyQueue(
+            StringRedisTemplate redisTemplate,
+            Clock clock,
+            String keyPrefix,
+            int eventStreamMaxLen,
+            String rateMetricsKeyPrefix,
+            Duration rateBucketSize,
+            Duration rateBucketTtl,
+            Duration rateBucketIndexRetention,
+            ObjectProvider<WorkSubmissionGate> submissionGateProvider,
+            RuntimeConfigService runtimeConfig) {
         if (redisTemplate == null) {
             throw new IllegalArgumentException("redisTemplate is required");
         }
@@ -236,6 +256,7 @@ public class PipelineValkeyQueue {
         this.rateBucketIndexRetention = rateBucketIndexRetention == null
                 ? RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION
                 : rateBucketIndexRetention;
+        this.runtimeConfig = runtimeConfig;
         this.submissionGateProvider = submissionGateProvider;
     }
 
@@ -494,15 +515,43 @@ public class PipelineValkeyQueue {
     }
 
     private RateBucket rateBucket(long eventMillis) {
-        long bucketStart = RateMetricKeys.bucketStartMillis(eventMillis, rateBucketSize);
+        Duration bucketSize = rateBucketSize();
+        String keyPrefix = rateMetricsKeyPrefix();
+        long bucketStart = RateMetricKeys.bucketStartMillis(eventMillis, bucketSize);
         return new RateBucket(
-                RateMetricKeys.bucketKey(rateMetricsKeyPrefix, bucketStart),
-                RateMetricKeys.bucketIndexKey(rateMetricsKeyPrefix),
+                RateMetricKeys.bucketKey(keyPrefix, bucketStart),
+                RateMetricKeys.bucketIndexKey(keyPrefix),
                 Long.toString(bucketStart),
-                Long.toString(RateMetricKeys.ttlSeconds(rateBucketTtl, RateMetricKeys.DEFAULT_BUCKET_TTL)),
+                Long.toString(RateMetricKeys.ttlSeconds(rateBucketTtl(), RateMetricKeys.DEFAULT_BUCKET_TTL)),
                 Long.toString(RateMetricKeys.retentionMillis(
-                        rateBucketIndexRetention,
+                        rateBucketIndexRetention(),
                         RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION)));
+    }
+
+    private String rateMetricsKeyPrefix() {
+        return runtimeConfig == null
+                ? rateMetricsKeyPrefix
+                : runtimeConfig.stringValue("app.rate-metrics.key-prefix", rateMetricsKeyPrefix);
+    }
+
+    private Duration rateBucketSize() {
+        return runtimeConfig == null
+                ? rateBucketSize
+                : runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-size", rateBucketSize);
+    }
+
+    private Duration rateBucketTtl() {
+        return runtimeConfig == null
+                ? rateBucketTtl
+                : runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-ttl", rateBucketTtl);
+    }
+
+    private Duration rateBucketIndexRetention() {
+        return runtimeConfig == null
+                ? rateBucketIndexRetention
+                : runtimeConfig.positiveDurationValue(
+                        "app.rate-metrics.bucket-index-retention",
+                        rateBucketIndexRetention);
     }
 
     private String pendingKey(String taskType) {

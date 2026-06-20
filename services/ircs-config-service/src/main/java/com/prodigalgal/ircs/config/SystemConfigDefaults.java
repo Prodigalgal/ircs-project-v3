@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -125,6 +126,39 @@ public class SystemConfigDefaults {
             cfg("app.adaptive.enabled", "true", "是否启用自适应负载调度"),
             cfg("app.adaptive.load-threshold", "0.8", "系统高负载阈值 (0.0-1.0)"),
             cfg("app.adaptive.check-interval-ms", "10000", "资源监控采样间隔(毫秒)"),
+            cfg("app.runtime-config.local-cache.ttl", "PT2S", "运行时系统配置本地缓存 TTL"),
+            cfg("app.ops.config-listener.enabled", "false", "是否启用运维服务配置变更事件监听"),
+            cfg("app.ops.dashboard.snapshot.enabled", "true", "是否启用运维仪表盘快照预刷新"),
+            cfg("app.ops.dashboard.snapshot.default-task-runtime-limit", "50", "仪表盘默认运行任务展示数量"),
+            cfg("app.ops.dashboard.snapshot.refresh-interval", "PT2S", "仪表盘快照预刷新间隔"),
+            cfg("app.ops.dashboard.snapshot.refresh-budget", "PT3S", "仪表盘快照聚合最大等待时间"),
+            cfg("app.ops.dashboard.snapshot.lease-ttl", "PT10S", "仪表盘快照集群刷新锁 TTL"),
+            cfg("app.ops.dashboard.snapshot.cluster-lease.enabled", "true", "是否启用仪表盘快照集群刷新锁"),
+            cfg("app.ops.dashboard.snapshot.key-prefix", "ircs:ops:dashboard:snapshot:v1", "仪表盘快照 Valkey Key 前缀"),
+            cfg("app.ops.dashboard.snapshot.fresh-ttl", "PT6S", "仪表盘快照新鲜期"),
+            cfg("app.ops.dashboard.snapshot.stale-grace", "PT60S", "仪表盘快照降级可用期"),
+            cfg("app.ops.dashboard.snapshot.redis-ttl", "PT2M", "仪表盘快照 Valkey TTL"),
+            cfg("app.ops.dashboard.stream.interval", "PT3S", "仪表盘 SSE 推送间隔"),
+            cfg("app.ops.dashboard.stream.timeout", "PT1H", "仪表盘 SSE 连接超时"),
+            cfg("app.ops.metrics.cache-ttl", "PT2S", "运维指标接口本地缓存 TTL"),
+            cfg("app.ops.metrics.instant-window", "PT60S", "运维速率指标即时窗口"),
+            cfg("app.ops.metrics.stable-window", "PT5M", "运维速率指标稳定窗口"),
+            cfg("app.ops.metrics.ewma-alpha", "0.25", "运维速率 EWMA 平滑系数"),
+            cfg("app.aggregation.work-queue.worker.processing-stall-threshold", "PT120S", "聚合运行队列处理中卡住判定阈值"),
+            cfg("app.ops.task-runtime.overview.max-limit", "200", "运行任务概览最大返回数量"),
+            cfg("app.ops.request-audit.summary-sample-limit", "50000", "请求审计摘要最大采样行数"),
+            cfg("app.ops.worker-job-audit.summary-sample-limit", "50000", "Worker 审计摘要最大采样行数"),
+            cfg("app.ops.rabbit-management.enabled", "true", "是否启用 RabbitMQ 管理 API 速率采样"),
+            cfg("app.ops.rabbit-management.base-url", "", "RabbitMQ 管理 API 基础地址"),
+            cfg("app.ops.rabbit-management.vhost", "/", "RabbitMQ 管理 API vhost"),
+            cfg("app.ops.rabbit-management.connect-timeout", "PT3S", "RabbitMQ 管理 API 连接超时"),
+            cfg("app.ops.rabbit-management.request-timeout", "PT5S", "RabbitMQ 管理 API 请求超时"),
+            cfg("app.ops.rabbit-management.initial-delay-ms", "10000", "RabbitMQ 管理采样启动延迟(毫秒)"),
+            cfg("app.ops.rabbit-management.fixed-delay-ms", "10000", "RabbitMQ 管理采样间隔(毫秒)"),
+            cfg("app.rate-metrics.key-prefix", "ircs:metrics:rate", "运行速率指标 Valkey Key 前缀"),
+            cfg("app.rate-metrics.bucket-size", "PT10S", "运行速率指标桶大小"),
+            cfg("app.rate-metrics.bucket-ttl", "PT30M", "运行速率指标桶 TTL"),
+            cfg("app.rate-metrics.bucket-index-retention", "PT31M", "运行速率指标桶索引保留时间"),
             cfg("app.aggregation.work-queue.batch-size", "100", "聚合运行队列基准批次"),
             cfg("app.aggregation.work-queue.batch-size.min", "20", "聚合运行队列最小批次"),
             cfg("app.aggregation.work-queue.batch-size.max", "500", "聚合运行队列最大批次"),
@@ -270,23 +304,28 @@ public class SystemConfigDefaults {
     }
 
     public ResolvedDefault resolve(DefaultConfig config) {
+        return resolve(config, null);
+    }
+
+    public ResolvedDefault resolve(DefaultConfig config, Environment environment) {
+        java.util.Optional<String> injectedValue = RuntimeInjectedConfig.find(environment, injectionKeys(config.key()));
         if (ADMIN_PASSWORD_KEY.equals(config.key())) {
             return new ResolvedDefault(
                     config.key(),
-                    passwordEncoder.encode(generateRandomPassword()),
+                    injectedValue.orElseGet(() -> passwordEncoder.encode(generateRandomPassword())),
                     config.description(),
                     config.upgradeLegacyFalse());
         }
         if (JWT_SECRET_KEY.equals(config.key())) {
             return new ResolvedDefault(
                     config.key(),
-                    generateJwtSecret(),
+                    injectedValue.orElseGet(this::generateJwtSecret),
                     config.description(),
                     config.upgradeLegacyFalse());
         }
         return new ResolvedDefault(
                 config.key(),
-                config.defaultValue(),
+                injectedValue.orElse(config.defaultValue()),
                 config.description(),
                 config.upgradeLegacyFalse(),
                 config.upgradeLegacyValue());

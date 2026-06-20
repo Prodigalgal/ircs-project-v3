@@ -49,7 +49,7 @@ class ConfigServiceTest {
     }
 
     @Test
-    void createSummaryUsesInjectedValueWhenEnvironmentOverridesNewDbConfig() {
+    void createSummaryKeepsDbValueAboveRuntimeInjection() {
         SystemConfigWriteRequest request = new SystemConfigWriteRequest("app.mail.enabled", "false", "Mail enabled");
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
@@ -65,12 +65,12 @@ class ConfigServiceTest {
         SystemConfigSummary result = service.createConfig(request);
 
         assertEquals("false", result.value());
-        assertEquals("true", result.effectiveValue());
-        assertEquals("INJECTED", result.effectiveSource());
+        assertEquals("false", result.effectiveValue());
+        assertEquals("DB", result.effectiveSource());
         verify(changePublisher).publish(
                 "app.mail.enabled",
                 com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent.Action.CREATED,
-                "INJECTED",
+                "DB",
                 1L,
                 0L);
     }
@@ -121,7 +121,7 @@ class ConfigServiceTest {
     }
 
     @Test
-    void updateSummaryKeepsRuntimeInjectionAboveStoredConfigValue() {
+    void updateSummaryKeepsDbValueAboveRuntimeInjection() {
         SystemConfigWriteRequest request = new SystemConfigWriteRequest("app.mail.enabled", "false", "Mail enabled");
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
@@ -136,12 +136,12 @@ class ConfigServiceTest {
         SystemConfigSummary result = service.updateConfig("app.mail.enabled", request).orElseThrow();
 
         assertEquals("false", result.value());
-        assertEquals("true", result.effectiveValue());
-        assertEquals("INJECTED", result.effectiveSource());
+        assertEquals("false", result.effectiveValue());
+        assertEquals("DB", result.effectiveSource());
         verify(changePublisher).publish(
                 "app.mail.enabled",
                 com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent.Action.UPDATED,
-                "INJECTED",
+                "DB",
                 2L,
                 1L);
     }
@@ -164,7 +164,7 @@ class ConfigServiceTest {
     }
 
     @Test
-    void exposesInjectedEffectiveSourceWhenEnvironmentOverridesStoredConfig() {
+    void exposesDbEffectiveSourceWhenRuntimeInjectionAlsoExists() {
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
                 "app.mail.enabled",
@@ -177,12 +177,12 @@ class ConfigServiceTest {
         SystemConfigSummary result = service.findConfig("app.mail.enabled").orElseThrow();
 
         assertEquals("false", result.value());
-        assertEquals("true", result.effectiveValue());
-        assertEquals("INJECTED", result.effectiveSource());
+        assertEquals("false", result.effectiveValue());
+        assertEquals("DB", result.effectiveSource());
     }
 
     @Test
-    void exposesInjectedEffectiveSourceWhenK8sEnvironmentNameOverridesStoredConfig() {
+    void exposesDbEffectiveSourceWhenK8sEnvironmentNameAlsoExists() {
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
                 "app.mail.enabled",
@@ -195,16 +195,16 @@ class ConfigServiceTest {
         SystemConfigSummary result = service.findConfig("app.mail.enabled").orElseThrow();
 
         assertEquals("false", result.value());
-        assertEquals("true", result.effectiveValue());
-        assertEquals("INJECTED", result.effectiveSource());
+        assertEquals("false", result.effectiveValue());
+        assertEquals("DB", result.effectiveSource());
     }
 
     @Test
-    void configTreeSecretOverridesStoredConfigAsRuntimeInjection() {
+    void configTreeSecretIsFallbackWhenStoredConfigIsBlank() {
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
                 "app.mail.enabled",
-                "false",
+                "",
                 "Mail enabled",
                 Instant.parse("2026-06-03T00:00:00Z"));
         environment.getPropertySources().addFirst(new MapPropertySource(
@@ -214,17 +214,17 @@ class ConfigServiceTest {
 
         SystemConfigSummary result = service.findConfig("app.mail.enabled").orElseThrow();
 
-        assertEquals("false", result.value());
+        assertEquals("", result.value());
         assertEquals("true", result.effectiveValue());
         assertEquals("INJECTED", result.effectiveSource());
     }
 
     @Test
-    void kubernetesConfigMapOverridesStoredConfigAsRuntimeInjection() {
+    void kubernetesConfigMapIsFallbackWhenStoredConfigIsBlank() {
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
                 "app.mail.enabled",
-                "false",
+                "",
                 "Mail enabled",
                 Instant.parse("2026-06-03T00:00:00Z"));
         environment.getPropertySources().addFirst(new MapPropertySource(
@@ -234,17 +234,17 @@ class ConfigServiceTest {
 
         SystemConfigSummary result = service.findConfig("app.mail.enabled").orElseThrow();
 
-        assertEquals("false", result.value());
+        assertEquals("", result.value());
         assertEquals("true", result.effectiveValue());
         assertEquals("INJECTED", result.effectiveSource());
     }
 
     @Test
-    void kubernetesSecretOverridesStoredConfigAsRuntimeInjection() {
+    void kubernetesSecretIsFallbackWhenStoredConfigIsBlank() {
         SystemConfigRecord record = new SystemConfigRecord(
                 UUID.randomUUID(),
                 "app.mail.enabled",
-                "false",
+                "",
                 "Mail enabled",
                 Instant.parse("2026-06-03T00:00:00Z"));
         environment.getPropertySources().addFirst(new MapPropertySource(
@@ -254,7 +254,7 @@ class ConfigServiceTest {
 
         SystemConfigSummary result = service.findConfig("app.mail.enabled").orElseThrow();
 
-        assertEquals("false", result.value());
+        assertEquals("", result.value());
         assertEquals("true", result.effectiveValue());
         assertEquals("INJECTED", result.effectiveSource());
     }
@@ -292,7 +292,7 @@ class ConfigServiceTest {
 
         SystemConfigSummary result = service.findConfig("security.jwt.secret").orElseThrow();
 
-        assertEquals("INJECTED", result.effectiveSource());
+        assertEquals("DB", result.effectiveSource());
         assertEquals(null, result.value());
         assertEquals(null, result.effectiveValue());
     }
@@ -310,7 +310,7 @@ class ConfigServiceTest {
 
         SystemConfigSummary result = service.findConfig("security.jwt.secret").orElseThrow();
 
-        assertEquals("INJECTED", result.effectiveSource());
+        assertEquals("DB", result.effectiveSource());
         assertEquals(null, result.value());
         assertEquals(null, result.effectiveValue());
     }
@@ -360,7 +360,7 @@ class ConfigServiceTest {
     }
 
     @Test
-    void validatesAgainstInjectedEnvironmentBeforeStoredConfig() {
+    void validatesAgainstStoredConfigBeforeInjectedEnvironment() {
         SystemConfigWriteRequest request = new SystemConfigWriteRequest(
                 "app.mail.properties.starttls",
                 "true",
@@ -368,21 +368,28 @@ class ConfigServiceTest {
         environment.setProperty("app.mail.properties.ssl", "true");
         when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of("false"));
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> service.updateConfig(
+        SystemConfigRecord updated = new SystemConfigRecord(
+                UUID.randomUUID(),
                 "app.mail.properties.starttls",
-                request));
+                "true",
+                "STARTTLS",
+                2L,
+                Instant.parse("2026-06-03T00:00:00Z"));
+        when(repository.update("app.mail.properties.starttls", request)).thenReturn(Optional.of(updated));
 
-        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        SystemConfigSummary result = service.updateConfig("app.mail.properties.starttls", request).orElseThrow();
+
+        assertEquals("DB", result.effectiveSource());
     }
 
     @Test
-    void validatesAgainstK8sEnvironmentNameBeforeStoredConfig() {
+    void validatesAgainstK8sEnvironmentNameWhenStoredConfigIsBlank() {
         SystemConfigWriteRequest request = new SystemConfigWriteRequest(
                 "app.mail.properties.starttls",
                 "true",
                 "STARTTLS");
         environment.setProperty("APP_MAIL_PROPERTIES_SSL", "true");
-        when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of("false"));
+        when(repository.findValue("app.mail.properties.ssl")).thenReturn(Optional.of(""));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> service.updateConfig(
                 "app.mail.properties.starttls",

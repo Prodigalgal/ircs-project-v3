@@ -111,12 +111,9 @@ public class ConfigService {
     }
 
     private String effectiveValue(String key, String fallback) {
-        Optional<String> injectedValue = RuntimeInjectedConfig.find(environment, defaults.injectionKeys(key));
-        if (injectedValue.isPresent()) {
-            return injectedValue.get();
-        }
         return configRepository.findValue(key)
                 .filter(StringUtils::hasText)
+                .or(() -> RuntimeInjectedConfig.find(environment, defaults.injectionKeys(key)))
                 .orElse(fallback);
     }
 
@@ -139,12 +136,12 @@ public class ConfigService {
     }
 
     private EffectiveConfigValue resolveEffectiveValue(SystemConfigRecord record) {
+        if (StringUtils.hasText(record.value())) {
+            return new EffectiveConfigValue(record.value(), "DB");
+        }
         Optional<String> injectedValue = RuntimeInjectedConfig.find(environment, defaults.injectionKeys(record.key()));
         if (injectedValue.isPresent()) {
             return new EffectiveConfigValue(injectedValue.get(), "INJECTED");
-        }
-        if (StringUtils.hasText(record.value())) {
-            return new EffectiveConfigValue(record.value(), "DB");
         }
         return defaults.staticDefaultValue(record.key())
                 .filter(StringUtils::hasText)

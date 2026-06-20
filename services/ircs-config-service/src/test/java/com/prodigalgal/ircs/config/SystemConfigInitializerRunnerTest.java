@@ -5,7 +5,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 
 class SystemConfigInitializerRunnerTest {
@@ -24,5 +26,33 @@ class SystemConfigInitializerRunnerTest {
         assertTrue(defaults.all().size() > 20);
         verify(repository, org.mockito.Mockito.times(defaults.all().size()))
                 .upsertDefault(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void seedsDefaultsFromRuntimeInjectedEnvironment() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("app.ops.metrics.cache-ttl", "PT9S");
+        when(repository.upsertDefault(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new JdbcConfigRepository.UpsertResult(true, false));
+        SystemConfigInitializerRunner runner = new SystemConfigInitializerRunner(
+                repository,
+                defaults,
+                null,
+                environment,
+                "ircs-config-service",
+                "local-test",
+                false,
+                java.time.Duration.ofMinutes(10));
+
+        runner.run(new DefaultApplicationArguments());
+
+        ArgumentCaptor<SystemConfigDefaults.ResolvedDefault> captor =
+                ArgumentCaptor.forClass(SystemConfigDefaults.ResolvedDefault.class);
+        verify(repository, org.mockito.Mockito.times(defaults.all().size())).upsertDefault(captor.capture());
+        SystemConfigDefaults.ResolvedDefault metricsCacheTtl = captor.getAllValues().stream()
+                .filter(config -> config.key().equals("app.ops.metrics.cache-ttl"))
+                .findFirst()
+                .orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("PT9S", metricsCacheTtl.value());
     }
 }
