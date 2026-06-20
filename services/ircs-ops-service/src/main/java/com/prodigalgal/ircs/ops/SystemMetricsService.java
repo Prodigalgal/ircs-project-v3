@@ -38,6 +38,7 @@ public class SystemMetricsService {
     private final MeterRegistry meterRegistry;
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
+    private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider;
     private final SystemConfigRepository systemConfigRepository;
 
     @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}")
@@ -119,6 +120,8 @@ public class SystemMetricsService {
                     descriptor.displayName(),
                     topic.name(),
                     descriptor.color(),
+                    topic,
+                    RabbitManagementRateProbe.RabbitQueueRole.MAIN,
                     topic.queueName(),
                     true,
                     rateSnapshot);
@@ -128,6 +131,8 @@ public class SystemMetricsService {
                     descriptor.displayName() + " DLQ",
                     "DLQ_" + topic.name(),
                     "#dc2626",
+                    topic,
+                    RabbitManagementRateProbe.RabbitQueueRole.DLQ,
                     topic.dlqName(),
                     false,
                     rateSnapshot));
@@ -265,10 +270,13 @@ public class SystemMetricsService {
             String name,
             String key,
             String color,
+            QueueTopic topic,
+            RabbitManagementRateProbe.RabbitQueueRole role,
             String queueName,
             boolean checkConsumers,
             RateMetricSnapshot rateSnapshot) {
         QueueState state = queueState(queueName);
+        RabbitRateDescriptor rateDescriptor = rabbitRate(topic, role, rateSnapshot);
         return new QueueMetricResponse(
                 name,
                 key,
@@ -278,8 +286,8 @@ public class SystemMetricsService {
                 checkConsumers
                         ? blockedReason(state.messageCount(), state.consumerCount(), QueueConsumerPolicy.enabled())
                         : null,
-                RateKind.NONE,
-                rateSnapshot.empty(key, name));
+                rateDescriptor.kind(),
+                rateDescriptor.rate());
     }
 
     private RateMetricSnapshot rateMetricSnapshot() {
@@ -544,6 +552,46 @@ public class SystemMetricsService {
         };
     }
 
+    private RabbitRateDescriptor rabbitRate(
+            QueueTopic topic,
+            RabbitManagementRateProbe.RabbitQueueRole role,
+            RateMetricSnapshot rateSnapshot) {
+        RabbitManagementRateProbe probe = rabbitRateProbeProvider == null
+                ? null
+                : rabbitRateProbeProvider.getIfAvailable();
+        boolean managementAvailable = probe != null && probe.rateAvailable();
+        if (role == RabbitManagementRateProbe.RabbitQueueRole.DLQ) {
+            RateMetricResponse published = rateSnapshot.metric(
+                    RabbitManagementRateProbe.metricKey(
+                            topic,
+                            role,
+                            RabbitManagementRateProbe.RabbitRateAction.PUBLISHED),
+                    "入死信速率");
+            return managementAvailable || rateRecentlyActive(published)
+                    ? new RabbitRateDescriptor(RateKind.PUBLISH, published)
+                    : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
+        }
+
+        RateMetricResponse acked = rateSnapshot.metric(
+                RabbitManagementRateProbe.metricKey(
+                        topic,
+                        role,
+                        RabbitManagementRateProbe.RabbitRateAction.ACKED),
+                "确认速率");
+        RateMetricResponse delivered = rateSnapshot.metric(
+                RabbitManagementRateProbe.metricKey(
+                        topic,
+                        role,
+                        RabbitManagementRateProbe.RabbitRateAction.DELIVERED),
+                "投递速率");
+        if (rateRecentlyActive(delivered) && !rateRecentlyActive(acked)) {
+            return new RabbitRateDescriptor(RateKind.DELIVER, delivered);
+        }
+        return managementAvailable || rateRecentlyActive(acked)
+                ? new RabbitRateDescriptor(RateKind.ACK, acked)
+                : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
+    }
+
     private long durationMillis(Duration value, Duration fallback) {
         Duration effective = value == null || value.isZero() || value.isNegative() ? fallback : value;
         return Math.max(RateMetricKeys.DEFAULT_BUCKET_SIZE.toMillis(), effective.toMillis());
@@ -644,6 +692,9 @@ public class SystemMetricsService {
     }
 
     private record RateDescriptor(RateKind kind, String metricKey, String label) {
+    }
+
+    private record RabbitRateDescriptor(RateKind kind, RateMetricResponse rate) {
     }
 
     private record QueueConsumerPolicy(

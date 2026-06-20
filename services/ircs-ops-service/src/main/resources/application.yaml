@@ -38,6 +38,21 @@ app:
       run-scope: ${APP_OPS_INTERNAL_ACCESS_RUN_SCOPE:ops:run}
     config-listener:
       enabled: ${APP_OPS_CONFIG_LISTENER_ENABLED:false}
+    rabbit-management:
+      enabled: ${APP_OPS_RABBIT_MANAGEMENT_ENABLED:true}
+      base-url: ${APP_OPS_RABBIT_MANAGEMENT_BASE_URL:}
+      vhost: ${APP_OPS_RABBIT_MANAGEMENT_VHOST:/}
+      initial-delay-ms: ${APP_OPS_RABBIT_MANAGEMENT_INITIAL_DELAY_MS:10000}
+      fixed-delay-ms: ${APP_OPS_RABBIT_MANAGEMENT_FIXED_DELAY_MS:10000}
+      connect-timeout: ${APP_OPS_RABBIT_MANAGEMENT_CONNECT_TIMEOUT:PT3S}
+      request-timeout: ${APP_OPS_RABBIT_MANAGEMENT_REQUEST_TIMEOUT:PT5S}
+    runtime-expired-inflight-reaper:
+      enabled: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_ENABLED:true}
+      initial-delay-ms: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_INITIAL_DELAY_MS:10000}
+      fixed-delay-ms: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_FIXED_DELAY_MS:1000}
+      batch-size: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_BATCH_SIZE:50}
+      lease-ttl: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_LEASE_TTL:PT30S}
+      task-types: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_TASK_TYPES:}
     maintenance:
       reindex:
         dev-limit: ${OPS_MAINTENANCE_REINDEX_DEV_LIMIT:${APP_OPS_MAINTENANCE_REINDEX_DEV_LIMIT:5}}

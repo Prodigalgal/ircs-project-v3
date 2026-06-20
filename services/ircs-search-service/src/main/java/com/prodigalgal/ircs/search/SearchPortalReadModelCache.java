@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,10 +30,38 @@ public class SearchPortalReadModelCache {
 
     private static final Duration DEFAULT_SUGGEST_TTL = Duration.ofSeconds(60);
     private static final Duration DEFAULT_RECOMMEND_TTL = Duration.ofSeconds(60);
+    private static final Duration DEFAULT_VERSION_REFRESH_INTERVAL = Duration.ofSeconds(2);
+    private static final String DEFAULT_PORTAL_PUBLIC_VERSION_KEY = "ircs:cache:search.portal.public.version";
 
     private final boolean enabled;
     private final TieredReadThroughCache<String, List<String>> suggestCache;
     private final TieredReadThroughCache<String, RecommendationPage> recommendCache;
+    private final StringRedisTemplate redisTemplate;
+    private final String portalPublicVersionKey;
+    private final long versionRefreshIntervalNanos;
+    private final AtomicLong cachedPortalPublicVersion = new AtomicLong(0L);
+    private final AtomicLong versionRefreshAfterNanos = new AtomicLong(0L);
+
+    SearchPortalReadModelCache(
+            ObjectMapper objectMapper,
+            CacheRegistry cacheRegistry,
+            ObjectProvider<StringRedisTemplate> redisTemplate,
+            ObjectProvider<TieredStringCacheStore> externalStore,
+            boolean enabled,
+            Duration suggestTtl,
+            Duration recommendTtl) {
+        this(
+                objectMapper,
+                cacheRegistry,
+                redisTemplate,
+                externalStore,
+                enabled,
+                suggestTtl,
+                recommendTtl,
+                DEFAULT_PORTAL_PUBLIC_VERSION_KEY,
+                DEFAULT_VERSION_REFRESH_INTERVAL);
+    }
+
     SearchPortalReadModelCache(
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
@@ -40,13 +69,22 @@ public class SearchPortalReadModelCache {
             ObjectProvider<TieredStringCacheStore> externalStore,
             @Value("${app.search.cache.enabled:true}") boolean enabled,
             @Value("${app.search.cache.portal-suggest-ttl:PT60S}") Duration suggestTtl,
-            @Value("${app.search.cache.portal-recommend-ttl:PT60S}") Duration recommendTtl) {
+            @Value("${app.search.cache.portal-recommend-ttl:PT60S}") Duration recommendTtl,
+            @Value("${app.search.cache.portal-public-version-key:" + DEFAULT_PORTAL_PUBLIC_VERSION_KEY + "}") String portalPublicVersionKey,
+            @Value("${app.search.cache.portal-version-refresh-interval:PT2S}") Duration versionRefreshInterval) {
         ObjectMapper mapper = objectMapper == null
                 ? JsonMapper.builder().findAndAddModules().build()
                 : objectMapper;
         CacheRegistry registry = cacheRegistry == null ? new CacheRegistry() : cacheRegistry;
-        TieredStringCacheStore store = store(redisTemplate, externalStore);
+        StringRedisTemplate template = redisTemplate == null ? null : redisTemplate.getIfAvailable();
+        TieredStringCacheStore store = store(template, externalStore);
         this.enabled = enabled;
+        this.redisTemplate = template;
+        this.portalPublicVersionKey = hasText(portalPublicVersionKey)
+                ? portalPublicVersionKey.trim()
+                : DEFAULT_PORTAL_PUBLIC_VERSION_KEY;
+        Duration effectiveRefreshInterval = ttl(versionRefreshInterval, DEFAULT_VERSION_REFRESH_INTERVAL);
+        this.versionRefreshIntervalNanos = effectiveRefreshInterval.toNanos();
         this.suggestCache = register(registry, new TieredReadThroughCache<>(
                 CACHE_PORTAL_SUGGEST,
                 ttl(suggestTtl, DEFAULT_SUGGEST_TTL),
@@ -73,7 +111,9 @@ public class SearchPortalReadModelCache {
                 null,
                 false,
                 DEFAULT_SUGGEST_TTL,
-                DEFAULT_RECOMMEND_TTL);
+                DEFAULT_RECOMMEND_TTL,
+                DEFAULT_PORTAL_PUBLIC_VERSION_KEY,
+                DEFAULT_VERSION_REFRESH_INTERVAL);
     }
 
     List<String> suggest(
@@ -83,7 +123,7 @@ public class SearchPortalReadModelCache {
         if (!cacheablePublic(principal) || safeKeyword == null) {
             return loader.get();
         }
-        List<String> result = suggestCache.get(token(safeKeyword), loader);
+        List<String> result = suggestCache.get(publicCacheKey(token(safeKeyword)), loader);
         return result == null ? List.of() : result;
     }
 
@@ -100,8 +140,19 @@ public class SearchPortalReadModelCache {
     }
 
     public void evictPortalPublicReadModel() {
-        suggestCache.evictAll();
-        recommendCache.evictAll();
+        cachedPortalPublicVersion.incrementAndGet();
+        versionRefreshAfterNanos.set(0L);
+        StringRedisTemplate template = redisTemplate;
+        if (template != null) {
+            try {
+                Long version = template.opsForValue().increment(portalPublicVersionKey);
+                if (version != null) {
+                    cachedPortalPublicVersion.set(Math.max(0L, version));
+                }
+            } catch (RuntimeException ignored) {
+                // Local version already moved forward; external keys are short lived and expire naturally.
+            }
+        }
     }
 
     private boolean cacheablePublic(IrcsRequestPrincipal principal) {
@@ -109,11 +160,40 @@ public class SearchPortalReadModelCache {
     }
 
     private String recommendKey(UUID videoId, Pageable pageable) {
-        return "%s|p=%d|s=%d|sort=%s".formatted(
+        return publicCacheKey("%s|p=%d|s=%d|sort=%s".formatted(
                 videoId,
                 pageable.getPageNumber(),
                 pageable.getPageSize(),
-                token(pageable.getSort().toString()));
+                token(pageable.getSort().toString())));
+    }
+
+    private String publicCacheKey(String key) {
+        return "v=" + portalPublicVersion() + "|" + key;
+    }
+
+    private long portalPublicVersion() {
+        if (!enabled) {
+            return 0L;
+        }
+        long now = System.nanoTime();
+        long refreshAfter = versionRefreshAfterNanos.get();
+        if (now < refreshAfter) {
+            return cachedPortalPublicVersion.get();
+        }
+        if (!versionRefreshAfterNanos.compareAndSet(refreshAfter, now + versionRefreshIntervalNanos)) {
+            return cachedPortalPublicVersion.get();
+        }
+        StringRedisTemplate template = redisTemplate;
+        if (template == null) {
+            return cachedPortalPublicVersion.get();
+        }
+        try {
+            String raw = template.opsForValue().get(portalPublicVersionKey);
+            cachedPortalPublicVersion.set(parseLong(raw));
+        } catch (RuntimeException ignored) {
+            versionRefreshAfterNanos.set(now + versionRefreshIntervalNanos);
+        }
+        return cachedPortalPublicVersion.get();
     }
 
     private String token(String value) {
@@ -139,7 +219,7 @@ public class SearchPortalReadModelCache {
     }
 
     private static TieredStringCacheStore store(
-            ObjectProvider<StringRedisTemplate> redisTemplate,
+            StringRedisTemplate redisTemplate,
             ObjectProvider<TieredStringCacheStore> externalStore) {
         if (externalStore != null) {
             TieredStringCacheStore store = externalStore.getIfAvailable();
@@ -150,8 +230,22 @@ public class SearchPortalReadModelCache {
         if (redisTemplate == null) {
             return TieredStringCacheStore.noop();
         }
-        StringRedisTemplate template = redisTemplate.getIfAvailable();
-        return template == null ? TieredStringCacheStore.noop() : new SearchRedisStringCacheStore(template);
+        return new SearchRedisStringCacheStore(redisTemplate);
+    }
+
+    private static long parseLong(String value) {
+        if (!hasText(value)) {
+            return 0L;
+        }
+        try {
+            return Math.max(0L, Long.parseLong(value));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     record RecommendationPage(

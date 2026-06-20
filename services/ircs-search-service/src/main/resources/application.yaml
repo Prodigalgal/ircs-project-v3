@@ -48,6 +48,11 @@ app:
         visibility-seconds: ${APP_SEARCH_WORK_QUEUE_VISIBILITY_SECONDS:300}
         max-backoff-seconds: ${APP_SEARCH_WORK_QUEUE_MAX_BACKOFF_SECONDS:300}
         worker-id: ${APP_SEARCH_WORK_QUEUE_WORKER_ID:}
+    sync:
+      jdbc-query-timeout-seconds: ${APP_SEARCH_SYNC_JDBC_QUERY_TIMEOUT_SECONDS:30}
+    cache:
+      portal-public-version-key: ${APP_SEARCH_CACHE_PORTAL_PUBLIC_VERSION_KEY:ircs:cache:search.portal.public.version}
+      portal-version-refresh-interval: ${APP_SEARCH_CACHE_PORTAL_VERSION_REFRESH_INTERVAL:PT2S}
     reconciliation:
       enabled: ${APP_SEARCH_RECONCILIATION_ENABLED:false}
       cron: ${APP_SEARCH_RECONCILIATION_CRON:0 0 3 * * ?}

@@ -15,8 +15,9 @@ class DashboardQueryServiceTest {
     private final SystemMetricsService metricsService = org.mockito.Mockito.mock(SystemMetricsService.class);
     private final TaskRuntimeOverviewService taskRuntimeOverviewService =
             org.mockito.Mockito.mock(TaskRuntimeOverviewService.class);
+    private final SearchOpsStatsClient searchOpsStatsClient = org.mockito.Mockito.mock(SearchOpsStatsClient.class);
     private final DashboardQueryService service =
-            new DashboardQueryService(repository, metricsService, taskRuntimeOverviewService);
+            new DashboardQueryService(repository, metricsService, taskRuntimeOverviewService, searchOpsStatsClient);
 
     @Test
     void analysisBoundsDaysAndTurnsNullListsIntoEmptyLists() {

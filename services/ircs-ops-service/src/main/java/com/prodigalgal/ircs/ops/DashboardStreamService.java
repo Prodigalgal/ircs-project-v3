@@ -60,7 +60,8 @@ class DashboardStreamService {
             DashboardStreamSnapshot refreshed = new DashboardStreamSnapshot(
                     Instant.now(),
                     dashboardQueryService.getMetrics(),
-                    dashboardQueryService.getTaskRuntimeOverview(taskRuntimeLimit));
+                    dashboardQueryService.getTaskRuntimeOverview(taskRuntimeLimit),
+                    dashboardQueryService.getSearchOpsStats());
             cachedSnapshot = new CachedSnapshot(taskRuntimeLimit, now + cacheTtl.toMillis(), refreshed);
             return refreshed;
         }

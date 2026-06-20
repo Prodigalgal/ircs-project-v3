@@ -13,6 +13,7 @@ public class DashboardQueryService {
     private final JdbcDashboardRepository dashboardRepository;
     private final SystemMetricsService systemMetricsService;
     private final TaskRuntimeOverviewService taskRuntimeOverviewService;
+    private final SearchOpsStatsClient searchOpsStatsClient;
 
     public DashboardStatsResponse getStatistics() {
         return dashboardRepository.loadStats();
@@ -39,6 +40,10 @@ public class DashboardQueryService {
         return taskRuntimeOverviewService.currentOverview(limit);
     }
 
+    public Map<String, Object> getSearchOpsStats() {
+        return safeMap(searchOpsStatsClient::currentStats);
+    }
+
     public List<SourceQualityResponse> getSourceQuality() {
         return safeList(dashboardRepository::sourceQuality);
     }
@@ -56,9 +61,9 @@ public class DashboardQueryService {
         }
     }
 
-    private Map<String, Long> safeMap(Supplier<Map<String, Long>> supplier) {
+    private <T> Map<String, T> safeMap(Supplier<Map<String, T>> supplier) {
         try {
-            Map<String, Long> values = supplier.get();
+            Map<String, T> values = supplier.get();
             return values == null ? Map.of() : values;
         } catch (RuntimeException ignored) {
             return Map.of();

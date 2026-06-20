@@ -115,8 +115,9 @@ class SearchSyncWorkQueueWorker {
 
     SearchSyncWorkQueueState state() {
         Map<String, SearchSyncWorkLaneState> lanes = new LinkedHashMap<>();
-        lanes.put(SearchSyncWorkTypes.RAW, rawLane.snapshot(workerId()));
-        lanes.put(SearchSyncWorkTypes.UNIFIED, unifiedLane.snapshot(workerId()));
+        Instant now = Instant.now();
+        lanes.put(SearchSyncWorkTypes.RAW, rawLane.snapshot(workerId(), now));
+        lanes.put(SearchSyncWorkTypes.UNIFIED, unifiedLane.snapshot(workerId(), now));
         LaneRuntime latest = latestLane();
         return new SearchSyncWorkQueueState(
                 rawLane.running.get() || unifiedLane.running.get(),
@@ -138,6 +139,7 @@ class SearchSyncWorkQueueWorker {
         Instant startedAt = Instant.now();
         String resolvedWorkerId = workerId();
         lane.lastRunAt = startedAt;
+        lane.markStage("RUN_START", null, null, startedAt);
         int processed = 0;
         int failed = 0;
         int requeued = 0;
@@ -145,7 +147,9 @@ class SearchSyncWorkQueueWorker {
         try {
             int effectiveBatchSize = Math.max(1, batchSize);
             Duration heartbeatTtl = consumerHeartbeatTtl();
+            lane.markStage("HEARTBEAT", null, null, Instant.now());
             heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
+            lane.markStage("REQUEUE_EXPIRED", null, null, Instant.now());
             requeued += workQueue.requeueExpired(lane.taskType, effectiveBatchSize);
             if (requeued > 0) {
                 lane.lastProgressAt = Instant.now();
@@ -165,6 +169,9 @@ class SearchSyncWorkQueueWorker {
             log.warn("Search sync work queue run failed: taskType={}, reason={}", lane.taskType, ex.getMessage());
             return processed;
         } finally {
+            if (!lane.running.get() || fatal == null) {
+                lane.clearCurrent();
+            }
             metrics.recordRun(
                     resolvedWorkerId,
                     elapsedSince(startedAt),
@@ -193,7 +200,9 @@ class SearchSyncWorkQueueWorker {
             String resolvedWorkerId,
             int limit,
             Duration heartbeatTtl) {
+        lane.markStage("CLAIM_HEARTBEAT", null, null, Instant.now());
         heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
+        lane.markStage("CLAIM", null, null, Instant.now());
         List<RuntimeWorkItem> items = workQueue.claim(
                 lane.taskType,
                 resolvedWorkerId,
@@ -205,14 +214,16 @@ class SearchSyncWorkQueueWorker {
         int processed = 0;
         int failed = 0;
         for (RuntimeWorkItem item : items) {
+            lane.markStage("ITEM_HEARTBEAT", item, null, Instant.now());
             heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
-            if (processItem(item, resolvedWorkerId)) {
+            if (processItem(lane, item, resolvedWorkerId)) {
                 processed++;
             } else {
                 failed++;
             }
             lane.lastProgressAt = Instant.now();
         }
+        lane.markStage("BATCH_DONE_HEARTBEAT", null, null, Instant.now());
         heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
         return new WorkRunResult(processed, failed);
     }
@@ -225,12 +236,15 @@ class SearchSyncWorkQueueWorker {
         return Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1);
     }
 
-    private boolean processItem(RuntimeWorkItem item, String resolvedWorkerId) {
+    private boolean processItem(LaneRuntime lane, RuntimeWorkItem item, String resolvedWorkerId) {
         Instant startedAt = Instant.now();
         SearchSyncWorkPayload payload = null;
         try {
+            lane.markStage("READ_PAYLOAD", item, null, startedAt);
             payload = objectMapper.readValue(item.payload(), SearchSyncWorkPayload.class);
+            lane.markStage("PROCESS_DB_ES", item, payload, Instant.now());
             syncProcessor.process(payload.toMessage());
+            lane.markStage("COMPLETE_WRITE", item, payload, Instant.now());
             workQueue.complete(item);
             metrics.recordItem(resolvedWorkerId, item, "processed", Instant.now());
             recordAudit(WorkerJobAuditEvent.succeeded(
@@ -238,10 +252,12 @@ class SearchSyncWorkQueueWorker {
                     item.taskType(),
                     correlationId(payload, item),
                     elapsedSince(startedAt)));
+            lane.markStage("ITEM_DONE", item, payload, Instant.now());
             return true;
         } catch (RuntimeException | JsonProcessingException ex) {
             boolean retryable = item.attempt() < Math.max(1, maxRetries);
             try {
+                lane.markStage("FAIL_WRITE", item, payload, Instant.now());
                 workQueue.fail(
                         item,
                         retryable,
@@ -269,6 +285,7 @@ class SearchSyncWorkQueueWorker {
         lane.lastRequeued = requeued;
         lane.lastError = null;
         lane.lastRunState = processed > 0 || requeued > 0 ? "PROCESSED" : "IDLE";
+        lane.clearCurrent();
         lane.consecutiveFailures.set(0);
     }
 
@@ -393,12 +410,42 @@ class SearchSyncWorkQueueWorker {
         private volatile int lastRequeued;
         private volatile String lastRunState = "NEVER_RUN";
         private volatile String lastError;
+        private volatile String currentTaskId;
+        private volatile String currentEntityId;
+        private volatile String currentStage;
+        private volatile Instant currentStageStartedAt;
 
         private LaneRuntime(String taskType) {
             this.taskType = taskType;
         }
 
-        private SearchSyncWorkLaneState snapshot(String workerId) {
+        private void markStage(
+                String stage,
+                RuntimeWorkItem item,
+                SearchSyncWorkPayload payload,
+                Instant startedAt) {
+            currentStage = stage;
+            currentStageStartedAt = startedAt == null ? Instant.now() : startedAt;
+            currentTaskId = item == null ? null : item.taskId();
+            if (payload != null && payload.entityId() != null) {
+                currentEntityId = payload.entityId().toString();
+            } else {
+                currentEntityId = item == null ? null : item.aggregateId();
+            }
+            if (running.get()) {
+                lastRunState = "PROCESSING";
+            }
+        }
+
+        private void clearCurrent() {
+            currentTaskId = null;
+            currentEntityId = null;
+            currentStage = null;
+            currentStageStartedAt = null;
+        }
+
+        private SearchSyncWorkLaneState snapshot(String workerId, Instant now) {
+            Instant runningStartedAt = lastRunAt;
             return new SearchSyncWorkLaneState(
                     taskType,
                     running.get(),
@@ -412,7 +459,14 @@ class SearchSyncWorkQueueWorker {
                     lastRequeued,
                     consecutiveFailures.get(),
                     lastRunState,
-                    lastError);
+                    lastError,
+                    currentTaskId,
+                    currentEntityId,
+                    currentStage,
+                    currentStageStartedAt,
+                    running.get() && runningStartedAt != null
+                            ? Math.max(0L, Duration.between(runningStartedAt, now).toSeconds())
+                            : 0L);
         }
     }
 

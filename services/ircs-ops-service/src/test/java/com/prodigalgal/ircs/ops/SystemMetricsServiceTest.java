@@ -42,6 +42,9 @@ class SystemMetricsServiceTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider =
+            org.mockito.Mockito.mock(ObjectProvider.class);
     private final SystemConfigRepository systemConfigRepository = org.mockito.Mockito.mock(SystemConfigRepository.class);
     private final SystemMetricsService service = new SystemMetricsService(
             rabbitAdmin,
@@ -50,6 +53,7 @@ class SystemMetricsServiceTest {
             new SimpleMeterRegistry(),
             pipelineValkeyQueueProvider,
             runtimeWorkQueueProvider,
+            rabbitRateProbeProvider,
             systemConfigRepository);
 
     @Test
@@ -229,6 +233,28 @@ class SystemMetricsServiceTest {
                 .anyMatch(queue -> QueueTopic.INGEST_VIDEO.name().equals(queue.key())
                         && queue.rateKind() == RateKind.NONE
                         && queue.rate().stale()));
+    }
+
+    @Test
+    void rabbitQueuesExposeAckRateWhenManagementBucketExists() {
+        RabbitManagementRateProbe probe = org.mockito.Mockito.mock(RabbitManagementRateProbe.class);
+        when(rabbitRateProbeProvider.getIfAvailable()).thenReturn(probe);
+        when(probe.rateAvailable()).thenReturn(true);
+        stubRateBucket(Map.of(
+                RabbitManagementRateProbe.metricKey(
+                        QueueTopic.INGEST_VIDEO,
+                        RabbitManagementRateProbe.RabbitQueueRole.MAIN,
+                        RabbitManagementRateProbe.RabbitRateAction.ACKED),
+                "4"));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.queueGroups().stream()
+                .flatMap(group -> group.queues().stream())
+                .anyMatch(queue -> QueueTopic.INGEST_VIDEO.name().equals(queue.key())
+                        && queue.rateKind() == RateKind.ACK
+                        && queue.rate().instantTpm() == 4));
     }
 
     private Properties queueProps(int messages, int consumers) {

@@ -32,5 +32,10 @@ record SearchSyncWorkLaneState(
         int lastRequeued,
         long consecutiveFailures,
         String lastRunState,
-        String lastError) {
+        String lastError,
+        String currentTaskId,
+        String currentEntityId,
+        String currentStage,
+        Instant currentStageStartedAt,
+        long runningForSeconds) {
 }

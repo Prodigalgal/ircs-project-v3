@@ -16,7 +16,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.support.DataAccessUtils;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -105,6 +107,14 @@ public class SearchDocumentJdbcRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final CoverImageUrlResolver coverImageUrlResolver;
+
+    @Value("${app.search.sync.jdbc-query-timeout-seconds:30}")
+    private int queryTimeoutSeconds;
+
+    @PostConstruct
+    void configureQueryTimeout() {
+        jdbcTemplate.getJdbcTemplate().setQueryTimeout(Math.max(1, queryTimeoutSeconds));
+    }
 
     public List<UUID> findNextRawVideoIds(UUID afterId, int limit) {
         return findNextIds("raw_videos", afterId, limit);
