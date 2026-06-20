@@ -502,6 +502,7 @@ class CredentialServiceTest {
                 mapper,
                 registry,
                 null,
+                null,
                 true,
                 Duration.ofSeconds(60));
         return new CredentialService(

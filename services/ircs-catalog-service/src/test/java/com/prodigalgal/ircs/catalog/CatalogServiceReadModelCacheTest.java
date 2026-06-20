@@ -79,6 +79,7 @@ class CatalogServiceReadModelCacheTest {
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
                 null,
+                null,
                 true,
                 Duration.ofMinutes(10));
     }

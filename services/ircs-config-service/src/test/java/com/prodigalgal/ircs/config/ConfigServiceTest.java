@@ -295,6 +295,8 @@ class ConfigServiceTest {
         assertEquals("DB", result.effectiveSource());
         assertEquals(null, result.value());
         assertEquals(null, result.effectiveValue());
+        assertEquals("RESTART_REQUIRED", result.activationMode());
+        org.junit.jupiter.api.Assertions.assertTrue(result.restartServices().contains("ircs-identity-service"));
     }
 
     @Test

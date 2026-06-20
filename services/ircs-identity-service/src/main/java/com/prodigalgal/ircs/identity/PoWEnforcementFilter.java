@@ -1,12 +1,14 @@
 package com.prodigalgal.ircs.identity;
 
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -27,18 +29,21 @@ class PoWEnforcementFilter extends OncePerRequestFilter {
             "/api/portal/auth/reset-password", new Requirement("portal.reset-password", false));
 
     private final PoWService poWService;
-    private final boolean enabled;
+    private final RuntimeConfigService runtimeConfig;
+    private final boolean enabledByDeployment;
 
     PoWEnforcementFilter(
             PoWService poWService,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.identity.pow.enabled:true}") boolean enabled) {
         this.poWService = poWService;
-        this.enabled = enabled;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
+        this.enabledByDeployment = enabled;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        if (!enabled || !"POST".equalsIgnoreCase(request.getMethod())) {
+        if (!enabled() || !"POST".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
         return !REQUIREMENTS.containsKey(request.getRequestURI());
@@ -64,5 +69,11 @@ class PoWEnforcementFilter extends OncePerRequestFilter {
     }
 
     private record Requirement(String scope, boolean captchaRequired) {
+    }
+
+    private boolean enabled() {
+        return runtimeConfig == null
+                ? enabledByDeployment
+                : runtimeConfig.booleanValue("app.identity.pow.enabled", enabledByDeployment);
     }
 }

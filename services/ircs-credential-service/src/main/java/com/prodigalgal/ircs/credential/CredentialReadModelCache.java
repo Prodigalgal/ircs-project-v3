@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.cache.TieredReadThroughCache;
 import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -26,13 +27,15 @@ class CredentialReadModelCache {
 
     private static final Duration DEFAULT_SUMMARY_TTL = Duration.ofSeconds(60);
 
-    private final boolean enabled;
+    private final boolean enabledByDeployment;
+    private final RuntimeConfigService runtimeConfig;
     private final TieredReadThroughCache<ListKey, List<CredentialSummary>> summaryListCache;
     private final TieredReadThroughCache<UUID, CredentialSummary> summaryDetailCache;
     CredentialReadModelCache(
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
             ObjectProvider<StringRedisTemplate> redisTemplate,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.credential.cache.enabled:true}") boolean enabled,
             @Value("${app.credential.cache.summary-ttl:PT60S}") Duration summaryTtl) {
         ObjectMapper mapper = objectMapper == null
@@ -40,7 +43,8 @@ class CredentialReadModelCache {
                 : objectMapper;
         CacheRegistry registry = cacheRegistry == null ? new CacheRegistry() : cacheRegistry;
         TieredStringCacheStore store = store(redisTemplate);
-        this.enabled = enabled;
+        this.enabledByDeployment = enabled;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
         this.summaryListCache = register(registry, new TieredReadThroughCache<>(
                 CACHE_SUMMARY_LIST,
                 ttl(summaryTtl),
@@ -64,6 +68,7 @@ class CredentialReadModelCache {
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
                 null,
+                null,
                 false,
                 DEFAULT_SUMMARY_TTL);
     }
@@ -73,7 +78,7 @@ class CredentialReadModelCache {
             Boolean enabledFilter,
             int limit,
             Supplier<List<CredentialSummary>> loader) {
-        if (!enabled) {
+        if (!enabled()) {
             return nullToEmpty(loader.get());
         }
         return nullToEmpty(summaryListCache.get(
@@ -85,7 +90,7 @@ class CredentialReadModelCache {
         if (id == null) {
             return Optional.empty();
         }
-        if (!enabled) {
+        if (!enabled()) {
             return loader.get();
         }
         CredentialSummary result = summaryDetailCache.get(id, () -> loader.get().orElse(null));
@@ -102,6 +107,13 @@ class CredentialReadModelCache {
             TieredReadThroughCache<K, T> cache) {
         registry.register(cache);
         return cache;
+    }
+
+    private boolean enabled() {
+        if (runtimeConfig == null) {
+            return enabledByDeployment;
+        }
+        return runtimeConfig.booleanValue("app.credential.cache.enabled", enabledByDeployment);
     }
 
     private static List<CredentialSummary> nullToEmpty(List<CredentialSummary> value) {

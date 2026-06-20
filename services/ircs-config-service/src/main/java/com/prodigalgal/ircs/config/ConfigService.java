@@ -119,7 +119,7 @@ public class ConfigService {
 
     private SystemConfigSummary summarize(SystemConfigRecord record) {
         EffectiveConfigValue effective = resolveEffectiveValue(record);
-        return valueRedactor.sanitize(record, effective.value(), effective.source());
+        return valueRedactor.sanitize(record, effective.value(), effective.source(), defaults.metadata(record.key()));
     }
 
     private void publishChange(

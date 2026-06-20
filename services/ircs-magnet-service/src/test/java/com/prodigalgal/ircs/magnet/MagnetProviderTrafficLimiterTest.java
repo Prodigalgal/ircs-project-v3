@@ -37,6 +37,7 @@ class MagnetProviderTrafficLimiterTest {
                 Instant.parse("2026-06-11T00:00:01Z")));
         MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
                 lockManager,
+                null,
                 true,
                 EGRESS_IP,
                 1000,
@@ -61,6 +62,7 @@ class MagnetProviderTrafficLimiterTest {
                 Instant.parse("2026-06-11T00:03:00Z")));
         MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
                 lockManager,
+                null,
                 true,
                 EGRESS_IP,
                 1000,
@@ -89,6 +91,7 @@ class MagnetProviderTrafficLimiterTest {
                 Instant.parse("2026-06-11T00:00:01Z")));
         MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
                 lockManager,
+                null,
                 true,
                 "2001:db8::10",
                 1000,

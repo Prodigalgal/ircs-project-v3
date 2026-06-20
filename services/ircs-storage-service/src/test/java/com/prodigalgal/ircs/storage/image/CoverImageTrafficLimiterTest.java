@@ -26,6 +26,7 @@ class CoverImageTrafficLimiterTest {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
         CoverImageTrafficLimiter limiter = new CoverImageTrafficLimiter(
                 lockManager,
+                null,
                 true,
                 "203.0.113.10",
                 500,
@@ -61,6 +62,7 @@ class CoverImageTrafficLimiterTest {
                         Instant.parse("2026-06-11T00:03:00Z")));
         CoverImageTrafficLimiter limiter = new CoverImageTrafficLimiter(
                 lockManager,
+                null,
                 true,
                 "203.0.113.10",
                 500,

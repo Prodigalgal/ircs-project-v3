@@ -10,7 +10,12 @@ class ScraperTrafficConfigValues {
 
     static final String GLOBAL_SAFETY_FLOOR_KEY = "global.traffic.safety-floor-ms";
     static final String GLOBAL_MAX_WAIT_KEY = "global.traffic.max-wait-ms";
+    static final String ENABLED_KEY = "app.scraper.traffic.enabled";
     static final String SOURCE_ENABLED_KEY = "app.scraper.traffic.source-enabled";
+    static final String EGRESS_ID_KEY = "app.scraper.traffic.egress-id";
+    static final String DEFAULT_GAP_KEY = "app.scraper.traffic.default-gap-ms";
+    static final String MAX_WAIT_KEY = "app.scraper.traffic.max-wait";
+    static final String TTL_KEY = "app.scraper.traffic.ttl";
 
     static final int DEFAULT_GLOBAL_SAFETY_FLOOR_MS = 3000;
     static final int DEFAULT_GLOBAL_MAX_WAIT_MS = 120000;
@@ -39,6 +44,29 @@ class ScraperTrafficConfigValues {
         return booleanValue(fallback, SOURCE_ENABLED_KEY);
     }
 
+    boolean enabled(boolean fallback) {
+        return booleanValue(fallback, ENABLED_KEY);
+    }
+
+    String egressIdentity(String fallback) {
+        String raw = value(EGRESS_ID_KEY);
+        return StringUtils.hasText(raw) ? raw.trim() : fallback;
+    }
+
+    Duration defaultGap(Duration fallback) {
+        int configured = Math.max(0, intValue((int) fallback.toMillis(), DEFAULT_GAP_KEY));
+        return configured > 0 ? Duration.ofMillis(configured) : fallback;
+    }
+
+    Duration limiterMaxWait(Duration fallback) {
+        return durationValue(fallback, MAX_WAIT_KEY);
+    }
+
+    Duration ttl(Duration fallback) {
+        Duration value = durationValue(fallback, TTL_KEY);
+        return value == null || !value.isPositive() ? fallback : value;
+    }
+
     private int intValue(int defaultValue, String key, String... aliases) {
         String raw = value(key, aliases);
         if (!StringUtils.hasText(raw)) {
@@ -61,6 +89,18 @@ class ScraperTrafficConfigValues {
             case "false", "0", "no", "n", "off", "disabled" -> false;
             default -> defaultValue;
         };
+    }
+
+    private Duration durationValue(Duration defaultValue, String key, String... aliases) {
+        String raw = value(key, aliases);
+        if (!StringUtils.hasText(raw)) {
+            return defaultValue;
+        }
+        try {
+            return org.springframework.boot.convert.DurationStyle.detectAndParse(raw.trim());
+        } catch (IllegalArgumentException ignored) {
+            return defaultValue;
+        }
     }
 
     private String value(String key, String... aliases) {

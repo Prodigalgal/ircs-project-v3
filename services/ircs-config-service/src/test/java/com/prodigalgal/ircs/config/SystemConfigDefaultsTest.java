@@ -61,6 +61,7 @@ class SystemConfigDefaultsTest {
         assertEquals("PT120S", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
         assertEquals("PT10S", defaults.staticDefaultValue("app.rate-metrics.bucket-size").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.search.work-queue.worker.enabled").orElseThrow());
@@ -115,6 +116,27 @@ class SystemConfigDefaultsTest {
 
         assertTrue(imageDownload.upgradeLegacyFalse());
         assertFalse(proxy.upgradeLegacyFalse());
+    }
+
+    @Test
+    void classifiesHotAndRestartRequiredConfigs() {
+        SystemConfigDefaults.ConfigMetadata hot = defaults.metadata("app.ops.metrics.cache-ttl");
+        SystemConfigDefaults.ConfigMetadata serviceRestartHot = defaults.metadata("app.ops.service-restart.kubernetes-api-base-url");
+        SystemConfigDefaults.ConfigMetadata cacheRestart = defaults.metadata("app.portal.cache.metadata-ttl");
+        SystemConfigDefaults.ConfigMetadata taskRestart = defaults.metadata("app.task.queue.enabled");
+        SystemConfigDefaults.ConfigMetadata restart = defaults.metadata("security.jwt.secret");
+        SystemConfigDefaults.ConfigMetadata storageRestart = defaults.metadata("app.storage.r2.secret-key");
+
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
+        assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
+        assertTrue(taskRestart.restartServices().contains("ircs-task-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, restart.activationMode());
+        assertTrue(restart.restartServices().contains("ircs-identity-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, storageRestart.activationMode());
+        assertTrue(storageRestart.restartServices().contains("ircs-storage-service"));
     }
 
     private static final Set<String> V3_OAUTH_CONFIG_KEYS = Set.of(
@@ -235,10 +257,60 @@ class SystemConfigDefaultsTest {
             "app.ops.rabbit-management.request-timeout",
             "app.ops.rabbit-management.initial-delay-ms",
             "app.ops.rabbit-management.fixed-delay-ms",
+            "app.ops.service-restart.enabled",
+            "app.ops.service-restart.kubernetes-api-base-url",
+            "app.ops.service-restart.namespace",
+            "app.ops.service-restart.allowed-services",
+            "app.ops.service-restart.request-timeout",
             "app.rate-metrics.key-prefix",
             "app.rate-metrics.bucket-size",
             "app.rate-metrics.bucket-ttl",
             "app.rate-metrics.bucket-index-retention",
+            "app.portal.cache.enabled",
+            "app.portal.cache.metadata-ttl",
+            "app.portal.cache.home-ttl",
+            "app.portal.cache.explore-ttl",
+            "app.portal.cache.detail-ttl",
+            "app.search.cache.enabled",
+            "app.search.cache.portal-suggest-ttl",
+            "app.search.cache.portal-recommend-ttl",
+            "app.search.cache.portal-public-version-key",
+            "app.search.cache.portal-version-refresh-interval",
+            "app.catalog.cache.enabled",
+            "app.catalog.cache.standard-dictionary-ttl",
+            "app.credential.cache.enabled",
+            "app.credential.cache.summary-ttl",
+            "app.credential.lease-cache.ttl",
+            "app.magnet.cache.enabled",
+            "app.magnet.cache.provider-ttl",
+            "app.magnet.cache.approved-links-ttl",
+            "app.task.cluster-lock.enabled",
+            "app.task.cluster-lock.ttl",
+            "app.task.cluster-lock.worker-id",
+            "app.task.default-seed.enabled",
+            "app.task.internal-access.require-token",
+            "app.task.internal-access.token",
+            "app.task.internal-access.required-scope",
+            "app.task.queue.enabled",
+            "app.task.queue.max-pages-per-run",
+            "app.task.queue.retry.max-retries",
+            "app.task.queue.dispatch.concurrency",
+            "app.task.queue.dispatch.queue-capacity",
+            "app.task.queue.dispatch.await-termination-seconds",
+            "app.task.runner.concurrency",
+            "app.task.runner.queue-capacity",
+            "app.task.runner.await-termination-seconds",
+            "app.task.runner.scraper-base-url",
+            "app.task.runner.scraper-request-timeout",
+            "app.task.snapshot.flush.min-dirty-age",
+            "app.task.snapshot.flush.batch-size",
+            "app.task.snapshot.ttl",
+            "app.task.runtime.event-stream-maxlen",
+            "app.task.runtime.repair.batch-size",
+            "app.task.trend-discovery.enabled",
+            "app.task.trend-discovery.max-keywords",
+            "app.task.trend-discovery.max-data-sources",
+            "app.task.scheduler.enabled",
             "app.aggregation.work-queue.batch-size",
             "app.aggregation.work-queue.batch-size.min",
             "app.aggregation.work-queue.batch-size.max",
@@ -316,7 +388,16 @@ class SystemConfigDefaultsTest {
             "app.ai.llm.prompt.category",
             "global.traffic.safety-floor-ms",
             "global.traffic.max-wait-ms",
+            "app.identity.auth-rate-limit.enabled",
+            "app.identity.auth-rate-limit.max-attempts",
+            "app.identity.auth-rate-limit.window",
+            "app.identity.pow.enabled",
             "app.scraper.traffic.source-enabled",
+            "app.scraper.traffic.enabled",
+            "app.scraper.traffic.egress-id",
+            "app.scraper.traffic.default-gap-ms",
+            "app.scraper.traffic.max-wait",
+            "app.scraper.traffic.ttl",
             "app.metadata.public-traffic.enabled",
             "app.metadata.public-traffic.default-gap-ms",
             "app.metadata.public-traffic.max-wait",
@@ -348,6 +429,17 @@ class SystemConfigDefaultsTest {
             "app.metadata.rotten-tomatoes.proxy.port",
             "app.metadata.rotten-tomatoes.proxy.username",
             "app.metadata.rotten-tomatoes.proxy.password",
+            "app.magnet.traffic.enabled",
+            "app.magnet.traffic.egress-id",
+            "app.magnet.traffic.default-gap-ms",
+            "app.magnet.traffic.max-wait",
+            "app.magnet.traffic.ttl",
+            "app.storage.image.traffic.enabled",
+            "app.storage.image.traffic.egress-id",
+            "app.storage.image.traffic.global-gap-ms",
+            "app.storage.image.traffic.domain-gap-ms",
+            "app.storage.image.traffic.max-wait",
+            "app.storage.image.traffic.ttl",
             "app.metadata.valkey-dispatcher.batch-size",
             "app.metadata.valkey-dispatcher.visibility-timeout",
             "app.metadata.valkey-dispatcher.retry-delay",

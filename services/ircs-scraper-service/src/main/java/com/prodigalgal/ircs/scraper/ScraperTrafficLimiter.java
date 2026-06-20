@@ -18,11 +18,11 @@ class ScraperTrafficLimiter {
 
     private final DistributedLockManager lockManager;
     private final ScraperTrafficConfigValues configValues;
-    private final boolean enabled;
-    private final String egressIdentity;
-    private final Duration defaultGap;
-    private final Duration maxWait;
-    private final Duration ttl;
+    private final boolean enabledByDeployment;
+    private final String egressIdentityByDeployment;
+    private final Duration defaultGapByDeployment;
+    private final Duration maxWaitByDeployment;
+    private final Duration ttlByDeployment;
     private final boolean sourceEnabledByDeployment;
 
     ScraperTrafficLimiter(
@@ -36,11 +36,11 @@ class ScraperTrafficLimiter {
             @Value("${app.scraper.traffic.ttl:PT10M}") Duration ttl) {
         this.lockManager = lockManager;
         this.configValues = configValues;
-        this.enabled = enabled;
-        this.egressIdentity = sanitizeIdentity(egressIdentity);
-        this.defaultGap = positiveOr(defaultGapMs, Duration.ofSeconds(1));
-        this.maxWait = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
-        this.ttl = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
+        this.enabledByDeployment = enabled;
+        this.egressIdentityByDeployment = sanitizeIdentity(egressIdentity);
+        this.defaultGapByDeployment = positiveOr(defaultGapMs, Duration.ofSeconds(1));
+        this.maxWaitByDeployment = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
+        this.ttlByDeployment = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
         this.sourceEnabledByDeployment = sourceEnabledByDeployment;
     }
 
@@ -49,7 +49,7 @@ class ScraperTrafficLimiter {
     }
 
     void acquireDataSourceSlot(DataSourceRecord source, ManualScrapeConfigRequest config) {
-        if (!enabled || lockManager == null) {
+        if (!enabled() || lockManager == null) {
             return;
         }
         if (source == null || source.id() == null) {
@@ -67,7 +67,7 @@ class ScraperTrafficLimiter {
                 key,
                 gap,
                 effectiveMaxWait(),
-                ttl));
+                ttl()));
         if (reservation.rejected()) {
             throw new IllegalStateException("Traffic limit saturated: " + label
                     + ", wait=" + reservation.waitTime().toMillis() + "ms");
@@ -76,11 +76,11 @@ class ScraperTrafficLimiter {
     }
 
     private String key(DistributedLockProfile profile, UUID sourceId) {
-        return profile.keyPrefix() + "Ip:" + egressIdentity + ":" + sourceId;
+        return profile.keyPrefix() + "Ip:" + egressIdentity() + ":" + sourceId;
     }
 
     private Duration sourceGap(ManualScrapeConfigRequest config) {
-        Duration requestedGap = defaultGap;
+        Duration requestedGap = defaultGap();
         if (config != null && config.fixedDelayMs() != null && config.fixedDelayMs() > 0) {
             requestedGap = Duration.ofMillis(config.fixedDelayMs());
         }
@@ -89,13 +89,36 @@ class ScraperTrafficLimiter {
     }
 
     private Duration effectiveMaxWait() {
-        return configValues == null ? maxWait : configValues.maxWait(maxWait);
+        return configValues == null ? maxWaitByDeployment : configValues.maxWait(maxWait());
     }
 
     private boolean sourceEnabled() {
         return configValues == null
                 ? sourceEnabledByDeployment
                 : configValues.sourceEnabled(sourceEnabledByDeployment);
+    }
+
+    private boolean enabled() {
+        return configValues == null ? enabledByDeployment : configValues.enabled(enabledByDeployment);
+    }
+
+    private String egressIdentity() {
+        String value = configValues == null
+                ? egressIdentityByDeployment
+                : configValues.egressIdentity(egressIdentityByDeployment);
+        return sanitizeIdentity(value);
+    }
+
+    private Duration defaultGap() {
+        return configValues == null ? defaultGapByDeployment : configValues.defaultGap(defaultGapByDeployment);
+    }
+
+    private Duration maxWait() {
+        return configValues == null ? maxWaitByDeployment : configValues.limiterMaxWait(maxWaitByDeployment);
+    }
+
+    private Duration ttl() {
+        return configValues == null ? ttlByDeployment : configValues.ttl(ttlByDeployment);
     }
 
     private void sleepIfNeeded(Duration waitTime, String label) {

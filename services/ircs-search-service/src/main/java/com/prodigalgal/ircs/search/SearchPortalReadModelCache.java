@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.cache.TieredReadThroughCache;
 import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -34,7 +35,8 @@ public class SearchPortalReadModelCache {
     private static final Duration DEFAULT_VERSION_REFRESH_INTERVAL = Duration.ofSeconds(2);
     private static final String DEFAULT_PORTAL_PUBLIC_VERSION_KEY = "ircs:cache:search.portal.public.version";
 
-    private final boolean enabled;
+    private final boolean enabledByDeployment;
+    private final RuntimeConfigService runtimeConfig;
     private final TieredReadThroughCache<String, List<String>> suggestCache;
     private final TieredReadThroughCache<String, RecommendationPage> recommendCache;
     private final StringRedisTemplate redisTemplate;
@@ -48,6 +50,7 @@ public class SearchPortalReadModelCache {
             CacheRegistry cacheRegistry,
             ObjectProvider<StringRedisTemplate> redisTemplate,
             ObjectProvider<TieredStringCacheStore> externalStore,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             boolean enabled,
             Duration suggestTtl,
             Duration recommendTtl) {
@@ -56,6 +59,7 @@ public class SearchPortalReadModelCache {
                 cacheRegistry,
                 redisTemplate,
                 externalStore,
+                null,
                 enabled,
                 suggestTtl,
                 recommendTtl,
@@ -69,6 +73,7 @@ public class SearchPortalReadModelCache {
             CacheRegistry cacheRegistry,
             ObjectProvider<StringRedisTemplate> redisTemplate,
             ObjectProvider<TieredStringCacheStore> externalStore,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.search.cache.enabled:true}") boolean enabled,
             @Value("${app.search.cache.portal-suggest-ttl:PT60S}") Duration suggestTtl,
             @Value("${app.search.cache.portal-recommend-ttl:PT60S}") Duration recommendTtl,
@@ -80,7 +85,8 @@ public class SearchPortalReadModelCache {
         CacheRegistry registry = cacheRegistry == null ? new CacheRegistry() : cacheRegistry;
         StringRedisTemplate template = redisTemplate == null ? null : redisTemplate.getIfAvailable();
         TieredStringCacheStore store = store(template, externalStore);
-        this.enabled = enabled;
+        this.enabledByDeployment = enabled;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
         this.redisTemplate = template;
         this.portalPublicVersionKey = hasText(portalPublicVersionKey)
                 ? portalPublicVersionKey.trim()
@@ -109,6 +115,7 @@ public class SearchPortalReadModelCache {
         return new SearchPortalReadModelCache(
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
+                null,
                 null,
                 null,
                 false,
@@ -158,7 +165,7 @@ public class SearchPortalReadModelCache {
     }
 
     private boolean cacheablePublic(IrcsRequestPrincipal principal) {
-        return enabled && (principal == null || principal.isAnonymous());
+        return enabled() && (principal == null || principal.isAnonymous());
     }
 
     private String recommendKey(UUID videoId, Pageable pageable) {
@@ -174,7 +181,7 @@ public class SearchPortalReadModelCache {
     }
 
     private long portalPublicVersion() {
-        if (!enabled) {
+        if (!enabled()) {
             return 0L;
         }
         long now = System.nanoTime();
@@ -196,6 +203,13 @@ public class SearchPortalReadModelCache {
             versionRefreshAfterNanos.set(now + versionRefreshIntervalNanos);
         }
         return cachedPortalPublicVersion.get();
+    }
+
+    private boolean enabled() {
+        if (runtimeConfig == null) {
+            return enabledByDeployment;
+        }
+        return runtimeConfig.booleanValue("app.search.cache.enabled", enabledByDeployment);
     }
 
     private String token(String value) {

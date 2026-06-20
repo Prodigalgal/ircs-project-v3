@@ -196,6 +196,16 @@ class ScraperTrafficLimiterTest {
         org.mockito.Mockito.when(values.safetyFloor()).thenReturn(safetyFloor);
         org.mockito.Mockito.when(values.maxWait(org.mockito.Mockito.any())).thenReturn(maxWait);
         org.mockito.Mockito.when(values.sourceEnabled(org.mockito.Mockito.anyBoolean())).thenReturn(sourceEnabled);
+        org.mockito.Mockito.when(values.enabled(org.mockito.Mockito.anyBoolean()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(values.egressIdentity(org.mockito.Mockito.anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(values.defaultGap(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(values.limiterMaxWait(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(values.ttl(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         return values;
     }
 

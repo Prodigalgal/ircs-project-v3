@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.cache.TieredReadThroughCache;
 import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -33,7 +34,8 @@ class PortalReadModelCache {
     private static final Duration DEFAULT_EXPLORE_TTL = Duration.ofSeconds(60);
     private static final Duration DEFAULT_DETAIL_TTL = Duration.ofMinutes(5);
 
-    private final boolean enabled;
+    private final boolean enabledByDeployment;
+    private final RuntimeConfigService runtimeConfig;
     private final TieredReadThroughCache<String, PortalMetadataResponse> metadataCache;
     private final TieredReadThroughCache<String, PortalHomeResponse> homeCache;
     private final TieredReadThroughCache<String, PageResponse<PortalMovieCard>> exploreCache;
@@ -42,6 +44,7 @@ class PortalReadModelCache {
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
             ObjectProvider<StringRedisTemplate> redisTemplate,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.portal.cache.enabled:true}") boolean enabled,
             @Value("${app.portal.cache.metadata-ttl:PT5M}") Duration metadataTtl,
             @Value("${app.portal.cache.home-ttl:PT60S}") Duration homeTtl,
@@ -52,7 +55,8 @@ class PortalReadModelCache {
                 : objectMapper;
         CacheRegistry registry = cacheRegistry == null ? new CacheRegistry() : cacheRegistry;
         TieredStringCacheStore store = store(redisTemplate);
-        this.enabled = enabled;
+        this.enabledByDeployment = enabled;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
         this.metadataCache = register(registry, cache(
                 mapper,
                 CACHE_METADATA,
@@ -83,6 +87,7 @@ class PortalReadModelCache {
         return new PortalReadModelCache(
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
+                null,
                 null,
                 false,
                 DEFAULT_METADATA_TTL,
@@ -139,7 +144,14 @@ class PortalReadModelCache {
     }
 
     private boolean cacheablePublic(IrcsRequestPrincipal principal) {
-        return enabled && (principal == null || principal.isAnonymous());
+        return enabled() && (principal == null || principal.isAnonymous());
+    }
+
+    private boolean enabled() {
+        if (runtimeConfig == null) {
+            return enabledByDeployment;
+        }
+        return runtimeConfig.booleanValue("app.portal.cache.enabled", enabledByDeployment);
     }
 
     private String exploreKey(

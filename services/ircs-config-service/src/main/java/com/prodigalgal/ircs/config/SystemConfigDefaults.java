@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.config;
 
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -155,10 +156,80 @@ public class SystemConfigDefaults {
             cfg("app.ops.rabbit-management.request-timeout", "PT5S", "RabbitMQ 管理 API 请求超时"),
             cfg("app.ops.rabbit-management.initial-delay-ms", "10000", "RabbitMQ 管理采样启动延迟(毫秒)"),
             cfg("app.ops.rabbit-management.fixed-delay-ms", "10000", "RabbitMQ 管理采样间隔(毫秒)"),
+            cfg("app.ops.service-restart.enabled", "false", "是否允许 ops-service 触发 Kubernetes Deployment 重启"),
+            cfg("app.ops.service-restart.kubernetes-api-base-url", "", "Kubernetes API 地址，留空使用集群内默认地址"),
+            cfg("app.ops.service-restart.namespace", "", "服务重启目标命名空间，留空使用当前 Pod 命名空间"),
+            cfg("app.ops.service-restart.allowed-services", String.join(",",
+                    "ircs-admin-bff",
+                    "ircs-aggregation-worker",
+                    "ircs-catalog-service",
+                    "ircs-config-service",
+                    "ircs-content-service",
+                    "ircs-credential-service",
+                    "ircs-identity-service",
+                    "ircs-ingestion-worker",
+                    "ircs-interaction-service",
+                    "ircs-magnet-service",
+                    "ircs-metadata-worker",
+                    "ircs-normalization-worker",
+                    "ircs-notification-worker",
+                    "ircs-ops-service",
+                    "ircs-portal-bff",
+                    "ircs-portal-service",
+                    "ircs-scraper-service",
+                    "ircs-search-service",
+                    "ircs-storage-service",
+                    "ircs-task-service"), "允许从系统设置页重启的 Deployment 列表"),
+            cfg("app.ops.service-restart.request-timeout", "PT10S", "Kubernetes 重启请求超时"),
             cfg("app.rate-metrics.key-prefix", "ircs:metrics:rate", "运行速率指标 Valkey Key 前缀"),
             cfg("app.rate-metrics.bucket-size", "PT10S", "运行速率指标桶大小"),
             cfg("app.rate-metrics.bucket-ttl", "PT30M", "运行速率指标桶 TTL"),
             cfg("app.rate-metrics.bucket-index-retention", "PT31M", "运行速率指标桶索引保留时间"),
+            cfg("app.portal.cache.enabled", "true", "是否启用门户读模型缓存"),
+            cfg("app.portal.cache.metadata-ttl", "PT5M", "门户元数据缓存 TTL"),
+            cfg("app.portal.cache.home-ttl", "PT60S", "门户首页缓存 TTL"),
+            cfg("app.portal.cache.explore-ttl", "PT60S", "门户探索页缓存 TTL"),
+            cfg("app.portal.cache.detail-ttl", "PT5M", "门户详情页缓存 TTL"),
+            cfg("app.search.cache.enabled", "true", "是否启用搜索门户读模型缓存"),
+            cfg("app.search.cache.portal-suggest-ttl", "PT60S", "搜索建议缓存 TTL"),
+            cfg("app.search.cache.portal-recommend-ttl", "PT60S", "搜索推荐缓存 TTL"),
+            cfg("app.search.cache.portal-public-version-key", "ircs:portal:public:version", "门户公开版本缓存 Key"),
+            cfg("app.search.cache.portal-version-refresh-interval", "PT2S", "门户公开版本刷新间隔"),
+            cfg("app.catalog.cache.enabled", "true", "是否启用目录读模型缓存"),
+            cfg("app.catalog.cache.standard-dictionary-ttl", "PT10M", "标准字典缓存 TTL"),
+            cfg("app.credential.cache.enabled", "true", "是否启用凭证概览缓存"),
+            cfg("app.credential.cache.summary-ttl", "PT60S", "凭证概览缓存 TTL"),
+            cfg("app.credential.lease-cache.ttl", "PT30S", "凭证租约缓存 TTL"),
+            cfg("app.magnet.cache.enabled", "true", "是否启用磁链读模型缓存"),
+            cfg("app.magnet.cache.provider-ttl", "PT5M", "磁链 Provider 缓存 TTL"),
+            cfg("app.magnet.cache.approved-links-ttl", "PT60S", "已审核磁链缓存 TTL"),
+            cfg("app.task.cluster-lock.enabled", "true", "任务服务集群锁开关"),
+            cfg("app.task.cluster-lock.ttl", "PT30S", "任务服务集群锁 TTL"),
+            cfg("app.task.cluster-lock.worker-id", "", "任务服务集群锁 Worker 标识，留空自动生成"),
+            cfg("app.task.default-seed.enabled", "true", "是否启用任务默认种子初始化"),
+            cfg("app.task.internal-access.require-token", "false", "任务内部接口是否要求 Token"),
+            cfg("app.task.internal-access.token", "", "任务内部接口访问 Token"),
+            cfg("app.task.internal-access.required-scope", "task:maintenance", "任务内部接口所需权限范围"),
+            cfg("app.task.queue.enabled", "true", "是否启用任务运行队列"),
+            cfg("app.task.queue.max-pages-per-run", "0", "任务队列单轮最大分页数，0 表示不限制"),
+            cfg("app.task.queue.retry.max-retries", "3", "任务队列最大重试次数"),
+            cfg("app.task.queue.dispatch.concurrency", "2", "任务队列调度线程数"),
+            cfg("app.task.queue.dispatch.queue-capacity", "500", "任务队列调度线程池队列容量"),
+            cfg("app.task.queue.dispatch.await-termination-seconds", "120", "任务队列调度线程池关闭等待秒数"),
+            cfg("app.task.runner.concurrency", "1", "任务执行线程数"),
+            cfg("app.task.runner.queue-capacity", "500", "任务执行线程池队列容量"),
+            cfg("app.task.runner.await-termination-seconds", "300", "任务执行线程池关闭等待秒数"),
+            cfg("app.task.runner.scraper-base-url", "http://ircs-scraper-service.ircs-dev.svc.cluster.local:8080", "任务执行器调用 scraper-service 的基础地址"),
+            cfg("app.task.runner.scraper-request-timeout", "10s", "任务执行器调用 scraper-service 的请求超时"),
+            cfg("app.task.snapshot.flush.min-dirty-age", "PT5S", "任务快照最小脏数据停留时间"),
+            cfg("app.task.snapshot.flush.batch-size", "100", "任务快照刷新批次"),
+            cfg("app.task.snapshot.ttl", "PT24H", "任务运行快照 TTL"),
+            cfg("app.task.runtime.event-stream-maxlen", "50000", "任务运行事件流最大长度"),
+            cfg("app.task.runtime.repair.batch-size", "100", "任务运行态修复批次"),
+            cfg("app.task.trend-discovery.enabled", "true", "是否启用任务趋势发现"),
+            cfg("app.task.trend-discovery.max-keywords", "50", "趋势发现最大关键词数"),
+            cfg("app.task.trend-discovery.max-data-sources", "0", "趋势发现最大数据源数，0 表示不限制"),
+            cfg("app.task.scheduler.enabled", "false", "是否启用任务调度器"),
             cfg("app.aggregation.work-queue.batch-size", "100", "聚合运行队列基准批次"),
             cfg("app.aggregation.work-queue.batch-size.min", "20", "聚合运行队列最小批次"),
             cfg("app.aggregation.work-queue.batch-size.max", "500", "聚合运行队列最大批次"),
@@ -236,7 +307,16 @@ public class SystemConfigDefaults {
             cfg("app.ai.llm.prompt.category", llmPrompt("video category", "category list"), "LLM 分类清洗 Prompt 模板"),
             cfg("global.traffic.safety-floor-ms", "3000", "源站+出口IP流量安全底线(毫秒)"),
             cfg("global.traffic.max-wait-ms", "120000", "源站+出口IP流量控制最大容忍等待时间(毫秒)"),
+            cfg("app.identity.auth-rate-limit.enabled", "true", "是否启用身份服务登录限流"),
+            cfg("app.identity.auth-rate-limit.max-attempts", "30", "身份登录限流窗口最大尝试次数"),
+            cfg("app.identity.auth-rate-limit.window", "PT5M", "身份登录限流窗口"),
+            cfg("app.identity.pow.enabled", "true", "是否启用身份服务 PoW 防护"),
             cfg("app.scraper.traffic.source-enabled", "true", "是否启用采集服务按数据源流量闸门"),
+            cfg("app.scraper.traffic.enabled", "true", "是否启用采集服务全局流量闸门"),
+            cfg("app.scraper.traffic.egress-id", "unknown", "采集服务流量出口标识"),
+            cfg("app.scraper.traffic.default-gap-ms", "1000", "采集服务同出口默认请求间隔(毫秒)"),
+            cfg("app.scraper.traffic.max-wait", "PT2M", "采集服务流量闸门最大等待时间"),
+            cfg("app.scraper.traffic.ttl", "PT10M", "采集服务流量闸门 Valkey 状态 TTL"),
             cfg("app.metadata.public-traffic.enabled", "true", "是否启用元数据公网 Provider 全局流量闸门"),
             cfg("app.metadata.public-traffic.default-gap-ms", "150", "元数据公网 Provider 同出口默认请求间隔(毫秒)"),
             cfg("app.metadata.public-traffic.max-wait", "PT2M", "元数据公网 Provider 流量闸门最大等待时间"),
@@ -268,6 +348,17 @@ public class SystemConfigDefaults {
             cfg("app.metadata.rotten-tomatoes.proxy.port", "0", "烂番茄 代理端口"),
             cfg("app.metadata.rotten-tomatoes.proxy.username", "", "烂番茄 代理用户名"),
             cfg("app.metadata.rotten-tomatoes.proxy.password", "", "烂番茄 代理密码"),
+            cfg("app.magnet.traffic.enabled", "true", "是否启用磁链 Provider 流量闸门"),
+            cfg("app.magnet.traffic.egress-id", "unknown", "磁链 Provider 流量出口标识"),
+            cfg("app.magnet.traffic.default-gap-ms", "1000", "磁链 Provider 同出口默认请求间隔(毫秒)"),
+            cfg("app.magnet.traffic.max-wait", "PT2M", "磁链 Provider 流量闸门最大等待时间"),
+            cfg("app.magnet.traffic.ttl", "PT10M", "磁链 Provider 流量闸门 Valkey 状态 TTL"),
+            cfg("app.storage.image.traffic.enabled", "true", "是否启用图片下载流量闸门"),
+            cfg("app.storage.image.traffic.egress-id", "unknown", "图片下载流量出口标识"),
+            cfg("app.storage.image.traffic.global-gap-ms", "500", "图片下载全局请求间隔(毫秒)"),
+            cfg("app.storage.image.traffic.domain-gap-ms", "1000", "图片下载同域名请求间隔(毫秒)"),
+            cfg("app.storage.image.traffic.max-wait", "PT2M", "图片下载流量闸门最大等待时间"),
+            cfg("app.storage.image.traffic.ttl", "PT10M", "图片下载流量闸门 Valkey 状态 TTL"),
             cfg("app.metadata.valkey-dispatcher.batch-size", "10", "元数据分发 Valkey worker 每轮领取数量"),
             cfg("app.metadata.valkey-dispatcher.visibility-timeout", "PT10M", "元数据分发 Valkey worker 任务可见性超时"),
             cfg("app.metadata.valkey-dispatcher.retry-delay", "PT5M", "元数据分发 Valkey worker 重试延迟"),
@@ -346,6 +437,20 @@ public class SystemConfigDefaults {
                 .map(DefaultConfig::defaultValue);
     }
 
+    public ConfigMetadata metadata(String key) {
+        if (key == null || key.isBlank()) {
+            return ConfigMetadata.hot();
+        }
+        String normalized = key.trim();
+        if (isKnownHotKey(normalized)) {
+            return ConfigMetadata.hot();
+        }
+        if (isRestartRequiredKey(normalized)) {
+            return ConfigMetadata.restartRequired(restartServices(normalized));
+        }
+        return ConfigMetadata.hot();
+    }
+
     public List<String> injectionKeys(String key) {
         List<String> aliases = INJECTION_ALIASES.getOrDefault(key, List.of());
         return java.util.stream.Stream.concat(java.util.stream.Stream.of(key), aliases.stream())
@@ -388,6 +493,103 @@ public class SystemConfigDefaults {
             String description,
             String upgradeLegacyValue) {
         return new DefaultConfig(key, defaultValue, description, false, upgradeLegacyValue);
+    }
+
+    private static boolean isRestartRequiredKey(String key) {
+        return key.contains(".client-secret")
+                || key.contains(".app-secret")
+                || key.contains(".app-key")
+                || key.contains(".password")
+                || key.contains(".secret")
+                || key.contains(".token")
+                || key.contains(".access-key")
+                || key.contains(".secret-key")
+                || key.contains(".worker-id")
+                || key.contains(".cluster-lock.")
+                || key.contains(".thread-pool.")
+                || key.contains(".concurrency")
+                || key.contains(".queue-capacity")
+                || key.contains(".await-termination")
+                || key.contains(".base-url")
+                || key.contains(".targets.")
+                || key.startsWith("app.task.")
+                || isCacheStartupKey(key)
+                || key.startsWith("app.storage.r2.")
+                || key.startsWith("app.storage.base-path")
+                || key.startsWith("app.storage.public-path")
+                || key.startsWith("app.system-config.valkey-cache.")
+                || "app.runtime-config.local-cache.ttl".equals(key)
+                || "security.jwt.secret".equals(key)
+                || "security.admin.password".equals(key);
+    }
+
+    private static boolean isKnownHotKey(String key) {
+        return key.startsWith("app.ops.service-restart.")
+                || key.startsWith("app.scraper.traffic.")
+                || key.startsWith("app.magnet.traffic.")
+                || key.startsWith("app.storage.image.traffic.")
+                || key.startsWith("app.identity.auth-rate-limit.")
+                || "app.identity.pow.enabled".equals(key)
+                || "app.portal.cache.enabled".equals(key)
+                || "app.search.cache.enabled".equals(key)
+                || "app.catalog.cache.enabled".equals(key)
+                || "app.credential.cache.enabled".equals(key)
+                || "app.magnet.cache.enabled".equals(key);
+    }
+
+    private static boolean isCacheStartupKey(String key) {
+        return key.startsWith("app.portal.cache.")
+                || key.startsWith("app.search.cache.")
+                || key.startsWith("app.catalog.cache.")
+                || key.startsWith("app.credential.cache.")
+                || key.startsWith("app.credential.lease-cache.")
+                || key.startsWith("app.magnet.cache.");
+    }
+
+    private static List<String> restartServices(String key) {
+        List<String> services = new ArrayList<>();
+        addServiceIfMatches(services, key, "app.ops.", "ircs-ops-service");
+        addServiceIfMatches(services, key, "app.bff.", "ircs-admin-bff", "ircs-portal-bff");
+        addServiceIfMatches(services, key, "app.task.", "ircs-task-service");
+        addServiceIfMatches(services, key, "app.search.", "ircs-search-service");
+        addServiceIfMatches(services, key, "app.storage.", "ircs-storage-service", "ircs-identity-service", "ircs-portal-service", "ircs-search-service");
+        addServiceIfMatches(services, key, "app.identity.", "ircs-identity-service");
+        addServiceIfMatches(services, key, "app.aggregation.", "ircs-aggregation-worker");
+        addServiceIfMatches(services, key, "app.scraper.", "ircs-scraper-service");
+        addServiceIfMatches(services, key, "app.magnet.", "ircs-magnet-service");
+        addServiceIfMatches(services, key, "app.credential.", "ircs-credential-service");
+        addServiceIfMatches(services, key, "app.catalog.", "ircs-catalog-service");
+        addServiceIfMatches(services, key, "app.portal.", "ircs-portal-service");
+        addServiceIfMatches(services, key, "app.normalization.", "ircs-normalization-worker");
+        addServiceIfMatches(services, key, "app.notification.", "ircs-notification-worker");
+        addServiceIfMatches(services, key, "app.mail.", "ircs-notification-worker", "ircs-identity-service");
+        addServiceIfMatches(services, key, "member.", "ircs-identity-service", "ircs-interaction-service");
+        addServiceIfMatches(services, key, "security.", "ircs-identity-service", "ircs-admin-bff", "ircs-portal-bff");
+        addServiceIfMatches(services, key, "normalization.", "ircs-normalization-worker");
+        addServiceIfMatches(services, key, "global.traffic.", "ircs-scraper-service", "ircs-metadata-worker", "ircs-magnet-service", "ircs-storage-service");
+        if (key.startsWith("app.system-config.") || key.startsWith("app.runtime-config.")) {
+            services.addAll(List.of(
+                    "ircs-config-service",
+                    "ircs-ops-service",
+                    "ircs-portal-service",
+                    "ircs-metadata-worker",
+                    "ircs-normalization-worker",
+                    "ircs-scraper-service",
+                    "ircs-search-service",
+                    "ircs-storage-service",
+                    "ircs-aggregation-worker",
+                    "ircs-notification-worker",
+                    "ircs-content-service",
+                    "ircs-identity-service",
+                    "ircs-interaction-service"));
+        }
+        return services.stream().distinct().toList();
+    }
+
+    private static void addServiceIfMatches(List<String> services, String key, String prefix, String... names) {
+        if (key.startsWith(prefix)) {
+            services.addAll(List.of(names));
+        }
     }
 
     private static String llmPrompt(String expert, String validList) {
@@ -433,5 +635,26 @@ public class SystemConfigDefaults {
         public ResolvedDefault(String key, String value, String description, boolean upgradeLegacyFalse) {
             this(key, value, description, upgradeLegacyFalse, null);
         }
+    }
+
+    public record ConfigMetadata(
+            ActivationMode activationMode,
+            List<String> restartServices) {
+        public ConfigMetadata {
+            restartServices = restartServices == null ? List.of() : List.copyOf(restartServices);
+        }
+
+        static ConfigMetadata hot() {
+            return new ConfigMetadata(ActivationMode.HOT, List.of());
+        }
+
+        static ConfigMetadata restartRequired(List<String> restartServices) {
+            return new ConfigMetadata(ActivationMode.RESTART_REQUIRED, restartServices);
+        }
+    }
+
+    public enum ActivationMode {
+        HOT,
+        RESTART_REQUIRED
     }
 }

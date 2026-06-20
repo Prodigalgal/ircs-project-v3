@@ -272,6 +272,7 @@ class PortalSearchQueryServiceTest {
                 new CacheRegistry(),
                 null,
                 null,
+                null,
                 true,
                 Duration.ofSeconds(60),
                 Duration.ofSeconds(60));

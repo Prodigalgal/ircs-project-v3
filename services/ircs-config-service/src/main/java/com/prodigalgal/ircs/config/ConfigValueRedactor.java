@@ -12,10 +12,18 @@ public class ConfigValueRedactor {
             Pattern.CASE_INSENSITIVE);
 
     public SystemConfigSummary sanitize(SystemConfigRecord record) {
-        return sanitize(record, record.value(), "DB");
+        return sanitize(record, record.value(), "DB", SystemConfigDefaults.ConfigMetadata.hot());
     }
 
     public SystemConfigSummary sanitize(SystemConfigRecord record, String effectiveValue, String effectiveSource) {
+        return sanitize(record, effectiveValue, effectiveSource, SystemConfigDefaults.ConfigMetadata.hot());
+    }
+
+    public SystemConfigSummary sanitize(
+            SystemConfigRecord record,
+            String effectiveValue,
+            String effectiveSource,
+            SystemConfigDefaults.ConfigMetadata metadata) {
         boolean sensitive = isSensitive(record.key());
         return new SystemConfigSummary(
                 record.id(),
@@ -26,7 +34,9 @@ public class ConfigValueRedactor {
                 record.description(),
                 record.revision(),
                 record.updatedAt(),
-                sensitive);
+                sensitive,
+                metadata.activationMode().name(),
+                metadata.restartServices());
     }
 
     boolean isSensitive(String key) {

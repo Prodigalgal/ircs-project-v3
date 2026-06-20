@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.cache.TieredReadThroughCache;
 import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -28,7 +29,8 @@ class MagnetReadModelCache {
     private static final Duration DEFAULT_PROVIDER_TTL = Duration.ofMinutes(5);
     private static final Duration DEFAULT_APPROVED_LINKS_TTL = Duration.ofSeconds(60);
 
-    private final boolean enabled;
+    private final boolean enabledByDeployment;
+    private final RuntimeConfigService runtimeConfig;
     private final TieredReadThroughCache<String, List<MagnetProviderSummary>> providerListCache;
     private final TieredReadThroughCache<String, List<MagnetProviderSummary>> enabledProviderListCache;
     private final TieredReadThroughCache<UUID, MagnetProviderSummary> providerDetailCache;
@@ -37,6 +39,7 @@ class MagnetReadModelCache {
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
             ObjectProvider<StringRedisTemplate> redisTemplate,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.magnet.cache.enabled:true}") boolean enabled,
             @Value("${app.magnet.cache.provider-ttl:PT5M}") Duration providerTtl,
             @Value("${app.magnet.cache.approved-links-ttl:PT60S}") Duration approvedLinksTtl) {
@@ -45,7 +48,8 @@ class MagnetReadModelCache {
                 : objectMapper;
         CacheRegistry registry = cacheRegistry == null ? new CacheRegistry() : cacheRegistry;
         TieredStringCacheStore store = store(redisTemplate);
-        this.enabled = enabled;
+        this.enabledByDeployment = enabled;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
         this.providerListCache = register(registry, new TieredReadThroughCache<>(
                 CACHE_PROVIDER_LIST,
                 ttl(providerTtl, DEFAULT_PROVIDER_TTL),
@@ -85,13 +89,14 @@ class MagnetReadModelCache {
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
                 null,
+                null,
                 false,
                 DEFAULT_PROVIDER_TTL,
                 DEFAULT_APPROVED_LINKS_TTL);
     }
 
     List<MagnetProviderSummary> listProviders(Supplier<List<MagnetProviderSummary>> loader) {
-        if (!enabled) {
+        if (!enabled()) {
             return nullProviders(loader.get());
         }
         return nullProviders(providerListCache.get(ALL, () -> nullProviders(loader.get())));
@@ -101,7 +106,7 @@ class MagnetReadModelCache {
         if (id == null) {
             return Optional.empty();
         }
-        if (!enabled) {
+        if (!enabled()) {
             return loader.get();
         }
         MagnetProviderSummary result = providerDetailCache.get(id, () -> loader.get().orElse(null));
@@ -109,7 +114,7 @@ class MagnetReadModelCache {
     }
 
     List<MagnetProviderSummary> listEnabledProviders(Supplier<List<MagnetProviderSummary>> loader) {
-        if (!enabled) {
+        if (!enabled()) {
             return nullProviders(loader.get());
         }
         return nullProviders(enabledProviderListCache.get(ALL, () -> nullProviders(loader.get())));
@@ -119,7 +124,7 @@ class MagnetReadModelCache {
         if (unifiedVideoId == null) {
             return List.of();
         }
-        if (!enabled) {
+        if (!enabled()) {
             return nullLinks(loader.get());
         }
         return nullLinks(approvedLinksCache.get(unifiedVideoId, () -> nullLinks(loader.get())));
@@ -152,6 +157,13 @@ class MagnetReadModelCache {
             TieredReadThroughCache<K, T> cache) {
         registry.register(cache);
         return cache;
+    }
+
+    private boolean enabled() {
+        if (runtimeConfig == null) {
+            return enabledByDeployment;
+        }
+        return runtimeConfig.booleanValue("app.magnet.cache.enabled", enabledByDeployment);
     }
 
     private static List<MagnetProviderSummary> nullProviders(List<MagnetProviderSummary> value) {

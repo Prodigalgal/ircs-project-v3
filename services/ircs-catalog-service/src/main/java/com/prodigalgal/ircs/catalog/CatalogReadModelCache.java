@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.cache.TieredReadThroughCache;
 import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.time.Duration;
 import java.util.List;
 import java.util.function.Supplier;
@@ -29,7 +30,8 @@ class CatalogReadModelCache {
     private static final String ALL_KEY = "all";
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
 
-    private final boolean enabled;
+    private final boolean enabledByDeployment;
+    private final RuntimeConfigService runtimeConfig;
     private final TieredReadThroughCache<String, List<StandardCategorySummary>> standardCategorySummaries;
     private final TieredReadThroughCache<String, List<StandardGenreSummary>> standardGenreSummaries;
     private final TieredReadThroughCache<String, List<StandardAreaSummary>> standardAreaSummaries;
@@ -43,6 +45,7 @@ class CatalogReadModelCache {
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
             ObjectProvider<StringRedisTemplate> redisTemplate,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.catalog.cache.enabled:true}") boolean enabled,
             @Value("${app.catalog.cache.standard-dictionary-ttl:PT10M}") Duration standardDictionaryTtl) {
         ObjectMapper mapper = objectMapper == null
@@ -51,7 +54,8 @@ class CatalogReadModelCache {
         CacheRegistry registry = cacheRegistry == null ? new CacheRegistry() : cacheRegistry;
         TieredStringCacheStore store = store(redisTemplate);
         Duration ttl = ttl(standardDictionaryTtl);
-        this.enabled = enabled;
+        this.enabledByDeployment = enabled;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
         this.standardCategorySummaries = register(registry, cache(
                 mapper,
                 CACHE_STANDARD_CATEGORY_SUMMARIES,
@@ -106,6 +110,7 @@ class CatalogReadModelCache {
         return new CatalogReadModelCache(
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
+                null,
                 null,
                 false,
                 DEFAULT_TTL);
@@ -164,11 +169,18 @@ class CatalogReadModelCache {
     }
 
     private <T> List<T> get(TieredReadThroughCache<String, List<T>> cache, Supplier<List<T>> loader) {
-        if (!enabled) {
+        if (!enabled()) {
             return loader.get();
         }
         List<T> result = cache.get(ALL_KEY, loader);
         return result == null ? List.of() : result;
+    }
+
+    private boolean enabled() {
+        if (runtimeConfig == null) {
+            return enabledByDeployment;
+        }
+        return runtimeConfig.booleanValue("app.catalog.cache.enabled", enabledByDeployment);
     }
 
     private <T> TieredReadThroughCache<String, List<T>> cache(

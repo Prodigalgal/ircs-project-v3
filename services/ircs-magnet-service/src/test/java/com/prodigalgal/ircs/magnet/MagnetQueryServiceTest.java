@@ -331,6 +331,7 @@ class MagnetQueryServiceTest {
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
                 null,
+                null,
                 true,
                 Duration.ofMinutes(5),
                 Duration.ofSeconds(60));

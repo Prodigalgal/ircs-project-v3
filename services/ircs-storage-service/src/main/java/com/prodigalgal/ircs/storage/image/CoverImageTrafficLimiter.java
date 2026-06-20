@@ -5,10 +5,12 @@ import com.prodigalgal.ircs.common.lock.DistributedLockManager;
 import com.prodigalgal.ircs.common.lock.DistributedLockProfile;
 import com.prodigalgal.ircs.common.lock.TimeSliceReservation;
 import com.prodigalgal.ircs.common.lock.TimeSliceReservationRequest;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.outbound.EgressIdentities;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Locale;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -19,15 +21,17 @@ class CoverImageTrafficLimiter {
     private static final String GLOBAL_KEY_PREFIX = "traffic:limit:Global:ImageDownload:Ip:";
 
     private final DistributedLockManager lockManager;
-    private final boolean enabled;
-    private final String egressIdentity;
-    private final Duration globalGap;
-    private final Duration domainGap;
-    private final Duration maxWait;
-    private final Duration ttl;
+    private final RuntimeConfigService runtimeConfig;
+    private final boolean enabledByDeployment;
+    private final String egressIdentityByDeployment;
+    private final Duration globalGapByDeployment;
+    private final Duration domainGapByDeployment;
+    private final Duration maxWaitByDeployment;
+    private final Duration ttlByDeployment;
 
     CoverImageTrafficLimiter(
             DistributedLockManager lockManager,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.storage.image.traffic.enabled:true}") boolean enabled,
             @Value("${app.storage.image.traffic.egress-id:${APP_STORAGE_TRAFFIC_EGRESS_ID:${IRCS_TRAFFIC_EGRESS_ID:${HOST_IP:${HOSTNAME:unknown}}}}}") String egressIdentity,
             @Value("${app.storage.image.traffic.global-gap-ms:500}") long globalGapMs,
@@ -35,23 +39,25 @@ class CoverImageTrafficLimiter {
             @Value("${app.storage.image.traffic.max-wait:PT2M}") Duration maxWait,
             @Value("${app.storage.image.traffic.ttl:PT10M}") Duration ttl) {
         this.lockManager = lockManager;
-        this.enabled = enabled;
-        this.egressIdentity = EgressIdentities.sanitize(egressIdentity);
-        this.globalGap = positiveOr(globalGapMs, Duration.ofMillis(500));
-        this.domainGap = positiveOr(domainGapMs, Duration.ofSeconds(1));
-        this.maxWait = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
-        this.ttl = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
+        this.enabledByDeployment = enabled;
+        this.egressIdentityByDeployment = EgressIdentities.sanitize(egressIdentity);
+        this.globalGapByDeployment = positiveOr(globalGapMs, Duration.ofMillis(500));
+        this.domainGapByDeployment = positiveOr(domainGapMs, Duration.ofSeconds(1));
+        this.maxWaitByDeployment = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
+        this.ttlByDeployment = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
     }
 
     static CoverImageTrafficLimiter noop() {
-        return new CoverImageTrafficLimiter(null, false, "unknown", 0, 0, Duration.ZERO, Duration.ZERO);
+        return new CoverImageTrafficLimiter(null, null, false, "unknown", 0, 0, Duration.ZERO, Duration.ZERO);
     }
 
     void acquire(URI uri) {
-        if (!enabled || lockManager == null) {
+        if (!enabled() || lockManager == null) {
             return;
         }
-        reserve(GLOBAL_KEY_PREFIX + egressIdentity, globalGap, "image download");
+        String egressIdentity = egressIdentity();
+        reserve(GLOBAL_KEY_PREFIX + egressIdentity, globalGap(), "image download");
         String host = uri == null ? null : uri.getHost();
         if (!StringUtils.hasText(host)) {
             return;
@@ -59,7 +65,7 @@ class CoverImageTrafficLimiter {
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.DOMAIN_FETCH);
         reserve(
                 profile.keyPrefix() + "Ip:" + egressIdentity + ":" + EgressIdentities.sanitize(host.toLowerCase(Locale.ROOT)),
-                domainGap,
+                domainGap(),
                 host);
     }
 
@@ -67,8 +73,8 @@ class CoverImageTrafficLimiter {
         TimeSliceReservation reservation = lockManager.reserveTimeSlice(new TimeSliceReservationRequest(
                 key,
                 gap,
-                maxWait,
-                ttl));
+                maxWait(),
+                ttl()));
         if (reservation.rejected()) {
             throw new IllegalStateException("Image download traffic limit saturated: " + label);
         }
@@ -89,5 +95,45 @@ class CoverImageTrafficLimiter {
 
     private static Duration positiveOr(long millis, Duration fallback) {
         return millis > 0 ? Duration.ofMillis(millis) : fallback;
+    }
+
+    private boolean enabled() {
+        return runtimeConfig == null
+                ? enabledByDeployment
+                : runtimeConfig.booleanValue("app.storage.image.traffic.enabled", enabledByDeployment);
+    }
+
+    private String egressIdentity() {
+        String value = runtimeConfig == null
+                ? egressIdentityByDeployment
+                : runtimeConfig.stringValue("app.storage.image.traffic.egress-id", egressIdentityByDeployment);
+        return EgressIdentities.sanitize(value);
+    }
+
+    private Duration globalGap() {
+        return gap("app.storage.image.traffic.global-gap-ms", globalGapByDeployment);
+    }
+
+    private Duration domainGap() {
+        return gap("app.storage.image.traffic.domain-gap-ms", domainGapByDeployment);
+    }
+
+    private Duration gap(String key, Duration fallback) {
+        long configured = runtimeConfig == null ? fallback.toMillis() : runtimeConfig.longValue(key, fallback.toMillis());
+        return configured > 0 ? Duration.ofMillis(configured) : fallback;
+    }
+
+    private Duration maxWait() {
+        Duration value = runtimeConfig == null
+                ? maxWaitByDeployment
+                : runtimeConfig.durationValue("app.storage.image.traffic.max-wait", maxWaitByDeployment);
+        return value == null || value.isNegative() ? maxWaitByDeployment : value;
+    }
+
+    private Duration ttl() {
+        Duration value = runtimeConfig == null
+                ? ttlByDeployment
+                : runtimeConfig.durationValue("app.storage.image.traffic.ttl", ttlByDeployment);
+        return value == null || !value.isPositive() ? ttlByDeployment : value;
     }
 }
