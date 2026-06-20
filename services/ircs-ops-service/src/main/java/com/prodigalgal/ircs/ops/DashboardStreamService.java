@@ -40,13 +40,6 @@ class DashboardStreamService {
         emitter.onCompletion(() -> open.set(false));
         emitter.onTimeout(() -> open.set(false));
         emitter.onError(error -> open.set(false));
-        try {
-            sendSnapshot(emitter, taskRuntimeLimit);
-        } catch (IOException ex) {
-            open.set(false);
-            emitter.completeWithError(ex);
-            return emitter;
-        }
         taskExecutor.execute(() -> pump(emitter, open, taskRuntimeLimit));
         return emitter;
     }
@@ -60,10 +53,8 @@ class DashboardStreamService {
     private void pump(SseEmitter emitter, AtomicBoolean open, int taskRuntimeLimit) {
         try {
             while (open.get()) {
+                sendSnapshot(emitter, taskRuntimeLimit);
                 sleep(interval);
-                if (open.get()) {
-                    sendSnapshot(emitter, taskRuntimeLimit);
-                }
             }
         } catch (IOException ex) {
             log.debug("Dashboard stream client disconnected: {}", ex.getMessage());
