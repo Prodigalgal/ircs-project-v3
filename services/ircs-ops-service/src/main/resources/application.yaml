@@ -51,6 +51,7 @@ app:
         enabled: ${APP_OPS_DASHBOARD_SNAPSHOT_ENABLED:true}
         key-prefix: ${APP_OPS_DASHBOARD_SNAPSHOT_KEY_PREFIX:ircs:ops:dashboard:snapshot:v1}
         refresh-interval: ${APP_OPS_DASHBOARD_SNAPSHOT_REFRESH_INTERVAL:PT2S}
+        refresh-budget: ${APP_OPS_DASHBOARD_SNAPSHOT_REFRESH_BUDGET:PT3S}
         fresh-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_FRESH_TTL:PT6S}
         stale-grace: ${APP_OPS_DASHBOARD_SNAPSHOT_STALE_GRACE:PT60S}
         redis-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_REDIS_TTL:PT2M}
