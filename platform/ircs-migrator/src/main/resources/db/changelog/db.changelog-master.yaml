@@ -121,3 +121,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/remove-core-pipeline-switch-configs.sql
   - include:
       file: db/changelog/2026/07/add-admin-api-tokens.sql
+  - include:
+      file: db/changelog/2026/07/add-ops-audit-read-indexes.sql
