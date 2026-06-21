@@ -12,10 +12,7 @@ import org.springframework.util.StringUtils;
 
 @Repository
 @ConditionalOnClass(JdbcTemplate.class)
-public class RuntimeConfigRepository implements RuntimeConfigValueSource {
-
-    private final JdbcTemplate jdbcTemplate;
-    private final SystemConfigValkeyCache cache;
+public class RuntimeConfigRepository extends JdbcSystemConfigRepositorySupport {
 
     public RuntimeConfigRepository(
             JdbcTemplate jdbcTemplate,
@@ -23,8 +20,7 @@ public class RuntimeConfigRepository implements RuntimeConfigValueSource {
             @Value("${app.system-config.valkey-cache.key-prefix:ircs:system-config:v1}") String keyPrefix,
             @Value("${app.system-config.valkey-cache.ttl:PT12H}") Duration remoteTtl,
             @Value("${app.runtime-config.local-cache.ttl:PT2S}") Duration localTtl) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.cache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, remoteTtl, localTtl);
+        super(jdbcTemplate, redisTemplateProvider, keyPrefix, remoteTtl, localTtl);
     }
 
     @Override
@@ -33,20 +29,13 @@ public class RuntimeConfigRepository implements RuntimeConfigValueSource {
             return Optional.empty();
         }
         String normalizedKey = key.trim();
-        return cache.findValue(normalizedKey, () -> findValueFromDatabase(normalizedKey));
+        return super.findValue(normalizedKey);
     }
 
     @Override
     public void evict(String key) {
         if (StringUtils.hasText(key)) {
-            cache.evictLocal(key.trim());
+            super.evict(key.trim());
         }
-    }
-
-    private Optional<String> findValueFromDatabase(String key) {
-        return jdbcTemplate.query(
-                "select config_value from system_configs where config_key = ?",
-                ps -> ps.setString(1, key),
-                rs -> rs.next() ? Optional.ofNullable(rs.getString(1)) : Optional.empty());
     }
 }
