@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -45,12 +44,7 @@ public class PoWService {
     private final IdentityConfigService configService;
     private final SecureRandom secureRandom;
 
-    @Autowired
-    public PoWService(StringRedisTemplate redisTemplate, IdentityConfigService configService) {
-        this(redisTemplate, configService, new SecureRandom());
-    }
-
-    PoWService(StringRedisTemplate redisTemplate, IdentityConfigService configService, SecureRandom secureRandom) {
+    public PoWService(StringRedisTemplate redisTemplate, IdentityConfigService configService, SecureRandom secureRandom) {
         this.redisTemplate = redisTemplate;
         this.configService = configService;
         this.secureRandom = secureRandom;

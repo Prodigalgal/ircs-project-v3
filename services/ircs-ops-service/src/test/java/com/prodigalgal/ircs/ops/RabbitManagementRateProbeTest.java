@@ -43,7 +43,7 @@ class RabbitManagementRateProbeTest {
     void recordsPositiveCounterDeltasIntoRateBuckets() throws Exception {
         when(redisTemplate.opsForHash()).thenReturn(hashOps);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOps);
-        RabbitManagementRateProbe probe = new RabbitManagementRateProbe(objectMapper, redisTemplate);
+        RabbitManagementRateProbe probe = new RabbitManagementRateProbe(objectMapper, redisTemplate, null);
 
         probe.recordCounters(objectMapper.readTree(queueJson(1, 2, 3, 0)));
         probe.recordCounters(objectMapper.readTree(queueJson(5, 7, 9, 1)));

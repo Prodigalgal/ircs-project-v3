@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -44,14 +43,9 @@ public class RequestAuditRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final RuntimeConfigService runtimeConfig;
 
-    @Autowired
     public RequestAuditRepository(NamedParameterJdbcTemplate jdbcTemplate, RuntimeConfigService runtimeConfig) {
         this.jdbcTemplate = jdbcTemplate;
         this.runtimeConfig = runtimeConfig;
-    }
-
-    RequestAuditRepository(NamedParameterJdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null);
     }
 
     public Page<RequestAuditLogResponse> findAll(

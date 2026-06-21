@@ -38,6 +38,7 @@ class PoWServiceTest {
         new ApplicationContextRunner()
                 .withBean(StringRedisTemplate.class, () -> redisTemplate)
                 .withBean(IdentityConfigService.class, () -> configService)
+                .withBean(SecureRandom.class, SecureRandom::new)
                 .withUserConfiguration(PoWServiceConfiguration.class)
                 .run(context -> assertThat(context).hasSingleBean(PoWService.class));
     }

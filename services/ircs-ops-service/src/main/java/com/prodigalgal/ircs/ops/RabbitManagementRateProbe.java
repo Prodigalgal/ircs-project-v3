@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -53,7 +52,6 @@ class RabbitManagementRateProbe {
     @Value("${spring.rabbitmq.password:guest}")
     private String fallbackPassword;
 
-    @Autowired
     RabbitManagementRateProbe(
             ObjectMapper objectMapper,
             StringRedisTemplate redisTemplate,
@@ -61,10 +59,6 @@ class RabbitManagementRateProbe {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.runtimeConfig = runtimeConfig;
-    }
-
-    RabbitManagementRateProbe(ObjectMapper objectMapper, StringRedisTemplate redisTemplate) {
-        this(objectMapper, redisTemplate, null);
     }
 
     @Scheduled(initialDelayString = "1000", fixedDelayString = "1000")
