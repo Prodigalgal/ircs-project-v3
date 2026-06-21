@@ -58,6 +58,8 @@ class SystemConfigDefaultsTest {
         assertEquals("16", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.parallelism").orElseThrow());
         assertEquals("PT2S", defaults.staticDefaultValue("app.runtime-config.local-cache.ttl").orElseThrow());
         assertEquals("PT2S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-interval").orElseThrow());
+        assertEquals("PT6S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-budget").orElseThrow());
+        assertEquals("PT15S", defaults.staticDefaultValue("app.ops.metrics.cache-ttl").orElseThrow());
         assertEquals("PT120S", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
         assertEquals("PT10S", defaults.staticDefaultValue("app.rate-metrics.bucket-size").orElseThrow());

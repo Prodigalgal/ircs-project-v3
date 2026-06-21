@@ -12,6 +12,7 @@ import com.prodigalgal.ircs.common.work.SystemConfigWorkSubmissionGate;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import java.io.File;
 import java.time.Duration;
@@ -22,7 +23,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -32,6 +38,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SystemMetricsService {
 
     private final RabbitAdmin rabbitAdmin;
@@ -44,6 +51,8 @@ public class SystemMetricsService {
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
     private final RuntimeConfigService runtimeConfig;
 
+    private final ExecutorService metricsRefreshExecutor = Executors.newSingleThreadExecutor(refreshThreadFactory());
+    private final AtomicBoolean metricsRefreshRunning = new AtomicBoolean(false);
     private volatile CachedMetrics cachedMetrics;
 
     @PostConstruct
@@ -69,17 +78,8 @@ public class SystemMetricsService {
         if (cached != null && cached.expiresAtMillis() > now) {
             return cached.response();
         }
-        synchronized (this) {
-            cached = cachedMetrics;
-            if (cached != null && cached.expiresAtMillis() > now) {
-                return cached.response();
-            }
-            SystemMetricsResponse response = loadCurrentMetrics();
-            cachedMetrics = new CachedMetrics(
-                    response,
-                    now + cacheTtl.toMillis());
-            return response;
-        }
+        refreshMetricsAsync(cacheTtl);
+        return cachedOrFallback(cached, "METRICS_REFRESHING");
     }
 
     private SystemMetricsResponse loadCurrentMetrics() {
@@ -123,6 +123,46 @@ public class SystemMetricsService {
 
     public void refreshRateMetrics() {
         cachedMetrics = null;
+        refreshMetricsAsync(metricsCacheTtl());
+    }
+
+    @PreDestroy
+    void shutdownMetricsRefreshExecutor() {
+        metricsRefreshExecutor.shutdownNow();
+    }
+
+    private void refreshMetricsAsync(Duration cacheTtl) {
+        if (cacheTtl == null || cacheTtl.isZero() || cacheTtl.isNegative()) {
+            return;
+        }
+        if (!metricsRefreshRunning.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            metricsRefreshExecutor.execute(() -> refreshMetricsCache(cacheTtl));
+        } catch (RuntimeException ex) {
+            metricsRefreshRunning.set(false);
+            log.debug("System metrics async refresh scheduling failed: {}", ex.getMessage());
+        }
+    }
+
+    private void refreshMetricsCache(Duration cacheTtl) {
+        try {
+            SystemMetricsResponse response = loadCurrentMetrics();
+            cachedMetrics = new CachedMetrics(
+                    response,
+                    System.currentTimeMillis() + cacheTtl.toMillis());
+        } catch (RuntimeException ex) {
+            log.debug("System metrics async refresh failed: {}", ex.getMessage());
+        } finally {
+            metricsRefreshRunning.set(false);
+        }
+    }
+
+    private SystemMetricsResponse cachedOrFallback(CachedMetrics cached, String fallbackReason) {
+        return cached == null || cached.response() == null
+                ? DashboardSnapshotFallbacks.metrics(fallbackReason)
+                : cached.response();
     }
 
     private List<QueueGroupResponse> queueGroups(MetricsReadContext context) {
@@ -397,7 +437,7 @@ public class SystemMetricsService {
     }
 
     private Duration metricsCacheTtl() {
-        return runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(2));
+        return runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(15));
     }
 
     private QueueState queueState(String queueName) {
@@ -830,6 +870,10 @@ public class SystemMetricsService {
     }
 
     private record CachedMetrics(SystemMetricsResponse response, long expiresAtMillis) {
+    }
+
+    private static ThreadFactory refreshThreadFactory() {
+        return Thread.ofVirtual().name("ops-metrics-refresh-", 0).factory();
     }
 
     private record QueueState(int messageCount, int consumerCount) {

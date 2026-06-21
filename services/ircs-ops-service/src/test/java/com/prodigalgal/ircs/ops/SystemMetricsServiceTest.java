@@ -221,16 +221,17 @@ class SystemMetricsServiceTest {
 
     @Test
     void metricsUseShortLocalCacheForRepeatedReads() throws Exception {
-        when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(2)))
+        when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(15)))
                 .thenReturn(Duration.ofSeconds(5));
         when(rabbitAdmin.getQueueProperties(QueueTopic.INGEST_VIDEO.queueName()))
                 .thenReturn(queueProps(3, 1));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 
         SystemMetricsResponse first = service.currentMetrics();
-        SystemMetricsResponse second = service.currentMetrics();
+        SystemMetricsResponse second = waitForCachedMetrics();
 
-        assertEquals(first, second);
+        assertEquals("METRICS_REFRESHING", first.history().get("dashboardSnapshot"));
+        assertEquals(3, second.ingestQueueDepth());
         verify(rabbitAdmin, times(1)).getQueueProperties(QueueTopic.INGEST_VIDEO.queueName());
     }
 
@@ -404,7 +405,20 @@ class SystemMetricsServiceTest {
         when(runtimeConfig.positiveDurationValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold",
                 Duration.ofSeconds(120))).thenReturn(Duration.ofSeconds(120));
-        when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(2)))
+        when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(15)))
                 .thenReturn(Duration.ZERO);
+    }
+
+    private SystemMetricsResponse waitForCachedMetrics() throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        SystemMetricsResponse latest = null;
+        while (System.nanoTime() < deadline) {
+            latest = service.currentMetrics();
+            if (!"METRICS_REFRESHING".equals(latest.history().get("dashboardSnapshot"))) {
+                return latest;
+            }
+            Thread.sleep(25);
+        }
+        return latest;
     }
 }
