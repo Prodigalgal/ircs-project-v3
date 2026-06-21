@@ -3,14 +3,17 @@ package com.prodigalgal.ircs.ops;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequiredArgsConstructor
@@ -56,9 +59,15 @@ public class DashboardController {
         return ResponseEntity.ok(dashboardQueryService.getAggregationOpsStats());
     }
 
-    @GetMapping(value = "/metrics/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter metricsStream(@RequestParam(defaultValue = "50") int limit) {
-        return dashboardStreamService.stream(limit);
+    @GetMapping(value = "/stream/{topic}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter topicStream(
+            @PathVariable String topic,
+            @RequestParam(defaultValue = "50") int limit) {
+        try {
+            return dashboardStreamService.stream(topic, limit);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
+        }
     }
 
     @GetMapping("/source-quality")

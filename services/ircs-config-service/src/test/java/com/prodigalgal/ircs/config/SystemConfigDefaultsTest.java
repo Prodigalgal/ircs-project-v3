@@ -91,8 +91,8 @@ class SystemConfigDefaultsTest {
         assertEquals("40", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.batch-size").orElseThrow());
         assertEquals("16", defaults.staticDefaultValue("app.metadata.valkey-provider-worker.parallelism").orElseThrow());
         assertEquals("PT2S", defaults.staticDefaultValue("app.runtime-config.local-cache.ttl").orElseThrow());
-        assertEquals("PT2S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-interval").orElseThrow());
-        assertEquals("PT6S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-budget").orElseThrow());
+        assertEquals("PT3S", defaults.staticDefaultValue("app.ops.dashboard.stream.metrics.interval").orElseThrow());
+        assertEquals("PT5S", defaults.staticDefaultValue("app.ops.dashboard.stream.search-ops.interval").orElseThrow());
         assertEquals("PT15S", defaults.staticDefaultValue("app.ops.metrics.cache-ttl").orElseThrow());
         assertEquals("PT120S", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
@@ -297,17 +297,11 @@ class SystemConfigDefaultsTest {
             "app.scraper.config-listener.enabled",
             "app.search.config-listener.enabled",
             "app.storage.config-listener.enabled",
-            "app.ops.dashboard.snapshot.enabled",
-            "app.ops.dashboard.snapshot.default-task-runtime-limit",
-            "app.ops.dashboard.snapshot.refresh-interval",
-            "app.ops.dashboard.snapshot.refresh-budget",
-            "app.ops.dashboard.snapshot.lease-ttl",
-            "app.ops.dashboard.snapshot.cluster-lease.enabled",
-            "app.ops.dashboard.snapshot.key-prefix",
-            "app.ops.dashboard.snapshot.fresh-ttl",
-            "app.ops.dashboard.snapshot.stale-grace",
-            "app.ops.dashboard.snapshot.redis-ttl",
             "app.ops.dashboard.stream.interval",
+            "app.ops.dashboard.stream.metrics.interval",
+            "app.ops.dashboard.stream.task-runtime.interval",
+            "app.ops.dashboard.stream.search-ops.interval",
+            "app.ops.dashboard.stream.aggregation-ops.interval",
             "app.ops.dashboard.stream.timeout",
             "app.ops.metrics.cache-ttl",
             "app.ops.metrics.instant-window",

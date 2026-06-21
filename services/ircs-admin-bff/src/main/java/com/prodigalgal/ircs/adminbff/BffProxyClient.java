@@ -18,10 +18,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -97,7 +101,7 @@ class BffProxyClient {
         try {
             ResolvedRoute route = routes.resolve(request.getRequestURI())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
-            URI target = targetUri(route, request.getQueryString());
+            URI target = targetUri(route, request);
             OutboundHttpRequest outbound = outboundRequest(request, target);
             try (OutboundStreamingHttpResponse upstream = outboundClient.execute(outbound)) {
                 statusCode = upstream.statusCode();
@@ -123,13 +127,56 @@ class BffProxyClient {
         }
     }
 
-    private URI targetUri(ResolvedRoute route, String query) {
+    private URI targetUri(ResolvedRoute route, HttpServletRequest request) {
         validateTargetBaseUrl(route.targetBaseUrl());
         String value = route.targetBaseUrl() + route.targetPath();
-        if (query != null && !query.isBlank()) {
-            value += "?" + query;
+        String sanitizedQuery = queryForUpstream(request);
+        if (sanitizedQuery != null && !sanitizedQuery.isBlank()) {
+            value += "?" + sanitizedQuery;
         }
         return URI.create(value);
+    }
+
+    private static String queryForUpstream(HttpServletRequest request) {
+        String query = request.getQueryString();
+        return isEventStreamRequest(request) ? sanitizedQuery(query) : query;
+    }
+
+    private static String sanitizedQuery(String query) {
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        List<String> parameters = new ArrayList<>();
+        for (String part : query.split("&")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            String name = part;
+            String value = null;
+            int separator = part.indexOf('=');
+            if (separator >= 0) {
+                name = part.substring(0, separator);
+                value = part.substring(separator + 1);
+            }
+            String decodedName = decodedQueryName(name);
+            if ("token".equalsIgnoreCase(decodedName)) {
+                continue;
+            }
+            if (value == null) {
+                parameters.add(name);
+            } else {
+                parameters.add(name + "=" + value);
+            }
+        }
+        return parameters.isEmpty() ? null : String.join("&", parameters);
+    }
+
+    private static String decodedQueryName(String name) {
+        try {
+            return URLDecoder.decode(name, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            return name;
+        }
     }
 
     private void validateTargetBaseUrl(String targetBaseUrl) {
@@ -186,13 +233,19 @@ class BffProxyClient {
     }
 
     private Duration timeoutFor(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        String accept = request.getHeader("Accept");
-        if ((path != null && path.endsWith("/stream"))
-                || (accept != null && accept.toLowerCase(Locale.ROOT).contains("text/event-stream"))) {
+        if (isEventStreamRequest(request)) {
             return streamRequestTimeout;
         }
         return requestTimeout;
+    }
+
+    private static boolean isEventStreamRequest(HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        if (accept != null && accept.toLowerCase(Locale.ROOT).contains("text/event-stream")) {
+            return true;
+        }
+        String path = request.getRequestURI();
+        return path != null && (path.endsWith("/stream") || path.contains("/stream/"));
     }
 
     private void removeInternalServiceHeaders(Map<String, String> headers) {

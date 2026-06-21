@@ -230,7 +230,7 @@ class SystemMetricsServiceTest {
         SystemMetricsResponse first = service.currentMetrics();
         SystemMetricsResponse second = waitForCachedMetrics();
 
-        assertEquals("METRICS_REFRESHING", first.history().get("dashboardSnapshot"));
+        assertEquals("METRICS_REFRESHING", first.history().get("dashboardMetrics"));
         assertEquals(3, second.ingestQueueDepth());
         verify(rabbitAdmin, times(1)).getQueueProperties(QueueTopic.INGEST_VIDEO.queueName());
     }
@@ -414,7 +414,7 @@ class SystemMetricsServiceTest {
         SystemMetricsResponse latest = null;
         while (System.nanoTime() < deadline) {
             latest = service.currentMetrics();
-            if (!"METRICS_REFRESHING".equals(latest.history().get("dashboardSnapshot"))) {
+            if (!"METRICS_REFRESHING".equals(latest.history().get("dashboardMetrics"))) {
                 return latest;
             }
             Thread.sleep(25);

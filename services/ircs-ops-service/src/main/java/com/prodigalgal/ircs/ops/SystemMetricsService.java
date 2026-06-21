@@ -161,7 +161,7 @@ public class SystemMetricsService {
 
     private SystemMetricsResponse cachedOrFallback(CachedMetrics cached, String fallbackReason) {
         return cached == null || cached.response() == null
-                ? DashboardSnapshotFallbacks.metrics(fallbackReason)
+                ? DashboardFallbacks.metrics(fallbackReason)
                 : cached.response();
     }
 

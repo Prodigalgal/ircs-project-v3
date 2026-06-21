@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -154,6 +155,12 @@ class AdminApiTokenService {
         if (headerToken != null) {
             return Optional.of(headerToken);
         }
+        if (shouldResolveQueryToken(request)) {
+            String queryToken = normalize(request.getParameter("token"));
+            if (queryToken != null && queryToken.startsWith(TOKEN_PREFIX)) {
+                return Optional.of(queryToken);
+            }
+        }
         String authorization = normalize(request.getHeader("Authorization"));
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             return Optional.empty();
@@ -163,6 +170,15 @@ class AdminApiTokenService {
             return Optional.of(bearer);
         }
         return Optional.empty();
+    }
+
+    private static boolean shouldResolveQueryToken(HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        if (accept != null && accept.toLowerCase(Locale.ROOT).contains("text/event-stream")) {
+            return true;
+        }
+        String path = request.getRequestURI();
+        return path != null && (path.endsWith("/stream") || path.contains("/stream/"));
     }
 
     private AdminApiTokenDtos.Summary summary(AdminApiTokenRecord record) {

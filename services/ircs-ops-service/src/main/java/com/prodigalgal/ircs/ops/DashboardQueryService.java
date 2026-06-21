@@ -42,11 +42,11 @@ public class DashboardQueryService {
     }
 
     public Map<String, Object> getSearchOpsStats() {
-        return safeMap(searchOpsStatsClient::currentStats);
+        return safeOpsMap(searchOpsStatsClient::currentStats, "SEARCH_OPS_UNAVAILABLE");
     }
 
     public Map<String, Object> getAggregationOpsStats() {
-        return safeMap(aggregationOpsStatsClient::currentStats);
+        return safeOpsMap(aggregationOpsStatsClient::currentStats, "AGGREGATION_OPS_UNAVAILABLE");
     }
 
     public List<SourceQualityResponse> getSourceQuality() {
@@ -72,6 +72,15 @@ public class DashboardQueryService {
             return values == null ? Map.of() : values;
         } catch (RuntimeException ignored) {
             return Map.of();
+        }
+    }
+
+    private Map<String, Object> safeOpsMap(Supplier<Map<String, Object>> supplier, String unavailableReason) {
+        try {
+            Map<String, Object> values = supplier.get();
+            return values == null ? DashboardFallbacks.unavailableOps(unavailableReason) : values;
+        } catch (RuntimeException ignored) {
+            return DashboardFallbacks.unavailableOps(unavailableReason);
         }
     }
 }

@@ -85,7 +85,11 @@ class DashboardQueryServiceTest {
         when(searchOpsStatsClient.currentStats()).thenThrow(new IllegalStateException("search unavailable"));
         when(aggregationOpsStatsClient.currentStats()).thenThrow(new IllegalStateException("aggregation unavailable"));
 
-        assertTrue(service.getSearchOpsStats().isEmpty());
-        assertTrue(service.getAggregationOpsStats().isEmpty());
+        assertEquals(
+                Map.of("available", false, "unavailableReason", "SEARCH_OPS_UNAVAILABLE"),
+                service.getSearchOpsStats());
+        assertEquals(
+                Map.of("available", false, "unavailableReason", "AGGREGATION_OPS_UNAVAILABLE"),
+                service.getAggregationOpsStats());
     }
 }

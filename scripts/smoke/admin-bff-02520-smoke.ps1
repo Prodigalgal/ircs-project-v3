@@ -157,9 +157,9 @@ try {
     $total = 19
     $i = 1
 
-    $metricsStream = Invoke-Text "$BaseUrl/api/v1/dashboard/metrics/stream"
-    if ($metricsStream -notmatch "ingestTpm") { throw "metrics stream did not include metrics payload" }
-    Mark "GET /api/v1/dashboard/metrics/stream" $i $total; $i++
+    $metricsStream = Invoke-Text "$BaseUrl/api/v1/dashboard/stream/metrics"
+    if ($metricsStream -notmatch "pageDiscoveryRate") { throw "metrics stream did not include metrics payload" }
+    Mark "GET /api/v1/dashboard/stream/metrics" $i $total; $i++
 
     $debug = Invoke-JsonRequest "GET" "$BaseUrl/api/v1/debug/metadata/search?title=Codex%2002520&providerType=TMDB"
     if ($debug.status -ne "DRY_RUN") { throw "metadata debug dry-run mismatch" }

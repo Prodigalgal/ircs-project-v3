@@ -134,7 +134,7 @@ class BffProxyClientTest {
     @Test
     void usesLongTimeoutForEventStreamProxyRequests() throws Exception {
         transport.response = response(200, Map.of("Content-Type", List.of("text/event-stream")), "data: {}\n\n");
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/metrics/stream");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
         request.addHeader("Accept", "text/event-stream");
         MockHttpServletResponse response = new MockHttpServletResponse();
         BffRouteTable routes = new BffRouteTable(List.of(
@@ -144,6 +144,37 @@ class BffProxyClientTest {
 
         assertThat(transport.requests.getFirst().policy().timeout()).isEqualTo(Duration.ofMinutes(30));
         assertThat(response.getContentAsString()).isEqualTo("data: {}\n\n");
+    }
+
+    @Test
+    void stripsEventSourceQueryTokenBeforeProxying() throws Exception {
+        transport.response = response(200, Map.of("Content-Type", List.of("text/event-stream")), "data: {}\n\n");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
+        request.setQueryString("token=secret-jwt&limit=50");
+        request.addHeader("Accept", "text/event-stream");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/dashboard", "http://ops-service", "/api/v1/dashboard")));
+
+        proxyClient.proxy(request, response, routes);
+
+        assertThat(transport.requests.getFirst().uri().toString())
+                .isEqualTo("http://ops-service/api/v1/dashboard/stream/metrics?limit=50");
+    }
+
+    @Test
+    void preservesBusinessQueryTokenOnRegularRequests() throws Exception {
+        transport.response = response(200, Map.of("X-Upstream", List.of("content")), "ok");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+        request.setQueryString("token=business-token&limit=50");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/raw-videos", "http://content-service", "/api/v1/raw-videos")));
+
+        proxyClient.proxy(request, response, routes);
+
+        assertThat(transport.requests.getFirst().uri().toString())
+                .isEqualTo("http://content-service/api/v1/raw-videos/42?token=business-token&limit=50");
     }
 
     @Test

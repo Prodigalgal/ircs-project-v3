@@ -4,25 +4,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
-final class DashboardSnapshotFallbacks {
+final class DashboardFallbacks {
 
-    private DashboardSnapshotFallbacks() {
-    }
-
-    static DashboardStreamSnapshot snapshot(int taskRuntimeLimit, String reason) {
-        Instant now = Instant.now();
-        String safeReason = reason == null || reason.isBlank() ? "UNAVAILABLE" : reason;
-        return new DashboardStreamSnapshot(
-                now,
-                now,
-                0L,
-                true,
-                true,
-                Map.of("snapshot", safeReason),
-                metrics(safeReason),
-                taskRuntime(taskRuntimeLimit),
-                unavailableOps(safeReason),
-                unavailableOps(safeReason));
+    private DashboardFallbacks() {
     }
 
     static SystemMetricsResponse metrics(String reason) {
@@ -43,7 +27,7 @@ final class DashboardSnapshotFallbacks {
                 0,
                 false,
                 0,
-                Map.of("dashboardSnapshot", safeReason));
+                Map.of("dashboardMetrics", safeReason));
     }
 
     static TaskRuntimeOverviewResponse taskRuntime(int taskRuntimeLimit) {

@@ -1,89 +1,70 @@
 package com.prodigalgal.ircs.ops;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
-import java.time.Instant;
+import java.time.Duration;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class DashboardStreamServiceTest {
 
-    private final DashboardSnapshotCacheService cacheService =
-            org.mockito.Mockito.mock(DashboardSnapshotCacheService.class);
-    private final DashboardSnapshotRefresher snapshotRefresher =
-            org.mockito.Mockito.mock(DashboardSnapshotRefresher.class);
+    private final DashboardQueryService dashboardQueryService = org.mockito.Mockito.mock(DashboardQueryService.class);
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final DashboardStreamService service = new DashboardStreamService(dashboardQueryService, runtimeConfig);
 
     @Test
-    void snapshotReadsCacheBeforeSynchronousRefresh() {
-        DashboardStreamSnapshot snapshot = snapshot();
-        when(cacheService.read(50)).thenReturn(Optional.of(snapshot));
-        DashboardStreamService service = new DashboardStreamService(
-                cacheService,
-                snapshotRefresher,
-                runtimeConfig);
+    void metricsTopicPayloadUsesMetricsQuery() {
+        SystemMetricsResponse metrics = DashboardFallbacks.metrics("test");
+        when(dashboardQueryService.getMetrics()).thenReturn(metrics);
 
-        DashboardStreamSnapshot result = service.snapshot(50);
-
-        assertThat(result).isSameAs(snapshot);
+        assertEquals(metrics, service.topicPayloadForTests("metrics", 50));
+        verify(dashboardQueryService).getMetrics();
     }
 
     @Test
-    void snapshotReturnsDegradedPartialWhenCacheMisses() {
-        when(cacheService.read(50)).thenReturn(Optional.empty());
-        DashboardStreamService service = new DashboardStreamService(
-                cacheService,
-                snapshotRefresher,
-                runtimeConfig);
+    void taskRuntimeTopicPayloadBoundsLimitAndFallsBackOnFailure() {
+        when(dashboardQueryService.getTaskRuntimeOverview(1)).thenThrow(new IllegalStateException("redis unavailable"));
 
-        DashboardStreamSnapshot result = service.snapshot(50);
+        TaskRuntimeOverviewResponse fallback =
+                (TaskRuntimeOverviewResponse) service.topicPayloadForTests("task-runtime", 0);
 
-        assertThat(result.partial()).isTrue();
-        assertThat(result.stale()).isTrue();
-        assertThat(result.partialErrors()).containsEntry("snapshot", "CACHE_MISS");
-        assertThat(result.metrics()).isNotNull();
-        assertThat(result.taskRuntime()).isNotNull();
-        assertThat(result.aggregationOps()).containsEntry("available", false);
-        verify(snapshotRefresher).refreshAsync(50);
-        verify(snapshotRefresher, never()).composeSnapshot(50);
+        assertEquals(1, fallback.requestedLimit());
+        assertEquals(0, fallback.activeMasterCount());
+        verify(dashboardQueryService).getTaskRuntimeOverview(1);
     }
 
     @Test
-    void snapshotUsesLocalSnapshotWhenRedisCacheMissesAfterFirstRead() {
-        DashboardStreamSnapshot snapshot = snapshot();
-        when(cacheService.read(50)).thenReturn(Optional.of(snapshot), Optional.empty());
-        DashboardStreamService service = new DashboardStreamService(
-                cacheService,
-                snapshotRefresher,
-                runtimeConfig);
+    void opsTopicsDelegateToIndependentQueries() {
+        Map<String, Object> search = Map.of("available", true, "worker", Map.of("state", "RUNNING"));
+        Map<String, Object> aggregation = Map.of("available", true, "worker", Map.of("state", "IDLE"));
+        when(dashboardQueryService.getSearchOpsStats()).thenReturn(search);
+        when(dashboardQueryService.getAggregationOpsStats()).thenReturn(aggregation);
 
-        DashboardStreamSnapshot cached = service.snapshot(50);
-        DashboardStreamSnapshot result = service.snapshot(50);
-
-        assertThat(cached).isSameAs(snapshot);
-        assertThat(result.sequence()).isEqualTo(1L);
-        assertThat(result.stale()).isTrue();
-        verify(snapshotRefresher).refreshAsync(50);
-        verify(snapshotRefresher, never()).composeSnapshot(50);
+        assertEquals(search, service.topicPayloadForTests("search-ops", 50));
+        assertEquals(aggregation, service.topicPayloadForTests("aggregation-ops", 50));
+        verify(dashboardQueryService).getSearchOpsStats();
+        verify(dashboardQueryService).getAggregationOpsStats();
     }
 
-    private DashboardStreamSnapshot snapshot() {
-        Instant now = Instant.parse("2026-06-20T00:00:00Z");
-        return new DashboardStreamSnapshot(
-                now,
-                now,
-                1L,
-                false,
-                false,
-                Map.of(),
-                null,
-                null,
-                Map.of(),
-                Map.of());
+    @Test
+    void rejectsUnknownTopic() {
+        assertThatThrownBy(() -> service.stream("unknown", 50))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported dashboard stream topic");
+    }
+
+    @Test
+    void topicIntervalFallsBackToCommonStreamInterval() {
+        when(runtimeConfig.positiveDurationValue("app.ops.dashboard.stream.interval", Duration.ofSeconds(3)))
+                .thenReturn(Duration.ofSeconds(5));
+        when(runtimeConfig.positiveDurationValue(
+                "app.ops.dashboard.stream.metrics.interval",
+                Duration.ofSeconds(5))).thenReturn(Duration.ofSeconds(2));
+
+        assertEquals(Duration.ofSeconds(2), service.intervalForTests("metrics"));
     }
 }

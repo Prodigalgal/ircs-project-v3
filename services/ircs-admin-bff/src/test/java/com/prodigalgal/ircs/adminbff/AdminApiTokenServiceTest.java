@@ -73,6 +73,28 @@ class AdminApiTokenServiceTest {
     }
 
     @Test
+    void authenticatesQueryTokenForNativeEventSource() {
+        AdminApiTokenDtos.CreatedResponse created = service.create("stream", "admin");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
+        request.addHeader("Accept", "text/event-stream");
+        request.setParameter("token", created.token());
+
+        var principal = service.authenticateIfPresent(request).orElseThrow();
+
+        assertThat(principal.role()).isEqualTo(IrcsPermissions.ROLE_ADMIN);
+        assertThat(principal.subject()).isEqualTo("api-token:" + created.tokenPrefix());
+    }
+
+    @Test
+    void ignoresQueryTokenOnRegularRequests() {
+        AdminApiTokenDtos.CreatedResponse created = service.create("regular", "admin");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos");
+        request.setParameter("token", created.token());
+
+        assertThat(service.authenticateIfPresent(request)).isEmpty();
+    }
+
+    @Test
     void revokedTokenFailsAfterCacheExpires() {
         AdminApiTokenDtos.CreatedResponse created = service.create("script", "admin");
         MockHttpServletRequest request = new MockHttpServletRequest();

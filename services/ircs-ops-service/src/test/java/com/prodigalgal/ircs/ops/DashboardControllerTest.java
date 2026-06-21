@@ -1,14 +1,17 @@
 package com.prodigalgal.ircs.ops;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.server.ResponseStatusException;
 
 class DashboardControllerTest {
 
@@ -50,7 +53,7 @@ class DashboardControllerTest {
 
     @Test
     void returnsMetricsDirectlyFromQueryService() {
-        SystemMetricsResponse metrics = DashboardSnapshotFallbacks.metrics("test");
+        SystemMetricsResponse metrics = DashboardFallbacks.metrics("test");
         when(dashboardQueryService.getMetrics()).thenReturn(metrics);
 
         assertEquals(metrics, controller.metrics().getBody());
@@ -102,11 +105,22 @@ class DashboardControllerTest {
     }
 
     @Test
-    void returnsMetricsStreamEmitter() {
+    void returnsTopicStreamEmitter() {
         SseEmitter emitter = new SseEmitter();
-        when(dashboardStreamService.stream(25)).thenReturn(emitter);
+        when(dashboardStreamService.stream("metrics", 25)).thenReturn(emitter);
 
-        assertEquals(emitter, controller.metricsStream(25));
-        verify(dashboardStreamService).stream(25);
+        assertEquals(emitter, controller.topicStream("metrics", 25));
+        verify(dashboardStreamService).stream("metrics", 25);
+    }
+
+    @Test
+    void rejectsUnknownTopicStreamAsBadRequest() {
+        doThrow(new IllegalArgumentException("Unsupported dashboard stream topic: unknown"))
+                .when(dashboardStreamService).stream("unknown", 25);
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.topicStream("unknown", 25));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
     }
 }
