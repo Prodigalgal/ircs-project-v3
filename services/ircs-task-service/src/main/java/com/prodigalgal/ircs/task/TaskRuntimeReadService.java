@@ -83,7 +83,7 @@ class TaskRuntimeReadService {
         }
         long pageSucceeded = longValue(
                 masterState,
-                "pageSucceeded",
+                TaskRuntimeFields.PAGE_SUCCEEDED,
                 snapshot == null ? Math.max(0, master.pageCompleted() - master.pageFailed()) : snapshot.pageSucceeded());
         return new TaskMasterSnapshot(
                 masterTaskId,
@@ -114,26 +114,26 @@ class TaskRuntimeReadService {
             Map<String, String> masterState,
             List<TaskPageRuntimeSummary> pages
     ) {
-        long detailScheduled = longValue(masterState, "detailScheduled", snapshot == null ? 0 : snapshot.detailScheduled());
-        long detailCompleted = longValue(masterState, "detailCompleted", snapshot == null ? 0 : snapshot.detailCompleted());
-        long detailSucceeded = longValue(masterState, "detailSucceeded", snapshot == null ? 0 : snapshot.detailSucceeded());
-        long detailFailed = longValue(masterState, "detailFailed", snapshot == null ? 0 : snapshot.detailFailed());
+        long detailScheduled = longValue(masterState, TaskRuntimeFields.DETAIL_SCHEDULED, snapshot == null ? 0 : snapshot.detailScheduled());
+        long detailCompleted = longValue(masterState, TaskRuntimeFields.DETAIL_COMPLETED, snapshot == null ? 0 : snapshot.detailCompleted());
+        long detailSucceeded = longValue(masterState, TaskRuntimeFields.DETAIL_SUCCEEDED, snapshot == null ? 0 : snapshot.detailSucceeded());
+        long detailFailed = longValue(masterState, TaskRuntimeFields.DETAIL_FAILED, snapshot == null ? 0 : snapshot.detailFailed());
         long pageScheduled = longValue(
                 masterState,
-                "pageScheduled",
+                TaskRuntimeFields.PAGE_SCHEDULED,
                 snapshot == null ? configuredPageCount(task) : snapshot.pageScheduled());
-        long pageDiscovered = longValue(masterState, "pageDiscovered", pages.size());
+        long pageDiscovered = longValue(masterState, TaskRuntimeFields.PAGE_DISCOVERED, pages.size());
         long derivedPageCompleted = pages.stream()
                 .filter(page -> page.detailScheduled() > 0 && page.detailCompleted() >= page.detailScheduled())
                 .count();
         long derivedPageFailed = pages.stream()
-                .filter(page -> page.detailFailed() > 0 || "FAILED".equalsIgnoreCase(page.status()))
+                .filter(page -> page.detailFailed() > 0 || TaskRuntimeStatus.FAILED.value().equalsIgnoreCase(page.status()))
                 .count();
-        long pageCompleted = longValue(masterState, "pageCompleted", derivedPageCompleted);
-        long pageFailed = longValue(masterState, "pageFailed", derivedPageFailed);
+        long pageCompleted = longValue(masterState, TaskRuntimeFields.PAGE_COMPLETED, derivedPageCompleted);
+        long pageFailed = longValue(masterState, TaskRuntimeFields.PAGE_FAILED, derivedPageFailed);
 
         return new TaskMasterRuntimeSummary(
-                firstNonBlank(masterState.get("status"), snapshot == null ? null : snapshot.status(), task == null ? null : task.status()),
+                firstNonBlank(masterState.get(TaskRuntimeFields.STATUS), snapshot == null ? null : snapshot.status(), task == null ? null : task.status()),
                 snapshot == null ? task == null ? null : task.dataSourceId() : snapshot.dataSourceId(),
                 firstNonBlank(snapshot == null ? null : snapshot.taskName(), task == null ? null : task.name()),
                 snapshot != null && snapshot.resume(),
@@ -147,12 +147,12 @@ class TaskRuntimeReadService {
                 detailCompleted,
                 detailSucceeded,
                 detailFailed,
-                intValue(masterState, "totalPages", null),
-                intValue(masterState, "totalItems", null),
-                firstNonBlank(masterState.get("lastError"), snapshot == null ? null : snapshot.lastError(), task == null ? null : task.lastErrorMessage()),
+                intValue(masterState, TaskRuntimeFields.TOTAL_PAGES, null),
+                intValue(masterState, TaskRuntimeFields.TOTAL_ITEMS, null),
+                firstNonBlank(masterState.get(TaskRuntimeFields.LAST_ERROR), snapshot == null ? null : snapshot.lastError(), task == null ? null : task.lastErrorMessage()),
                 firstNonBlank(snapshot == null ? null : snapshot.correlationId(), masterTaskId.toString()),
                 snapshot == null ? task == null ? null : task.statStartTime() : snapshot.queuedAt(),
-                instantFromEpoch(masterState, "updatedAt").orElse(snapshot == null ? task == null ? null : task.updatedAt() : snapshot.updatedAt()),
+                instantFromEpoch(masterState, TaskRuntimeFields.UPDATED_AT).orElse(snapshot == null ? task == null ? null : task.updatedAt() : snapshot.updatedAt()),
                 masterState);
     }
 
@@ -161,22 +161,22 @@ class TaskRuntimeReadService {
         List<String> completedDetailIds = completedDetailIds(pageTaskId, detailLimit);
         List<String> failedDetailIds = failedDetailIds(pageTaskId, detailLimit);
         Map<String, String> failedDetailErrors = failedDetailErrors(pageTaskId, failedDetailIds);
-        long completedCount = longValue(pageState, "detailCompleted", completedDetailIds.size());
-        long scheduled = longValue(pageState, "detailScheduled", 0);
-        long failed = longValue(pageState, "detailFailed", 0);
-        String status = firstNonBlank(pageState.get("status"), derivedPageStatus(scheduled, completedCount, failed));
+        long completedCount = longValue(pageState, TaskRuntimeFields.DETAIL_COMPLETED, completedDetailIds.size());
+        long scheduled = longValue(pageState, TaskRuntimeFields.DETAIL_SCHEDULED, 0);
+        long failed = longValue(pageState, TaskRuntimeFields.DETAIL_FAILED, 0);
+        String status = firstNonBlank(pageState.get(TaskRuntimeFields.STATUS), derivedPageStatus(scheduled, completedCount, failed));
         long backlog = pendingCount(scheduled, completedCount);
 
         return new TaskPageRuntimeSummary(
                 pageTaskId,
-                intValue(pageState, "pageNumber", null),
+                intValue(pageState, TaskRuntimeFields.PAGE_NUMBER, null),
                 scheduled,
                 completedCount,
-                longValue(pageState, "detailSucceeded", 0),
+                longValue(pageState, TaskRuntimeFields.DETAIL_SUCCEEDED, 0),
                 failed,
                 status,
-                pageState.get("lastError"),
-                instantFromEpoch(pageState, "updatedAt").orElse(null),
+                pageState.get(TaskRuntimeFields.LAST_ERROR),
+                instantFromEpoch(pageState, TaskRuntimeFields.UPDATED_AT).orElse(null),
                 safeInt(completedCount),
                 completedDetailIds,
                 safeInt(Math.max(failed, failedDetailIds.size())),
@@ -184,7 +184,7 @@ class TaskRuntimeReadService {
                 failedDetailErrors,
                 backlog,
                 percent(completedCount, scheduled),
-                attentionLevel(status, failed, backlog, pageState.get("lastError")),
+                attentionLevel(status, failed, backlog, pageState.get(TaskRuntimeFields.LAST_ERROR)),
                 pageState);
     }
 
@@ -324,12 +324,12 @@ class TaskRuntimeReadService {
 
     private String derivedPageStatus(long scheduled, long completed, long failed) {
         if (scheduled > 0 && completed >= scheduled) {
-            return failed > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED";
+            return failed > 0 ? TaskRuntimeStatus.COMPLETED_WITH_ERRORS.value() : TaskRuntimeStatus.COMPLETED.value();
         }
         if (completed > 0) {
-            return "RUNNING";
+            return TaskRuntimeStatus.RUNNING.value();
         }
-        return "DISCOVERED";
+        return TaskRuntimeStatus.DISCOVERED.value();
     }
 
     private long pendingCount(long total, long done) {
@@ -344,11 +344,11 @@ class TaskRuntimeReadService {
     }
 
     private String attentionLevel(String status, long failed, long backlog, String lastError) {
-        if (failed > 0 || "FAILED".equalsIgnoreCase(status) || "COMPLETED_WITH_ERRORS".equalsIgnoreCase(status)
+        if (failed > 0 || TaskRuntimeStatus.isErrorLike(status)
                 || (lastError != null && !lastError.isBlank())) {
             return "ERROR";
         }
-        if (backlog > 0 && "RUNNING".equalsIgnoreCase(status)) {
+        if (backlog > 0 && TaskRuntimeStatus.RUNNING.value().equalsIgnoreCase(status)) {
             return "RUNNING";
         }
         if (backlog > 0) {

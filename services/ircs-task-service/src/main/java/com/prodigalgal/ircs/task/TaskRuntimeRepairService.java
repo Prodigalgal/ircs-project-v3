@@ -77,7 +77,7 @@ class TaskRuntimeRepairService {
     }
 
     private boolean allowsPageExpansion(String status) {
-        return "QUEUED".equalsIgnoreCase(status) || "RUNNING".equalsIgnoreCase(status);
+        return TaskRuntimeStatus.allowsPageExpansion(status);
     }
 
     private enum RepairOutcome {

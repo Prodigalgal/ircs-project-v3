@@ -54,21 +54,21 @@ class TaskQueueDispatchService {
             log.warn("Task master dispatch skipped: execution plan missing, masterTaskId={}", taskId);
             return;
         }
-        if (!"QUEUED".equalsIgnoreCase(plan.status())) {
+        if (!TaskRuntimeStatus.QUEUED.value().equalsIgnoreCase(plan.status())) {
             log.info("Task master dispatch skipped: masterTaskId={}, status={}", taskId, plan.status());
             return;
         }
         Instant now = Instant.now();
         TaskScrapeOptions options = scrapeOptions(plan);
         int firstPage = effectiveStartPage(plan.currentPage(), plan.startPage());
-        TaskMasterSnapshot queuedSnapshot = snapshot(plan, resume, 0, "QUEUED", null, now);
+        TaskMasterSnapshot queuedSnapshot = snapshot(plan, resume, 0, TaskRuntimeStatus.QUEUED.value(), null, now);
         try {
             snapshotService.put(queuedSnapshot);
             dispatchPage(plan, firstPage, resume, options, correlationId(plan.id()), now);
         } catch (RuntimeException ex) {
             String reason = "Task queue dispatch failed: " + safeMessage(ex);
             failMaster(plan.id(), reason);
-            snapshotService.put(snapshot(plan, resume, 0, "FAILED", reason, Instant.now()));
+            snapshotService.put(snapshot(plan, resume, 0, TaskRuntimeStatus.FAILED.value(), reason, Instant.now()));
             throw ex;
         }
     }
@@ -142,7 +142,7 @@ class TaskQueueDispatchService {
     }
 
     private boolean allowsPageExpansion(String status) {
-        return "QUEUED".equalsIgnoreCase(status) || "RUNNING".equalsIgnoreCase(status);
+        return TaskRuntimeStatus.allowsPageExpansion(status);
     }
 
     private Integer finalPage(TaskExecutionPlan plan, Integer observedTotalPages) {
