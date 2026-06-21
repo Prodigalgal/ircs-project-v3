@@ -18,6 +18,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -29,6 +32,15 @@ class PoWServiceTest {
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
     private final IdentityConfigService configService = mock(IdentityConfigService.class);
+
+    @Test
+    void springContextCreatesPoWServiceWithProductionConstructor() {
+        new ApplicationContextRunner()
+                .withBean(StringRedisTemplate.class, () -> redisTemplate)
+                .withBean(IdentityConfigService.class, () -> configService)
+                .withUserConfiguration(PoWServiceConfiguration.class)
+                .run(context -> assertThat(context).hasSingleBean(PoWService.class));
+    }
 
     @Test
     void generatesAddSubtractMultiplyAndDivideCaptchas() {
@@ -100,5 +112,10 @@ class PoWServiceTest {
             }
             return Math.floorMod(values.remove(), bound);
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @Import(PoWService.class)
+    static class PoWServiceConfiguration {
     }
 }
