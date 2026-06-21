@@ -3,13 +3,9 @@ package com.prodigalgal.ircs.ops;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
-import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
-import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import java.io.File;
@@ -19,8 +15,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -28,10 +22,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.amqp.rabbit.core.RabbitAdmin;
-import org.springframework.data.redis.connection.RedisConnection;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -39,15 +29,10 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class SystemMetricsService {
 
-    private final RabbitAdmin rabbitAdmin;
-    private final RedisConnectionFactory redisConnectionFactory;
-    private final StringRedisTemplate redisTemplate;
-    private final MeterRegistry meterRegistry;
-    private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
-    private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider;
-    private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
     private final RuntimeConfigService runtimeConfig;
+    private final SystemMetricsDataReader dataReader;
+    private final RateMetricSnapshotReader rateMetricSnapshotReader;
     private final QueueBlockedReasonResolver blockedReasonResolver;
 
     private final ExecutorService metricsRefreshExecutor = Executors.newSingleThreadExecutor(refreshThreadFactory());
@@ -56,15 +41,12 @@ public class SystemMetricsService {
 
     @PostConstruct
     void registerRabbitQueueGauges() {
-        for (QueueTopic topic : QueueTopic.values()) {
-            registerQueueGauges(topic, topic.queueName(), "main", false);
-            registerQueueGauges(topic, topic.retryName(), "retry", false);
-            registerQueueGauges(topic, topic.dlqName(), "dlq", true);
-        }
-        registerValkeyPipelineGauges(PipelineTaskTypes.NORMALIZE_VIDEO);
-        registerValkeyPipelineGauges(PipelineTaskTypes.ENRICH_METADATA);
-        registerValkeyPipelineGauges(PipelineTaskTypes.METADATA_PROVIDER);
-        RuntimeWorkQueueCatalog.descriptors().forEach(descriptor -> registerRuntimeWorkGauges(descriptor.taskType()));
+        dataReader.registerRabbitQueueGauges();
+        dataReader.registerValkeyPipelineGauges(PipelineTaskTypes.NORMALIZE_VIDEO);
+        dataReader.registerValkeyPipelineGauges(PipelineTaskTypes.ENRICH_METADATA);
+        dataReader.registerValkeyPipelineGauges(PipelineTaskTypes.METADATA_PROVIDER);
+        RuntimeWorkQueueCatalog.descriptors()
+                .forEach(descriptor -> dataReader.registerRuntimeWorkGauges(descriptor.taskType()));
     }
 
     public SystemMetricsResponse currentMetrics() {
@@ -84,8 +66,8 @@ public class SystemMetricsService {
     private SystemMetricsResponse loadCurrentMetrics() {
         Runtime runtime = Runtime.getRuntime();
         File disk = new File(".");
-        RateMetricSnapshot rateSnapshot = rateMetricSnapshot();
-        Map<String, Object> aggregationOpsStats = aggregationOpsStats();
+        RateMetricSnapshot rateSnapshot = rateMetricSnapshotReader.currentSnapshot();
+        Map<String, Object> aggregationOpsStats = dataReader.aggregationOpsStats();
         MetricsReadContext context = new MetricsReadContext(rateSnapshot, aggregationOpsStats);
         List<QueueGroupResponse> queueGroups = queueGroups(context);
         QueueMetricResponse ingest = findQueue(queueGroups, QueueTopic.INGEST_VIDEO.name());
@@ -112,7 +94,7 @@ public class SystemMetricsService {
                         .flatMap(group -> group.queues().stream())
                         .mapToLong(QueueMetricResponse::messageCount)
                         .sum(),
-                redisMetric(),
+                dataReader.redisMetric(),
                 runtime.freeMemory(),
                 disk.getFreeSpace(),
                 false,
@@ -355,205 +337,8 @@ public class SystemMetricsService {
                 rateDescriptor.rate());
     }
 
-    private RateMetricSnapshot rateMetricSnapshot() {
-        long now = System.currentTimeMillis();
-        long bucketMillis = RateMetricKeys.bucketSizeMillis(rateBucketSize());
-        long instantWindowMillis = durationMillis(instantRateWindow(), Duration.ofSeconds(60));
-        long stableWindowMillis = Math.max(
-                instantWindowMillis,
-                Math.max(
-                        durationMillis(stableRateWindow(), Duration.ofMinutes(5)),
-                        durationMillis(consumerNoProgressGrace(), Duration.ofMinutes(10))));
-        long start = Math.floorDiv(now - stableWindowMillis, bucketMillis) * bucketMillis;
-        long end = Math.floorDiv(now, bucketMillis) * bucketMillis;
-        Set<String> indexedBuckets = indexedRateBuckets(start, end);
-        List<RateMetricWindowCalculator.RateBucketPoint> points = new ArrayList<>();
-
-        for (long bucketStart = start; bucketStart <= end; bucketStart += bucketMillis) {
-            String bucketStartValue = Long.toString(bucketStart);
-            boolean shouldRead = indexedBuckets == null
-                    || indexedBuckets.contains(bucketStartValue);
-            points.add(new RateMetricWindowCalculator.RateBucketPoint(
-                    bucketStart,
-                    shouldRead ? rateBucketCounts(bucketStart) : Map.of()));
-        }
-
-        RateMetricWindowCalculator calculator = new RateMetricWindowCalculator(
-                bucketMillis,
-                instantWindowMillis,
-                stableWindowMillis,
-                ewmaAlpha());
-        return new RateMetricSnapshot(calculator, points, now);
-    }
-
-    private Set<String> indexedRateBuckets(long start, long end) {
-        try {
-            Set<String> buckets = redisTemplate.opsForZSet().rangeByScore(rateBucketIndexKey(), start, end);
-            return buckets == null ? Set.of() : buckets;
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private Map<String, Long> rateBucketCounts(long bucketStart) {
-        try {
-            Map<Object, Object> raw = redisTemplate.opsForHash().entries(
-                    RateMetricKeys.bucketKey(rateMetricsKeyPrefix(), bucketStart));
-            if (raw == null || raw.isEmpty()) {
-                return Map.of();
-            }
-            Map<String, Long> counts = new LinkedHashMap<>();
-            raw.forEach((key, value) -> {
-                long count = parseLong(String.valueOf(value));
-                if (key != null && count > 0L) {
-                    counts.put(String.valueOf(key), count);
-                }
-            });
-            return counts;
-        } catch (RuntimeException ignored) {
-            return Map.of();
-        }
-    }
-
-    private String rateBucketIndexKey() {
-        return RateMetricKeys.bucketIndexKey(rateMetricsKeyPrefix());
-    }
-
-    private String rateMetricsKeyPrefix() {
-        return runtimeConfig.stringValue("app.rate-metrics.key-prefix", RateMetricKeys.DEFAULT_KEY_PREFIX);
-    }
-
-    private Duration rateBucketSize() {
-        return runtimeConfig.positiveDurationValue("app.rate-metrics.bucket-size", RateMetricKeys.DEFAULT_BUCKET_SIZE);
-    }
-
-    private Duration instantRateWindow() {
-        return runtimeConfig.positiveDurationValue("app.ops.metrics.instant-window", Duration.ofSeconds(60));
-    }
-
-    private Duration stableRateWindow() {
-        return runtimeConfig.positiveDurationValue("app.ops.metrics.stable-window", Duration.ofMinutes(5));
-    }
-
-    private Duration consumerNoProgressGrace() {
-        return runtimeConfig.positiveDurationValue(
-                "app.ops.metrics.consumer-no-progress-grace",
-                Duration.ofMinutes(10));
-    }
-
-    private double ewmaAlpha() {
-        double value = runtimeConfig.doubleValue("app.ops.metrics.ewma-alpha", 0.25d);
-        return Math.max(0.0d, Math.min(1.0d, value));
-    }
-
     private Duration metricsCacheTtl() {
         return runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(15));
-    }
-
-    private QueueState queueState(String queueName) {
-        try {
-            Properties props = rabbitAdmin.getQueueProperties(queueName);
-            if (props == null) {
-                return QueueState.empty();
-            }
-            Object messages = props.get(RabbitAdmin.QUEUE_MESSAGE_COUNT);
-            Object consumers = props.get(RabbitAdmin.QUEUE_CONSUMER_COUNT);
-            return new QueueState(toInt(messages), toInt(consumers));
-        } catch (Exception ignored) {
-            return QueueState.empty();
-        }
-    }
-
-    private RedisMetricResponse redisMetric() {
-        try (RedisConnection connection = redisConnectionFactory.getConnection()) {
-            Properties info = connection.serverCommands().info();
-            if (info == null) {
-                return null;
-            }
-            return new RedisMetricResponse(
-                    parseLong(info.getProperty("used_memory")),
-                    (int) parseLong(info.getProperty("connected_clients")),
-                    parseLong(info.getProperty("instantaneous_ops_per_sec")),
-                    info.getProperty("redis_version"));
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private PipelineValkeyTaskCounts pipelineCounts(String taskType) {
-        PipelineValkeyQueue queue = pipelineValkeyQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return emptyPipelineCounts();
-        }
-        try {
-            return queue.counts(taskType);
-        } catch (Exception ignored) {
-            return emptyPipelineCounts();
-        }
-    }
-
-    private RuntimeWorkQueueCounts runtimeWorkCounts(String taskType) {
-        RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return emptyRuntimeWorkCounts();
-        }
-        try {
-            RuntimeWorkQueueCounts counts = queue.counts(taskType);
-            return counts == null ? emptyRuntimeWorkCounts() : counts;
-        } catch (Exception ignored) {
-            return emptyRuntimeWorkCounts();
-        }
-    }
-
-    private long pipelineConsumerCount(String taskType) {
-        PipelineValkeyQueue queue = pipelineValkeyQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return 0L;
-        }
-        try {
-            return queue.consumerCount(taskType);
-        } catch (Exception ignored) {
-            return 0L;
-        }
-    }
-
-    private long runtimeWorkConsumerCount(String taskType) {
-        RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return 0L;
-        }
-        try {
-            return queue.consumerCount(taskType);
-        } catch (Exception ignored) {
-            return 0L;
-        }
-    }
-
-    private long runtimeWorkDlqConsumerCount(String taskType) {
-        RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return 0L;
-        }
-        try {
-            return queue.dlqConsumerCount(taskType);
-        } catch (Exception ignored) {
-            return 0L;
-        }
-    }
-
-    private Map<String, Object> aggregationOpsStats() {
-        AggregationOpsStatsClient client = aggregationOpsStatsClientProvider == null
-                ? null
-                : aggregationOpsStatsClientProvider.getIfAvailable();
-        if (client == null) {
-            return Map.of();
-        }
-        try {
-            Map<String, Object> stats = client.currentStats();
-            return stats == null ? Map.of() : stats;
-        } catch (RuntimeException ignored) {
-            return Map.of();
-        }
     }
 
     private QueueMetricResponse findQueue(List<QueueGroupResponse> groups, String key) {
@@ -645,15 +430,6 @@ public class SystemMetricsService {
                 : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
     }
 
-    private long durationMillis(Duration value, Duration fallback) {
-        Duration effective = value == null || value.isZero() || value.isNegative() ? fallback : value;
-        return Math.max(RateMetricKeys.DEFAULT_BUCKET_SIZE.toMillis(), effective.toMillis());
-    }
-
-    private int toInt(Object value) {
-        return value instanceof Number number ? number.intValue() : 0;
-    }
-
     private int safeInt(long value) {
         if (value <= 0L) {
             return 0;
@@ -661,83 +437,11 @@ public class SystemMetricsService {
         return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
     }
 
-    private long parseLong(String value) {
-        if (value == null || value.isBlank()) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException ignored) {
-            return 0L;
-        }
-    }
-
-    private void registerQueueGauges(QueueTopic topic, String queueName, String queueRole, boolean dlq) {
-        Gauge.builder("ircs.rabbit.queue.messages", () -> queueState(queueName).messageCount())
-                .description("RabbitMQ queue message depth observed by ops-service")
-                .tag("topic", topic.name())
-                .tag("queue", queueName)
-                .tag("queue_role", queueRole)
-                .tag("dlq", String.valueOf(dlq))
-                .register(meterRegistry);
-        Gauge.builder("ircs.rabbit.queue.consumers", () -> queueState(queueName).consumerCount())
-                .description("RabbitMQ queue consumer count observed by ops-service")
-                .tag("topic", topic.name())
-                .tag("queue", queueName)
-                .tag("queue_role", queueRole)
-                .tag("dlq", String.valueOf(dlq))
-                .register(meterRegistry);
-    }
-
-    private void registerValkeyPipelineGauges(String taskType) {
-        Gauge.builder("ircs.valkey.pipeline.pending", () -> pipelineCounts(taskType).pending())
-                .description("Valkey pipeline pending task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.pipeline.inflight", () -> pipelineCounts(taskType).inflight())
-                .description("Valkey pipeline inflight task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.pipeline.dlq", () -> pipelineCounts(taskType).dlq())
-                .description("Valkey pipeline DLQ task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-    }
-
-    private void registerRuntimeWorkGauges(String taskType) {
-        Gauge.builder("ircs.valkey.runtime_work.pending", () -> runtimeWorkCounts(taskType).pending())
-                .description("Valkey runtime work pending task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.runtime_work.inflight", () -> runtimeWorkCounts(taskType).inflight())
-                .description("Valkey runtime work inflight task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.runtime_work.dlq", () -> runtimeWorkCounts(taskType).dlq())
-                .description("Valkey runtime work DLQ task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-    }
-
-    private PipelineValkeyTaskCounts emptyPipelineCounts() {
-        return new PipelineValkeyTaskCounts(0, 0, 0);
-    }
-
-    private RuntimeWorkQueueCounts emptyRuntimeWorkCounts() {
-        return new RuntimeWorkQueueCounts(0, 0, 0);
-    }
-
     private record CachedMetrics(SystemMetricsResponse response, long expiresAtMillis) {
     }
 
     private static ThreadFactory refreshThreadFactory() {
         return Thread.ofVirtual().name("ops-metrics-refresh-", 0).factory();
-    }
-
-    private record QueueState(int messageCount, int consumerCount) {
-        static QueueState empty() {
-            return new QueueState(0, 0);
-        }
     }
 
     private record RateDescriptor(RateKind kind, String metricKey, String label) {
@@ -777,41 +481,27 @@ public class SystemMetricsService {
         }
 
         private QueueState queueState(String queueName) {
-            return queueStates.computeIfAbsent(queueName, SystemMetricsService.this::queueState);
+            return queueStates.computeIfAbsent(queueName, dataReader::queueState);
         }
 
         private PipelineValkeyTaskCounts pipelineCounts(String taskType) {
-            return pipelineCounts.computeIfAbsent(taskType, SystemMetricsService.this::pipelineCounts);
+            return pipelineCounts.computeIfAbsent(taskType, dataReader::pipelineCounts);
         }
 
         private RuntimeWorkQueueCounts runtimeWorkCounts(String taskType) {
-            return runtimeWorkCounts.computeIfAbsent(taskType, SystemMetricsService.this::runtimeWorkCounts);
+            return runtimeWorkCounts.computeIfAbsent(taskType, dataReader::runtimeWorkCounts);
         }
 
         private long pipelineConsumerCount(String taskType) {
-            return pipelineConsumers.computeIfAbsent(taskType, SystemMetricsService.this::pipelineConsumerCount);
+            return pipelineConsumers.computeIfAbsent(taskType, dataReader::pipelineConsumerCount);
         }
 
         private long runtimeWorkConsumerCount(String taskType) {
-            return runtimeWorkConsumers.computeIfAbsent(taskType, SystemMetricsService.this::runtimeWorkConsumerCount);
+            return runtimeWorkConsumers.computeIfAbsent(taskType, dataReader::runtimeWorkConsumerCount);
         }
 
         private long runtimeWorkDlqConsumerCount(String taskType) {
-            return runtimeWorkDlqConsumers.computeIfAbsent(taskType, SystemMetricsService.this::runtimeWorkDlqConsumerCount);
-        }
-    }
-
-    private record RateMetricSnapshot(
-            RateMetricWindowCalculator calculator,
-            List<RateMetricWindowCalculator.RateBucketPoint> buckets,
-            long nowMillis) {
-
-        RateMetricResponse metric(String metricKey, String label, String... sourceMetricKeys) {
-            return calculator.calculate(metricKey, label, buckets, nowMillis, sourceMetricKeys);
-        }
-
-        RateMetricResponse empty(String metricKey, String label) {
-            return calculator.empty(metricKey, label);
+            return runtimeWorkDlqConsumers.computeIfAbsent(taskType, dataReader::runtimeWorkDlqConsumerCount);
         }
     }
 
