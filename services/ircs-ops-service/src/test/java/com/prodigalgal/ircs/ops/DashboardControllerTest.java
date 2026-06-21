@@ -49,6 +49,15 @@ class DashboardControllerTest {
     }
 
     @Test
+    void returnsMetricsDirectlyFromQueryService() {
+        SystemMetricsResponse metrics = DashboardSnapshotFallbacks.metrics("test");
+        when(dashboardQueryService.getMetrics()).thenReturn(metrics);
+
+        assertEquals(metrics, controller.metrics().getBody());
+        verify(dashboardQueryService).getMetrics();
+    }
+
+    @Test
     void returnsTaskRuntimeOverview() {
         TaskRuntimeOverviewResponse overview = new TaskRuntimeOverviewResponse(
                 java.time.Instant.parse("2026-06-13T00:00:00Z"),

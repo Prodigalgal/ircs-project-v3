@@ -38,16 +38,12 @@ public class DashboardController {
 
     @GetMapping("/metrics")
     public ResponseEntity<SystemMetricsResponse> metrics() {
-        DashboardStreamSnapshot snapshot = dashboardStreamService.snapshot(50);
-        SystemMetricsResponse metrics = snapshot == null ? null : snapshot.metrics();
-        return ResponseEntity.ok(metrics == null ? dashboardQueryService.getMetrics() : metrics);
+        return ResponseEntity.ok(dashboardQueryService.getMetrics());
     }
 
     @GetMapping("/task-runtime")
     public ResponseEntity<TaskRuntimeOverviewResponse> taskRuntime(@RequestParam(defaultValue = "50") int limit) {
-        DashboardStreamSnapshot snapshot = dashboardStreamService.snapshot(limit);
-        TaskRuntimeOverviewResponse taskRuntime = snapshot == null ? null : snapshot.taskRuntime();
-        return ResponseEntity.ok(taskRuntime == null ? dashboardQueryService.getTaskRuntimeOverview(limit) : taskRuntime);
+        return ResponseEntity.ok(dashboardQueryService.getTaskRuntimeOverview(limit));
     }
 
     @GetMapping("/search-ops")
