@@ -53,6 +53,7 @@ class SystemMetricsServiceTest {
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final QueueBlockedReasonResolver blockedReasonResolver = new QueueBlockedReasonResolver(runtimeConfig);
     private final SystemMetricsService service = new SystemMetricsService(
             rabbitAdmin,
             redisConnectionFactory,
@@ -62,7 +63,8 @@ class SystemMetricsServiceTest {
             runtimeWorkQueueProvider,
             rabbitRateProbeProvider,
             aggregationOpsStatsClientProvider,
-            runtimeConfig);
+            runtimeConfig,
+            blockedReasonResolver);
 
     @BeforeEach
     void setUp() {

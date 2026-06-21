@@ -1,6 +1,5 @@
 package com.prodigalgal.ircs.ops;
 
-import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
@@ -8,7 +7,6 @@ import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
-import com.prodigalgal.ircs.common.work.SystemConfigWorkSubmissionGate;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -50,6 +48,7 @@ public class SystemMetricsService {
     private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider;
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
     private final RuntimeConfigService runtimeConfig;
+    private final QueueBlockedReasonResolver blockedReasonResolver;
 
     private final ExecutorService metricsRefreshExecutor = Executors.newSingleThreadExecutor(refreshThreadFactory());
     private final AtomicBoolean metricsRefreshRunning = new AtomicBoolean(false);
@@ -286,7 +285,7 @@ public class SystemMetricsService {
                 consumers,
                 role == PipelineMetricRole.DLQ
                         ? null
-                        : blockedReason(current, consumers, pipelineWorkPolicy(taskType), rate),
+                        : blockedReasonResolver.pipelineBlockedReason(taskType, current, consumers, rate),
                 rateDescriptor.kind(),
                 rate));
     }
@@ -318,7 +317,13 @@ public class SystemMetricsService {
                 consumers,
                 role == RuntimeWorkMetricRole.DLQ
                         ? null
-                        : blockedReason(current, consumers, runtimeWorkPolicy(taskType), rate, taskType, role, context.aggregationOpsStats()),
+                        : blockedReasonResolver.runtimeWorkBlockedReason(
+                                taskType,
+                                role,
+                                current,
+                                consumers,
+                                rate,
+                                context.aggregationOpsStats()),
                 rateDescriptor.kind(),
                 rate));
     }
@@ -341,7 +346,10 @@ public class SystemMetricsService {
                 state.messageCount(),
                 state.consumerCount(),
                 checkConsumers
-                        ? blockedReason(state.messageCount(), state.consumerCount(), QueueConsumerPolicy.enabled())
+                        ? blockedReasonResolver.blockedReason(
+                                state.messageCount(),
+                                state.consumerCount(),
+                                QueueConsumerPolicy.enabled())
                         : null,
                 rateDescriptor.kind(),
                 rateDescriptor.rate());
@@ -436,12 +444,6 @@ public class SystemMetricsService {
     private double ewmaAlpha() {
         double value = runtimeConfig.doubleValue("app.ops.metrics.ewma-alpha", 0.25d);
         return Math.max(0.0d, Math.min(1.0d, value));
-    }
-
-    private Duration aggregationProcessingStallThreshold() {
-        return runtimeConfig.positiveDurationValue(
-                "app.aggregation.work-queue.worker.processing-stall-threshold",
-                Duration.ofMinutes(10));
     }
 
     private Duration metricsCacheTtl() {
@@ -554,106 +556,6 @@ public class SystemMetricsService {
         }
     }
 
-    private String blockedReason(long messageCount, int consumerCount, QueueConsumerPolicy policy) {
-        return blockedReason(messageCount, consumerCount, policy, null);
-    }
-
-    private String blockedReason(
-            long messageCount,
-            int consumerCount,
-            QueueConsumerPolicy policy,
-            RateMetricResponse rate,
-            String taskType,
-            RuntimeWorkMetricRole role,
-            Map<String, Object> aggregationOpsStats) {
-        String aggregationProcessingReason = aggregationProcessingReason(
-                messageCount,
-                consumerCount,
-                rate,
-                taskType,
-                role,
-                aggregationOpsStats);
-        return aggregationProcessingReason == null
-                ? blockedReason(messageCount, consumerCount, policy, rate)
-                : aggregationProcessingReason;
-    }
-
-    private String blockedReason(
-            long messageCount,
-            int consumerCount,
-            QueueConsumerPolicy policy,
-            RateMetricResponse rate) {
-        if (messageCount <= 0L || consumerCount > 0) {
-            return null;
-        }
-        if (rateRecentlyActive(rate)) {
-            return null;
-        }
-        if (policy == null || !policy.hasConsumer()) {
-            return "NO_CONSUMER_IMPL";
-        }
-        for (SystemConfigWorkSubmissionGate.ConfigFlag flag : policy.enabledFlags()) {
-            if (!configEnabled(flag.key(), flag.defaultEnabled())) {
-                return "DISABLED_BY_CONFIG";
-            }
-        }
-        return "NO_ACTIVE_CONSUMER";
-    }
-
-    private String aggregationProcessingReason(
-            long messageCount,
-            int consumerCount,
-            RateMetricResponse rate,
-            String taskType,
-            RuntimeWorkMetricRole role,
-            Map<String, Object> aggregationOpsStats) {
-        if (!AggregationWorkTypes.RAW_VIDEO.equals(taskType)
-                || (role != RuntimeWorkMetricRole.PENDING && role != RuntimeWorkMetricRole.INFLIGHT)
-                || messageCount <= 0L
-                || consumerCount <= 0
-                || rateRecentlyActive(rate)) {
-            return null;
-        }
-        Map<String, Object> worker = mapValue(aggregationOpsStats, "worker");
-        if (!boolValue(worker.get("running"))) {
-            return null;
-        }
-        String currentStage = stringValue(worker.get("currentStage"));
-        if (currentStage == null || currentStage.isBlank()) {
-            return null;
-        }
-        long runningForSeconds = longValue(worker.get("runningForSeconds"));
-        long thresholdSeconds = Math.max(
-                1L,
-                aggregationProcessingStallThreshold().toSeconds());
-        return runningForSeconds >= thresholdSeconds ? "CONSUMER_PROCESSING_STUCK" : "PROCESSING";
-    }
-
-    private boolean rateRecentlyActive(RateMetricResponse rate) {
-        return rate != null
-                && (!rate.stale()
-                || rate.instantCount() > 0L
-                || rate.stableCount() > 0L
-                || rate.instantTpm() > 0L
-                || rate.stableTpm() > 0L);
-    }
-
-    private QueueConsumerPolicy pipelineWorkPolicy(String taskType) {
-        return SystemConfigWorkSubmissionGate.pipelineConsumerFlags(taskType)
-                .map(QueueConsumerPolicy::enabled)
-                .orElseGet(QueueConsumerPolicy::missing);
-    }
-
-    private QueueConsumerPolicy runtimeWorkPolicy(String taskType) {
-        return SystemConfigWorkSubmissionGate.runtimeConsumerFlags(taskType)
-                .map(QueueConsumerPolicy::enabled)
-                .orElseGet(QueueConsumerPolicy::missing);
-    }
-
-    private boolean configEnabled(String key, boolean defaultValue) {
-        return runtimeConfig.booleanValue(key, defaultValue);
-    }
-
     private QueueMetricResponse findQueue(List<QueueGroupResponse> groups, String key) {
         for (QueueGroupResponse group : groups) {
             for (QueueMetricResponse queue : group.queues()) {
@@ -718,7 +620,7 @@ public class SystemMetricsService {
                             role,
                             RabbitManagementRateProbe.RabbitRateAction.PUBLISHED),
                     "入死信速率");
-            return managementAvailable || rateRecentlyActive(published)
+            return managementAvailable || blockedReasonResolver.recentlyActive(published)
                     ? new RabbitRateDescriptor(RateKind.PUBLISH, published)
                     : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
         }
@@ -735,10 +637,10 @@ public class SystemMetricsService {
                         role,
                         RabbitManagementRateProbe.RabbitRateAction.DELIVERED),
                 "投递速率");
-        if (rateRecentlyActive(delivered) && !rateRecentlyActive(acked)) {
+        if (blockedReasonResolver.recentlyActive(delivered) && !blockedReasonResolver.recentlyActive(acked)) {
             return new RabbitRateDescriptor(RateKind.DELIVER, delivered);
         }
-        return managementAvailable || rateRecentlyActive(acked)
+        return managementAvailable || blockedReasonResolver.recentlyActive(acked)
                 ? new RabbitRateDescriptor(RateKind.ACK, acked)
                 : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
     }
@@ -746,10 +648,6 @@ public class SystemMetricsService {
     private long durationMillis(Duration value, Duration fallback) {
         Duration effective = value == null || value.isZero() || value.isNegative() ? fallback : value;
         return Math.max(RateMetricKeys.DEFAULT_BUCKET_SIZE.toMillis(), effective.toMillis());
-    }
-
-    private Duration positiveOr(Duration value, Duration fallback) {
-        return value == null || value.isZero() || value.isNegative() ? fallback : value;
     }
 
     private int toInt(Object value) {
@@ -772,51 +670,6 @@ public class SystemMetricsService {
         } catch (NumberFormatException ignored) {
             return 0L;
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> mapValue(Map<String, Object> source, String key) {
-        if (source == null) {
-            return Map.of();
-        }
-        Object value = source.get(key);
-        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-    }
-
-    private boolean boolValue(Object value) {
-        if (value instanceof Boolean bool) {
-            return bool;
-        }
-        return value != null && Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private long longValue(Object value) {
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        if (value == null) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException ignored) {
-            return 0L;
-        }
-    }
-
-    private String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private boolean parseBoolean(String value, boolean defaultValue) {
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        return switch (value.trim().toLowerCase()) {
-            case "true", "1", "yes", "on", "enabled" -> true;
-            case "false", "0", "no", "off", "disabled" -> false;
-            default -> defaultValue;
-        };
     }
 
     private void registerQueueGauges(QueueTopic topic, String queueName, String queueRole, boolean dlq) {
@@ -948,23 +801,6 @@ public class SystemMetricsService {
         }
     }
 
-    private record QueueConsumerPolicy(
-            boolean hasConsumer,
-            List<SystemConfigWorkSubmissionGate.ConfigFlag> enabledFlags) {
-
-        static QueueConsumerPolicy enabled() {
-            return new QueueConsumerPolicy(true, List.of());
-        }
-
-        static QueueConsumerPolicy enabled(List<SystemConfigWorkSubmissionGate.ConfigFlag> enabledFlags) {
-            return new QueueConsumerPolicy(true, enabledFlags == null ? List.of() : enabledFlags);
-        }
-
-        static QueueConsumerPolicy missing() {
-            return new QueueConsumerPolicy(false, List.of());
-        }
-    }
-
     private record RateMetricSnapshot(
             RateMetricWindowCalculator calculator,
             List<RateMetricWindowCalculator.RateBucketPoint> buckets,
@@ -980,12 +816,6 @@ public class SystemMetricsService {
     }
 
     private enum PipelineMetricRole {
-        PENDING,
-        INFLIGHT,
-        DLQ
-    }
-
-    private enum RuntimeWorkMetricRole {
         PENDING,
         INFLIGHT,
         DLQ
