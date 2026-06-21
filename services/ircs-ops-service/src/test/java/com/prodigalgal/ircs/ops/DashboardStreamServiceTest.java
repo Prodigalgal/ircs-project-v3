@@ -5,13 +5,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
-import java.time.Duration;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.core.task.TaskExecutor;
 
 class DashboardStreamServiceTest {
 
@@ -19,8 +17,7 @@ class DashboardStreamServiceTest {
             org.mockito.Mockito.mock(DashboardSnapshotCacheService.class);
     private final DashboardSnapshotRefresher snapshotRefresher =
             org.mockito.Mockito.mock(DashboardSnapshotRefresher.class);
-    @SuppressWarnings("unchecked")
-    private final ObjectProvider<TaskExecutor> taskExecutorProvider = org.mockito.Mockito.mock(ObjectProvider.class);
+    private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
 
     @Test
     void snapshotReadsCacheBeforeSynchronousRefresh() {
@@ -29,9 +26,7 @@ class DashboardStreamServiceTest {
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
-                taskExecutorProvider,
-                Duration.ofSeconds(3),
-                Duration.ofMinutes(1));
+                runtimeConfig);
 
         DashboardStreamSnapshot result = service.snapshot(50);
 
@@ -44,9 +39,7 @@ class DashboardStreamServiceTest {
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
-                taskExecutorProvider,
-                Duration.ofSeconds(3),
-                Duration.ofMinutes(1));
+                runtimeConfig);
 
         DashboardStreamSnapshot result = service.snapshot(50);
 
@@ -67,9 +60,7 @@ class DashboardStreamServiceTest {
         DashboardStreamService service = new DashboardStreamService(
                 cacheService,
                 snapshotRefresher,
-                taskExecutorProvider,
-                Duration.ofSeconds(3),
-                Duration.ofMinutes(1));
+                runtimeConfig);
 
         DashboardStreamSnapshot cached = service.snapshot(50);
         DashboardStreamSnapshot result = service.snapshot(50);

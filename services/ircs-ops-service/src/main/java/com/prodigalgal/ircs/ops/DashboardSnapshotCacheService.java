@@ -8,7 +8,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -21,28 +20,18 @@ class DashboardSnapshotCacheService {
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
     private final RuntimeConfigService runtimeConfig;
-    private final Clock clock;
+    private Clock clock = Clock.systemUTC();
 
-    @Autowired
     DashboardSnapshotCacheService(
             ObjectMapper objectMapper,
             StringRedisTemplate redisTemplate,
             RuntimeConfigService runtimeConfig) {
-        this(objectMapper, redisTemplate, runtimeConfig, Clock.systemUTC());
-    }
-
-    DashboardSnapshotCacheService(ObjectMapper objectMapper, StringRedisTemplate redisTemplate, Clock clock) {
-        this(objectMapper, redisTemplate, null, clock);
-    }
-
-    private DashboardSnapshotCacheService(
-            ObjectMapper objectMapper,
-            StringRedisTemplate redisTemplate,
-            RuntimeConfigService runtimeConfig,
-            Clock clock) {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.runtimeConfig = runtimeConfig;
+    }
+
+    void setClockForTests(Clock clock) {
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -120,10 +109,6 @@ class DashboardSnapshotCacheService {
         return runtimeConfig == null
                 ? fallback
                 : runtimeConfig.positiveDurationValue("app.ops.dashboard.snapshot.redis-ttl", fallback);
-    }
-
-    private Duration positiveOr(Duration value, Duration fallback) {
-        return value == null || value.isZero() || value.isNegative() ? fallback : value;
     }
 
     private record CachedDashboardSnapshot(

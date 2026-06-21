@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -20,7 +19,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 @Repository
-@RequiredArgsConstructor
 public class WorkerJobAuditRepository {
 
     private static final int DEFAULT_SUMMARY_SAMPLE_LIMIT = 50_000;
@@ -42,8 +40,9 @@ public class WorkerJobAuditRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final RuntimeConfigService runtimeConfig;
 
-    WorkerJobAuditRepository(NamedParameterJdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null);
+    WorkerJobAuditRepository(NamedParameterJdbcTemplate jdbcTemplate, RuntimeConfigService runtimeConfig) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.runtimeConfig = runtimeConfig;
     }
 
     public Page<WorkerJobAuditEventResponse> findAll(

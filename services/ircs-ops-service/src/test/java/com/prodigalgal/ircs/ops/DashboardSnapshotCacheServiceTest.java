@@ -2,11 +2,13 @@ package com.prodigalgal.ircs.ops;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -48,10 +50,15 @@ class DashboardSnapshotCacheServiceTest {
     }
 
     private DashboardSnapshotCacheService service(Instant now) throws Exception {
+        RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+        when(runtimeConfig.stringValue(anyString(), anyString())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(runtimeConfig.positiveDurationValue(anyString(), any(Duration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         DashboardSnapshotCacheService service = new DashboardSnapshotCacheService(
                 JsonMapper.builder().findAndAddModules().build(),
                 redisTemplate,
-                Clock.fixed(now, ZoneOffset.UTC));
+                runtimeConfig);
+        service.setClockForTests(Clock.fixed(now, ZoneOffset.UTC));
         return service;
     }
 

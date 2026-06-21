@@ -16,7 +16,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -28,24 +27,12 @@ class DashboardSnapshotComposer {
     private final RuntimeConfigService runtimeConfig;
     private final Duration fallbackRefreshBudget;
 
-    @Autowired
     DashboardSnapshotComposer(
             DashboardQueryService dashboardQueryService,
             RuntimeConfigService runtimeConfig) {
-        this(dashboardQueryService, runtimeConfig, Duration.ofSeconds(3));
-    }
-
-    DashboardSnapshotComposer(DashboardQueryService dashboardQueryService, Duration refreshBudget) {
-        this(dashboardQueryService, null, refreshBudget);
-    }
-
-    private DashboardSnapshotComposer(
-            DashboardQueryService dashboardQueryService,
-            RuntimeConfigService runtimeConfig,
-            Duration refreshBudget) {
         this.dashboardQueryService = dashboardQueryService;
         this.runtimeConfig = runtimeConfig;
-        this.fallbackRefreshBudget = positiveOr(refreshBudget, Duration.ofSeconds(3));
+        this.fallbackRefreshBudget = Duration.ofSeconds(3);
         this.executor = Executors.newFixedThreadPool(4, threadFactory());
     }
 
@@ -140,10 +127,6 @@ class DashboardSnapshotComposer {
     private static String causeName(ExecutionException ex) {
         Throwable cause = ex.getCause();
         return cause == null ? ex.getClass().getSimpleName() : cause.getClass().getSimpleName();
-    }
-
-    private static Duration positiveOr(Duration value, Duration fallback) {
-        return value == null || value.isZero() || value.isNegative() ? fallback : value;
     }
 
     private Duration refreshBudget() {

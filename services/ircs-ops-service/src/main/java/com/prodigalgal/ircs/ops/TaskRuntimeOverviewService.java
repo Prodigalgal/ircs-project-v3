@@ -13,7 +13,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +27,6 @@ class TaskRuntimeOverviewService {
     private final RuntimeConfigService runtimeConfig;
     private final int fallbackMaxLimit;
 
-    @Autowired
     TaskRuntimeOverviewService(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
@@ -38,17 +36,6 @@ class TaskRuntimeOverviewService {
         this.objectMapper = objectMapper;
         this.runtimeConfig = runtimeConfig;
         this.fallbackMaxLimit = DEFAULT_MAX_LIMIT;
-    }
-
-    TaskRuntimeOverviewService(
-            StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper,
-            int maxLimit
-    ) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
-        this.runtimeConfig = null;
-        this.fallbackMaxLimit = Math.max(1, maxLimit);
     }
 
     TaskRuntimeOverviewResponse currentOverview(int limit) {

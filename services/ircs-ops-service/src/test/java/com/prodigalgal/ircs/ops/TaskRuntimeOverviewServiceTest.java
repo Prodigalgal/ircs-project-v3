@@ -5,6 +5,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.contracts.task.TaskRuntimeHotKeys;
 import java.time.Instant;
@@ -26,10 +27,16 @@ class TaskRuntimeOverviewServiceTest {
     private final HashOperations<String, Object, Object> hashes = org.mockito.Mockito.mock(HashOperations.class);
     private final ZSetOperations<String, String> zsets = org.mockito.Mockito.mock(ZSetOperations.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-    private final TaskRuntimeOverviewService service = new TaskRuntimeOverviewService(redisTemplate, objectMapper, 10);
+    private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final TaskRuntimeOverviewService service = new TaskRuntimeOverviewService(
+            redisTemplate,
+            objectMapper,
+            runtimeConfig);
 
     @Test
     void summarizesActiveMasterRuntimeFromHotSnapshotAndState() throws Exception {
+        when(runtimeConfig.boundedIntValue("app.ops.task-runtime.overview.max-limit", 200, 1, 1000))
+                .thenReturn(10);
         UUID masterTaskId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-13T00:00:00Z");
@@ -97,6 +104,8 @@ class TaskRuntimeOverviewServiceTest {
 
     @Test
     void returnsEmptyOverviewWhenHotStoreIsUnavailable() {
+        when(runtimeConfig.boundedIntValue("app.ops.task-runtime.overview.max-limit", 200, 1, 1000))
+                .thenReturn(10);
         when(redisTemplate.opsForSet()).thenThrow(new IllegalStateException("hot store unavailable"));
 
         TaskRuntimeOverviewResponse overview = service.currentOverview(0);

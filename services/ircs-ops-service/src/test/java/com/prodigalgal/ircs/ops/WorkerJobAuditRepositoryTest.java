@@ -1,7 +1,10 @@
 package com.prodigalgal.ircs.ops;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -76,7 +79,18 @@ class WorkerJobAuditRepositoryTest {
         dataSource.setUsername("sa");
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         createTable(jdbcTemplate);
-        return new Fixture(new WorkerJobAuditRepository(new NamedParameterJdbcTemplate(dataSource)), jdbcTemplate);
+        RuntimeConfigService runtimeConfig = mock(RuntimeConfigService.class);
+        when(runtimeConfig.boundedIntValue(
+                "app.ops.worker-job-audit.summary-sample-limit",
+                50_000,
+                1,
+                1_000_000))
+                .thenReturn(50_000);
+        return new Fixture(
+                new WorkerJobAuditRepository(
+                        new NamedParameterJdbcTemplate(dataSource),
+                        runtimeConfig),
+                jdbcTemplate);
     }
 
     private static void createTable(JdbcTemplate jdbcTemplate) {

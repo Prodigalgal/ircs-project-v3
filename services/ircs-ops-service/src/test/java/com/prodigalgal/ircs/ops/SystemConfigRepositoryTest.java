@@ -5,14 +5,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import java.time.Duration;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 class SystemConfigRepositoryTest {
 
     private final JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
-    private final SystemConfigRepository repository = new SystemConfigRepository(jdbcTemplate);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<StringRedisTemplate> redisTemplateProvider =
+            org.mockito.Mockito.mock(ObjectProvider.class);
+    private final SystemConfigRepository repository = new SystemConfigRepository(
+            jdbcTemplate,
+            redisTemplateProvider,
+            SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
+            SystemConfigValkeyCache.DEFAULT_TTL,
+            Duration.ofHours(1));
 
     @Test
     void cachesFoundValuesUntilEvicted() {

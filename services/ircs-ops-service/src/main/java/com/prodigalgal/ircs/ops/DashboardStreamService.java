@@ -7,8 +7,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
@@ -26,11 +24,9 @@ class DashboardStreamService {
     private final Duration fallbackTimeout;
     private final ConcurrentMap<Integer, DashboardStreamSnapshot> localSnapshots = new ConcurrentHashMap<>();
 
-    @Autowired
     DashboardStreamService(
             DashboardSnapshotCacheService cacheService,
             DashboardSnapshotRefresher snapshotRefresher,
-            ObjectProvider<TaskExecutor> taskExecutorProvider,
             RuntimeConfigService runtimeConfig) {
         this.cacheService = cacheService;
         this.snapshotRefresher = snapshotRefresher;
@@ -38,20 +34,6 @@ class DashboardStreamService {
         this.runtimeConfig = runtimeConfig;
         this.fallbackInterval = Duration.ofSeconds(3);
         this.fallbackTimeout = Duration.ofHours(1);
-    }
-
-    DashboardStreamService(
-            DashboardSnapshotCacheService cacheService,
-            DashboardSnapshotRefresher snapshotRefresher,
-            ObjectProvider<TaskExecutor> taskExecutorProvider,
-            Duration interval,
-            Duration timeout) {
-        this.cacheService = cacheService;
-        this.snapshotRefresher = snapshotRefresher;
-        this.taskExecutor = taskExecutor();
-        this.runtimeConfig = null;
-        this.fallbackInterval = positiveOr(interval, Duration.ofSeconds(3));
-        this.fallbackTimeout = positiveOr(timeout, Duration.ofHours(1));
     }
 
     SseEmitter stream(int taskRuntimeLimit) {
@@ -120,10 +102,6 @@ class DashboardStreamService {
 
     private static TaskExecutor taskExecutor() {
         return new SimpleAsyncTaskExecutor("dashboard-stream-");
-    }
-
-    private static Duration positiveOr(Duration value, Duration fallback) {
-        return value == null || value.isZero() || value.isNegative() ? fallback : value;
     }
 
     private Duration interval() {
