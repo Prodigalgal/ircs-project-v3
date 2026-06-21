@@ -13,14 +13,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
-@RequiredArgsConstructor
 public class PoWService {
 
     static final String HEADER_CHALLENGE = "X-IRCS-POW-Challenge";
@@ -44,7 +42,17 @@ public class PoWService {
 
     private final StringRedisTemplate redisTemplate;
     private final IdentityConfigService configService;
-    private final SecureRandom secureRandom = new SecureRandom();
+    private final SecureRandom secureRandom;
+
+    public PoWService(StringRedisTemplate redisTemplate, IdentityConfigService configService) {
+        this(redisTemplate, configService, new SecureRandom());
+    }
+
+    PoWService(StringRedisTemplate redisTemplate, IdentityConfigService configService, SecureRandom secureRandom) {
+        this.redisTemplate = redisTemplate;
+        this.configService = configService;
+        this.secureRandom = secureRandom;
+    }
 
     public PoWChallenge generateChallenge() {
         return generateChallenge("auth");
@@ -142,9 +150,8 @@ public class PoWService {
     }
 
     private MathCaptcha mathCaptcha() {
-        int left = secureRandom.nextInt(18) + 2;
-        int right = secureRandom.nextInt(18) + 2;
-        return new MathCaptcha(true, left + " + " + right + " = ?", String.valueOf(left + right));
+        MathCaptchaOperator[] operators = MathCaptchaOperator.values();
+        return operators[secureRandom.nextInt(operators.length)].create(secureRandom);
     }
 
     private String normalizeScope(String value, String fallback) {
@@ -216,6 +223,57 @@ public class PoWService {
 
         static MathCaptcha none() {
             return new MathCaptcha(false, null, "");
+        }
+    }
+
+    private enum MathCaptchaOperator {
+        ADD("+") {
+            @Override
+            MathCaptcha create(SecureRandom random) {
+                int left = number(random, 2, 19);
+                int right = number(random, 2, 19);
+                return captcha(left, symbol, right, left + right);
+            }
+        },
+        SUBTRACT("-") {
+            @Override
+            MathCaptcha create(SecureRandom random) {
+                int left = number(random, 3, 20);
+                int right = number(random, 1, left);
+                return captcha(left, symbol, right, left - right);
+            }
+        },
+        MULTIPLY("*") {
+            @Override
+            MathCaptcha create(SecureRandom random) {
+                int left = number(random, 2, 12);
+                int right = number(random, 2, 12);
+                return captcha(left, symbol, right, left * right);
+            }
+        },
+        DIVIDE("/") {
+            @Override
+            MathCaptcha create(SecureRandom random) {
+                int divisor = number(random, 2, 12);
+                int quotient = number(random, 2, 12);
+                return captcha(divisor * quotient, symbol, divisor, quotient);
+            }
+        };
+
+        final String symbol;
+
+        MathCaptchaOperator(String symbol) {
+            this.symbol = symbol;
+        }
+
+        abstract MathCaptcha create(SecureRandom random);
+
+        static int number(SecureRandom random, int min, int max) {
+            return random.nextInt(max - min + 1) + min;
+        }
+
+        static MathCaptcha captcha(int left, String symbol, int right, int answer) {
+            return new MathCaptcha(true, left + " " + symbol + " " + right + " = ?", String.valueOf(answer));
         }
     }
 }

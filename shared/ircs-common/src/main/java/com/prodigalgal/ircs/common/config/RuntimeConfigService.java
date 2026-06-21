@@ -4,8 +4,8 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
@@ -13,11 +13,15 @@ import org.springframework.util.StringUtils;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class RuntimeConfigService {
 
-    private final RuntimeConfigRepository repository;
+    private final ObjectProvider<RuntimeConfigValueSource> valueSourceProvider;
     private final Environment environment;
+
+    public RuntimeConfigService(ObjectProvider<RuntimeConfigValueSource> valueSourceProvider, Environment environment) {
+        this.valueSourceProvider = valueSourceProvider;
+        this.environment = environment;
+    }
 
     public Optional<String> value(String key, String... aliases) {
         if (!StringUtils.hasText(key)) {
@@ -101,12 +105,19 @@ public class RuntimeConfigService {
     }
 
     public void evict(String key) {
-        repository.evict(key);
+        RuntimeConfigValueSource valueSource = valueSourceProvider.getIfAvailable();
+        if (valueSource != null) {
+            valueSource.evict(key);
+        }
     }
 
     private Optional<String> findDatabaseValue(String key) {
+        RuntimeConfigValueSource valueSource = valueSourceProvider.getIfAvailable();
+        if (valueSource == null) {
+            return Optional.empty();
+        }
         try {
-            return repository.findValue(key);
+            return valueSource.findValue(key);
         } catch (RuntimeException ex) {
             log.debug("Runtime config database lookup failed: key={}, error={}", key, ex.getMessage());
             return Optional.empty();

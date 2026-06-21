@@ -4,13 +4,15 @@ import java.time.Duration;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 @Repository
-public class RuntimeConfigRepository {
+@ConditionalOnClass(JdbcTemplate.class)
+public class RuntimeConfigRepository implements RuntimeConfigValueSource {
 
     private final JdbcTemplate jdbcTemplate;
     private final SystemConfigValkeyCache cache;
@@ -25,6 +27,7 @@ public class RuntimeConfigRepository {
         this.cache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, remoteTtl, localTtl);
     }
 
+    @Override
     public Optional<String> findValue(String key) {
         if (!StringUtils.hasText(key)) {
             return Optional.empty();
@@ -33,6 +36,7 @@ public class RuntimeConfigRepository {
         return cache.findValue(normalizedKey, () -> findValueFromDatabase(normalizedKey));
     }
 
+    @Override
     public void evict(String key) {
         if (StringUtils.hasText(key)) {
             cache.evictLocal(key.trim());

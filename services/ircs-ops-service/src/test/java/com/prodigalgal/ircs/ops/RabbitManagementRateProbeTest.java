@@ -4,12 +4,17 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
@@ -22,6 +27,17 @@ class RabbitManagementRateProbeTest {
     private final HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
     @SuppressWarnings("unchecked")
     private final ZSetOperations<String, String> zSetOps = org.mockito.Mockito.mock(ZSetOperations.class);
+
+    @Test
+    void springContextCreatesProbeWithRuntimeConfigConstructor() {
+        new ApplicationContextRunner()
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(StringRedisTemplate.class, () -> redisTemplate)
+                .withBean(RuntimeConfigService.class, () -> mock(RuntimeConfigService.class))
+                .withUserConfiguration(RabbitManagementRateProbeConfiguration.class)
+                .run(context -> org.assertj.core.api.Assertions.assertThat(context)
+                        .hasSingleBean(RabbitManagementRateProbe.class));
+    }
 
     @Test
     void recordsPositiveCounterDeltasIntoRateBuckets() throws Exception {
@@ -63,6 +79,11 @@ class RabbitManagementRateProbeTest {
                   }
                 ]
                 """.formatted(QueueTopic.INGEST_VIDEO.queueName(), publish, deliverGet, ack, redeliver);
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @Import(RabbitManagementRateProbe.class)
+    static class RabbitManagementRateProbeConfiguration {
     }
 
 }
