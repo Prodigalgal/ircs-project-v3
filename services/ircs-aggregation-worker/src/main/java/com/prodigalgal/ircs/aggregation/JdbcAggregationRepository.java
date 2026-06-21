@@ -2,7 +2,6 @@ package com.prodigalgal.ircs.aggregation;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
-import com.prodigalgal.ircs.common.metadata.MetadataNameRelation;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
 
 import java.sql.Date;
@@ -10,17 +9,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
@@ -34,14 +27,12 @@ import org.springframework.util.StringUtils;
 @Repository
 public class JdbcAggregationRepository {
 
-    private static final double TITLE_RECALL_THRESHOLD = 0.35;
-    private static final int TITLE_RECALL_LIMIT = 20;
     private static final Pattern LOCKED_FIELD_PATTERN = Pattern.compile("\"([^\"]+)\"");
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
-    private final AggregationMatchingStrategy matchingStrategy;
-    private final AggregationContextSearchClient contextSearchClient;
-    private final MetadataNameValkeyCache metadataNameCache;
+    private final AggregationCandidateRepository candidateRepository;
+    private final AggregationMetadataNameRepository metadataNameRepository;
+
     public JdbcAggregationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
             AggregationMatchingStrategy matchingStrategy,
@@ -49,9 +40,12 @@ public class JdbcAggregationRepository {
             ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
             @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {
         this.jdbcTemplate = jdbcTemplate;
-        this.matchingStrategy = matchingStrategy;
-        this.contextSearchClient = contextSearchClient;
-        this.metadataNameCache = metadataNameCacheProvider == null ? null : metadataNameCacheProvider.getIfAvailable();
+        this.metadataNameRepository = new AggregationMetadataNameRepository(jdbcTemplate, metadataNameCacheProvider);
+        this.candidateRepository = new AggregationCandidateRepository(
+                jdbcTemplate,
+                matchingStrategy,
+                contextSearchClient,
+                metadataNameRepository);
         if (queryTimeoutSeconds > 0 && this.jdbcTemplate.getJdbcTemplate() != null) {
             this.jdbcTemplate.getJdbcTemplate().setQueryTimeout(queryTimeoutSeconds);
         }
@@ -100,7 +94,7 @@ public class JdbcAggregationRepository {
                     """,
                     new MapSqlParameterSource("id", rawVideoId),
                     this::mapRawVideo))
-                    .map(this::populateRawMetadata);
+                    .map(metadataNameRepository::populateRawMetadata);
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -135,7 +129,7 @@ public class JdbcAggregationRepository {
                 """,
                 new MapSqlParameterSource("ids", ids),
                 this::mapRawVideo);
-        return populateRawMetadata(rawVideos);
+        return metadataNameRepository.populateRawMetadata(rawVideos);
     }
 
     public Optional<UUID> findExistingBinding(UUID rawVideoId) {
@@ -181,170 +175,15 @@ public class JdbcAggregationRepository {
     }
 
     public Optional<UUID> findMatchingUnifiedVideo(RawVideoAggregationRecord rawVideo) {
-        AggregationMatchPlan plan = findMatchPlan(rawVideo);
-        return plan.hasRoot() ? Optional.of(plan.rootUnifiedVideoId()) : Optional.empty();
+        return candidateRepository.findMatchingUnifiedVideo(rawVideo);
     }
 
     public AggregationMatchPlan findMatchPlan(RawVideoAggregationRecord rawVideo) {
-        Map<UUID, UnifiedVideoAggregationCandidate> candidates = new LinkedHashMap<>();
-        for (UnifiedVideoAggregationCandidate candidate : findExternalIdCandidates(rawVideo)) {
-            candidates.putIfAbsent(candidate.id(), candidate);
-        }
-        for (UnifiedVideoAggregationCandidate candidate : findTitleYearCandidates(rawVideo)) {
-            candidates.putIfAbsent(candidate.id(), candidate);
-        }
-        if (candidates.isEmpty()) {
-            return AggregationMatchPlan.none();
-        }
-        return matchingStrategy.findMatchPlan(rawVideo, List.copyOf(candidates.values()));
+        return candidateRepository.findMatchPlan(rawVideo);
     }
 
     public List<UnifiedVideoAggregationCandidate> findContextUnifiedCandidates(List<RawVideoAggregationRecord> rawVideos) {
-        if (rawVideos == null || rawVideos.isEmpty()) {
-            return List.of();
-        }
-        Map<UUID, UnifiedVideoAggregationCandidate> candidates = new LinkedHashMap<>();
-        for (RawVideoAggregationRecord rawVideo : rawVideos) {
-            if (hasContextExternalId(rawVideo)) {
-                for (UnifiedVideoAggregationCandidate candidate : findContextExternalIdCandidates(rawVideo)) {
-                    candidates.putIfAbsent(candidate.id(), candidate);
-                }
-            } else {
-                for (UnifiedVideoAggregationCandidate candidate : findContextSearchCandidates(rawVideo)) {
-                    candidates.putIfAbsent(candidate.id(), candidate);
-                }
-            }
-        }
-        return List.copyOf(candidates.values());
-    }
-
-    private boolean hasContextExternalId(RawVideoAggregationRecord rawVideo) {
-        return isValidExternalId(rawVideo.doubanId()) || isValidExternalId(rawVideo.tmdbId());
-    }
-
-    private List<UnifiedVideoAggregationCandidate> findContextExternalIdCandidates(RawVideoAggregationRecord rawVideo) {
-        List<String> clauses = new ArrayList<>();
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        addExternalIdClause(clauses, params, "douban_id", "doubanId", rawVideo.doubanId());
-        addExternalIdClause(clauses, params, "tmdb_id", "tmdbId", rawVideo.tmdbId());
-        if (clauses.isEmpty()) {
-            return List.of();
-        }
-
-        return queryUnifiedCandidates(
-                """
-                where %s
-                order by updated_at desc
-                limit :limit
-                """.formatted(String.join(" or ", clauses)),
-                params.addValue("limit", TITLE_RECALL_LIMIT));
-    }
-
-    private List<UnifiedVideoAggregationCandidate> findContextSearchCandidates(RawVideoAggregationRecord rawVideo) {
-        AggregationContextSearchClient.ContextSearchResult searchResult =
-                contextSearchClient.findCandidateUnifiedVideoIds(rawVideo.title(), rawVideo.year());
-        if (!searchResult.attempted()) {
-            return findTitleYearCandidates(rawVideo);
-        }
-        if (searchResult.unifiedVideoIds().isEmpty()) {
-            return List.of();
-        }
-        return queryUnifiedCandidatesByIds(searchResult.unifiedVideoIds());
-    }
-
-    private List<UnifiedVideoAggregationCandidate> findExternalIdCandidates(RawVideoAggregationRecord rawVideo) {
-        List<String> clauses = new ArrayList<>();
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        addExternalIdClause(clauses, params, "douban_id", "doubanId", rawVideo.doubanId());
-        addExternalIdClause(clauses, params, "tmdb_id", "tmdbId", rawVideo.tmdbId());
-        addExternalIdClause(clauses, params, "imdb_id", "imdbId", rawVideo.imdbId());
-        addExternalIdClause(clauses, params, "rotten_tomatoes_id", "rottenTomatoesId", rawVideo.rottenTomatoesId());
-        if (clauses.isEmpty()) {
-            return List.of();
-        }
-
-        return queryUnifiedCandidates(
-                """
-                where %s
-                order by updated_at desc
-                limit :limit
-                """.formatted(String.join(" or ", clauses)),
-                params.addValue("limit", TITLE_RECALL_LIMIT));
-    }
-
-    private List<UnifiedVideoAggregationCandidate> findTitleYearCandidates(RawVideoAggregationRecord rawVideo) {
-        if (!StringUtils.hasText(rawVideo.title())) {
-            return List.of();
-        }
-        String title = rawVideo.title().trim();
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("title", title)
-                .addValue("year", validOrNull(rawVideo.year()))
-                .addValue("titleLike", "%" + title.toLowerCase(Locale.ROOT) + "%")
-                .addValue("titleRecallThreshold", TITLE_RECALL_THRESHOLD)
-                .addValue("limit", TITLE_RECALL_LIMIT);
-        return queryUnifiedCandidates(
-                """
-                where (:year is null or nullif(year, '') is null or year = :year)
-                  and (
-                    similarity(title, :title) >= :titleRecallThreshold
-                    or similarity(coalesce(alias_title, ''), :title) >= :titleRecallThreshold
-                    or lower(title) like :titleLike
-                    or lower(coalesce(alias_title, '')) like :titleLike
-                  )
-                order by greatest(
-                    similarity(title, :title),
-                    similarity(coalesce(alias_title, ''), :title)
-                ) desc, updated_at desc
-                limit :limit
-                """,
-                params);
-    }
-
-    private List<UnifiedVideoAggregationCandidate> queryUnifiedCandidates(
-            String whereAndOrderBy,
-            MapSqlParameterSource params) {
-        List<UnifiedVideoAggregationCandidate> candidates = jdbcTemplate.query(
-                """
-                select id, title, alias_title, subtitle, year,
-                       total_episodes, duration, remarks,
-                       category_name,
-                       douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
-                       season
-                from (
-                    select uv.*,
-                           sc.name as category_name
-                    from unified_videos uv
-                    left join standard_category sc on sc.id = uv.category_id
-                ) unified_candidate
-                %s
-                """.formatted(whereAndOrderBy),
-                params,
-                this::mapUnifiedCandidate);
-        return populateUnifiedMetadata(candidates);
-    }
-
-    private List<UnifiedVideoAggregationCandidate> queryUnifiedCandidatesByIds(List<UUID> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return List.of();
-        }
-        List<UnifiedVideoAggregationCandidate> candidates = queryUnifiedCandidates(
-                """
-                where id in (:ids)
-                """,
-                new MapSqlParameterSource("ids", ids));
-        Map<UUID, UnifiedVideoAggregationCandidate> byId = new LinkedHashMap<>();
-        for (UnifiedVideoAggregationCandidate candidate : candidates) {
-            byId.putIfAbsent(candidate.id(), candidate);
-        }
-        List<UnifiedVideoAggregationCandidate> ordered = new ArrayList<>();
-        for (UUID id : ids) {
-            UnifiedVideoAggregationCandidate candidate = byId.get(id);
-            if (candidate != null && ordered.stream().noneMatch(existing -> existing.id().equals(id))) {
-                ordered.add(candidate);
-            }
-        }
-        return List.copyOf(ordered);
+        return candidateRepository.findContextUnifiedCandidates(rawVideos);
     }
 
     public UUID createUnifiedVideo(RawVideoAggregationRecord rawVideo) {
@@ -1362,288 +1201,12 @@ public class JdbcAggregationRepository {
                 rs.getString("aggregation_status"));
     }
 
-    private UnifiedVideoAggregationCandidate mapUnifiedCandidate(ResultSet rs, int rowNum) throws SQLException {
-        return new UnifiedVideoAggregationCandidate(
-                rs.getObject("id", UUID.class),
-                rs.getString("title"),
-                rs.getString("alias_title"),
-                rs.getString("subtitle"),
-                rs.getString("year"),
-                rs.getString("total_episodes"),
-                rs.getString("duration"),
-                rs.getString("remarks"),
-                rs.getString("category_name"),
-                rs.getString("douban_id"),
-                rs.getString("tmdb_id"),
-                rs.getString("imdb_id"),
-                rs.getString("rotten_tomatoes_id"),
-                (Integer) rs.getObject("season"));
-    }
-
-    private RawVideoAggregationRecord populateRawMetadata(RawVideoAggregationRecord rawVideo) {
-        Map<UUID, Set<String>> actors = findRawActorNames(Set.of(rawVideo.id()));
-        Map<UUID, Set<String>> directors = findRawDirectorNames(Set.of(rawVideo.id()));
-        Map<UUID, Set<String>> areas = findRawAreaNames(Set.of(rawVideo.id()));
-        return rawVideo.withMetadata(
-                actors.getOrDefault(rawVideo.id(), Set.of()),
-                directors.getOrDefault(rawVideo.id(), Set.of()),
-                areas.getOrDefault(rawVideo.id(), Set.of()));
-    }
-
-    private List<RawVideoAggregationRecord> populateRawMetadata(List<RawVideoAggregationRecord> rawVideos) {
-        if (rawVideos == null || rawVideos.isEmpty()) {
-            return List.of();
-        }
-        Set<UUID> ids = new HashSet<>();
-        for (RawVideoAggregationRecord rawVideo : rawVideos) {
-            ids.add(rawVideo.id());
-        }
-        Map<UUID, Set<String>> actors = findRawActorNames(ids);
-        Map<UUID, Set<String>> directors = findRawDirectorNames(ids);
-        Map<UUID, Set<String>> areas = findRawAreaNames(ids);
-        List<RawVideoAggregationRecord> result = new ArrayList<>(rawVideos.size());
-        for (RawVideoAggregationRecord rawVideo : rawVideos) {
-            result.add(rawVideo.withMetadata(
-                    actors.getOrDefault(rawVideo.id(), Set.of()),
-                    directors.getOrDefault(rawVideo.id(), Set.of()),
-                    areas.getOrDefault(rawVideo.id(), Set.of())));
-        }
-        return List.copyOf(result);
-    }
-
-    private List<UnifiedVideoAggregationCandidate> populateUnifiedMetadata(
-            List<UnifiedVideoAggregationCandidate> candidates) {
-        if (candidates == null || candidates.isEmpty()) {
-            return List.of();
-        }
-        Set<UUID> ids = new HashSet<>();
-        for (UnifiedVideoAggregationCandidate candidate : candidates) {
-            ids.add(candidate.id());
-        }
-        Map<UUID, Set<String>> actors = findUnifiedActorNames(ids);
-        Map<UUID, Set<String>> directors = findUnifiedDirectorNames(ids);
-        Map<UUID, Set<String>> areas = findUnifiedAreaNames(ids);
-        List<UnifiedVideoAggregationCandidate> result = new ArrayList<>(candidates.size());
-        for (UnifiedVideoAggregationCandidate candidate : candidates) {
-            result.add(candidate.withMetadata(
-                    actors.getOrDefault(candidate.id(), Set.of()),
-                    directors.getOrDefault(candidate.id(), Set.of()),
-                    areas.getOrDefault(candidate.id(), Set.of())));
-        }
-        return List.copyOf(result);
-    }
-
-    private Map<UUID, Set<String>> findRawActorNames(Collection<UUID> ids) {
-        return cachedNameSetById(
-                MetadataNameOwnerType.RAW,
-                MetadataNameRelation.ACTORS,
-                ids,
-                this::queryRawActorNames);
-    }
-
-    private Map<UUID, Set<String>> queryRawActorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select va.video_id as owner_id, a.name
-                from video_actors va
-                join actors a on a.id = va.actor_id
-                where va.video_id in (:ids)
-                """,
-                ids);
-    }
-
-    private Map<UUID, Set<String>> findRawDirectorNames(Collection<UUID> ids) {
-        return cachedNameSetById(
-                MetadataNameOwnerType.RAW,
-                MetadataNameRelation.DIRECTORS,
-                ids,
-                this::queryRawDirectorNames);
-    }
-
-    private Map<UUID, Set<String>> queryRawDirectorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select vd.video_id as owner_id, d.name
-                from video_directors vd
-                join directors d on d.id = vd.director_id
-                where vd.video_id in (:ids)
-                """,
-                ids);
-    }
-
-    private Map<UUID, Set<String>> findRawAreaNames(Collection<UUID> ids) {
-        return cachedNameSetById(
-                MetadataNameOwnerType.RAW,
-                MetadataNameRelation.AREAS,
-                ids,
-                this::queryRawAreaNames);
-    }
-
-    private Map<UUID, Set<String>> queryRawAreaNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select vra.video_id as owner_id, sa.name
-                from video_raw_areas vra
-                join raw_areas ra on ra.id = vra.raw_area_id
-                join standard_areas sa on sa.id = ra.standard_area_id
-                where vra.video_id in (:ids)
-                """,
-                ids);
-    }
-
-    private Map<UUID, Set<String>> findUnifiedActorNames(Collection<UUID> ids) {
-        return cachedNameSetById(
-                MetadataNameOwnerType.UNIFIED,
-                MetadataNameRelation.ACTORS,
-                ids,
-                this::queryUnifiedActorNames);
-    }
-
-    private Map<UUID, Set<String>> queryUnifiedActorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select uva.unified_video_id as owner_id, a.name
-                from unified_video_actors uva
-                join actors a on a.id = uva.actor_id
-                where uva.unified_video_id in (:ids)
-                """,
-                ids);
-    }
-
-    private Map<UUID, Set<String>> findUnifiedDirectorNames(Collection<UUID> ids) {
-        return cachedNameSetById(
-                MetadataNameOwnerType.UNIFIED,
-                MetadataNameRelation.DIRECTORS,
-                ids,
-                this::queryUnifiedDirectorNames);
-    }
-
-    private Map<UUID, Set<String>> queryUnifiedDirectorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select uvd.unified_video_id as owner_id, d.name
-                from unified_video_directors uvd
-                join directors d on d.id = uvd.director_id
-                where uvd.unified_video_id in (:ids)
-                """,
-                ids);
-    }
-
-    private Map<UUID, Set<String>> findUnifiedAreaNames(Collection<UUID> ids) {
-        return cachedNameSetById(
-                MetadataNameOwnerType.UNIFIED,
-                MetadataNameRelation.AREAS,
-                ids,
-                this::queryUnifiedAreaNames);
-    }
-
-    private Map<UUID, Set<String>> queryUnifiedAreaNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select uvsa.unified_video_id as owner_id, sa.name
-                from unified_video_standard_areas uvsa
-                join standard_areas sa on sa.id = uvsa.standard_area_id
-                where uvsa.unified_video_id in (:ids)
-                """,
-                ids);
-    }
-
-    private Map<UUID, Set<String>> cachedNameSetById(
-            MetadataNameOwnerType ownerType,
-            MetadataNameRelation relation,
-            Collection<UUID> ids,
-            Function<Collection<UUID>, Map<UUID, Set<String>>> loader) {
-        List<UUID> normalizedIds = normalizeIds(ids);
-        if (normalizedIds.isEmpty()) {
-            return Map.of();
-        }
-        if (metadataNameCache == null) {
-            return loader.apply(normalizedIds);
-        }
-
-        Map<UUID, Set<String>> cached = metadataNameCache.findNames(ownerType, relation, normalizedIds);
-        if (cached == null) {
-            return loader.apply(normalizedIds);
-        }
-
-        List<UUID> missing = normalizedIds.stream()
-                .filter(id -> !cached.containsKey(id))
-                .toList();
-        Map<UUID, Set<String>> loaded = missing.isEmpty() ? Map.of() : loader.apply(missing);
-        if (!loaded.isEmpty()) {
-            metadataNameCache.putNames(ownerType, relation, loaded);
-        }
-        if (!missing.isEmpty()) {
-            List<UUID> emptyIds = missing.stream()
-                    .filter(id -> !loaded.containsKey(id))
-                    .toList();
-            metadataNameCache.putEmpty(ownerType, relation, emptyIds);
-        }
-
-        Map<UUID, Set<String>> result = new LinkedHashMap<>();
-        for (UUID id : normalizedIds) {
-            if (cached.containsKey(id)) {
-                result.put(id, cached.getOrDefault(id, Set.of()));
-            } else if (loaded.containsKey(id)) {
-                result.put(id, loaded.getOrDefault(id, Set.of()));
-            } else {
-                result.put(id, Set.of());
-            }
-        }
-        return result;
-    }
-
-    private Map<UUID, Set<String>> queryNameSetById(String sql, Collection<UUID> ids) {
-        List<UUID> normalizedIds = normalizeIds(ids);
-        if (normalizedIds.isEmpty()) {
-            return Map.of();
-        }
-        Map<UUID, Set<String>> result = new HashMap<>();
-        jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("ids", normalizedIds),
-                rs -> {
-                    UUID ownerId = rs.getObject("owner_id", UUID.class);
-                    String name = rs.getString("name");
-                    if (ownerId != null && StringUtils.hasText(name)) {
-                        result.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(name);
-                    }
-                });
-        return result;
-    }
-
-    private List<UUID> normalizeIds(Collection<UUID> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return List.of();
-        }
-        return ids.stream()
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-    }
-
     private void evictMetadataNameCache(MetadataNameOwnerType ownerType, Collection<UUID> ownerIds) {
-        if (metadataNameCache != null) {
-            metadataNameCache.evictOwner(ownerType, ownerIds);
-        }
+        metadataNameRepository.evictOwner(ownerType, ownerIds);
     }
 
     private void evictAllMetadataNameCache() {
-        if (metadataNameCache != null) {
-            metadataNameCache.evictAll();
-        }
-    }
-
-    private void addExternalIdClause(
-            List<String> clauses,
-            MapSqlParameterSource params,
-            String column,
-            String paramName,
-            String value) {
-        if (isValidExternalId(value)) {
-            clauses.add(column + " = :" + paramName);
-            params.addValue(paramName, value.trim());
-        }
+        metadataNameRepository.evictAll();
     }
 
     private MapSqlParameterSource paramsForUnified(UUID unifiedVideoId, RawVideoAggregationRecord rawVideo) {
