@@ -148,8 +148,9 @@ public class SystemConfigDefaults {
             cfg("app.ops.metrics.cache-ttl", "PT15S", "运维指标接口本地缓存 TTL"),
             cfg("app.ops.metrics.instant-window", "PT60S", "运维速率指标即时窗口"),
             cfg("app.ops.metrics.stable-window", "PT5M", "运维速率指标稳定窗口"),
+            cfg("app.ops.metrics.consumer-no-progress-grace", "PT10M", "队列消费者无进展判定宽限时间"),
             cfg("app.ops.metrics.ewma-alpha", "0.25", "运维速率 EWMA 平滑系数"),
-            cfg("app.aggregation.work-queue.worker.processing-stall-threshold", "PT120S", "聚合运行队列处理中卡住判定阈值"),
+            cfg("app.aggregation.work-queue.worker.processing-stall-threshold", "PT10M", "聚合运行队列处理中卡住判定阈值"),
             cfg("app.ops.task-runtime.overview.max-limit", "200", "运行任务概览最大返回数量"),
             cfg("app.ops.request-audit.summary-sample-limit", "50000", "请求审计摘要最大采样行数"),
             cfg("app.ops.worker-job-audit.summary-sample-limit", "50000", "Worker 审计摘要最大采样行数"),
@@ -189,6 +190,12 @@ public class SystemConfigDefaults {
             cfg("app.rate-metrics.bucket-size", "PT10S", "运行速率指标桶大小"),
             cfg("app.rate-metrics.bucket-ttl", "PT30M", "运行速率指标桶 TTL"),
             cfg("app.rate-metrics.bucket-index-retention", "PT31M", "运行速率指标桶索引保留时间"),
+            cfg("app.log-retention.enabled", "true", "是否启用通用日志滚动保留清理"),
+            cfg("app.log-retention.default-retention", "P30D", "通用日志默认保留时间"),
+            cfg("app.log-retention.initial-delay-ms", "60000", "通用日志保留清理启动延迟(毫秒)"),
+            cfg("app.log-retention.fixed-delay-ms", "3600000", "通用日志保留清理间隔(毫秒)"),
+            cfg("app.log-retention.target.audit-es.enabled", "true", "是否启用 Audit ES 日志保留清理"),
+            cfg("app.log-retention.target.audit-es.retention", "P30D", "Audit ES 日志保留时间"),
             cfg("app.portal.cache.enabled", "true", "是否启用门户读模型缓存"),
             cfg("app.portal.cache.metadata-ttl", "PT5M", "门户元数据缓存 TTL"),
             cfg("app.portal.cache.home-ttl", "PT60S", "门户首页缓存 TTL"),
@@ -263,6 +270,7 @@ public class SystemConfigDefaults {
             cfg("app.search.work-queue.worker.max-backoff-seconds", "300", "搜索 Valkey worker 最大退避时间(秒)"),
             cfg("app.search.work-queue.worker.initial-delay-ms", "10000", "搜索 Valkey worker 启动延迟(毫秒)"),
             cfg("app.search.work-queue.worker.fixed-delay-ms", "1000", "搜索 Valkey worker 空转轮询间隔(毫秒)"),
+            cfg("app.audit.es-replication.enabled", "true", "是否将审计日志投递到 ES 投影队列"),
             cfg("app.search.audit-es-replication.worker.enabled", "true", "是否启用审计日志 ES 投影 Valkey worker"),
             cfg("app.search.audit-es-replication.worker.batch-size", "100", "审计日志 ES 投影 worker 每轮领取数量"),
             cfg("app.search.audit-es-replication.worker.visibility-seconds", "600", "审计日志 ES 投影任务可见性超时(秒)"),
@@ -523,6 +531,8 @@ public class SystemConfigDefaults {
                 || key.startsWith("app.storage.base-path")
                 || key.startsWith("app.storage.public-path")
                 || key.startsWith("app.system-config.valkey-cache.")
+                || key.startsWith("app.log-retention.initial-delay-ms")
+                || key.startsWith("app.log-retention.fixed-delay-ms")
                 || "app.runtime-config.local-cache.ttl".equals(key)
                 || "security.jwt.secret".equals(key)
                 || "security.admin.password".equals(key);
@@ -533,6 +543,9 @@ public class SystemConfigDefaults {
                 || key.startsWith("app.scraper.traffic.")
                 || key.startsWith("app.magnet.traffic.")
                 || key.startsWith("app.storage.image.traffic.")
+                || (key.startsWith("app.log-retention.")
+                && !key.equals("app.log-retention.initial-delay-ms")
+                && !key.equals("app.log-retention.fixed-delay-ms"))
                 || key.startsWith("app.identity.auth-rate-limit.")
                 || "app.identity.pow.enabled".equals(key)
                 || "app.portal.cache.enabled".equals(key)
@@ -590,6 +603,9 @@ public class SystemConfigDefaults {
                     "ircs-content-service",
                     "ircs-identity-service",
                     "ircs-interaction-service"));
+        }
+        if (key.startsWith("app.log-retention.")) {
+            services.addAll(List.of("ircs-search-service"));
         }
         return services.stream().distinct().toList();
     }

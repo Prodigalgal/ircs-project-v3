@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 class AuditEsReplicationWorkQueueWorkerTest {
 
@@ -100,14 +102,60 @@ class AuditEsReplicationWorkQueueWorkerTest {
         assertThat(queue.failures.getFirst().retryable()).isFalse();
     }
 
+    @Test
+    void globalReplicationSwitchDisablesWorkerConsumption() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        queue.items.add(item(1));
+        com.prodigalgal.ircs.search.support.SystemConfigRepository configRepository =
+                org.mockito.Mockito.mock(com.prodigalgal.ircs.search.support.SystemConfigRepository.class);
+        when(configRepository.findValue("app.audit.es-replication.enabled")).thenReturn(Optional.of("false"));
+        when(configRepository.findValue("app.search.audit-es-replication.worker.enabled")).thenReturn(Optional.of("true"));
+        AuditEsReplicationWorkQueueWorker worker = worker(queue, configRepository);
+
+        int processed = worker.runOnce();
+
+        assertThat(processed).isZero();
+        assertThat(queue.claimCalls).isZero();
+        verifyNoInteractions(repository, searchIndexService);
+    }
+
+    @Test
+    void deploymentGlobalReplicationSwitchIsUsedWhenRuntimeConfigMissing() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        queue.items.add(item(1));
+        com.prodigalgal.ircs.search.support.SystemConfigRepository configRepository =
+                org.mockito.Mockito.mock(com.prodigalgal.ircs.search.support.SystemConfigRepository.class);
+        when(configRepository.findValue("app.audit.es-replication.enabled")).thenReturn(Optional.empty());
+        when(configRepository.findValue("app.search.audit-es-replication.worker.enabled")).thenReturn(Optional.of("true"));
+        AuditEsReplicationWorkQueueWorker worker = worker(queue, configRepository);
+        set(worker, "replicationEnabledByDeployment", false);
+
+        int processed = worker.runOnce();
+
+        assertThat(processed).isZero();
+        assertThat(queue.claimCalls).isZero();
+        verifyNoInteractions(repository, searchIndexService);
+    }
+
     private AuditEsReplicationWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {
+        return worker(queue, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private AuditEsReplicationWorkQueueWorker worker(
+            FakeRuntimeWorkQueue queue,
+            com.prodigalgal.ircs.search.support.SystemConfigRepository configRepository) throws Exception {
+        ObjectProvider<com.prodigalgal.ircs.search.support.SystemConfigRepository> provider =
+                org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(configRepository);
         AuditEsReplicationWorkQueueWorker worker = new AuditEsReplicationWorkQueueWorker(
                 queue,
                 objectMapper,
                 repository,
                 searchIndexService,
-                null);
+                provider);
         set(worker, "enabledByDeployment", true);
+        set(worker, "replicationEnabledByDeployment", true);
         set(worker, "batchSize", 100);
         set(worker, "visibilitySeconds", 600L);
         set(worker, "maxRetries", 8);
@@ -153,6 +201,7 @@ class AuditEsReplicationWorkQueueWorkerTest {
         private final List<RuntimeWorkItem> completed = new ArrayList<>();
         private final List<Failure> failures = new ArrayList<>();
         private final List<String> heartbeats = new ArrayList<>();
+        private int claimCalls;
 
         @Override
         public void submit(RuntimeWorkItemRequest request) {
@@ -172,6 +221,7 @@ class AuditEsReplicationWorkQueueWorkerTest {
 
         @Override
         public List<RuntimeWorkItem> claim(String taskType, String ownerId, int limit, Duration visibilityTimeout) {
+            claimCalls++;
             return AuditReplicationWorkTypes.ES_REPLICATION.equals(taskType) ? List.copyOf(items) : List.of();
         }
 

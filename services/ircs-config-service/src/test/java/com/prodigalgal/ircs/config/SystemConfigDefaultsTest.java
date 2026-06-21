@@ -94,8 +94,13 @@ class SystemConfigDefaultsTest {
         assertEquals("PT3S", defaults.staticDefaultValue("app.ops.dashboard.stream.metrics.interval").orElseThrow());
         assertEquals("PT5S", defaults.staticDefaultValue("app.ops.dashboard.stream.search-ops.interval").orElseThrow());
         assertEquals("PT15S", defaults.staticDefaultValue("app.ops.metrics.cache-ttl").orElseThrow());
-        assertEquals("PT120S", defaults.staticDefaultValue(
+        assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
+        assertEquals("PT10M", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.log-retention.enabled").orElseThrow());
+        assertEquals("P30D", defaults.staticDefaultValue("app.log-retention.default-retention").orElseThrow());
+        assertEquals("P30D", defaults.staticDefaultValue("app.log-retention.target.audit-es.retention").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.audit.es-replication.enabled").orElseThrow());
         assertEquals("PT10S", defaults.staticDefaultValue("app.rate-metrics.bucket-size").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.ops.config-listener.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
@@ -164,9 +169,12 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata restart = defaults.metadata("security.jwt.secret");
         SystemConfigDefaults.ConfigMetadata storageRestart = defaults.metadata("app.storage.r2.secret-key");
         SystemConfigDefaults.ConfigMetadata listenerRestart = defaults.metadata("app.search.config-listener.enabled");
+        SystemConfigDefaults.ConfigMetadata logRetentionHot = defaults.metadata("app.log-retention.target.audit-es.retention");
+        SystemConfigDefaults.ConfigMetadata logRetentionScheduleRestart = defaults.metadata("app.log-retention.fixed-delay-ms");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, logRetentionHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
         assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
@@ -177,6 +185,8 @@ class SystemConfigDefaultsTest {
         assertTrue(storageRestart.restartServices().contains("ircs-storage-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, listenerRestart.activationMode());
         assertTrue(listenerRestart.restartServices().contains("ircs-search-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, logRetentionScheduleRestart.activationMode());
+        assertTrue(logRetentionScheduleRestart.restartServices().contains("ircs-search-service"));
         assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
         assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
         assertConfigListenerRequiresRestart("app.interaction.config-listener.enabled", "ircs-interaction-service");
@@ -306,6 +316,7 @@ class SystemConfigDefaultsTest {
             "app.ops.metrics.cache-ttl",
             "app.ops.metrics.instant-window",
             "app.ops.metrics.stable-window",
+            "app.ops.metrics.consumer-no-progress-grace",
             "app.ops.metrics.ewma-alpha",
             "app.aggregation.work-queue.worker.processing-stall-threshold",
             "app.ops.task-runtime.overview.max-limit",
@@ -327,6 +338,12 @@ class SystemConfigDefaultsTest {
             "app.rate-metrics.bucket-size",
             "app.rate-metrics.bucket-ttl",
             "app.rate-metrics.bucket-index-retention",
+            "app.log-retention.enabled",
+            "app.log-retention.default-retention",
+            "app.log-retention.initial-delay-ms",
+            "app.log-retention.fixed-delay-ms",
+            "app.log-retention.target.audit-es.enabled",
+            "app.log-retention.target.audit-es.retention",
             "app.portal.cache.enabled",
             "app.portal.cache.metadata-ttl",
             "app.portal.cache.home-ttl",
@@ -401,6 +418,7 @@ class SystemConfigDefaultsTest {
             "app.search.work-queue.worker.max-backoff-seconds",
             "app.search.work-queue.worker.initial-delay-ms",
             "app.search.work-queue.worker.fixed-delay-ms",
+            "app.audit.es-replication.enabled",
             "app.search.audit-es-replication.worker.enabled",
             "app.search.audit-es-replication.worker.batch-size",
             "app.search.audit-es-replication.worker.visibility-seconds",

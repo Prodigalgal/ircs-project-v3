@@ -353,7 +353,9 @@ public class SystemMetricsService {
         long instantWindowMillis = durationMillis(instantRateWindow(), Duration.ofSeconds(60));
         long stableWindowMillis = Math.max(
                 instantWindowMillis,
-                durationMillis(stableRateWindow(), Duration.ofMinutes(5)));
+                Math.max(
+                        durationMillis(stableRateWindow(), Duration.ofMinutes(5)),
+                        durationMillis(consumerNoProgressGrace(), Duration.ofMinutes(10))));
         long start = Math.floorDiv(now - stableWindowMillis, bucketMillis) * bucketMillis;
         long end = Math.floorDiv(now, bucketMillis) * bucketMillis;
         Set<String> indexedBuckets = indexedRateBuckets(start, end);
@@ -425,6 +427,12 @@ public class SystemMetricsService {
         return runtimeConfig.positiveDurationValue("app.ops.metrics.stable-window", Duration.ofMinutes(5));
     }
 
+    private Duration consumerNoProgressGrace() {
+        return runtimeConfig.positiveDurationValue(
+                "app.ops.metrics.consumer-no-progress-grace",
+                Duration.ofMinutes(10));
+    }
+
     private double ewmaAlpha() {
         double value = runtimeConfig.doubleValue("app.ops.metrics.ewma-alpha", 0.25d);
         return Math.max(0.0d, Math.min(1.0d, value));
@@ -433,7 +441,7 @@ public class SystemMetricsService {
     private Duration aggregationProcessingStallThreshold() {
         return runtimeConfig.positiveDurationValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold",
-                Duration.ofSeconds(120));
+                Duration.ofMinutes(10));
     }
 
     private Duration metricsCacheTtl() {
@@ -576,9 +584,6 @@ public class SystemMetricsService {
             QueueConsumerPolicy policy,
             RateMetricResponse rate) {
         if (messageCount <= 0L || consumerCount > 0) {
-            if (messageCount > 0L && consumerCount > 0 && rate != null && !rateRecentlyActive(rate)) {
-                return "CONSUMER_NO_PROGRESS";
-            }
             return null;
         }
         if (rateRecentlyActive(rate)) {

@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
 import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
 import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
 import jakarta.annotation.PostConstruct;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -17,6 +18,10 @@ import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.IndexOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.core.query.ByQueryResponse;
+import org.springframework.data.elasticsearch.core.query.Criteria;
+import org.springframework.data.elasticsearch.core.query.CriteriaQuery;
+import org.springframework.data.elasticsearch.core.query.DeleteQuery;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -55,6 +60,19 @@ public class SearchIndexService {
     public void saveAudit(AuditEventSearchDocument document) {
         ensureIndex(AuditEventSearchDocument.class);
         elasticsearchOperations.save(document);
+    }
+
+    public long deleteAuditOlderThan(Instant cutoff) {
+        if (cutoff == null) {
+            return 0L;
+        }
+        ensureIndex(AuditEventSearchDocument.class);
+        CriteriaQuery query = new CriteriaQuery(Criteria.where("createdAt").lessThan(cutoff));
+        DeleteQuery deleteQuery = DeleteQuery.builder(query)
+                .withRefresh(Boolean.TRUE)
+                .build();
+        ByQueryResponse response = elasticsearchOperations.delete(deleteQuery, AuditEventSearchDocument.class);
+        return response == null ? 0L : response.getDeleted();
     }
 
     public void delete(UUID id, SearchEntityType type) {

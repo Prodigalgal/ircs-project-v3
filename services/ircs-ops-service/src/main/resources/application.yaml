@@ -116,4 +116,4 @@ app:
   aggregation:
     work-queue:
       worker:
-        processing-stall-threshold: ${APP_AGGREGATION_WORK_QUEUE_WORKER_PROCESSING_STALL_THRESHOLD:PT120S}
+        processing-stall-threshold: ${APP_AGGREGATION_WORK_QUEUE_WORKER_PROCESSING_STALL_THRESHOLD:PT10M}

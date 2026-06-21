@@ -179,7 +179,7 @@ class SystemMetricsServiceTest {
     }
 
     @Test
-    void runtimeWorkQueueReportsNoProgressWhenConsumerExistsButRateIsStale() {
+    void runtimeWorkQueueDoesNotImmediatelyReportNoProgressWhenConsumerExistsButRateIsStale() {
         RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
         when(runtimeWorkQueue.counts(SearchSyncWorkTypes.RAW))
@@ -195,7 +195,7 @@ class SystemMetricsServiceTest {
                 .anyMatch(queue -> "RUNTIME_SEARCH_RAW_PENDING".equals(queue.key())
                         && queue.messageCount() == 11
                         && queue.consumerCount() == 1
-                        && "CONSUMER_NO_PROGRESS".equals(queue.blockedReason())));
+                        && queue.blockedReason() == null));
     }
 
     @Test
@@ -279,7 +279,7 @@ class SystemMetricsServiceTest {
                 "worker", Map.of(
                         "running", true,
                         "currentStage", "AGGREGATE_BATCH",
-                        "runningForSeconds", 180)));
+                        "runningForSeconds", 900)));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 
         SystemMetricsResponse metrics = service.currentMetrics();
@@ -401,10 +401,12 @@ class SystemMetricsServiceTest {
                 .thenReturn(Duration.ofSeconds(60));
         when(runtimeConfig.positiveDurationValue("app.ops.metrics.stable-window", Duration.ofMinutes(5)))
                 .thenReturn(Duration.ofMinutes(5));
+        when(runtimeConfig.positiveDurationValue("app.ops.metrics.consumer-no-progress-grace", Duration.ofMinutes(10)))
+                .thenReturn(Duration.ofMinutes(10));
         when(runtimeConfig.doubleValue("app.ops.metrics.ewma-alpha", 0.25d)).thenReturn(0.25d);
         when(runtimeConfig.positiveDurationValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold",
-                Duration.ofSeconds(120))).thenReturn(Duration.ofSeconds(120));
+                Duration.ofMinutes(10))).thenReturn(Duration.ofMinutes(10));
         when(runtimeConfig.durationValue("app.ops.metrics.cache-ttl", Duration.ofSeconds(15)))
                 .thenReturn(Duration.ZERO);
     }

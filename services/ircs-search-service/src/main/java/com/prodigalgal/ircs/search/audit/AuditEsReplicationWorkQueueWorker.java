@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 class AuditEsReplicationWorkQueueWorker {
 
+    private static final String REPLICATION_ENABLED_KEY = "app.audit.es-replication.enabled";
     private static final String ENABLED_KEY = "app.search.audit-es-replication.worker.enabled";
     private static final long ENABLED_CACHE_TTL_NANOS = Duration.ofSeconds(30).toNanos();
 
@@ -35,6 +36,9 @@ class AuditEsReplicationWorkQueueWorker {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
+
+    @Value("${app.audit.es-replication.enabled:true}")
+    private boolean replicationEnabledByDeployment = true;
 
     @Value("${app.search.audit-es-replication.worker.enabled:true}")
     private boolean enabledByDeployment = true;
@@ -198,10 +202,15 @@ class AuditEsReplicationWorkQueueWorker {
             }
             boolean refreshed = enabledByDeployment;
             try {
+                configRepository.evict(REPLICATION_ENABLED_KEY);
                 configRepository.evict(ENABLED_KEY);
-                refreshed = configRepository.findValue(ENABLED_KEY)
+                boolean replicationEnabled = configRepository.findValue(REPLICATION_ENABLED_KEY)
+                        .map(raw -> parseBoolean(raw, replicationEnabledByDeployment))
+                        .orElse(replicationEnabledByDeployment);
+                boolean workerEnabled = configRepository.findValue(ENABLED_KEY)
                         .map(raw -> parseBoolean(raw, enabledByDeployment))
                         .orElse(enabledByDeployment);
+                refreshed = replicationEnabled && workerEnabled;
             } catch (RuntimeException ex) {
                 log.warn("Unable to read Audit ES replication worker enabled config: {}", ex.getMessage());
             }

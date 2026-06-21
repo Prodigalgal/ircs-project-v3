@@ -29,7 +29,9 @@ class WorkSubmissionTopologyTest {
         assertThat(runtimeSubmissionKeys(StorageWorkTypes.COVER_R2_SYNC))
                 .containsExactly("app.storage.r2.enabled", "app.storage.r2.work-queue.worker.enabled");
         assertThat(runtimeSubmissionKeys(AuditReplicationWorkTypes.ES_REPLICATION))
-                .containsExactly("app.search.audit-es-replication.worker.enabled");
+                .containsExactly(
+                        "app.audit.es-replication.enabled",
+                        "app.search.audit-es-replication.worker.enabled");
     }
 
     @Test

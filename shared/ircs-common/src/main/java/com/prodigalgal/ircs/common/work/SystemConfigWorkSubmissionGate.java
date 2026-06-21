@@ -43,6 +43,7 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
                     flag("app.storage.r2.enabled", false),
                     flag("app.storage.r2.work-queue.worker.enabled", false))),
             Map.entry(AuditReplicationWorkTypes.ES_REPLICATION, flags(
+                    flag("app.audit.es-replication.enabled", true),
                     flag("app.search.audit-es-replication.worker.enabled", true))));
 
     private static final Map<String, List<ConfigFlag>> RUNTIME_CONSUMER_FLAGS = Map.ofEntries(

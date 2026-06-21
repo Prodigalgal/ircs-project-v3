@@ -1,13 +1,17 @@
 package com.prodigalgal.ircs.search.index;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.search.SearchPortalReadModelCache;
+import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
 import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
 import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.IndexOperations;
+import org.springframework.data.elasticsearch.core.query.ByQueryResponse;
+import org.springframework.data.elasticsearch.core.query.DeleteQuery;
 
 @ExtendWith(MockitoExtension.class)
 class SearchIndexServiceTest {
@@ -64,6 +70,22 @@ class SearchIndexServiceTest {
         service.delete(id, SearchEntityType.RAW_VIDEO);
 
         verify(elasticsearchOperations).delete(id.toString(), RawVideoSearchDocument.class);
+        verify(readModelCache, never()).evictPortalPublicReadModel();
+    }
+
+    @Test
+    void deleteAuditOlderThanUsesAuditIndexAndReturnsDeletedCount() {
+        Instant cutoff = Instant.parse("2026-05-21T00:00:00Z");
+        when(elasticsearchOperations.indexOps(AuditEventSearchDocument.class)).thenReturn(indexOperations);
+        when(indexOperations.exists()).thenReturn(true);
+        when(elasticsearchOperations.delete(any(DeleteQuery.class), eq(AuditEventSearchDocument.class)))
+                .thenReturn(ByQueryResponse.builder().withDeleted(7L).build());
+
+        SearchIndexService service = new SearchIndexService(elasticsearchOperations, readModelCache);
+        long deleted = service.deleteAuditOlderThan(cutoff);
+
+        org.junit.jupiter.api.Assertions.assertEquals(7L, deleted);
+        verify(elasticsearchOperations).delete(any(DeleteQuery.class), eq(AuditEventSearchDocument.class));
         verify(readModelCache, never()).evictPortalPublicReadModel();
     }
 

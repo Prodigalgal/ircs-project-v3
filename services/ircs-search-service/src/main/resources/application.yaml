@@ -35,6 +35,18 @@ spring:
       password: ${SPRING_DATA_REDIS_PASSWORD:${REDIS_PASSWORD:${VALKEY_PASSWORD:}}}
 
 app:
+  audit:
+    es-replication:
+      enabled: ${APP_AUDIT_ES_REPLICATION_ENABLED:true}
+  log-retention:
+    enabled: ${APP_LOG_RETENTION_ENABLED:true}
+    default-retention: ${APP_LOG_RETENTION_DEFAULT_RETENTION:P30D}
+    initial-delay-ms: ${APP_LOG_RETENTION_INITIAL_DELAY_MS:60000}
+    fixed-delay-ms: ${APP_LOG_RETENTION_FIXED_DELAY_MS:3600000}
+    target:
+      audit-es:
+        enabled: ${APP_LOG_RETENTION_TARGET_AUDIT_ES_ENABLED:true}
+        retention: ${APP_LOG_RETENTION_TARGET_AUDIT_ES_RETENTION:${APP_LOG_RETENTION_DEFAULT_RETENTION:P30D}}
   search:
     internal-access:
       token: ${APP_SEARCH_SERVICE_TOKEN:}
