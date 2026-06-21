@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.config.SystemConfigChangedEvent;
 import java.lang.reflect.Method;
 import java.util.UUID;
@@ -14,8 +15,10 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 class SystemConfigChangedListenerTest {
 
     private final SystemConfigRepository repository = org.mockito.Mockito.mock(SystemConfigRepository.class);
+    private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-    private final SystemConfigChangedListener listener = new SystemConfigChangedListener(repository, objectMapper);
+    private final SystemConfigChangedListener listener =
+            new SystemConfigChangedListener(repository, runtimeConfig, objectMapper);
 
     @Test
     void evictsChangedKey() throws Exception {
@@ -32,6 +35,7 @@ class SystemConfigChangedListenerTest {
         listener.handle(payload);
 
         verify(repository).evict(OpsConfigValues.REINDEX_DEV_LIMIT_KEY);
+        verify(runtimeConfig).evict(OpsConfigValues.REINDEX_DEV_LIMIT_KEY);
     }
 
     @Test
