@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-identity-service
   datasource:
@@ -42,7 +45,7 @@ app:
       service-token: ${APP_IDENTITY_STORAGE_SERVICE_TOKEN:}
       scopes: ${APP_IDENTITY_STORAGE_SERVICE_SCOPES:storage:avatar}
     config-listener:
-      enabled: ${APP_IDENTITY_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_IDENTITY_CONFIG_LISTENER_ENABLED:true}
 
 ircs:
   outbound:

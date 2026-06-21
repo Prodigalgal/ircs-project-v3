@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 
@@ -24,6 +27,37 @@ class SystemConfigDefaultsTest {
 
         assertEquals(expected, actual);
         assertEquals(expected.size(), defaults.all().size());
+    }
+
+    @Test
+    void frontendSystemSettingsKeysAreCoveredByBackendDefaults() throws Exception {
+        Path frontendConfig = workspaceRoot().resolve(
+                Path.of("frontends", "admin", "src", "features", "settings", "SystemConfigList.jsx"));
+        String source = Files.readString(frontendConfig);
+        Pattern keyPattern = Pattern.compile("key:\\s*'([^']+)'");
+        Set<String> frontendKeys = keyPattern.matcher(source).results()
+                .map(match -> match.group(1))
+                .collect(Collectors.toUnmodifiableSet());
+        Set<String> backendKeys = defaults.all().stream()
+                .map(SystemConfigDefaults.DefaultConfig::key)
+                .collect(Collectors.toUnmodifiableSet());
+
+        Set<String> missing = frontendKeys.stream()
+                .filter(key -> !backendKeys.contains(key))
+                .collect(Collectors.toCollection(java.util.TreeSet::new));
+        assertTrue(missing.isEmpty(), "Frontend system config keys missing backend defaults: " + missing);
+    }
+
+    private static Path workspaceRoot() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            if (Files.exists(current.resolve("backend"))
+                    && Files.exists(current.resolve("frontends").resolve("admin"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Unable to locate workspace root from " + Path.of("").toAbsolutePath());
     }
 
     @Test
@@ -63,6 +97,7 @@ class SystemConfigDefaultsTest {
         assertEquals("PT120S", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
         assertEquals("PT10S", defaults.staticDefaultValue("app.rate-metrics.bucket-size").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.ops.config-listener.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
@@ -128,6 +163,7 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata taskRestart = defaults.metadata("app.task.queue.enabled");
         SystemConfigDefaults.ConfigMetadata restart = defaults.metadata("security.jwt.secret");
         SystemConfigDefaults.ConfigMetadata storageRestart = defaults.metadata("app.storage.r2.secret-key");
+        SystemConfigDefaults.ConfigMetadata listenerRestart = defaults.metadata("app.search.config-listener.enabled");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
@@ -139,6 +175,25 @@ class SystemConfigDefaultsTest {
         assertTrue(restart.restartServices().contains("ircs-identity-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, storageRestart.activationMode());
         assertTrue(storageRestart.restartServices().contains("ircs-storage-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, listenerRestart.activationMode());
+        assertTrue(listenerRestart.restartServices().contains("ircs-search-service"));
+        assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
+        assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
+        assertConfigListenerRequiresRestart("app.interaction.config-listener.enabled", "ircs-interaction-service");
+        assertConfigListenerRequiresRestart("app.metadata.config-listener.enabled", "ircs-metadata-worker");
+        assertConfigListenerRequiresRestart("app.normalization.config-listener.enabled", "ircs-normalization-worker");
+        assertConfigListenerRequiresRestart("app.notification.config-listener.enabled", "ircs-notification-worker");
+        assertConfigListenerRequiresRestart("app.ops.config-listener.enabled", "ircs-ops-service");
+        assertConfigListenerRequiresRestart("app.portal.config-listener.enabled", "ircs-portal-service");
+        assertConfigListenerRequiresRestart("app.scraper.config-listener.enabled", "ircs-scraper-service");
+        assertConfigListenerRequiresRestart("app.storage.config-listener.enabled", "ircs-storage-service");
+    }
+
+    private void assertConfigListenerRequiresRestart(String key, String service) {
+        SystemConfigDefaults.ConfigMetadata metadata = defaults.metadata(key);
+
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, metadata.activationMode());
+        assertTrue(metadata.restartServices().contains(service), key + " should restart " + service);
     }
 
     private static final Set<String> V3_OAUTH_CONFIG_KEYS = Set.of(
@@ -232,6 +287,16 @@ class SystemConfigDefaultsTest {
             "app.adaptive.check-interval-ms",
             "app.runtime-config.local-cache.ttl",
             "app.ops.config-listener.enabled",
+            "app.content.config-listener.enabled",
+            "app.identity.config-listener.enabled",
+            "app.interaction.config-listener.enabled",
+            "app.metadata.config-listener.enabled",
+            "app.normalization.config-listener.enabled",
+            "app.notification.config-listener.enabled",
+            "app.portal.config-listener.enabled",
+            "app.scraper.config-listener.enabled",
+            "app.search.config-listener.enabled",
+            "app.storage.config-listener.enabled",
             "app.ops.dashboard.snapshot.enabled",
             "app.ops.dashboard.snapshot.default-task-runtime-limit",
             "app.ops.dashboard.snapshot.refresh-interval",

@@ -48,7 +48,7 @@ class SystemConfigChangedListenerTest {
         RabbitListener rabbitListener = handle.getAnnotation(RabbitListener.class);
 
         org.junit.jupiter.api.Assertions.assertEquals(
-                "${app.storage.config-listener.enabled:false}",
+                "${app.storage.config-listener.enabled:true}",
                 rabbitListener.autoStartup());
     }
 }

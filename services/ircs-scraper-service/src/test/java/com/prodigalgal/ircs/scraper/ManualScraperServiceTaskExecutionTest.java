@@ -10,6 +10,10 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +43,21 @@ class ManualScraperServiceTaskExecutionTest {
             rawVideoRefetchRepository,
             Runnable::run,
             auditWriter);
+
+    @Test
+    void scraperExecutorRunsTasksOnVirtualThreads() throws Exception {
+        Executor executor = ManualScraperService.scraperExecutor();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicBoolean virtualThread = new AtomicBoolean(false);
+
+        executor.execute(() -> {
+            virtualThread.set(Thread.currentThread().isVirtual());
+            completed.countDown();
+        });
+
+        assertTrue(completed.await(2, TimeUnit.SECONDS));
+        assertTrue(virtualThread.get());
+    }
 
     @Test
     void executesDirectItemsForTaskRunnerContract() {

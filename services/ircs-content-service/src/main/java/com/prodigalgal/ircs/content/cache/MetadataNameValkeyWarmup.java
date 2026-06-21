@@ -28,9 +28,9 @@ class MetadataNameValkeyWarmup {
 
     @EventListener(ApplicationReadyEvent.class)
     void warmup() {
-        Thread warmupThread = new Thread(this::warmupInBackground, "metadata-name-valkey-warmup");
-        warmupThread.setDaemon(true);
-        warmupThread.start();
+        Thread.ofVirtual()
+                .name("metadata-name-valkey-warmup")
+                .start(this::warmupInBackground);
     }
 
     private void warmupInBackground() {

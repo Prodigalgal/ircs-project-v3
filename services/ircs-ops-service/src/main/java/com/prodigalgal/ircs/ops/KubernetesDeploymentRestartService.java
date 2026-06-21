@@ -91,6 +91,19 @@ class KubernetesDeploymentRestartService {
         this.requestTimeoutByDeployment = parseDuration(requestTimeout, Duration.ofSeconds(10));
     }
 
+    ServiceRestartCapabilitiesResponse capabilities() {
+        boolean restartEnabled = enabled();
+        String token = readToken();
+        String reason = restartEnabled
+                ? (StringUtils.hasText(token) ? "" : "Kubernetes service account token is unavailable")
+                : "Service restart is disabled";
+        return new ServiceRestartCapabilitiesResponse(
+                restartEnabled && StringUtils.hasText(token),
+                namespace(),
+                allowedServices().stream().sorted().toList(),
+                reason);
+    }
+
     ServiceRestartResponse restart(List<String> requestedServices, String reason) {
         Instant requestedAt = Instant.now();
         List<String> services = normalizeServices(requestedServices);

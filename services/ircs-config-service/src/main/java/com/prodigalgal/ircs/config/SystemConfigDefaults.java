@@ -128,7 +128,17 @@ public class SystemConfigDefaults {
             cfg("app.adaptive.load-threshold", "0.8", "系统高负载阈值 (0.0-1.0)"),
             cfg("app.adaptive.check-interval-ms", "10000", "资源监控采样间隔(毫秒)"),
             cfg("app.runtime-config.local-cache.ttl", "PT2S", "运行时系统配置本地缓存 TTL"),
-            cfg("app.ops.config-listener.enabled", "false", "是否启用运维服务配置变更事件监听"),
+            cfg("app.ops.config-listener.enabled", "true", "是否启用运维服务配置变更事件监听"),
+            cfg("app.content.config-listener.enabled", "true", "是否启用内容服务配置变更事件监听"),
+            cfg("app.identity.config-listener.enabled", "true", "是否启用认证服务配置变更事件监听"),
+            cfg("app.interaction.config-listener.enabled", "true", "是否启用互动服务配置变更事件监听"),
+            cfg("app.metadata.config-listener.enabled", "true", "是否启用元数据 Worker 配置变更事件监听"),
+            cfg("app.normalization.config-listener.enabled", "true", "是否启用归一化 Worker 配置变更事件监听"),
+            cfg("app.notification.config-listener.enabled", "true", "是否启用通知 Worker 配置变更事件监听"),
+            cfg("app.portal.config-listener.enabled", "true", "是否启用门户服务配置变更事件监听"),
+            cfg("app.scraper.config-listener.enabled", "true", "是否启用采集服务配置变更事件监听"),
+            cfg("app.search.config-listener.enabled", "true", "是否启用搜索服务配置变更事件监听"),
+            cfg("app.storage.config-listener.enabled", "true", "是否启用存储服务配置变更事件监听"),
             cfg("app.ops.dashboard.snapshot.enabled", "true", "是否启用运维仪表盘快照预刷新"),
             cfg("app.ops.dashboard.snapshot.default-task-runtime-limit", "50", "仪表盘默认运行任务展示数量"),
             cfg("app.ops.dashboard.snapshot.refresh-interval", "PT2S", "仪表盘快照预刷新间隔"),
@@ -510,6 +520,7 @@ public class SystemConfigDefaults {
                 || key.contains(".concurrency")
                 || key.contains(".queue-capacity")
                 || key.contains(".await-termination")
+                || key.endsWith(".config-listener.enabled")
                 || key.contains(".base-url")
                 || key.contains(".targets.")
                 || key.startsWith("app.task.")
@@ -552,8 +563,11 @@ public class SystemConfigDefaults {
         addServiceIfMatches(services, key, "app.bff.", "ircs-admin-bff", "ircs-portal-bff");
         addServiceIfMatches(services, key, "app.task.", "ircs-task-service");
         addServiceIfMatches(services, key, "app.search.", "ircs-search-service");
+        addServiceIfMatches(services, key, "app.content.", "ircs-content-service");
+        addServiceIfMatches(services, key, "app.metadata.", "ircs-metadata-worker");
         addServiceIfMatches(services, key, "app.storage.", "ircs-storage-service", "ircs-identity-service", "ircs-portal-service", "ircs-search-service");
         addServiceIfMatches(services, key, "app.identity.", "ircs-identity-service");
+        addServiceIfMatches(services, key, "app.interaction.", "ircs-interaction-service");
         addServiceIfMatches(services, key, "app.aggregation.", "ircs-aggregation-worker");
         addServiceIfMatches(services, key, "app.scraper.", "ircs-scraper-service");
         addServiceIfMatches(services, key, "app.magnet.", "ircs-magnet-service");

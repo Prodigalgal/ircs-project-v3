@@ -28,7 +28,7 @@ class SystemConfigChangedListener {
         this.objectMapper = objectMapper;
     }
 
-    @RabbitListener(queues = QUEUE_NAME, autoStartup = "${app.ops.config-listener.enabled:false}")
+    @RabbitListener(queues = QUEUE_NAME, autoStartup = "${app.ops.config-listener.enabled:true}")
     void handle(String payload) {
         try {
             SystemConfigChangedEvent event = objectMapper.readValue(payload, SystemConfigChangedEvent.class);

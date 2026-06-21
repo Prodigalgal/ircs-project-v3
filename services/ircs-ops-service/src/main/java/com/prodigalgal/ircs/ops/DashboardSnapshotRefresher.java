@@ -46,9 +46,9 @@ class DashboardSnapshotRefresher {
 
     @EventListener(ApplicationReadyEvent.class)
     void warmup() {
-        Thread warmup = new Thread(this::refreshDefaultSnapshot, "dashboard-snapshot-warmup");
-        warmup.setDaemon(true);
-        warmup.start();
+        Thread.ofVirtual()
+                .name("dashboard-snapshot-warmup")
+                .start(this::refreshDefaultSnapshot);
     }
 
     @Scheduled(initialDelayString = "1000", fixedDelayString = "1000")
@@ -65,11 +65,9 @@ class DashboardSnapshotRefresher {
         if (!enabled() || running.get()) {
             return;
         }
-        Thread refresh = new Thread(
-                () -> refreshWithLease(Math.max(1, taskRuntimeLimit), false),
-                "dashboard-snapshot-refresh-on-demand");
-        refresh.setDaemon(true);
-        refresh.start();
+        Thread.ofVirtual()
+                .name("dashboard-snapshot-refresh-on-demand")
+                .start(() -> refreshWithLease(Math.max(1, taskRuntimeLimit), false));
     }
 
     SnapshotRefreshState lastState() {

@@ -16,6 +16,7 @@ import com.prodigalgal.ircs.metadata.dispatch.MetadataProviderTaskPublisher.Meta
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class MetadataProviderValkeyWorkerTest {
@@ -57,6 +58,7 @@ class MetadataProviderValkeyWorkerTest {
         PipelineValkeyTask first = task("task-1");
         PipelineValkeyTask second = task("task-2");
         MetadataProviderValkeyWorker worker = worker(4);
+        AtomicBoolean virtualThread = new AtomicBoolean(false);
 
         when(pipelineQueue.claim(
                 eq(PipelineTaskTypes.METADATA_PROVIDER),
@@ -64,11 +66,18 @@ class MetadataProviderValkeyWorkerTest {
                 eq(2),
                 eq(Duration.ofMinutes(10))))
                 .thenReturn(List.of(first, second));
+        org.mockito.Mockito.doAnswer(invocation -> {
+                    virtualThread.set(Thread.currentThread().isVirtual());
+                    return null;
+                })
+                .when(providerWorker)
+                .execute(any(MetadataSearchContext.class), eq(ProviderType.TMDB));
 
         org.assertj.core.api.Assertions.assertThat(worker.runOnce()).isEqualTo(2);
 
         verify(pipelineQueue).complete(first);
         verify(pipelineQueue).complete(second);
+        org.assertj.core.api.Assertions.assertThat(virtualThread.get()).isTrue();
         worker.shutdown();
     }
 

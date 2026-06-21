@@ -48,7 +48,7 @@ class SystemConfigChangedListenerTest {
         RabbitListener rabbitListener = handle.getAnnotation(RabbitListener.class);
 
         org.junit.jupiter.api.Assertions.assertEquals(
-                "${app.content.config-listener.enabled:false}",
+                "${app.content.config-listener.enabled:true}",
                 rabbitListener.autoStartup());
     }
 }

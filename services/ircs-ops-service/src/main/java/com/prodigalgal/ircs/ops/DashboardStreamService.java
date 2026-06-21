@@ -1,14 +1,15 @@
 package com.prodigalgal.ircs.ops;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.task.SimpleAsyncTaskExecutor;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -18,7 +19,7 @@ class DashboardStreamService {
 
     private final DashboardSnapshotCacheService cacheService;
     private final DashboardSnapshotRefresher snapshotRefresher;
-    private final TaskExecutor taskExecutor;
+    private final ExecutorService streamExecutor;
     private final RuntimeConfigService runtimeConfig;
     private final Duration fallbackInterval;
     private final Duration fallbackTimeout;
@@ -30,7 +31,8 @@ class DashboardStreamService {
             RuntimeConfigService runtimeConfig) {
         this.cacheService = cacheService;
         this.snapshotRefresher = snapshotRefresher;
-        this.taskExecutor = taskExecutor();
+        this.streamExecutor = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("dashboard-stream-", 0).factory());
         this.runtimeConfig = runtimeConfig;
         this.fallbackInterval = Duration.ofSeconds(3);
         this.fallbackTimeout = Duration.ofHours(1);
@@ -42,7 +44,7 @@ class DashboardStreamService {
         emitter.onCompletion(() -> open.set(false));
         emitter.onTimeout(() -> open.set(false));
         emitter.onError(error -> open.set(false));
-        taskExecutor.execute(() -> pump(emitter, open, taskRuntimeLimit));
+        streamExecutor.execute(() -> pump(emitter, open, taskRuntimeLimit));
         return emitter;
     }
 
@@ -100,8 +102,9 @@ class DashboardStreamService {
         }
     }
 
-    private static TaskExecutor taskExecutor() {
-        return new SimpleAsyncTaskExecutor("dashboard-stream-");
+    @PreDestroy
+    void shutdown() {
+        streamExecutor.shutdownNow();
     }
 
     private Duration interval() {

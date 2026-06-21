@@ -49,7 +49,7 @@ class SystemConfigChangedListenerTest {
         RabbitListener rabbitListener = handle.getAnnotation(RabbitListener.class);
 
         assertEquals(
-                "${app.notification.config-listener.enabled:false}",
+                "${app.notification.config-listener.enabled:true}",
                 rabbitListener.autoStartup());
     }
 }

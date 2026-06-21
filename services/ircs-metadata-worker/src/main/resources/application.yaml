@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-metadata-worker
   task:
@@ -12,7 +15,7 @@ spring:
     password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
     listener:
       simple:
-        auto-startup: ${APP_METADATA_CONFIG_LISTENER_ENABLED:false}
+        auto-startup: ${APP_METADATA_CONFIG_LISTENER_ENABLED:true}
         default-requeue-rejected: false
         prefetch: ${APP_METADATA_RABBIT_PREFETCH:10}
         concurrency: ${APP_METADATA_RABBIT_CONCURRENCY:2}
@@ -39,7 +42,7 @@ app:
       source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name:ircs-metadata-worker}}
   metadata:
     config-listener:
-      enabled: ${APP_METADATA_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_METADATA_CONFIG_LISTENER_ENABLED:true}
     retry-delay: ${APP_METADATA_RETRY_DELAY:PT5M}
     valkey-dispatcher:
       initial-delay-ms: ${APP_METADATA_VALKEY_DISPATCHER_INITIAL_DELAY_MS:10000}

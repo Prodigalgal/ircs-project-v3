@@ -49,7 +49,7 @@ class SystemConfigChangedListenerTest {
         RabbitListener rabbitListener = handle.getAnnotation(RabbitListener.class);
 
         assertEquals(
-                "${app.metadata.config-listener.enabled:false}",
+                "${app.metadata.config-listener.enabled:true}",
                 rabbitListener.autoStartup());
     }
 }

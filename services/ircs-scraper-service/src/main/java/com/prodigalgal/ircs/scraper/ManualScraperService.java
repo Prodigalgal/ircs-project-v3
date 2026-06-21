@@ -28,11 +28,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
-import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -408,9 +409,34 @@ class ManualScraperService {
 
     @Bean
     static Executor scraperExecutor() {
-        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("scraper-mvp-");
-        executor.setConcurrencyLimit(2);
-        return executor;
+        return new BoundedVirtualThreadExecutor("scraper-mvp-", 2);
+    }
+
+    private static final class BoundedVirtualThreadExecutor implements Executor {
+        private final Semaphore permits;
+        private final java.util.concurrent.ThreadFactory threadFactory;
+
+        private BoundedVirtualThreadExecutor(String threadNamePrefix, int concurrency) {
+            this.permits = new Semaphore(Math.max(1, concurrency));
+            this.threadFactory = Thread.ofVirtual().name(threadNamePrefix, 0).factory();
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            try {
+                permits.acquire();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new RejectedExecutionException("interrupted while waiting for scraper executor permit", ex);
+            }
+            threadFactory.newThread(() -> {
+                try {
+                    command.run();
+                } finally {
+                    permits.release();
+                }
+            }).start();
+        }
     }
 
     private record TaskExecutionCounters(int published, int failed) {

@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-normalization-worker
   task:
@@ -12,7 +15,7 @@ spring:
     password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
     listener:
       simple:
-        auto-startup: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:false}
+        auto-startup: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:true}
         default-requeue-rejected: false
         prefetch: ${APP_NORMALIZATION_RABBIT_PREFETCH:10}
         concurrency: ${APP_NORMALIZATION_RABBIT_CONCURRENCY:2}
@@ -40,7 +43,7 @@ app:
       source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name:ircs-normalization-worker}}
   normalization:
     config-listener:
-      enabled: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_NORMALIZATION_CONFIG_LISTENER_ENABLED:true}
     internal-access:
       require-token: ${APP_NORMALIZATION_INTERNAL_ACCESS_REQUIRE_TOKEN:false}
       token: ${APP_NORMALIZATION_SERVICE_TOKEN:}

@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-ops-service
   datasource:
@@ -37,7 +40,7 @@ app:
       read-scope: ${APP_OPS_INTERNAL_ACCESS_READ_SCOPE:ops:read}
       run-scope: ${APP_OPS_INTERNAL_ACCESS_RUN_SCOPE:ops:run}
     config-listener:
-      enabled: ${APP_OPS_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_OPS_CONFIG_LISTENER_ENABLED:true}
     rabbit-management:
       enabled: ${APP_OPS_RABBIT_MANAGEMENT_ENABLED:true}
       base-url: ${APP_OPS_RABBIT_MANAGEMENT_BASE_URL:}

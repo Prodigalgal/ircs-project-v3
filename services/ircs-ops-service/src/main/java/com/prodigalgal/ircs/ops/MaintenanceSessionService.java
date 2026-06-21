@@ -2,13 +2,15 @@ package com.prodigalgal.ircs.ops;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -18,6 +20,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class MaintenanceSessionService {
 
     private final MaintenanceRunnerService maintenanceRunnerService;
+    private final ExecutorService streamExecutor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual().name("maintenance-session-", 0).factory());
     private final ConcurrentMap<UUID, MaintenanceSessionInfo> sessions = new ConcurrentHashMap<>();
     private final Set<UUID> startedSessions = ConcurrentHashMap.newKeySet();
 
@@ -41,13 +45,13 @@ public class MaintenanceSessionService {
         SseEmitter emitter = new SseEmitter(30_000L);
         MaintenanceSessionInfo session = sessions.get(sessionId);
         if (session == null) {
-            CompletableFuture.runAsync(() -> sendExpiredSession(emitter));
+            streamExecutor.execute(() -> sendExpiredSession(emitter));
         } else if (session.finished()) {
-            CompletableFuture.runAsync(() -> sendCompletedSession(emitter, session));
+            streamExecutor.execute(() -> sendCompletedSession(emitter, session));
         } else if (!startedSessions.add(sessionId)) {
-            CompletableFuture.runAsync(() -> sendAlreadyRunningSession(emitter, session));
+            streamExecutor.execute(() -> sendAlreadyRunningSession(emitter, session));
         } else {
-            CompletableFuture.runAsync(() -> sendSession(emitter, session));
+            streamExecutor.execute(() -> sendSession(emitter, session));
         }
         return emitter;
     }
@@ -137,5 +141,10 @@ public class MaintenanceSessionService {
                 session.taskName(),
                 session.startTime(),
                 true));
+    }
+
+    @PreDestroy
+    void shutdown() {
+        streamExecutor.shutdownNow();
     }
 }

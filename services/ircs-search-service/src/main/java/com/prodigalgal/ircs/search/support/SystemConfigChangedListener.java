@@ -19,7 +19,7 @@ class SystemConfigChangedListener {
     private final SystemConfigRepository repository;
     private final ObjectMapper objectMapper;
 
-    @RabbitListener(queues = QUEUE_NAME, autoStartup = "${app.search.config-listener.enabled:false}")
+    @RabbitListener(queues = QUEUE_NAME, autoStartup = "${app.search.config-listener.enabled:true}")
     void handle(String payload) {
         try {
             SystemConfigChangedEvent event = objectMapper.readValue(payload, SystemConfigChangedEvent.class);

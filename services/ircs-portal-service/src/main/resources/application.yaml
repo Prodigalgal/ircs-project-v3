@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-portal-service
   rabbitmq:
@@ -8,7 +11,7 @@ spring:
     password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:}}
     listener:
       simple:
-        auto-startup: ${APP_PORTAL_CONFIG_LISTENER_ENABLED:false}
+        auto-startup: ${APP_PORTAL_CONFIG_LISTENER_ENABLED:true}
         default-requeue-rejected: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/ircs?connectionTimeZone=UTC}}
@@ -32,6 +35,6 @@ management:
 app:
   portal:
     config-listener:
-      enabled: ${APP_PORTAL_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_PORTAL_CONFIG_LISTENER_ENABLED:true}
   storage:
     r2-public-domain: ${APP_STORAGE_R2_PUBLIC_DOMAIN:}

@@ -49,7 +49,7 @@ class SystemConfigChangedListenerTest {
         RabbitListener rabbitListener = handle.getAnnotation(RabbitListener.class);
 
         assertEquals(
-                "${app.scraper.config-listener.enabled:false}",
+                "${app.scraper.config-listener.enabled:true}",
                 rabbitListener.autoStartup());
     }
 }

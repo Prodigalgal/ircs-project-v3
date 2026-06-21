@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ops;
 
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +48,16 @@ public class DashboardController {
         DashboardStreamSnapshot snapshot = dashboardStreamService.snapshot(limit);
         TaskRuntimeOverviewResponse taskRuntime = snapshot == null ? null : snapshot.taskRuntime();
         return ResponseEntity.ok(taskRuntime == null ? dashboardQueryService.getTaskRuntimeOverview(limit) : taskRuntime);
+    }
+
+    @GetMapping("/search-ops")
+    public ResponseEntity<Map<String, Object>> searchOps() {
+        return ResponseEntity.ok(dashboardQueryService.getSearchOpsStats());
+    }
+
+    @GetMapping("/aggregation-ops")
+    public ResponseEntity<Map<String, Object>> aggregationOps() {
+        return ResponseEntity.ok(dashboardQueryService.getAggregationOpsStats());
     }
 
     @GetMapping(value = "/metrics/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

@@ -79,4 +79,13 @@ class DashboardQueryServiceTest {
         assertEquals(response, service.getTaskRuntimeOverview(25));
         verify(taskRuntimeOverviewService).currentOverview(25);
     }
+
+    @Test
+    void opsStatsFallBackToEmptyMapWhenClientFails() {
+        when(searchOpsStatsClient.currentStats()).thenThrow(new IllegalStateException("search unavailable"));
+        when(aggregationOpsStatsClient.currentStats()).thenThrow(new IllegalStateException("aggregation unavailable"));
+
+        assertTrue(service.getSearchOpsStats().isEmpty());
+        assertTrue(service.getAggregationOpsStats().isEmpty());
+    }
 }

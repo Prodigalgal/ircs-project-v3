@@ -73,12 +73,9 @@ public class MetadataProviderValkeyWorker {
                 60,
                 TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(),
-                runnable -> {
-            Thread thread = new Thread(runnable);
-            thread.setName("metadata-provider-valkey-" + this.workerId);
-            thread.setDaemon(true);
-            return thread;
-        });
+                Thread.ofVirtual()
+                        .name("metadata-provider-valkey-" + this.workerId + "-", 0)
+                        .factory());
         this.visibilityTimeout = positive(visibilityTimeout, Duration.ofMinutes(10));
         this.retryDelay = positive(retryDelay, Duration.ofMinutes(2));
     }

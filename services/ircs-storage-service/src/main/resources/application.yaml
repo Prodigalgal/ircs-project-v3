@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-storage-service
   task:
@@ -45,7 +48,7 @@ app:
     listener:
       enabled: ${APP_STORAGE_LISTENER_ENABLED:false}
     config-listener:
-      enabled: ${APP_STORAGE_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_STORAGE_CONFIG_LISTENER_ENABLED:true}
     base-path: ${APP_STORAGE_BASE_PATH:./storage}
     public-path: ${APP_STORAGE_PUBLIC_PATH:}
     cover-path-prefix: ${APP_STORAGE_PATH_PREFIX_COVER:covers}

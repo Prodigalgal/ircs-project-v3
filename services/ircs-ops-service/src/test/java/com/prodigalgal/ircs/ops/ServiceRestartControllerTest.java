@@ -15,6 +15,21 @@ class ServiceRestartControllerTest {
     private final ServiceRestartController controller = new ServiceRestartController(restartService);
 
     @Test
+    void returnsRestartCapabilities() {
+        ServiceRestartCapabilitiesResponse response = new ServiceRestartCapabilitiesResponse(
+                false,
+                "ircs-dev",
+                List.of("ircs-search-service"),
+                "Service restart is disabled");
+        when(restartService.capabilities()).thenReturn(response);
+
+        ResponseEntity<ServiceRestartCapabilitiesResponse> result = controller.capabilities();
+
+        assertEquals(200, result.getStatusCode().value());
+        assertEquals(response, result.getBody());
+    }
+
+    @Test
     void returnsAcceptedWhenAnyServiceRestartIsAccepted() {
         ServiceRestartRequest request = new ServiceRestartRequest(List.of("ircs-search-service"), "config changed");
         ServiceRestartResponse response = new ServiceRestartResponse(

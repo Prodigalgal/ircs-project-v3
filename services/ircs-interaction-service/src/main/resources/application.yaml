@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-interaction-service
   rabbitmq:
@@ -21,7 +24,7 @@ app:
     listener:
       enabled: ${APP_INTERACTION_LISTENER_ENABLED:false}
     config-listener:
-      enabled: ${APP_INTERACTION_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_INTERACTION_CONFIG_LISTENER_ENABLED:true}
   identity:
     jwt:
       secret: ${APP_IDENTITY_JWT_SECRET:}

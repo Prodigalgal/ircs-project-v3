@@ -75,6 +75,24 @@ class DashboardControllerTest {
     }
 
     @Test
+    void returnsSearchOpsStats() {
+        Map<String, Object> stats = Map.of("worker", Map.of("state", "RUNNING"));
+        when(dashboardQueryService.getSearchOpsStats()).thenReturn(stats);
+
+        assertEquals(stats, controller.searchOps().getBody());
+        verify(dashboardQueryService).getSearchOpsStats();
+    }
+
+    @Test
+    void returnsAggregationOpsStats() {
+        Map<String, Object> stats = Map.of("worker", Map.of("state", "IDLE"));
+        when(dashboardQueryService.getAggregationOpsStats()).thenReturn(stats);
+
+        assertEquals(stats, controller.aggregationOps().getBody());
+        verify(dashboardQueryService).getAggregationOpsStats();
+    }
+
+    @Test
     void returnsMetricsStreamEmitter() {
         SseEmitter emitter = new SseEmitter();
         when(dashboardStreamService.stream(25)).thenReturn(emitter);

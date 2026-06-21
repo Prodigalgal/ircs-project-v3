@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: ircs-search-service
   task:
@@ -65,7 +68,7 @@ app:
       ttl: ${APP_SEARCH_CLUSTER_LOCK_TTL:PT10M}
       worker-id: ${APP_SEARCH_CLUSTER_LOCK_WORKER_ID:}
     config-listener:
-      enabled: ${APP_SEARCH_CONFIG_LISTENER_ENABLED:false}
+      enabled: ${APP_SEARCH_CONFIG_LISTENER_ENABLED:true}
   storage:
     r2-public-domain: ${APP_STORAGE_R2_PUBLIC_DOMAIN:${R2_PUBLIC_DOMAIN:}}
 
