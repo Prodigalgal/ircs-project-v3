@@ -16,7 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -37,12 +37,10 @@ public class StorageR2WorkQueueWorker {
     private final CoverImageR2SyncService coverImageR2SyncService;
     private final R2ObjectStorage r2ObjectStorage;
     private final WorkerJobAuditWriter auditWriter;
+    private final SystemConfigRepository systemConfigRepository;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
-
-    @Autowired(required = false)
-    private SystemConfigRepository systemConfigRepository;
 
     @Value("${app.storage.r2.work-queue.worker.enabled:false}")
     private boolean enabledByDeployment = true;
@@ -71,13 +69,17 @@ public class StorageR2WorkQueueWorker {
             AvatarSyncService avatarSyncService,
             CoverImageR2SyncService coverImageR2SyncService,
             R2ObjectStorage r2ObjectStorage,
-            WorkerJobAuditWriter auditWriter) {
+            WorkerJobAuditWriter auditWriter,
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.avatarSyncService = avatarSyncService;
         this.coverImageR2SyncService = coverImageR2SyncService;
         this.r2ObjectStorage = r2ObjectStorage;
         this.auditWriter = auditWriter == null ? WorkerJobAuditWriter.noop() : auditWriter;
+        this.systemConfigRepository = systemConfigRepositoryProvider == null
+                ? null
+                : systemConfigRepositoryProvider.getIfAvailable();
     }
 
     @Scheduled(

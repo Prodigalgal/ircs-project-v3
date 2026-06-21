@@ -90,7 +90,8 @@ class StorageR2WorkQueueWorkerTest {
                 avatarSyncService,
                 coverImageR2SyncService,
                 r2ObjectStorage,
-                auditWriter);
+                auditWriter,
+                null);
         set(worker, "batchSize", 10);
         set(worker, "visibilitySeconds", 60L);
         set(worker, "maxRetries", 5);

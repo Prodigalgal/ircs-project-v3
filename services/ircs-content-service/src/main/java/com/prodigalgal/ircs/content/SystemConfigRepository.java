@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.content;
 import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
 import java.time.Duration;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -16,8 +15,6 @@ class SystemConfigRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final SystemConfigValkeyCache valkeyCache;
-
-    @Autowired
     SystemConfigRepository(
             JdbcTemplate jdbcTemplate,
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,

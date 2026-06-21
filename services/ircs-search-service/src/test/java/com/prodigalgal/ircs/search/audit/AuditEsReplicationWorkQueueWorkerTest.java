@@ -105,7 +105,8 @@ class AuditEsReplicationWorkQueueWorkerTest {
                 queue,
                 objectMapper,
                 repository,
-                searchIndexService);
+                searchIndexService,
+                null);
         set(worker, "enabledByDeployment", true);
         set(worker, "batchSize", 100);
         set(worker, "visibilitySeconds", 600L);

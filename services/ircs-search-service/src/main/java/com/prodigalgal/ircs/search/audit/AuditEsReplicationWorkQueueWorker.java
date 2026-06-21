@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -31,12 +31,10 @@ class AuditEsReplicationWorkQueueWorker {
     private final ObjectMapper objectMapper;
     private final AuditEsReplicationRepository repository;
     private final SearchIndexService searchIndexService;
+    private final SystemConfigRepository systemConfigRepository;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
-
-    @Autowired(required = false)
-    private SystemConfigRepository systemConfigRepository;
 
     @Value("${app.search.audit-es-replication.worker.enabled:true}")
     private boolean enabledByDeployment = true;
@@ -63,11 +61,15 @@ class AuditEsReplicationWorkQueueWorker {
             RuntimeWorkQueue workQueue,
             ObjectMapper objectMapper,
             AuditEsReplicationRepository repository,
-            SearchIndexService searchIndexService) {
+            SearchIndexService searchIndexService,
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.repository = repository;
         this.searchIndexService = searchIndexService;
+        this.systemConfigRepository = systemConfigRepositoryProvider == null
+                ? null
+                : systemConfigRepositoryProvider.getIfAvailable();
     }
 
     @Scheduled(

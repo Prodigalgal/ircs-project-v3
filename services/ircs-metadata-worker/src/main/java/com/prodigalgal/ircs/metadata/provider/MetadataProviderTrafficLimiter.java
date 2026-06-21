@@ -11,7 +11,6 @@ import java.time.Duration;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -32,8 +31,6 @@ public class MetadataProviderTrafficLimiter {
     private final String egressIdentity;
     private volatile TrafficSettings cachedSettings;
     private volatile long cachedSettingsExpiresAtNanos;
-
-    @Autowired
     MetadataProviderTrafficLimiter(
             DistributedLockManager lockManager,
             ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider,
@@ -42,26 +39,10 @@ public class MetadataProviderTrafficLimiter {
             @Value("${app.metadata.public-traffic.default-gap-ms:1000}") long defaultGapMs,
             @Value("${app.metadata.public-traffic.max-wait:PT2M}") Duration maxWait,
             @Value("${app.metadata.public-traffic.ttl:PT10M}") Duration ttl) {
-        this(
-                lockManager,
-                systemConfigRepositoryProvider == null ? null : systemConfigRepositoryProvider.getIfAvailable(),
-                enabled,
-                egressIdentity,
-                defaultGapMs,
-                maxWait,
-                ttl);
-    }
-
-    MetadataProviderTrafficLimiter(
-            DistributedLockManager lockManager,
-            SystemConfigRepository systemConfigRepository,
-            boolean enabled,
-            String egressIdentity,
-            long defaultGapMs,
-            Duration maxWait,
-            Duration ttl) {
         this.lockManager = lockManager;
-        this.systemConfigRepository = systemConfigRepository;
+        this.systemConfigRepository = systemConfigRepositoryProvider == null
+                ? null
+                : systemConfigRepositoryProvider.getIfAvailable();
         this.egressIdentity = EgressIdentities.sanitize(egressIdentity);
         this.defaultSettings = new TrafficSettings(
                 enabled,
@@ -73,7 +54,7 @@ public class MetadataProviderTrafficLimiter {
     public static MetadataProviderTrafficLimiter noop() {
         return new MetadataProviderTrafficLimiter(
                 null,
-                (SystemConfigRepository) null,
+                null,
                 false,
                 "unknown",
                 0,

@@ -139,7 +139,8 @@ class SearchSyncWorkQueueWorkerTest {
                 objectMapper,
                 syncProcessor,
                 auditWriter,
-                new SearchSyncWorkQueueMetrics(new SimpleMeterRegistry()));
+                new SearchSyncWorkQueueMetrics(new SimpleMeterRegistry()),
+                null);
         set(worker, "batchSize", 10);
         set(worker, "maxRetries", 5);
         set(worker, "visibilitySeconds", 60L);

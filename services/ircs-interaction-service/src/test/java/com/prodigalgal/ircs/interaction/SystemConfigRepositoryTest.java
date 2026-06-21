@@ -13,7 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class SystemConfigRepositoryTest {
 
     private final JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
-    private final SystemConfigRepository repository = new SystemConfigRepository(jdbcTemplate);
+    private final SystemConfigRepository repository = SystemConfigRepository.forTest(jdbcTemplate);
 
     @Test
     void cachesValuesUntilEvicted() {

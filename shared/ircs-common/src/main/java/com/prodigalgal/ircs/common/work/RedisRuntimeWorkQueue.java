@@ -10,7 +10,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -243,66 +242,23 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     private final RuntimeConfigService runtimeConfig;
     private final ObjectProvider<WorkSubmissionGate> submissionGateProvider;
 
-    @Autowired
     public RedisRuntimeWorkQueue(
             StringRedisTemplate redisTemplate,
             ObjectProvider<WorkSubmissionGate> submissionGateProvider,
             ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
+            ObjectProvider<Clock> clockProvider,
             @Value("${app.runtime-work-queue.key-prefix:ircs:work:v1}") String keyPrefix,
             @Value("${app.runtime-work-queue.event-stream-maxlen:10000}") int eventStreamMaxLen,
             @Value("${app.rate-metrics.key-prefix:ircs:metrics:rate}") String rateMetricsKeyPrefix,
             @Value("${app.rate-metrics.bucket-size:PT10S}") Duration rateBucketSize,
             @Value("${app.rate-metrics.bucket-ttl:PT30M}") Duration rateBucketTtl,
             @Value("${app.rate-metrics.bucket-index-retention:PT31M}") Duration rateBucketIndexRetention) {
-        this(redisTemplate, Clock.systemUTC(), keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention,
-                submissionGateProvider, runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable());
-    }
-
-    RedisRuntimeWorkQueue(
-            StringRedisTemplate redisTemplate,
-            Clock clock,
-            String keyPrefix,
-            int eventStreamMaxLen,
-            String rateMetricsKeyPrefix,
-            Duration rateBucketSize,
-            Duration rateBucketTtl,
-            Duration rateBucketIndexRetention) {
-        this(redisTemplate, clock, keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention, null, null);
-    }
-
-    RedisRuntimeWorkQueue(
-            StringRedisTemplate redisTemplate,
-            Clock clock,
-            String keyPrefix,
-            int eventStreamMaxLen,
-            String rateMetricsKeyPrefix,
-            Duration rateBucketSize,
-            Duration rateBucketTtl,
-            Duration rateBucketIndexRetention,
-            ObjectProvider<WorkSubmissionGate> submissionGateProvider) {
-        this(redisTemplate, clock, keyPrefix, eventStreamMaxLen,
-                rateMetricsKeyPrefix, rateBucketSize, rateBucketTtl, rateBucketIndexRetention,
-                submissionGateProvider, null);
-    }
-
-    RedisRuntimeWorkQueue(
-            StringRedisTemplate redisTemplate,
-            Clock clock,
-            String keyPrefix,
-            int eventStreamMaxLen,
-            String rateMetricsKeyPrefix,
-            Duration rateBucketSize,
-            Duration rateBucketTtl,
-            Duration rateBucketIndexRetention,
-            ObjectProvider<WorkSubmissionGate> submissionGateProvider,
-            RuntimeConfigService runtimeConfig) {
         if (redisTemplate == null) {
             throw new IllegalArgumentException("redisTemplate is required");
         }
         this.redisTemplate = redisTemplate;
-        this.clock = clock == null ? Clock.systemUTC() : clock;
+        Clock providedClock = clockProvider == null ? null : clockProvider.getIfAvailable();
+        this.clock = providedClock == null ? Clock.systemUTC() : providedClock;
         this.keyPrefix = normalizeKeyPrefix(keyPrefix);
         this.eventStreamMaxLen = Math.max(1000, eventStreamMaxLen);
         this.rateMetricsKeyPrefix = RateMetricKeys.normalizeKeyPrefix(rateMetricsKeyPrefix);
@@ -311,7 +267,7 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
         this.rateBucketIndexRetention = rateBucketIndexRetention == null
                 ? RateMetricKeys.DEFAULT_BUCKET_INDEX_RETENTION
                 : rateBucketIndexRetention;
-        this.runtimeConfig = runtimeConfig;
+        this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
         this.submissionGateProvider = submissionGateProvider;
     }
 

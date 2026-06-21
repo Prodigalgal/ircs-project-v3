@@ -267,7 +267,7 @@ class PortalSearchQueryServiceTest {
     }
 
     private PortalSearchQueryService cachedService() {
-        SearchPortalReadModelCache cache = new SearchPortalReadModelCache(
+        SearchPortalReadModelCache cache = SearchPortalReadModelCache.forTest(
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
                 null,

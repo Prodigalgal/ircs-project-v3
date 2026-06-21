@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -44,28 +44,18 @@ class AdminApiTokenService {
     private final Duration cacheTtl;
     private final Duration touchInterval;
     private final ConcurrentMap<String, CachedToken> cache = new ConcurrentHashMap<>();
-
-    @Autowired
     AdminApiTokenService(
             AdminApiTokenRepository repository,
             Clock clock,
+            ObjectProvider<SecureRandom> secureRandomProvider,
             @Value("${app.bff.api-token.cache-ttl:PT30S}") String cacheTtl,
             @Value("${app.bff.api-token.touch-interval:PT5M}") String touchInterval) {
-        this(repository, clock, parseDuration(cacheTtl, Duration.ofSeconds(30)),
-                parseDuration(touchInterval, Duration.ofMinutes(5)), new SecureRandom());
-    }
-
-    AdminApiTokenService(
-            AdminApiTokenRepository repository,
-            Clock clock,
-            Duration cacheTtl,
-            Duration touchInterval,
-            SecureRandom secureRandom) {
         this.repository = repository;
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.cacheTtl = positiveOr(cacheTtl, Duration.ofSeconds(30));
-        this.touchInterval = positiveOr(touchInterval, Duration.ofMinutes(5));
-        this.secureRandom = secureRandom == null ? new SecureRandom() : secureRandom;
+        this.cacheTtl = positiveOr(parseDuration(cacheTtl, Duration.ofSeconds(30)), Duration.ofSeconds(30));
+        this.touchInterval = positiveOr(parseDuration(touchInterval, Duration.ofMinutes(5)), Duration.ofMinutes(5));
+        SecureRandom providedRandom = secureRandomProvider == null ? null : secureRandomProvider.getIfAvailable();
+        this.secureRandom = providedRandom == null ? new SecureRandom() : providedRandom;
     }
 
     List<AdminApiTokenDtos.Summary> list() {

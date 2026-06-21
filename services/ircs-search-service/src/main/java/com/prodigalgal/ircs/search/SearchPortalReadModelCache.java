@@ -16,7 +16,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -45,29 +44,6 @@ public class SearchPortalReadModelCache {
     private final AtomicLong cachedPortalPublicVersion = new AtomicLong(0L);
     private final AtomicLong versionRefreshAfterNanos = new AtomicLong(0L);
 
-    SearchPortalReadModelCache(
-            ObjectMapper objectMapper,
-            CacheRegistry cacheRegistry,
-            ObjectProvider<StringRedisTemplate> redisTemplate,
-            ObjectProvider<TieredStringCacheStore> externalStore,
-            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
-            boolean enabled,
-            Duration suggestTtl,
-            Duration recommendTtl) {
-        this(
-                objectMapper,
-                cacheRegistry,
-                redisTemplate,
-                externalStore,
-                null,
-                enabled,
-                suggestTtl,
-                recommendTtl,
-                DEFAULT_PORTAL_PUBLIC_VERSION_KEY,
-                DEFAULT_VERSION_REFRESH_INTERVAL);
-    }
-
-    @Autowired
     SearchPortalReadModelCache(
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
@@ -121,6 +97,28 @@ public class SearchPortalReadModelCache {
                 false,
                 DEFAULT_SUGGEST_TTL,
                 DEFAULT_RECOMMEND_TTL,
+                DEFAULT_PORTAL_PUBLIC_VERSION_KEY,
+                DEFAULT_VERSION_REFRESH_INTERVAL);
+    }
+
+    static SearchPortalReadModelCache forTest(
+            ObjectMapper objectMapper,
+            CacheRegistry cacheRegistry,
+            ObjectProvider<StringRedisTemplate> redisTemplate,
+            ObjectProvider<TieredStringCacheStore> externalStore,
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
+            boolean enabled,
+            Duration suggestTtl,
+            Duration recommendTtl) {
+        return new SearchPortalReadModelCache(
+                objectMapper,
+                cacheRegistry,
+                redisTemplate,
+                externalStore,
+                runtimeConfigProvider,
+                enabled,
+                suggestTtl,
+                recommendTtl,
                 DEFAULT_PORTAL_PUBLIC_VERSION_KEY,
                 DEFAULT_VERSION_REFRESH_INTERVAL);
     }

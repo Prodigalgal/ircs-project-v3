@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -32,23 +32,17 @@ class MailSendRateLimiter {
     private final Object monitor = new Object();
     private final Map<UUID, Deque<Long>> credentialWindows = new HashMap<>();
     private long nextGlobalPermitAtMs;
-
-    @Autowired
-    MailSendRateLimiter(
-            NotificationMailConfigValues configValues,
-            MailCredentialUsageRepository usageRepository) {
-        this(configValues, usageRepository, Clock.systemUTC(), Thread::sleep);
-    }
-
     MailSendRateLimiter(
             NotificationMailConfigValues configValues,
             MailCredentialUsageRepository usageRepository,
-            Clock clock,
-            Sleeper sleeper) {
+            ObjectProvider<Clock> clockProvider,
+            ObjectProvider<Sleeper> sleeperProvider) {
         this.configValues = configValues;
         this.usageRepository = usageRepository;
-        this.clock = clock;
-        this.sleeper = sleeper;
+        Clock providedClock = clockProvider == null ? null : clockProvider.getIfAvailable();
+        Sleeper providedSleeper = sleeperProvider == null ? null : sleeperProvider.getIfAvailable();
+        this.clock = providedClock == null ? Clock.systemUTC() : providedClock;
+        this.sleeper = providedSleeper == null ? Thread::sleep : providedSleeper;
     }
 
     void awaitGlobalPermit() {

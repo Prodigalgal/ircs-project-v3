@@ -95,7 +95,8 @@ class LlmCleaningWorkQueueWorkerTest {
                 queue,
                 objectMapper,
                 cleaningService,
-                auditWriter);
+                auditWriter,
+                null);
         set(worker, "batchSize", 10);
         set(worker, "visibilitySeconds", 60L);
         set(worker, "maxRetries", 5);

@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 
 class MailSendRateLimiterTest {
 
@@ -24,7 +24,11 @@ class MailSendRateLimiterTest {
         MailCredential limited = credential("11111111-1111-4111-8111-111111111111", 0, null, 1L, 0L);
         MailCredential available = credential("22222222-2222-4222-8222-222222222222", 0, null, 0L, 0L);
         usageRepository.counts = Map.of(limited.id(), 1L);
-        MailSendRateLimiter limiter = new MailSendRateLimiter(configValues, usageRepository, clock, clock::advance);
+        MailSendRateLimiter limiter = new MailSendRateLimiter(
+                configValues,
+                usageRepository,
+                provider(clock),
+                provider((MailSendRateLimiter.Sleeper) clock::advance));
 
         MailCredential selected = limiter.selectCredential(List.of(limited, available));
 
@@ -40,8 +44,8 @@ class MailSendRateLimiterTest {
         MailSendRateLimiter limiter = new MailSendRateLimiter(
                 configValues,
                 new FakeUsageRepository(),
-                clock,
-                clock::advance);
+                provider(clock),
+                provider((MailSendRateLimiter.Sleeper) clock::advance));
 
         assertEquals(credential.id(), limiter.selectCredential(List.of(credential)).id());
         assertEquals(credential.id(), limiter.selectCredential(List.of(credential)).id());
@@ -56,8 +60,8 @@ class MailSendRateLimiterTest {
         MailSendRateLimiter limiter = new MailSendRateLimiter(
                 configValues,
                 new FakeUsageRepository(),
-                clock,
-                clock::advance);
+                provider(clock),
+                provider((MailSendRateLimiter.Sleeper) clock::advance));
 
         limiter.awaitGlobalPermit();
         limiter.awaitGlobalPermit();
@@ -66,13 +70,19 @@ class MailSendRateLimiterTest {
     }
 
     @Test
-    void springConstructorIsExplicitlyAutowired() throws NoSuchMethodException {
+    void springConstructorUsesSinglePublicInjectionPath() throws NoSuchMethodException {
         assertEquals(
-                Autowired.class,
+                1,
+                MailSendRateLimiter.class.getDeclaredConstructors().length);
+        assertEquals(
+                MailSendRateLimiter.class,
                 MailSendRateLimiter.class
-                        .getDeclaredConstructor(NotificationMailConfigValues.class, MailCredentialUsageRepository.class)
-                        .getAnnotation(Autowired.class)
-                        .annotationType());
+                        .getDeclaredConstructor(
+                                NotificationMailConfigValues.class,
+                                MailCredentialUsageRepository.class,
+                                ObjectProvider.class,
+                                ObjectProvider.class)
+                        .getDeclaringClass());
     }
 
     private static NotificationMailConfigValues configValues(int minMs, int maxMs, int maxWaitMs) {
@@ -81,6 +91,13 @@ class MailSendRateLimiterTest {
         when(values.rateLimitMaxMs()).thenReturn(maxMs);
         when(values.rateLimitMaxWaitMs()).thenReturn(maxWaitMs);
         return values;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        org.mockito.Mockito.when(provider.getIfAvailable()).thenReturn(value);
+        return provider;
     }
 
     private static MailCredential credential(

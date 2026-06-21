@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 class MetadataProviderTrafficLimiterTest {
 
@@ -30,7 +31,7 @@ class MetadataProviderTrafficLimiterTest {
                 Instant.parse("2026-06-11T00:00:01Z")));
         MetadataProviderTrafficLimiter limiter = new MetadataProviderTrafficLimiter(
                 lockManager,
-                (SystemConfigRepository) null,
+                null,
                 true,
                 "203.0.113.10",
                 1500,
@@ -55,7 +56,7 @@ class MetadataProviderTrafficLimiterTest {
                 Instant.parse("2026-06-11T00:03:00Z")));
         MetadataProviderTrafficLimiter limiter = new MetadataProviderTrafficLimiter(
                 lockManager,
-                (SystemConfigRepository) null,
+                null,
                 true,
                 "203.0.113.10",
                 1500,
@@ -81,7 +82,7 @@ class MetadataProviderTrafficLimiterTest {
         when(repository.findValue("app.metadata.public-traffic.ttl")).thenReturn(Optional.of("PT20M"));
         MetadataProviderTrafficLimiter limiter = new MetadataProviderTrafficLimiter(
                 lockManager,
-                repository,
+                provider(repository),
                 true,
                 "203.0.113.10",
                 1000,
@@ -93,6 +94,13 @@ class MetadataProviderTrafficLimiterTest {
         assertThat(lockManager.lastTimeSliceRequest.gap()).isEqualTo(Duration.ofMillis(150));
         assertThat(lockManager.lastTimeSliceRequest.maxWait()).isEqualTo(Duration.ofMinutes(3));
         assertThat(lockManager.lastTimeSliceRequest.ttl()).isEqualTo(Duration.ofMinutes(20));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(value);
+        return provider;
     }
 
     private static class FakeDistributedLockManager implements DistributedLockManager {

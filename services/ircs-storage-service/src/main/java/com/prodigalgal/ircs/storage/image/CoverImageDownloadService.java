@@ -16,7 +16,6 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -59,8 +58,6 @@ public class CoverImageDownloadService {
 
     @Value("${app.storage.image.download-timeout-seconds:15}")
     private int downloadTimeoutSeconds;
-
-    @Autowired
     public CoverImageDownloadService(
             CoverImageAdminRepository repository,
             CoverImageUrlResolver urlResolver,
@@ -69,31 +66,16 @@ public class CoverImageDownloadService {
             R2ObjectStorage r2ObjectStorage,
             StorageWorkPublisher storageWorkPublisher,
             ObjectProvider<CoverImageTrafficLimiter> trafficLimiterProvider) {
-        this(
-                repository,
-                urlResolver,
-                normalizationService,
-                localObjectStorage,
-                r2ObjectStorage,
-                storageWorkPublisher,
-                trafficLimiterProvider.getIfAvailable(CoverImageTrafficLimiter::noop));
-    }
-
-    private CoverImageDownloadService(
-            CoverImageAdminRepository repository,
-            CoverImageUrlResolver urlResolver,
-            FileNormalizationService normalizationService,
-            LocalObjectStorage localObjectStorage,
-            R2ObjectStorage r2ObjectStorage,
-            StorageWorkPublisher storageWorkPublisher,
-            CoverImageTrafficLimiter trafficLimiter) {
         this.repository = repository;
         this.urlResolver = urlResolver;
         this.normalizationService = normalizationService;
         this.localObjectStorage = localObjectStorage;
         this.r2ObjectStorage = r2ObjectStorage;
         this.storageWorkPublisher = storageWorkPublisher;
-        this.trafficLimiter = trafficLimiter == null ? CoverImageTrafficLimiter.noop() : trafficLimiter;
+        CoverImageTrafficLimiter providedTrafficLimiter = trafficLimiterProvider == null
+                ? null
+                : trafficLimiterProvider.getIfAvailable(CoverImageTrafficLimiter::noop);
+        this.trafficLimiter = providedTrafficLimiter == null ? CoverImageTrafficLimiter.noop() : providedTrafficLimiter;
         this.outboundUrlPolicy = new OutboundUrlPolicy(new DefaultOutboundAddressResolver());
     }
 
@@ -113,7 +95,7 @@ public class CoverImageDownloadService {
                 localObjectStorage,
                 r2ObjectStorage,
                 storageWorkPublisher,
-                CoverImageTrafficLimiter.noop());
+                null);
         service.outboundUrlPolicy = outboundUrlPolicy;
         service.downloadAdapter = downloadAdapter;
         return service;

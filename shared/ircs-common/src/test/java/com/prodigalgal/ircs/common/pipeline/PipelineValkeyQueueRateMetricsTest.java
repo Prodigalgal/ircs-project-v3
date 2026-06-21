@@ -27,7 +27,9 @@ class PipelineValkeyQueueRateMetricsTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-06-18T00:00:05Z"), ZoneOffset.UTC);
     private final PipelineValkeyQueue queue = new PipelineValkeyQueue(
             redisTemplate,
-            clock,
+            null,
+            null,
+            provider(clock),
             "ircs:pipeline:v2",
             10_000,
             "ircs:metrics:rate",
@@ -60,14 +62,15 @@ class PipelineValkeyQueueRateMetricsTest {
         when(gate.canSubmitPipeline(PipelineTaskTypes.ENRICH_METADATA)).thenReturn(false);
         PipelineValkeyQueue gatedQueue = new PipelineValkeyQueue(
                 redisTemplate,
-                clock,
+                gateProvider(gate),
+                null,
+                provider(clock),
                 "ircs:pipeline:v2",
                 10_000,
                 "ircs:metrics:rate",
                 Duration.ofSeconds(10),
                 Duration.ofMinutes(30),
-                Duration.ofMinutes(31),
-                gateProvider(gate));
+                Duration.ofMinutes(31));
 
         gatedQueue.submit(
                 PipelineTaskTypes.ENRICH_METADATA,
@@ -168,6 +171,13 @@ class PipelineValkeyQueueRateMetricsTest {
     private static ObjectProvider<WorkSubmissionGate> gateProvider(WorkSubmissionGate gate) {
         ObjectProvider<WorkSubmissionGate> provider = org.mockito.Mockito.mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(gate);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(value);
         return provider;
     }
 }

@@ -17,7 +17,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -40,16 +40,15 @@ public class MetadataProviderValkeyWorker {
     private final ThreadPoolExecutor executor;
     private final Duration visibilityTimeout;
     private final Duration retryDelay;
+    private final SystemConfigRepository systemConfigRepository;
     private volatile WorkerSettings cachedSettings;
     private volatile long cachedSettingsExpiresAtNanos;
-
-    @Autowired(required = false)
-    private SystemConfigRepository systemConfigRepository;
 
     MetadataProviderValkeyWorker(
             PipelineValkeyQueue pipelineQueue,
             MetadataProviderWorker providerWorker,
             ObjectMapper objectMapper,
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider,
             @Value("${spring.application.name:ircs-metadata-worker}") String applicationName,
             @Value("${app.metadata.pipeline.worker-id:${APP_METADATA_PIPELINE_WORKER_ID:}}")
                     String configuredWorkerId,
@@ -62,6 +61,9 @@ public class MetadataProviderValkeyWorker {
         this.pipelineQueue = pipelineQueue;
         this.providerWorker = providerWorker;
         this.objectMapper = objectMapper;
+        this.systemConfigRepository = systemConfigRepositoryProvider == null
+                ? null
+                : systemConfigRepositoryProvider.getIfAvailable();
         this.workerId = WorkerInstanceIds.resolve(applicationName, configuredWorkerId);
         this.defaultBatchSize = clamp(batchSize, 1, MAX_DYNAMIC_BATCH_SIZE);
         this.defaultParallelism = clamp(parallelism, 1, MAX_DYNAMIC_PARALLELISM);

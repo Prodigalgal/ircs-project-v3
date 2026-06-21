@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.support.DataAccessUtils;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -30,12 +29,6 @@ public class JdbcConfigRepository {
     private final JdbcTemplate jdbcTemplate;
     private final SystemConfigValkeyCache valkeyCache;
 
-    public JdbcConfigRepository(JdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null, SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
-                SystemConfigValkeyCache.DEFAULT_TTL, SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
-    }
-
-    @Autowired
     public JdbcConfigRepository(
             JdbcTemplate jdbcTemplate,
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,
@@ -44,6 +37,15 @@ public class JdbcConfigRepository {
             @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localTtl) {
         this.jdbcTemplate = jdbcTemplate;
         this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
+    }
+
+    static JdbcConfigRepository forTest(JdbcTemplate jdbcTemplate) {
+        return new JdbcConfigRepository(
+                jdbcTemplate,
+                null,
+                SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
+                SystemConfigValkeyCache.DEFAULT_TTL,
+                SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
     }
 
     public Page<SystemConfigRecord> findAll(Pageable pageable, String keyword) {

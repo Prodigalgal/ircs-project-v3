@@ -77,6 +77,7 @@ class MetadataProviderValkeyWorkerTest {
                 pipelineQueue,
                 providerWorker,
                 objectMapper,
+                null,
                 "ircs-metadata-worker",
                 "worker-test",
                 2,

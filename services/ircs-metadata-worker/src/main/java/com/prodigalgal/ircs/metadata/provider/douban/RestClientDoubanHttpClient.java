@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,22 +25,14 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
     private OutboundHttpClient httpClient;
     private final DoubanProviderProperties properties;
     private final MetadataProviderTrafficLimiter trafficLimiter;
-
-    @Autowired
     public RestClientDoubanHttpClient(
             DoubanProviderProperties properties,
             ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
-        this(properties, trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop));
-    }
-
-    private RestClientDoubanHttpClient(
-            DoubanProviderProperties properties,
-            MetadataProviderTrafficLimiter trafficLimiter) {
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
                 new JdkOutboundTransport(properties.getRequestTimeout()));
         this.properties = properties;
-        this.trafficLimiter = trafficLimiter == null ? MetadataProviderTrafficLimiter.noop() : trafficLimiter;
+        this.trafficLimiter = resolveTrafficLimiter(trafficLimiterProvider);
     }
 
     static RestClientDoubanHttpClient forTest(
@@ -49,9 +40,41 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
             DoubanProviderProperties properties) {
         RestClientDoubanHttpClient client = new RestClientDoubanHttpClient(
                 properties,
-                MetadataProviderTrafficLimiter.noop());
+                trafficLimiterProvider(MetadataProviderTrafficLimiter.noop()));
         client.httpClient = httpClient;
         return client;
+    }
+
+    private static MetadataProviderTrafficLimiter resolveTrafficLimiter(
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+        return trafficLimiterProvider == null
+                ? MetadataProviderTrafficLimiter.noop()
+                : trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop);
+    }
+
+    private static ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider(
+            MetadataProviderTrafficLimiter trafficLimiter) {
+        return new ObjectProvider<>() {
+            @Override
+            public MetadataProviderTrafficLimiter getObject(Object... args) {
+                return trafficLimiter;
+            }
+
+            @Override
+            public MetadataProviderTrafficLimiter getIfAvailable() {
+                return trafficLimiter;
+            }
+
+            @Override
+            public MetadataProviderTrafficLimiter getIfUnique() {
+                return trafficLimiter;
+            }
+
+            @Override
+            public MetadataProviderTrafficLimiter getObject() {
+                return trafficLimiter;
+            }
+        };
     }
 
     @Override

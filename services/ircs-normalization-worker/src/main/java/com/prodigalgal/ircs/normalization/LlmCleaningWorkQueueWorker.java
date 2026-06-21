@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -37,12 +37,10 @@ class LlmCleaningWorkQueueWorker {
     private final ObjectMapper objectMapper;
     private final LlmCleaningService cleaningService;
     private final WorkerJobAuditWriter auditWriter;
+    private final SystemConfigRepository systemConfigRepository;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
-
-    @Autowired(required = false)
-    private SystemConfigRepository systemConfigRepository;
 
     @Value("${app.normalization.llm-cleaning.work-queue.worker.enabled:false}")
     private boolean enabledByDeployment = true;
@@ -69,11 +67,15 @@ class LlmCleaningWorkQueueWorker {
             RuntimeWorkQueue workQueue,
             ObjectMapper objectMapper,
             LlmCleaningService cleaningService,
-            WorkerJobAuditWriter auditWriter) {
+            WorkerJobAuditWriter auditWriter,
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.cleaningService = cleaningService;
         this.auditWriter = auditWriter == null ? WorkerJobAuditWriter.noop() : auditWriter;
+        this.systemConfigRepository = systemConfigRepositoryProvider == null
+                ? null
+                : systemConfigRepositoryProvider.getIfAvailable();
     }
 
     @Scheduled(

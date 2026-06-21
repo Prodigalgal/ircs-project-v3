@@ -28,7 +28,9 @@ class RedisRuntimeWorkQueueRateMetricsTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-06-18T00:00:05Z"), ZoneOffset.UTC);
     private final RedisRuntimeWorkQueue queue = new RedisRuntimeWorkQueue(
             redisTemplate,
-            clock,
+            null,
+            null,
+            provider(clock),
             "ircs:work:v1",
             10_000,
             "ircs:metrics:rate",
@@ -60,14 +62,15 @@ class RedisRuntimeWorkQueueRateMetricsTest {
         when(gate.canSubmitRuntime(SearchSyncWorkTypes.RAW)).thenReturn(false);
         RedisRuntimeWorkQueue gatedQueue = new RedisRuntimeWorkQueue(
                 redisTemplate,
-                clock,
+                gateProvider(gate),
+                null,
+                provider(clock),
                 "ircs:work:v1",
                 10_000,
                 "ircs:metrics:rate",
                 Duration.ofSeconds(10),
                 Duration.ofMinutes(30),
-                Duration.ofMinutes(31),
-                gateProvider(gate));
+                Duration.ofMinutes(31));
 
         gatedQueue.submit(new RuntimeWorkItemRequest(
                 SearchSyncWorkTypes.RAW,
@@ -199,6 +202,13 @@ class RedisRuntimeWorkQueueRateMetricsTest {
     private static ObjectProvider<WorkSubmissionGate> gateProvider(WorkSubmissionGate gate) {
         ObjectProvider<WorkSubmissionGate> provider = org.mockito.Mockito.mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(gate);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(value);
         return provider;
     }
 }

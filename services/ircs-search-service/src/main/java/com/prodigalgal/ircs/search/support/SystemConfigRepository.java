@@ -4,7 +4,6 @@ import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
 import java.time.Duration;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -17,12 +16,6 @@ public class SystemConfigRepository {
     private final JdbcTemplate jdbcTemplate;
     private final SystemConfigValkeyCache valkeyCache;
 
-    public SystemConfigRepository(JdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null, SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
-                SystemConfigValkeyCache.DEFAULT_TTL, SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
-    }
-
-    @Autowired
     public SystemConfigRepository(
             JdbcTemplate jdbcTemplate,
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,
@@ -31,6 +24,15 @@ public class SystemConfigRepository {
             @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localTtl) {
         this.jdbcTemplate = jdbcTemplate;
         this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
+    }
+
+    static SystemConfigRepository forTest(JdbcTemplate jdbcTemplate) {
+        return new SystemConfigRepository(
+                jdbcTemplate,
+                null,
+                SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
+                SystemConfigValkeyCache.DEFAULT_TTL,
+                SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
     }
 
     public Optional<String> findValue(String key) {

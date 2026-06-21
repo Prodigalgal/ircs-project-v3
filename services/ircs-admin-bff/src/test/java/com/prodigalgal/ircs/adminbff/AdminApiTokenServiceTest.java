@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -25,9 +26,9 @@ class AdminApiTokenServiceTest {
     private final AdminApiTokenService service = new AdminApiTokenService(
             repository,
             clock,
-            Duration.ofSeconds(30),
-            Duration.ofMinutes(5),
-            new SecureRandom(new byte[]{1, 2, 3, 4}));
+            provider(new SecureRandom(new byte[]{1, 2, 3, 4})),
+            "PT30S",
+            "PT5M");
 
     @Test
     void createStoresOnlyHashAndReturnsRawTokenOnce() {
@@ -194,5 +195,12 @@ class AdminApiTokenServiceTest {
         public Instant instant() {
             return instant;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> provider(T value) {
+        ObjectProvider<T> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        org.mockito.Mockito.when(provider.getIfAvailable()).thenReturn(value);
+        return provider;
     }
 }

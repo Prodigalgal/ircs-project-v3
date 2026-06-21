@@ -51,7 +51,7 @@ class RawVideoNormalizationRepositoryTest {
         when(jdbcTemplate.queryForList(contains("directors"), any(MapSqlParameterSource.class), eq(UUID.class)))
                 .thenReturn(List.of(directorId));
 
-        RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
+        RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         RawVideoNormalizationRepository.MarkReadyResult result = repository.markReady(rawVideoId, patch(
                 Set.of("动作"),
@@ -100,7 +100,7 @@ class RawVideoNormalizationRepositoryTest {
     @Test
     void markReadyDoesNotReplaceRelationsWhenPatchHasNoRelationValues() {
         UUID rawVideoId = UUID.randomUUID();
-        RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
+        RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         repository.markReady(rawVideoId, patch(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
 
@@ -127,7 +127,7 @@ class RawVideoNormalizationRepositoryTest {
                         eq(UUID.class)))
                 .thenReturn(rawCategoryId);
 
-        RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
+        RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         repository.markReady(rawVideoId, patchWithCategory(dataSourceId, "movie", "电影"));
 
@@ -152,7 +152,7 @@ class RawVideoNormalizationRepositoryTest {
                         eq(UUID.class)))
                 .thenReturn(List.of(rawVideoId));
 
-        RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
+        RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         assertEquals(List.of(rawVideoId), repository.sampleRawVideoIds(5));
     }
@@ -168,7 +168,7 @@ class RawVideoNormalizationRepositoryTest {
                         any(MapSqlParameterSource.class)))
                 .thenReturn(12);
 
-        RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
+        RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         assertEquals(12, repository.resetAllNormalizationPending());
     }
@@ -181,7 +181,7 @@ class RawVideoNormalizationRepositoryTest {
                         eq(Long.class)))
                 .thenReturn(null);
 
-        RawVideoNormalizationRepository repository = new RawVideoNormalizationRepository(jdbcTemplate);
+        RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         assertEquals(0L, repository.countRawVideos());
     }

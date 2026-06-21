@@ -24,7 +24,6 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -43,40 +42,16 @@ public class JdbcAggregationRepository {
     private final AggregationMatchingStrategy matchingStrategy;
     private final AggregationContextSearchClient contextSearchClient;
     private final MetadataNameValkeyCache metadataNameCache;
-
-    @Autowired
     public JdbcAggregationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
             AggregationMatchingStrategy matchingStrategy,
             AggregationContextSearchClient contextSearchClient,
             ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
             @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {
-        this(
-                jdbcTemplate,
-                matchingStrategy,
-                contextSearchClient,
-                metadataNameCacheProvider == null ? null : metadataNameCacheProvider.getIfAvailable(),
-                queryTimeoutSeconds);
-    }
-
-    JdbcAggregationRepository(
-            NamedParameterJdbcTemplate jdbcTemplate,
-            AggregationMatchingStrategy matchingStrategy,
-            AggregationContextSearchClient contextSearchClient,
-            MetadataNameValkeyCache metadataNameCache) {
-        this(jdbcTemplate, matchingStrategy, contextSearchClient, metadataNameCache, 30);
-    }
-
-    JdbcAggregationRepository(
-            NamedParameterJdbcTemplate jdbcTemplate,
-            AggregationMatchingStrategy matchingStrategy,
-            AggregationContextSearchClient contextSearchClient,
-            MetadataNameValkeyCache metadataNameCache,
-            int queryTimeoutSeconds) {
         this.jdbcTemplate = jdbcTemplate;
         this.matchingStrategy = matchingStrategy;
         this.contextSearchClient = contextSearchClient;
-        this.metadataNameCache = metadataNameCache;
+        this.metadataNameCache = metadataNameCacheProvider == null ? null : metadataNameCacheProvider.getIfAvailable();
         if (queryTimeoutSeconds > 0 && this.jdbcTemplate.getJdbcTemplate() != null) {
             this.jdbcTemplate.getJdbcTemplate().setQueryTimeout(queryTimeoutSeconds);
         }
@@ -89,7 +64,8 @@ public class JdbcAggregationRepository {
                 jdbcTemplate,
                 matchingStrategy,
                 (title, year) -> AggregationContextSearchClient.ContextSearchResult.notAttempted(),
-                (MetadataNameValkeyCache) null);
+                null,
+                30);
     }
 
     static JdbcAggregationRepository forTest(
@@ -100,7 +76,8 @@ public class JdbcAggregationRepository {
                 jdbcTemplate,
                 matchingStrategy,
                 contextSearchClient,
-                (MetadataNameValkeyCache) null);
+                null,
+                30);
     }
 
     public Optional<RawVideoAggregationRecord> findRawVideo(UUID rawVideoId) {

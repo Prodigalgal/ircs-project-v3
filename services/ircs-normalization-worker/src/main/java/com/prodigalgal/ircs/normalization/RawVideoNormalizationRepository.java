@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -24,8 +23,6 @@ public class RawVideoNormalizationRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
-
-    @Autowired
     public RawVideoNormalizationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
             ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider) {
@@ -33,8 +30,8 @@ public class RawVideoNormalizationRepository {
         this.metadataNameCacheProvider = metadataNameCacheProvider;
     }
 
-    RawVideoNormalizationRepository(NamedParameterJdbcTemplate jdbcTemplate) {
-        this(jdbcTemplate, null);
+    static RawVideoNormalizationRepository forTest(NamedParameterJdbcTemplate jdbcTemplate) {
+        return new RawVideoNormalizationRepository(jdbcTemplate, null);
     }
 
     public Optional<RawVideoRecord> findById(UUID id) {

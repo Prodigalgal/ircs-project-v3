@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -36,13 +36,11 @@ class SearchSyncWorkQueueWorker {
     private final SearchSyncProcessor syncProcessor;
     private final WorkerJobAuditWriter auditWriter;
     private final SearchSyncWorkQueueMetrics metrics;
+    private final SystemConfigRepository systemConfigRepository;
     private final LaneRuntime rawLane = new LaneRuntime(SearchSyncWorkTypes.RAW);
     private final LaneRuntime unifiedLane = new LaneRuntime(SearchSyncWorkTypes.UNIFIED);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
-
-    @Autowired(required = false)
-    private SystemConfigRepository systemConfigRepository;
 
     @Value("${app.search.work-queue.worker.enabled:false}")
     private boolean enabledByDeployment = true;
@@ -70,12 +68,16 @@ class SearchSyncWorkQueueWorker {
             ObjectMapper objectMapper,
             SearchSyncProcessor syncProcessor,
             WorkerJobAuditWriter auditWriter,
-            SearchSyncWorkQueueMetrics metrics) {
+            SearchSyncWorkQueueMetrics metrics,
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.syncProcessor = syncProcessor;
         this.auditWriter = auditWriter;
         this.metrics = metrics;
+        this.systemConfigRepository = systemConfigRepositoryProvider == null
+                ? null
+                : systemConfigRepositoryProvider.getIfAvailable();
     }
 
     @Scheduled(

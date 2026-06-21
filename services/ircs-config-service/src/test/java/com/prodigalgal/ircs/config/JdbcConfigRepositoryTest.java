@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.RowMapper;
 class JdbcConfigRepositoryTest {
 
     private final JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
-    private final JdbcConfigRepository repository = new JdbcConfigRepository(jdbcTemplate);
+    private final JdbcConfigRepository repository = JdbcConfigRepository.forTest(jdbcTemplate);
 
     @Test
     void upsertDefaultOnlyRepairsBlankOrLegacyDefaultConfigValueOnConflict() {

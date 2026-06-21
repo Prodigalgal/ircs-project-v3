@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -28,22 +27,14 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
     private OutboundHttpClient httpClient;
     private final Duration timeout;
     private final MetadataProviderTrafficLimiter trafficLimiter;
-
-    @Autowired
     public RestClientTmdbHttpClient(
             TmdbProviderProperties properties,
             ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
-        this(properties, trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop));
-    }
-
-    private RestClientTmdbHttpClient(
-            TmdbProviderProperties properties,
-            MetadataProviderTrafficLimiter trafficLimiter) {
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
                 new JdkOutboundTransport(properties.getRequestTimeout()));
         this.timeout = properties.getRequestTimeout();
-        this.trafficLimiter = trafficLimiter == null ? MetadataProviderTrafficLimiter.noop() : trafficLimiter;
+        this.trafficLimiter = resolveTrafficLimiter(trafficLimiterProvider);
     }
 
     static RestClientTmdbHttpClient forTest(OutboundHttpClient httpClient, Duration timeout) {
@@ -53,12 +44,47 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
     static RestClientTmdbHttpClient forTest(
             OutboundHttpClient httpClient,
             Duration timeout,
-            MetadataProviderTrafficLimiter trafficLimiter) {
+        MetadataProviderTrafficLimiter trafficLimiter) {
         TmdbProviderProperties properties = new TmdbProviderProperties();
         properties.setRequestTimeout(timeout);
-        RestClientTmdbHttpClient client = new RestClientTmdbHttpClient(properties, trafficLimiter);
+        RestClientTmdbHttpClient client = new RestClientTmdbHttpClient(properties, trafficLimiterProvider(trafficLimiter));
         client.httpClient = httpClient;
         return client;
+    }
+
+    private static MetadataProviderTrafficLimiter resolveTrafficLimiter(
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+        return trafficLimiterProvider == null
+                ? MetadataProviderTrafficLimiter.noop()
+                : trafficLimiterProvider.getIfAvailable(MetadataProviderTrafficLimiter::noop);
+    }
+
+    private static ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider(
+            MetadataProviderTrafficLimiter trafficLimiter) {
+        MetadataProviderTrafficLimiter resolved = trafficLimiter == null
+                ? MetadataProviderTrafficLimiter.noop()
+                : trafficLimiter;
+        return new ObjectProvider<>() {
+            @Override
+            public MetadataProviderTrafficLimiter getObject(Object... args) {
+                return resolved;
+            }
+
+            @Override
+            public MetadataProviderTrafficLimiter getIfAvailable() {
+                return resolved;
+            }
+
+            @Override
+            public MetadataProviderTrafficLimiter getIfUnique() {
+                return resolved;
+            }
+
+            @Override
+            public MetadataProviderTrafficLimiter getObject() {
+                return resolved;
+            }
+        };
     }
 
     @Override

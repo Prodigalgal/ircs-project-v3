@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -66,8 +65,6 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
     private final JdbcTemplate jdbcTemplate;
     private final Environment environment;
     private final SystemConfigValkeyCache cache;
-
-    @Autowired
     public SystemConfigWorkSubmissionGate(
             JdbcTemplate jdbcTemplate,
             Environment environment,

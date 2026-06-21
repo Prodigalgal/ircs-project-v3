@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,8 +19,6 @@ public class AggregationPipelineRuntime {
 
     private final JdbcAggregationRepository repository;
     private TransactionOperations stageTransaction;
-
-    @Autowired
     public AggregationPipelineRuntime(
             JdbcAggregationRepository repository,
             PlatformTransactionManager transactionManager,
@@ -30,16 +27,10 @@ public class AggregationPipelineRuntime {
         this.stageTransaction = nestedStageTransaction(transactionManager, stageTransactionTimeoutSeconds);
     }
 
-    AggregationPipelineRuntime(
-            JdbcAggregationRepository repository,
-            PlatformTransactionManager transactionManager) {
-        this(repository, transactionManager, 30);
-    }
-
     static AggregationPipelineRuntime forTest(
             JdbcAggregationRepository repository,
             TransactionOperations stageTransaction) {
-        AggregationPipelineRuntime runtime = new AggregationPipelineRuntime(repository, unusedTransactionManager());
+        AggregationPipelineRuntime runtime = new AggregationPipelineRuntime(repository, unusedTransactionManager(), 30);
         runtime.stageTransaction = stageTransaction;
         return runtime;
     }
