@@ -26,7 +26,7 @@ class RequestAuditControllerTest {
         when(service.findAll(pageable, "admin", "ircs-config-service", "GET", "/api", null, "2xx", "127.0.0.1", from, null))
                 .thenReturn(page);
 
-        assertEquals(page, controller.getAll(
+        var response = controller.getAll(
                 pageable,
                 "admin",
                 "ircs-config-service",
@@ -36,7 +36,11 @@ class RequestAuditControllerTest {
                 "2xx",
                 "127.0.0.1",
                 from,
-                null).getBody());
+                null).getBody();
+        assertEquals(page.getContent(), response.content());
+        assertEquals(page.getTotalElements(), response.page().totalElements());
+        assertEquals(page.getSize(), response.page().size());
+        assertEquals(page.getNumber(), response.page().number());
 
         verify(service).findAll(pageable, "admin", "ircs-config-service", "GET", "/api", null, "2xx", "127.0.0.1", from, null);
     }

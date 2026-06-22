@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -76,7 +77,7 @@ class CatalogControllerTest {
         CatalogPage<DataSourceRead> page = CatalogPage.of(List.of(dataSource), request, 1);
         when(catalogService.pageDataSources(request)).thenReturn(page);
 
-        assertEquals(page, controller.pageDataSources(0, 50, List.of("name,asc")));
+        assertPageEquals(page, controller.pageDataSources(0, 50, List.of("name,asc")));
         verify(catalogService).pageDataSources(request);
     }
 
@@ -109,7 +110,7 @@ class CatalogControllerTest {
         when(catalogService.pageStandardCategories(request, "mov")).thenReturn(page);
         when(catalogService.findStandardCategory(id)).thenReturn(Optional.of(category));
 
-        assertEquals(page, controller.pageStandardCategories(1, 10, List.of("name", "desc"), "mov"));
+        assertPageEquals(page, controller.pageStandardCategories(1, 10, List.of("name", "desc"), "mov"));
         assertEquals(ResponseEntity.ok(category), controller.getStandardCategory(id));
         verify(catalogService).pageStandardCategories(request, "mov");
         verify(catalogService).findStandardCategory(id);
@@ -124,7 +125,7 @@ class CatalogControllerTest {
         when(catalogService.pageStandardGenres(request, "act")).thenReturn(page);
         when(catalogService.findStandardGenre(id)).thenReturn(Optional.of(genre));
 
-        assertEquals(page, controller.pageStandardGenres(0, 20, List.of("name,asc"), "act"));
+        assertPageEquals(page, controller.pageStandardGenres(0, 20, List.of("name,asc"), "act"));
         assertEquals(ResponseEntity.ok(genre), controller.getStandardGenre(id));
         verify(catalogService).pageStandardGenres(request, "act");
         verify(catalogService).findStandardGenre(id);
@@ -150,7 +151,7 @@ class CatalogControllerTest {
         when(catalogService.pageRawCategories(request, query)).thenReturn(page);
         when(catalogService.findRawCategory(id)).thenReturn(Optional.of(category));
 
-        assertEquals(page, controller.pageRawCategories(
+        assertPageEquals(page, controller.pageRawCategories(
                 2,
                 25,
                 List.of("sourceName,desc"),
@@ -174,8 +175,8 @@ class CatalogControllerTest {
         when(catalogService.pageRawAreas(request, query)).thenReturn(areaPage);
         when(catalogService.findRawArea(area.id())).thenReturn(Optional.of(area));
 
-        assertEquals(genrePage, controller.pageRawGenres(0, 20, List.of("sourceValue,asc"), "动作", false));
-        assertEquals(areaPage, controller.pageRawAreas(0, 20, List.of("sourceValue,asc"), "动作", false));
+        assertPageEquals(genrePage, controller.pageRawGenres(0, 20, List.of("sourceValue,asc"), "动作", false));
+        assertPageEquals(areaPage, controller.pageRawAreas(0, 20, List.of("sourceValue,asc"), "动作", false));
         assertEquals(ResponseEntity.ok(area), controller.getRawArea(area.id()));
         verify(catalogService).pageRawGenres(request, query);
         verify(catalogService).pageRawAreas(request, query);
@@ -200,11 +201,23 @@ class CatalogControllerTest {
         when(catalogService.findRawLanguage(id)).thenReturn(Optional.of(language));
         when(catalogService.traceRawLanguage(id)).thenReturn(List.of(trace));
 
-        assertEquals(page, controller.pageRawLanguages(0, 20, List.of("sourceValue,asc"), "粤语", true));
+        assertPageEquals(page, controller.pageRawLanguages(0, 20, List.of("sourceValue,asc"), "粤语", true));
         assertEquals(ResponseEntity.ok(language), controller.getRawLanguage(id));
         assertEquals(List.of(trace), controller.traceRawLanguage(id));
         verify(catalogService).pageRawLanguages(request, query);
         verify(catalogService).findRawLanguage(id);
         verify(catalogService).traceRawLanguage(id);
+    }
+
+    private static <T> void assertPageEquals(CatalogPage<T> expected, PageEnvelope<T> actual) {
+        assertEquals(expected.content(), actual.content());
+        assertEquals(expected.number(), actual.page().number());
+        assertEquals(expected.size(), actual.page().size());
+        assertEquals(expected.totalElements(), actual.page().totalElements());
+        assertEquals(expected.totalPages(), actual.page().totalPages());
+        assertEquals(expected.first(), actual.page().first());
+        assertEquals(expected.last(), actual.page().last());
+        assertEquals(expected.numberOfElements(), actual.page().numberOfElements());
+        assertEquals(expected.empty(), actual.page().empty());
     }
 }

@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.config.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.config.application.ConfigService;
 import com.prodigalgal.ircs.config.dto.SystemConfigSummary;
 import com.prodigalgal.ircs.config.dto.SystemConfigWriteRequest;
@@ -7,7 +8,6 @@ import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -29,11 +29,11 @@ public class ConfigController {
     private final ConfigService configService;
 
     @GetMapping("/configs")
-    public Page<SystemConfigSummary> listConfigs(
+    public PageEnvelope<SystemConfigSummary> listConfigs(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String keyword
     ) {
-        return configService.listConfigs(pageable, keyword);
+        return PageEnvelope.from(configService.listConfigs(pageable, keyword));
     }
 
     @GetMapping("/configs/{key}")

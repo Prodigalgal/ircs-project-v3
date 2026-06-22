@@ -37,7 +37,11 @@ class ConfigControllerTest {
         when(configService.listConfigs(pageable, "codex"))
                 .thenReturn(new PageImpl<>(List.of(config), pageable, 1));
 
-        assertEquals(List.of(config), controller.listConfigs(pageable, "codex").getContent());
+        var response = controller.listConfigs(pageable, "codex");
+        assertEquals(List.of(config), response.content());
+        assertEquals(1, response.page().totalElements());
+        assertEquals(20, response.page().size());
+        assertEquals(0, response.page().number());
         verify(configService).listConfigs(pageable, "codex");
     }
 

@@ -2,13 +2,13 @@ package com.prodigalgal.ircs.search.portal.controller;
 
 import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.search.portal.application.PortalSearchQueryService;
 import com.prodigalgal.ircs.search.portal.dto.PortalMovieCardResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.CacheControl;
@@ -35,11 +35,11 @@ public class PortalSearchController {
     }
 
     @GetMapping("/recommendations/{videoId}")
-    public ResponseEntity<Page<PortalMovieCardResponse>> recommend(
+    public ResponseEntity<PageEnvelope<PortalMovieCardResponse>> recommend(
             HttpServletRequest request,
             @PathVariable UUID videoId,
             @PageableDefault(size = 10) Pageable pageable) {
         IrcsRequestPrincipal principal = IrcsAuthHeaders.principalOrPublic(request);
-        return ResponseEntity.ok(portalSearchQueryService.recommend(videoId, pageable, principal));
+        return ResponseEntity.ok(PageEnvelope.from(portalSearchQueryService.recommend(videoId, pageable, principal)));
     }
 }

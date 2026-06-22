@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.task.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.task.application.TaskCommandService;
 import com.prodigalgal.ircs.task.application.TaskLogService;
 import com.prodigalgal.ircs.task.application.TaskQueryService;
@@ -14,7 +15,6 @@ import com.prodigalgal.ircs.task.dto.TaskUpdateRequest;
 import java.util.UUID;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -55,14 +55,14 @@ public class CollectionTaskController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<TaskCardSummary>> listTasks(
+    public ResponseEntity<PageEnvelope<TaskCardSummary>> listTasks(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) UUID dataSourceId,
             @RequestParam(required = false) Boolean enabled
     ) {
-        return ResponseEntity.ok(taskQueryService.findAll(pageable, name, status, dataSourceId, enabled));
+        return ResponseEntity.ok(PageEnvelope.from(taskQueryService.findAll(pageable, name, status, dataSourceId, enabled)));
     }
 
     @GetMapping("/{id}")

@@ -1,11 +1,11 @@
 package com.prodigalgal.ircs.storage.image;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageResponse;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.UrlRequest;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
@@ -28,12 +28,12 @@ public class CoverImageController {
     private final CoverImageAdminService service;
 
     @GetMapping
-    public ResponseEntity<Page<CoverImageResponse>> getAll(
+    public ResponseEntity<PageEnvelope<CoverImageResponse>> getAll(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) CoverImageStatus status,
             @RequestParam(required = false) CoverImageStorageType storageType,
             @RequestParam(required = false) String url) {
-        return ResponseEntity.ok(service.findAll(pageable, status, storageType, url));
+        return ResponseEntity.ok(PageEnvelope.from(service.findAll(pageable, status, storageType, url)));
     }
 
     @GetMapping("/{id}")
@@ -71,4 +71,3 @@ public class CoverImageController {
         return ResponseEntity.accepted().build();
     }
 }
-

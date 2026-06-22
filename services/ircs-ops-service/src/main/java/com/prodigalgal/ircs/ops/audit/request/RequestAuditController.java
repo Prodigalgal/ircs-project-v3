@@ -1,8 +1,8 @@
 package com.prodigalgal.ircs.ops.audit.request;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -21,7 +21,7 @@ public class RequestAuditController {
     private final RequestAuditQueryService requestAuditQueryService;
 
     @GetMapping
-    public ResponseEntity<Page<RequestAuditLogResponse>> getAll(
+    public ResponseEntity<PageEnvelope<RequestAuditLogResponse>> getAll(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) String username,
             @RequestParam(required = false) String requestSource,
@@ -32,7 +32,7 @@ public class RequestAuditController {
             @RequestParam(required = false) String clientIp,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
-        return ResponseEntity.ok(requestAuditQueryService.findAll(
+        return ResponseEntity.ok(PageEnvelope.from(requestAuditQueryService.findAll(
                 pageable,
                 username,
                 requestSource,
@@ -42,7 +42,7 @@ public class RequestAuditController {
                 statusClass,
                 clientIp,
                 from,
-                to));
+                to)));
     }
 
     @GetMapping("/summary")

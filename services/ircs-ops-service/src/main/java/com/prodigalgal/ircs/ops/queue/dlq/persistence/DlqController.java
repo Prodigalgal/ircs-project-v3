@@ -1,9 +1,9 @@
 package com.prodigalgal.ircs.ops.queue.dlq.persistence;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -26,11 +26,11 @@ public class DlqController {
     private final DlqQueryService dlqQueryService;
 
     @GetMapping
-    public ResponseEntity<Page<FailedMessageResponse>> getAll(
+    public ResponseEntity<PageEnvelope<FailedMessageResponse>> getAll(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String queueName) {
-        return ResponseEntity.ok(dlqQueryService.findAll(pageable, status, queueName));
+        return ResponseEntity.ok(PageEnvelope.from(dlqQueryService.findAll(pageable, status, queueName)));
     }
 
     @PostMapping("/{id}/retry")

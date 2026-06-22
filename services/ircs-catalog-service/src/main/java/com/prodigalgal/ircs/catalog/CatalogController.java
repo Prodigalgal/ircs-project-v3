@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.catalog;
 
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -111,12 +112,12 @@ public class CatalogController {
     }
 
     @GetMapping("/standard-categories/page")
-    public CatalogPage<StandardCategoryRead> pageStandardCategories(
+    public PageEnvelope<StandardCategoryRead> pageStandardCategories(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
             @RequestParam(required = false) String name) {
-        return catalogService.pageStandardCategories(CatalogPageRequest.of(page, size, sort), name);
+        return pageEnvelope(catalogService.pageStandardCategories(CatalogPageRequest.of(page, size, sort), name));
     }
 
     @GetMapping("/standard-categories/{id}")
@@ -153,12 +154,12 @@ public class CatalogController {
     }
 
     @GetMapping("/standard-genres/page")
-    public CatalogPage<StandardGenreRead> pageStandardGenres(
+    public PageEnvelope<StandardGenreRead> pageStandardGenres(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
             @RequestParam(required = false) String name) {
-        return catalogService.pageStandardGenres(CatalogPageRequest.of(page, size, sort), name);
+        return pageEnvelope(catalogService.pageStandardGenres(CatalogPageRequest.of(page, size, sort), name));
     }
 
     @GetMapping("/standard-genres/{id}")
@@ -179,11 +180,11 @@ public class CatalogController {
     }
 
     @GetMapping("/standard-areas/page")
-    public CatalogPage<StandardAreaRead> pageStandardAreas(
+    public PageEnvelope<StandardAreaRead> pageStandardAreas(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort) {
-        return catalogService.pageStandardAreas(CatalogPageRequest.of(page, size, sort));
+        return pageEnvelope(catalogService.pageStandardAreas(CatalogPageRequest.of(page, size, sort)));
     }
 
     @GetMapping("/standard-languages")
@@ -198,11 +199,11 @@ public class CatalogController {
     }
 
     @GetMapping("/data-sources")
-    public CatalogPage<DataSourceRead> pageDataSources(
+    public PageEnvelope<DataSourceRead> pageDataSources(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort) {
-        return catalogService.pageDataSources(CatalogPageRequest.of(page, size, sort));
+        return pageEnvelope(catalogService.pageDataSources(CatalogPageRequest.of(page, size, sort)));
     }
 
     @PostMapping("/data-sources")
@@ -255,16 +256,16 @@ public class CatalogController {
     }
 
     @GetMapping("/raw-categories")
-    public CatalogPage<RawCategoryRead> pageRawCategories(
+    public PageEnvelope<RawCategoryRead> pageRawCategories(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
             @RequestParam(required = false) String sourceName,
             @RequestParam(required = false) UUID dataSourceId,
             @RequestParam(required = false) Boolean isUnmapped) {
-        return catalogService.pageRawCategories(
+        return pageEnvelope(catalogService.pageRawCategories(
                 CatalogPageRequest.of(page, size, sort),
-                new RawCategoryQuery(sourceName, dataSourceId, isUnmapped));
+                new RawCategoryQuery(sourceName, dataSourceId, isUnmapped)));
     }
 
     @PutMapping("/raw-categories/{id}")
@@ -288,15 +289,15 @@ public class CatalogController {
     }
 
     @GetMapping("/raw-genres")
-    public CatalogPage<RawGenreRead> pageRawGenres(
+    public PageEnvelope<RawGenreRead> pageRawGenres(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean isUnmapped) {
-        return catalogService.pageRawGenres(
+        return pageEnvelope(catalogService.pageRawGenres(
                 CatalogPageRequest.of(page, size, sort),
-                new RawValueQuery(keyword, isUnmapped));
+                new RawValueQuery(keyword, isUnmapped)));
     }
 
     @PostMapping("/raw-genres")
@@ -328,15 +329,15 @@ public class CatalogController {
     }
 
     @GetMapping("/raw-areas")
-    public CatalogPage<RawAreaRead> pageRawAreas(
+    public PageEnvelope<RawAreaRead> pageRawAreas(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean isUnmapped) {
-        return catalogService.pageRawAreas(
+        return pageEnvelope(catalogService.pageRawAreas(
                 CatalogPageRequest.of(page, size, sort),
-                new RawValueQuery(keyword, isUnmapped));
+                new RawValueQuery(keyword, isUnmapped)));
     }
 
     @PostMapping("/raw-areas")
@@ -368,15 +369,15 @@ public class CatalogController {
     }
 
     @GetMapping("/raw-languages")
-    public CatalogPage<RawLanguageRead> pageRawLanguages(
+    public PageEnvelope<RawLanguageRead> pageRawLanguages(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean isUnmapped) {
-        return catalogService.pageRawLanguages(
+        return pageEnvelope(catalogService.pageRawLanguages(
                 CatalogPageRequest.of(page, size, sort),
-                new RawValueQuery(keyword, isUnmapped));
+                new RawValueQuery(keyword, isUnmapped)));
     }
 
     @PostMapping("/raw-languages")
@@ -419,5 +420,9 @@ public class CatalogController {
                         .buildAndExpand(id)
                         .toUri())
                 .body(body);
+    }
+
+    private <T> PageEnvelope<T> pageEnvelope(CatalogPage<T> page) {
+        return PageEnvelope.of(page.content(), page.number(), page.size(), page.totalElements());
     }
 }

@@ -59,7 +59,10 @@ class PortalSearchControllerTest {
 
         var response = controller.recommend(new MockHttpServletRequest(), videoId, pageable);
 
-        assertEquals(page, response.getBody());
+        assertEquals(page.getContent(), response.getBody().content());
+        assertEquals(1, response.getBody().page().totalElements());
+        assertEquals(10, response.getBody().page().size());
+        assertEquals(0, response.getBody().page().number());
         verify(portalSearchQueryService).recommend(videoId, pageable, principal);
     }
 }

@@ -1,8 +1,8 @@
 package com.prodigalgal.ircs.ops.audit.worker;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -21,7 +21,7 @@ public class WorkerJobAuditController {
     private final WorkerJobAuditQueryService workerJobAuditQueryService;
 
     @GetMapping
-    public ResponseEntity<Page<WorkerJobAuditEventResponse>> getAll(
+    public ResponseEntity<PageEnvelope<WorkerJobAuditEventResponse>> getAll(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) String jobSource,
             @RequestParam(required = false) String jobType,
@@ -31,7 +31,7 @@ public class WorkerJobAuditController {
             @RequestParam(required = false) String errorClass,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
-        return ResponseEntity.ok(workerJobAuditQueryService.findAll(
+        return ResponseEntity.ok(PageEnvelope.from(workerJobAuditQueryService.findAll(
                 pageable,
                 jobSource,
                 jobType,
@@ -40,7 +40,7 @@ public class WorkerJobAuditController {
                 status,
                 errorClass,
                 from,
-                to));
+                to)));
     }
 
     @GetMapping("/summary")

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -69,9 +70,9 @@ class PortalInteractionControllerTest {
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(queryService.history(memberId, bounds)).thenReturn(page);
 
-        PageResponse<InteractionRecordResponse> response = controller.history("Bearer token", 0, 20);
+        PageEnvelope<InteractionRecordResponse> response = controller.history("Bearer token", 0, 20);
 
-        assertEquals(page, response);
+        assertPageEquals(page, response);
         verify(memberTokenService).requireMemberId("Bearer token");
         verify(queryService).history(memberId, bounds);
     }
@@ -97,9 +98,9 @@ class PortalInteractionControllerTest {
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(queryService.favorites(memberId, bounds)).thenReturn(page);
 
-        PageResponse<InteractionRecordResponse> response = controller.favorites("Bearer token", 1, 5);
+        PageEnvelope<InteractionRecordResponse> response = controller.favorites("Bearer token", 1, 5);
 
-        assertEquals(page, response);
+        assertPageEquals(page, response);
         verify(memberTokenService).requireMemberId("Bearer token");
         verify(queryService).favorites(memberId, bounds);
     }
@@ -138,5 +139,17 @@ class PortalInteractionControllerTest {
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(commandService).deleteHistoryRecord(memberId, historyId);
+    }
+
+    private static <T> void assertPageEquals(PageResponse<T> expected, PageEnvelope<T> actual) {
+        assertEquals(expected.content(), actual.content());
+        assertEquals(expected.number(), actual.page().number());
+        assertEquals(expected.size(), actual.page().size());
+        assertEquals(expected.totalElements(), actual.page().totalElements());
+        assertEquals(expected.totalPages(), actual.page().totalPages());
+        assertEquals(expected.first(), actual.page().first());
+        assertEquals(expected.last(), actual.page().last());
+        assertEquals(expected.content().size(), actual.page().numberOfElements());
+        assertEquals(expected.empty(), actual.page().empty());
     }
 }

@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.portal;
 
 import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,7 +47,7 @@ public class PortalController {
     }
 
     @GetMapping("/explore")
-    public ResponseEntity<PageResponse<PortalMovieCard>> explore(
+    public ResponseEntity<PageEnvelope<PortalMovieCard>> explore(
             HttpServletRequest request,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -67,7 +68,7 @@ public class PortalController {
         boolean cacheable = principal.isAnonymous() && safeKeyword == null && safePage == 0;
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, cacheable ? CACHE_PUBLIC_EXPLORE : CACHE_NO_STORE)
-                .body(portalQueryService.explore(
+                .body(pageEnvelope(portalQueryService.explore(
                         principal,
                         safePage,
                         safeSize,
@@ -77,7 +78,7 @@ public class PortalController {
                         area,
                         year,
                         language,
-                        sort));
+                        sort)));
     }
 
     @GetMapping("/movies/{id}")
@@ -102,5 +103,9 @@ public class PortalController {
 
     private String cacheFor(IrcsRequestPrincipal principal, String publicCache) {
         return principal.isAnonymous() ? publicCache : CACHE_NO_STORE;
+    }
+
+    private <T> PageEnvelope<T> pageEnvelope(PageResponse<T> page) {
+        return PageEnvelope.of(page.content(), page.number(), page.size(), page.totalElements());
     }
 }

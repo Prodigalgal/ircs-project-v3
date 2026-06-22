@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.interaction;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,13 +22,13 @@ public class AdminMessageController {
     private final AdminMessageService service;
 
     @GetMapping
-    public PageResponse<UserMessageResponse> getAll(
+    public PageEnvelope<UserMessageResponse> getAll(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
-        return service.findAll(keyword, status, page, size);
+        return pageEnvelope(service.findAll(keyword, status, page, size));
     }
 
     @PostMapping("/{id}/reply")
@@ -48,5 +49,9 @@ public class AdminMessageController {
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         service.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private <T> PageEnvelope<T> pageEnvelope(PageResponse<T> page) {
+        return PageEnvelope.of(page.content(), page.number(), page.size(), page.totalElements());
     }
 }

@@ -147,9 +147,12 @@ class CollectionTaskControllerTest {
         when(taskQueryService.findAll(pageable, "Codex", "IDLE", null, true))
                 .thenReturn(new PageImpl<>(List.of(task), pageable, 1));
 
-        assertEquals(
-                List.of(task),
-                controller.listTasks(pageable, "Codex", "IDLE", null, true).getBody().getContent());
+        var response = controller.listTasks(pageable, "Codex", "IDLE", null, true).getBody();
+
+        assertEquals(List.of(task), response.content());
+        assertEquals(1, response.page().totalElements());
+        assertEquals(20, response.page().size());
+        assertEquals(0, response.page().number());
         verify(taskQueryService).findAll(pageable, "Codex", "IDLE", null, true);
     }
 

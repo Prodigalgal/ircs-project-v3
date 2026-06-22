@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.identity.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.identity.dto.HistoryRecordResponse;
 import com.prodigalgal.ircs.identity.application.MemberAdminService;
 import com.prodigalgal.ircs.identity.domain.MemberStatus;
@@ -31,29 +32,29 @@ public class MemberAdminController {
     private final MemberAdminService memberAdminService;
 
     @GetMapping
-    public ResponseEntity<PageResponse<MemberAdminResponse>> getAll(
+    public ResponseEntity<PageEnvelope<MemberAdminResponse>> getAll(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false, defaultValue = "createdAt,desc") String sort,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) MemberStatus status) {
-        return ResponseEntity.ok(memberAdminService.findAll(keyword, status, page, size, sort));
+        return ResponseEntity.ok(pageEnvelope(memberAdminService.findAll(keyword, status, page, size, sort)));
     }
 
     @GetMapping("/{id}/favorites")
-    public ResponseEntity<PageResponse<HistoryRecordResponse>> getFavorites(
+    public ResponseEntity<PageEnvelope<HistoryRecordResponse>> getFavorites(
             @PathVariable UUID id,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(memberAdminService.favorites(id, page, size));
+        return ResponseEntity.ok(pageEnvelope(memberAdminService.favorites(id, page, size)));
     }
 
     @GetMapping("/{id}/history")
-    public ResponseEntity<PageResponse<HistoryRecordResponse>> getHistory(
+    public ResponseEntity<PageEnvelope<HistoryRecordResponse>> getHistory(
             @PathVariable UUID id,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(memberAdminService.history(id, page, size));
+        return ResponseEntity.ok(pageEnvelope(memberAdminService.history(id, page, size)));
     }
 
     @PutMapping("/{id}")
@@ -74,5 +75,9 @@ public class MemberAdminController {
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         memberAdminService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private <T> PageEnvelope<T> pageEnvelope(PageResponse<T> page) {
+        return PageEnvelope.of(page.content(), page.number(), page.size(), page.totalElements());
     }
 }

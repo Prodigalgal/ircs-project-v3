@@ -24,7 +24,11 @@ class DlqControllerTest {
         Page<FailedMessageResponse> page = new PageImpl<>(List.of(), pageable, 0);
         when(service.findAll(pageable, "PENDING", "q.storage")).thenReturn(page);
 
-        assertEquals(page, controller.getAll(pageable, "PENDING", "q.storage").getBody());
+        var response = controller.getAll(pageable, "PENDING", "q.storage").getBody();
+        assertEquals(page.getContent(), response.content());
+        assertEquals(page.getTotalElements(), response.page().totalElements());
+        assertEquals(page.getSize(), response.page().size());
+        assertEquals(page.getNumber(), response.page().number());
         verify(service).findAll(pageable, "PENDING", "q.storage");
     }
 

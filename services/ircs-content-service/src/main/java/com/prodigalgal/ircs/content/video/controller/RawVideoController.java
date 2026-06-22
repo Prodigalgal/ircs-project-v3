@@ -10,13 +10,13 @@ import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardRespons
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCreateRequest;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoDetailResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoUpdateRequest;
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -39,7 +39,7 @@ public class RawVideoController {
     private final RawVideoAdminService service;
 
     @GetMapping
-    public ResponseEntity<Page<RawVideoCardResponse>> getAllRawVideos(
+    public ResponseEntity<PageEnvelope<RawVideoCardResponse>> getAllRawVideos(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String title,
             @RequestParam(required = false) UUID categoryId,
@@ -53,8 +53,20 @@ public class RawVideoController {
             @RequestParam(required = false) String sourceCategoryName,
             @RequestParam(required = false) String genre,
             @RequestParam(required = false) String language) {
-        return ResponseEntity.ok(service.findAll(pageable, title, categoryId, enrichmentStatus, normalizationStatus,
-                year, area, minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language));
+        return ResponseEntity.ok(PageEnvelope.from(service.findAll(
+                pageable,
+                title,
+                categoryId,
+                enrichmentStatus,
+                normalizationStatus,
+                year,
+                area,
+                minScore,
+                isMissingSlug,
+                dataSourceId,
+                sourceCategoryName,
+                genre,
+                language)));
     }
 
     @GetMapping("/{id}")

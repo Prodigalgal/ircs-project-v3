@@ -1,8 +1,8 @@
 package com.prodigalgal.ircs.ops.audit.notification;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -21,7 +21,7 @@ public class NotificationMailSendHistoryController {
     private final NotificationMailSendHistoryQueryService queryService;
 
     @GetMapping
-    public ResponseEntity<Page<NotificationMailSendHistoryResponse>> getAll(
+    public ResponseEntity<PageEnvelope<NotificationMailSendHistoryResponse>> getAll(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String deliveryMode,
@@ -31,7 +31,7 @@ public class NotificationMailSendHistoryController {
             @RequestParam(required = false) String recipient,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
-        return ResponseEntity.ok(queryService.findAll(
+        return ResponseEntity.ok(PageEnvelope.from(queryService.findAll(
                 pageable,
                 status,
                 deliveryMode,
@@ -40,7 +40,7 @@ public class NotificationMailSendHistoryController {
                 correlationId,
                 recipient,
                 from,
-                to));
+                to)));
     }
 
     @GetMapping("/summary")

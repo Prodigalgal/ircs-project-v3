@@ -9,13 +9,13 @@ import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoCardRes
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoCreateRequest;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoDetailResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoUpdateRequest;
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -38,7 +38,7 @@ public class UnifiedVideoController {
     private final UnifiedVideoAdminService service;
 
     @GetMapping
-    public ResponseEntity<Page<UnifiedVideoCardResponse>> getAll(
+    public ResponseEntity<PageEnvelope<UnifiedVideoCardResponse>> getAll(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String title,
             @RequestParam(required = false) UUID categoryId,
@@ -48,8 +48,16 @@ public class UnifiedVideoController {
             @RequestParam(required = false) Boolean hasDoubanId,
             @RequestParam(required = false) Boolean hasTmdbId,
             @RequestParam(required = false) String contentVisibility) {
-        return ResponseEntity.ok(service.findAll(pageable, title, categoryId, year, area, minScore, hasDoubanId,
-                hasTmdbId, contentVisibility));
+        return ResponseEntity.ok(PageEnvelope.from(service.findAll(
+                pageable,
+                title,
+                categoryId,
+                year,
+                area,
+                minScore,
+                hasDoubanId,
+                hasTmdbId,
+                contentVisibility)));
     }
 
     @GetMapping("/{id}")

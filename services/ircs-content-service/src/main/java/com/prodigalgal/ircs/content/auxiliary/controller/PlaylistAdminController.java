@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.content.auxiliary.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.content.auxiliary.application.AuxiliaryAdminService;
 import com.prodigalgal.ircs.content.auxiliary.dto.AuxiliaryAdminDtos.PlaylistCardResponse;
 import com.prodigalgal.ircs.content.auxiliary.dto.AuxiliaryAdminDtos.PlaylistDetailResponse;
@@ -9,7 +10,6 @@ import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -44,11 +44,11 @@ public class PlaylistAdminController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<PlaylistCardResponse>> getAll(
+    public ResponseEntity<PageEnvelope<PlaylistCardResponse>> getAll(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String videoTitle) {
-        return ResponseEntity.ok(service.findPlaylists(pageable, name, videoTitle));
+        return ResponseEntity.ok(PageEnvelope.from(service.findPlaylists(pageable, name, videoTitle)));
     }
 
     @GetMapping("/{id}")

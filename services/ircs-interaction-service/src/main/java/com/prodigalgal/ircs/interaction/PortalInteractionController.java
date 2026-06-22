@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.interaction;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -40,21 +41,21 @@ public class PortalInteractionController {
     }
 
     @GetMapping("/history")
-    public PageResponse<InteractionRecordResponse> history(
+    public PageEnvelope<InteractionRecordResponse> history(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         UUID memberId = memberTokenService.requireMemberId(authorization);
-        return queryService.history(memberId, PageBounds.of(page, size, 20, 70));
+        return pageEnvelope(queryService.history(memberId, PageBounds.of(page, size, 20, 70)));
     }
 
     @GetMapping("/favorites")
-    public PageResponse<InteractionRecordResponse> favorites(
+    public PageEnvelope<InteractionRecordResponse> favorites(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         UUID memberId = memberTokenService.requireMemberId(authorization);
-        return queryService.favorites(memberId, PageBounds.of(page, size, 20, 70));
+        return pageEnvelope(queryService.favorites(memberId, PageBounds.of(page, size, 20, 70)));
     }
 
     @PostMapping("/history")
@@ -81,5 +82,9 @@ public class PortalInteractionController {
         UUID memberId = memberTokenService.requireMemberId(authorization);
         commandService.deleteHistoryRecord(memberId, id);
         return ResponseEntity.noContent().build();
+    }
+
+    private <T> PageEnvelope<T> pageEnvelope(PageResponse<T> page) {
+        return PageEnvelope.of(page.content(), page.number(), page.size(), page.totalElements());
     }
 }

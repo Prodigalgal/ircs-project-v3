@@ -1,12 +1,12 @@
 package com.prodigalgal.ircs.content.auxiliary.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.content.auxiliary.application.AuxiliaryAdminService;
 import com.prodigalgal.ircs.content.auxiliary.dto.AuxiliaryAdminDtos.SourceDomainRequest;
 import com.prodigalgal.ircs.content.auxiliary.dto.AuxiliaryAdminDtos.SourceDomainResponse;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -26,11 +26,11 @@ public class SourceDomainAdminController {
     private final AuxiliaryAdminService service;
 
     @GetMapping
-    public ResponseEntity<Page<SourceDomainResponse>> getAll(
+    public ResponseEntity<PageEnvelope<SourceDomainResponse>> getAll(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) UUID dataSourceId) {
-        return ResponseEntity.ok(service.findSourceDomains(pageable, keyword, dataSourceId));
+        return ResponseEntity.ok(PageEnvelope.from(service.findSourceDomains(pageable, keyword, dataSourceId)));
     }
 
     @GetMapping("/{id}")

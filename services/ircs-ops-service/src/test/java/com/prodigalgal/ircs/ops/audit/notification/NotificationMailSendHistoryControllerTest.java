@@ -37,7 +37,7 @@ class NotificationMailSendHistoryControllerTest {
                         null))
                 .thenReturn(page);
 
-        assertEquals(page, controller.getAll(
+        var response = controller.getAll(
                 pageable,
                 "SENT",
                 "SINK",
@@ -46,7 +46,11 @@ class NotificationMailSendHistoryControllerTest {
                 "mail-1",
                 "codex",
                 from,
-                null).getBody());
+                null).getBody();
+        assertEquals(page.getContent(), response.content());
+        assertEquals(page.getTotalElements(), response.page().totalElements());
+        assertEquals(page.getSize(), response.page().size());
+        assertEquals(page.getNumber(), response.page().number());
 
         verify(service).findAll(
                 pageable,

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -67,7 +68,7 @@ class PortalControllerTest {
 
         var response = controller.explore(new MockHttpServletRequest(), 0, 20, null, "movies", null, null, null, null, "latest");
 
-        assertEquals(page, response.getBody());
+        assertPageEquals(page, response.getBody());
         assertEquals("public, max-age=0, s-maxage=60",
                 response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         verify(portalQueryService).explore(principal, 0, 20, null, "movies", null, null, null, null, "latest");
@@ -84,7 +85,7 @@ class PortalControllerTest {
 
         var response = controller.explore(new MockHttpServletRequest(), 2, 999, longKeyword, null, "剧情", null, null, null, null);
 
-        assertEquals(page, response.getBody());
+        assertPageEquals(page, response.getBody());
         assertEquals("no-store", response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         verify(portalQueryService).explore(principal, 2, 70, safeKeyword, null, "剧情", null, null, null, null);
     }
@@ -172,5 +173,17 @@ class PortalControllerTest {
                 List.of(),
                 List.of("高清"),
                 List.of());
+    }
+
+    private static <T> void assertPageEquals(PageResponse<T> expected, PageEnvelope<T> actual) {
+        assertEquals(expected.content(), actual.content());
+        assertEquals(expected.number(), actual.page().number());
+        assertEquals(expected.size(), actual.page().size());
+        assertEquals(expected.totalElements(), actual.page().totalElements());
+        assertEquals(expected.totalPages(), actual.page().totalPages());
+        assertEquals(expected.first(), actual.page().first());
+        assertEquals(expected.last(), actual.page().last());
+        assertEquals(expected.content().size(), actual.page().numberOfElements());
+        assertEquals(expected.empty(), actual.page().empty());
     }
 }

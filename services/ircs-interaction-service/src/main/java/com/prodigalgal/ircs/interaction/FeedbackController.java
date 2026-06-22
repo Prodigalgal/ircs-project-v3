@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.interaction;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -31,19 +32,19 @@ public class FeedbackController {
     }
 
     @GetMapping
-    public PageResponse<UserMessageResponse> myFeedback(
+    public PageEnvelope<UserMessageResponse> myFeedback(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         UUID memberId = memberTokenService.requireMemberId(authorization);
-        return commandService.myFeedback(memberId, PageBounds.of(page, size, 10, 70));
+        return pageEnvelope(commandService.myFeedback(memberId, PageBounds.of(page, size, 10, 70)));
     }
 
     @GetMapping("/wall")
-    public PageResponse<UserMessageResponse> publicWall(
+    public PageEnvelope<UserMessageResponse> publicWall(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return queryService.publicWall(PageBounds.of(page, size, 20, 70));
+        return pageEnvelope(queryService.publicWall(PageBounds.of(page, size, 20, 70)));
     }
 
     @DeleteMapping("/{id}")
@@ -53,5 +54,9 @@ public class FeedbackController {
         UUID memberId = memberTokenService.requireMemberId(authorization);
         commandService.delete(memberId, id);
         return ResponseEntity.noContent().build();
+    }
+
+    private <T> PageEnvelope<T> pageEnvelope(PageResponse<T> page) {
+        return PageEnvelope.of(page.content(), page.number(), page.size(), page.totalElements());
     }
 }

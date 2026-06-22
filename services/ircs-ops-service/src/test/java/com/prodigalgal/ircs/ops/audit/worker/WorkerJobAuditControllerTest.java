@@ -35,7 +35,7 @@ class WorkerJobAuditControllerTest {
                         null))
                 .thenReturn(page);
 
-        assertEquals(page, controller.getAll(
+        var response = controller.getAll(
                 pageable,
                 "ircs-notification-worker",
                 "queue-consumer",
@@ -44,7 +44,11 @@ class WorkerJobAuditControllerTest {
                 "failed",
                 "IllegalStateException",
                 from,
-                null).getBody());
+                null).getBody();
+        assertEquals(page.getContent(), response.content());
+        assertEquals(page.getTotalElements(), response.page().totalElements());
+        assertEquals(page.getSize(), response.page().size());
+        assertEquals(page.getNumber(), response.page().number());
 
         verify(service).findAll(
                 pageable,

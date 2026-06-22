@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -43,9 +44,9 @@ class FeedbackControllerTest {
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
         when(commandService.myFeedback(memberId, bounds)).thenReturn(page);
 
-        PageResponse<UserMessageResponse> response = controller.myFeedback("Bearer token", 2, 999);
+        PageEnvelope<UserMessageResponse> response = controller.myFeedback("Bearer token", 2, 999);
 
-        assertEquals(page, response);
+        assertPageEquals(page, response);
         verify(memberTokenService).requireMemberId("Bearer token");
         verify(commandService).myFeedback(memberId, bounds);
     }
@@ -70,9 +71,9 @@ class FeedbackControllerTest {
         PageResponse<UserMessageResponse> page = PageResponse.of(List.of(message), 1, bounds);
         when(queryService.publicWall(bounds)).thenReturn(page);
 
-        PageResponse<UserMessageResponse> response = controller.publicWall(0, 20);
+        PageEnvelope<UserMessageResponse> response = controller.publicWall(0, 20);
 
-        assertEquals(page, response);
+        assertPageEquals(page, response);
         assertNull(response.content().getFirst().memberEmail());
         verify(queryService).publicWall(bounds);
     }
@@ -103,5 +104,17 @@ class FeedbackControllerTest {
                 false,
                 Instant.parse("2026-06-04T00:00:00Z"),
                 Instant.parse("2026-06-04T00:00:00Z"));
+    }
+
+    private static <T> void assertPageEquals(PageResponse<T> expected, PageEnvelope<T> actual) {
+        assertEquals(expected.content(), actual.content());
+        assertEquals(expected.number(), actual.page().number());
+        assertEquals(expected.size(), actual.page().size());
+        assertEquals(expected.totalElements(), actual.page().totalElements());
+        assertEquals(expected.totalPages(), actual.page().totalPages());
+        assertEquals(expected.first(), actual.page().first());
+        assertEquals(expected.last(), actual.page().last());
+        assertEquals(expected.content().size(), actual.page().numberOfElements());
+        assertEquals(expected.empty(), actual.page().empty());
     }
 }

@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.content.people.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.content.people.application.PeopleAdminService;
 import com.prodigalgal.ircs.content.people.domain.PeopleResource;
 import com.prodigalgal.ircs.content.people.dto.PeopleAdminDtos.PersonPatchRequest;
@@ -10,7 +11,6 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -33,10 +33,10 @@ public class ActorAdminController {
     private final PeopleAdminService service;
 
     @GetMapping
-    public ResponseEntity<Page<PersonResponse>> getAll(
+    public ResponseEntity<PageEnvelope<PersonResponse>> getAll(
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) String name) {
-        return ResponseEntity.ok(service.findAll(PeopleResource.ACTORS, pageable, name));
+        return ResponseEntity.ok(PageEnvelope.from(service.findAll(PeopleResource.ACTORS, pageable, name)));
     }
 
     @GetMapping("/all")

@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.opsalert.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.opsalert.application.AlertIngestionService;
 import com.prodigalgal.ircs.opsalert.application.OpsAlertQueryService;
 import com.prodigalgal.ircs.opsalert.domain.AlertSeverity;
@@ -17,7 +18,6 @@ import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -45,7 +45,7 @@ public class OpsAlertController {
     }
 
     @GetMapping("/events")
-    public ResponseEntity<Page<AlertEventResponse>> events(
+    public ResponseEntity<PageEnvelope<AlertEventResponse>> events(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) AlertSeverity severity,
             @RequestParam(required = false) String source,
@@ -55,13 +55,13 @@ public class OpsAlertController {
             @RequestParam(required = false) String fingerprint,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
-        return ResponseEntity.ok(queryService.findEvents(
+        return ResponseEntity.ok(PageEnvelope.from(queryService.findEvents(
                 pageable,
-                new AlertEventFilter(severity, source, eventType, resourceType, resourceName, fingerprint, from, to)));
+                new AlertEventFilter(severity, source, eventType, resourceType, resourceName, fingerprint, from, to))));
     }
 
     @GetMapping("/incidents")
-    public ResponseEntity<Page<IncidentResponse>> incidents(
+    public ResponseEntity<PageEnvelope<IncidentResponse>> incidents(
             @PageableDefault(sort = "lastSeenAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) IncidentStatus status,
             @RequestParam(required = false) AlertSeverity severity,
@@ -71,13 +71,13 @@ public class OpsAlertController {
             @RequestParam(required = false) String fingerprint,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
-        return ResponseEntity.ok(queryService.findIncidents(
+        return ResponseEntity.ok(PageEnvelope.from(queryService.findIncidents(
                 pageable,
-                new IncidentFilter(status, severity, source, resourceType, resourceName, fingerprint, from, to)));
+                new IncidentFilter(status, severity, source, resourceType, resourceName, fingerprint, from, to))));
     }
 
     @GetMapping("/healing-actions")
-    public ResponseEntity<Page<HealingActionResponse>> healingActions(
+    public ResponseEntity<PageEnvelope<HealingActionResponse>> healingActions(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) UUID incidentId,
             @RequestParam(required = false) HealingActionStatus status,
@@ -86,8 +86,8 @@ public class OpsAlertController {
             @RequestParam(required = false) Boolean dryRun,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
-        return ResponseEntity.ok(queryService.findHealingActions(
+        return ResponseEntity.ok(PageEnvelope.from(queryService.findHealingActions(
                 pageable,
-                new HealingActionFilter(incidentId, status, policyKey, playbookKey, dryRun, from, to)));
+                new HealingActionFilter(incidentId, status, policyKey, playbookKey, dryRun, from, to))));
     }
 }

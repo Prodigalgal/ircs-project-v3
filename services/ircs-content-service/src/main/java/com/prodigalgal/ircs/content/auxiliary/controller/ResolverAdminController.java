@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.content.auxiliary.controller;
 
+import com.prodigalgal.ircs.common.web.PageEnvelope;
 import com.prodigalgal.ircs.content.auxiliary.application.AuxiliaryAdminService;
 import com.prodigalgal.ircs.content.auxiliary.dto.AuxiliaryAdminDtos.ResolverRequest;
 import com.prodigalgal.ircs.content.auxiliary.dto.AuxiliaryAdminDtos.ResolverResponse;
@@ -8,7 +9,6 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -42,8 +42,8 @@ public class ResolverAdminController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<ResolverResponse>> getAll(@PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(service.findResolvers(pageable));
+    public ResponseEntity<PageEnvelope<ResolverResponse>> getAll(@PageableDefault(size = 20) Pageable pageable) {
+        return ResponseEntity.ok(PageEnvelope.from(service.findResolvers(pageable)));
     }
 
     @GetMapping("/active")
