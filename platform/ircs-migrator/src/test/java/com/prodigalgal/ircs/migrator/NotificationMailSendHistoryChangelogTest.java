@@ -25,6 +25,8 @@ class NotificationMailSendHistoryChangelogTest {
             "db/changelog/2026/07/drop-avatar-sync-claim-lease-runtime-queue.sql";
     private static final String ADMIN_API_TOKENS_CHANGELOG =
             "db/changelog/2026/07/add-admin-api-tokens.sql";
+    private static final String OPS_ALERT_SELF_HEALING_CHANGELOG =
+            "db/changelog/2026/07/add-ops-alert-self-healing.sql";
 
     @Test
     void masterChangelogIncludesNotificationMailSendHistory() throws IOException {
@@ -38,6 +40,7 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(master).contains("file: " + LLM_CLEANING_RUNTIME_QUEUE_DROP_CHANGELOG);
         assertThat(master).contains("file: " + AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG);
         assertThat(master).contains("file: " + ADMIN_API_TOKENS_CHANGELOG);
+        assertThat(master).contains("file: " + OPS_ALERT_SELF_HEALING_CHANGELOG);
     }
 
     @Test
@@ -130,6 +133,21 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(changelog).contains("ck_admin_api_tokens_status");
         assertThat(changelog).doesNotContain("token_value");
         assertThat(changelog).doesNotContain("raw_token");
+    }
+
+    @Test
+    void opsAlertSelfHealingChangelogCreatesControlPlaneTables() throws IOException {
+        String changelog = normalize(readClasspath(OPS_ALERT_SELF_HEALING_CHANGELOG));
+
+        assertThat(changelog).contains("liquibase formatted sql");
+        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS ops_alert_events");
+        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS ops_incidents");
+        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS ops_healing_actions");
+        assertThat(changelog).contains("idx_ops_alert_events_fingerprint_created");
+        assertThat(changelog).contains("idx_ops_incidents_fingerprint_status");
+        assertThat(changelog).contains("ux_ops_incidents_open_fingerprint");
+        assertThat(changelog).contains("idx_ops_healing_actions_incident_created");
+        assertThat(changelog).contains("dry_run BOOLEAN NOT NULL DEFAULT true");
     }
 
     private static String readClasspath(String path) throws IOException {
