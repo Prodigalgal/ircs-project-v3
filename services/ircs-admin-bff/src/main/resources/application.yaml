@@ -29,6 +29,8 @@ app:
       service-id: ${APP_BFF_SERVICE_ID:admin-bff}
       ops-token: ${APP_BFF_OPS_SERVICE_TOKEN:}
       ops-scopes: ${APP_BFF_OPS_SERVICE_SCOPES:ops:read ops:run}
+      ops-alert-token: ${APP_BFF_OPS_ALERT_SERVICE_TOKEN:}
+      ops-alert-scopes: ${APP_BFF_OPS_ALERT_SERVICE_SCOPES:ops-alert:read ops-alert:run}
     proxy:
       connect-timeout: ${APP_BFF_PROXY_CONNECT_TIMEOUT:PT5S}
       request-timeout: ${APP_BFF_PROXY_REQUEST_TIMEOUT:PT5S}
@@ -44,6 +46,7 @@ app:
       catalog: ${APP_BFF_CATALOG_BASE_URL:http://ircs-catalog-service.ircs-dev.svc.cluster.local:8080}
       task: ${APP_BFF_TASK_BASE_URL:http://ircs-task-service.ircs-dev.svc.cluster.local:8080}
       ops: ${APP_BFF_OPS_BASE_URL:http://ircs-ops-service.ircs-dev.svc.cluster.local:8080}
+      ops-alert: ${APP_BFF_OPS_ALERT_BASE_URL:http://ircs-ops-alert-service.ircs-dev.svc.cluster.local:8080}
       search: ${APP_BFF_SEARCH_BASE_URL:http://ircs-search-service.ircs-dev.svc.cluster.local:8080}
       storage: ${APP_BFF_STORAGE_BASE_URL:http://ircs-storage-service.ircs-dev.svc.cluster.local:8080}
       config: ${APP_BFF_CONFIG_BASE_URL:http://ircs-config-service.ircs-dev.svc.cluster.local:8080}

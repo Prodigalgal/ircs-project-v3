@@ -154,6 +154,7 @@ class AdminBffAuthGateTest {
                 "http://catalog",
                 "http://task",
                 "http://ops",
+                "http://ops-alert",
                 "http://search",
                 "http://storage",
                 "http://config",

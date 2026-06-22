@@ -12,6 +12,7 @@ class AdminBffRoutesTest {
             "http://catalog",
             "http://task",
             "http://ops",
+            "http://ops-alert",
             "http://search",
             "http://storage",
             "http://config",
@@ -27,6 +28,14 @@ class AdminBffRoutesTest {
 
         assertThat(route.targetBaseUrl()).isEqualTo("http://ops");
         assertThat(route.targetPath()).isEqualTo("/api/v1/dashboard/statistics");
+    }
+
+    @Test
+    void routesOpsAlertBeforeGenericOpsService() {
+        ResolvedRoute route = routes.resolve("/api/v1/ops-alert/incidents").orElseThrow();
+
+        assertThat(route.targetBaseUrl()).isEqualTo("http://ops-alert");
+        assertThat(route.targetPath()).isEqualTo("/api/v1/ops-alert/incidents");
     }
 
     @Test

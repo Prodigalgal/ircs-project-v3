@@ -80,7 +80,10 @@ class AdminBffProxyController {
                     ? IrcsPermissions.TASK_RUN
                     : isRead(method) ? IrcsPermissions.TASK_READ : IrcsPermissions.TASK_WRITE;
         }
-        if (path.startsWith("/api/v1/dashboard") || path.startsWith("/api/v1/ops") || path.startsWith("/api/v1/debug")) {
+        if (path.startsWith("/api/v1/dashboard")
+                || path.startsWith("/api/v1/ops-alert")
+                || path.startsWith("/api/v1/ops")
+                || path.startsWith("/api/v1/debug")) {
             return isRead(method) ? IrcsPermissions.OPS_READ : IrcsPermissions.OPS_RUN;
         }
         if (path.startsWith("/api/v1/cover-images") || path.startsWith("/media")) {

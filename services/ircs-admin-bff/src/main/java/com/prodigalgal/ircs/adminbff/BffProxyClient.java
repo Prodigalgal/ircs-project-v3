@@ -63,6 +63,9 @@ class BffProxyClient {
     private final String serviceId;
     private final String opsServiceToken;
     private final String opsServiceScopes;
+    private final String opsAlertServiceToken;
+    private final String opsAlertServiceScopes;
+
     BffProxyClient(
             @Value("${app.bff.proxy.connect-timeout:PT5S}") Duration connectTimeout,
             @Value("${app.bff.proxy.request-timeout:PT5S}") Duration requestTimeout,
@@ -75,6 +78,8 @@ class BffProxyClient {
             @Value("${app.bff.service-identity.service-id:admin-bff}") String serviceId,
             @Value("${app.bff.service-identity.ops-token:${APP_BFF_OPS_SERVICE_TOKEN:}}") String opsServiceToken,
             @Value("${app.bff.service-identity.ops-scopes:ops:read ops:run}") String opsServiceScopes,
+            @Value("${app.bff.service-identity.ops-alert-token:${APP_BFF_OPS_ALERT_SERVICE_TOKEN:}}") String opsAlertServiceToken,
+            @Value("${app.bff.service-identity.ops-alert-scopes:ops-alert:read ops-alert:run}") String opsAlertServiceScopes,
             BffRequestAuditWriter auditWriter,
             ObjectProvider<OutboundStreamingHttpClient> outboundClientProvider,
             ObjectProvider<OutboundUrlPolicy> targetUrlPolicyProvider) {
@@ -92,6 +97,8 @@ class BffProxyClient {
         this.serviceId = serviceId;
         this.opsServiceToken = opsServiceToken;
         this.opsServiceScopes = opsServiceScopes;
+        this.opsAlertServiceToken = opsAlertServiceToken;
+        this.opsAlertServiceScopes = opsAlertServiceScopes;
     }
 
     void proxy(HttpServletRequest request, HttpServletResponse response, BffRouteTable routes) throws IOException {
@@ -218,7 +225,11 @@ class BffProxyClient {
         removeInternalServiceHeaders(headers);
         IrcsAuthHeaders.fromRequestAttribute(request)
                 .ifPresent(principal -> IrcsAuthHeaders.writePrincipal(headers, principal));
-        if (shouldAttachOpsIdentity(request.getRequestURI()) && StringUtils.hasText(opsServiceToken)) {
+        if (shouldAttachOpsAlertIdentity(request.getRequestURI()) && StringUtils.hasText(opsAlertServiceToken)) {
+            headers.put(InternalServiceAuthHeaders.SERVICE_ID, serviceId);
+            headers.put(InternalServiceAuthHeaders.SERVICE_TOKEN, opsAlertServiceToken.trim());
+            headers.put(InternalServiceAuthHeaders.SERVICE_SCOPES, opsAlertServiceScopes);
+        } else if (shouldAttachOpsIdentity(request.getRequestURI()) && StringUtils.hasText(opsServiceToken)) {
             headers.put(InternalServiceAuthHeaders.SERVICE_ID, serviceId);
             headers.put(InternalServiceAuthHeaders.SERVICE_TOKEN, opsServiceToken.trim());
             headers.put(InternalServiceAuthHeaders.SERVICE_SCOPES, opsServiceScopes);
@@ -226,8 +237,12 @@ class BffProxyClient {
         return headers;
     }
 
+    private boolean shouldAttachOpsAlertIdentity(String path) {
+        return path.equals("/api/v1/ops-alert") || path.startsWith("/api/v1/ops-alert/");
+    }
+
     private boolean shouldAttachOpsIdentity(String path) {
-        return path.startsWith("/api/v1/ops")
+        return (path.equals("/api/v1/ops") || path.startsWith("/api/v1/ops/"))
                 || path.startsWith("/api/v1/dashboard")
                 || path.startsWith("/api/v1/debug");
     }

@@ -13,6 +13,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
+import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -43,6 +44,8 @@ class BffProxyClientTest {
             "admin-bff",
             "",
             "ops:read ops:run",
+            "",
+            "ops-alert:read ops-alert:run",
             new BffRequestAuditWriter(false, null, null, null, "ircs-admin-bff"),
             provider(new OutboundStreamingHttpClient(
                     new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
@@ -97,6 +100,77 @@ class BffProxyClientTest {
         assertThat(response.getHeader("X-Upstream")).isEqualTo("content");
         assertThat(response.getHeader("Transfer-Encoding")).isNull();
         assertThat(response.getContentAsString()).isEqualTo("redirect-body");
+    }
+
+    @Test
+    void attachesOpsAlertInternalIdentityWhenTokenIsConfigured() throws Exception {
+        FakeStreamingTransport localTransport = new FakeStreamingTransport();
+        BffProxyClient client = new BffProxyClient(
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(2),
+                Duration.ofMinutes(30),
+                "admin-bff-proxy-test",
+                false,
+                5,
+                Duration.ofSeconds(30),
+                1,
+                "admin-bff",
+                "ops-secret",
+                "ops:read ops:run",
+                "ops-alert-secret",
+                "ops-alert:read ops-alert:run",
+                new BffRequestAuditWriter(false, null, null, null, "ircs-admin-bff"),
+                provider(new OutboundStreamingHttpClient(
+                        new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
+                        localTransport)),
+                provider(new OutboundUrlPolicy(new DefaultOutboundAddressResolver())));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/ops-alert/incidents");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/ops-alert", "http://ops-alert-service", "/api/v1/ops-alert")));
+
+        client.proxy(request, response, routes);
+
+        OutboundHttpRequest sent = localTransport.requests.getFirst();
+        assertThat(sent.headers()).containsEntry(InternalServiceAuthHeaders.SERVICE_ID, "admin-bff");
+        assertThat(sent.headers()).containsEntry(InternalServiceAuthHeaders.SERVICE_TOKEN, "ops-alert-secret");
+        assertThat(sent.headers()).containsEntry(InternalServiceAuthHeaders.SERVICE_SCOPES, "ops-alert:read ops-alert:run");
+    }
+
+    @Test
+    void doesNotFallbackOpsTokenToOpsAlertRoute() throws Exception {
+        FakeStreamingTransport localTransport = new FakeStreamingTransport();
+        BffProxyClient client = new BffProxyClient(
+                Duration.ofSeconds(5),
+                Duration.ofSeconds(2),
+                Duration.ofMinutes(30),
+                "admin-bff-proxy-test",
+                false,
+                5,
+                Duration.ofSeconds(30),
+                1,
+                "admin-bff",
+                "ops-secret",
+                "ops:read ops:run",
+                "",
+                "ops-alert:read ops-alert:run",
+                new BffRequestAuditWriter(false, null, null, null, "ircs-admin-bff"),
+                provider(new OutboundStreamingHttpClient(
+                        new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
+                        localTransport)),
+                provider(new OutboundUrlPolicy(new DefaultOutboundAddressResolver())));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/ops-alert/incidents");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/ops-alert", "http://ops-alert-service", "/api/v1/ops-alert")));
+
+        client.proxy(request, response, routes);
+
+        assertThat(localTransport.requests.getFirst().headers())
+                .doesNotContainKeys(
+                        InternalServiceAuthHeaders.SERVICE_ID,
+                        InternalServiceAuthHeaders.SERVICE_TOKEN,
+                        InternalServiceAuthHeaders.SERVICE_SCOPES);
     }
 
     private static IrcsRequestPrincipal adminPrincipal() {
