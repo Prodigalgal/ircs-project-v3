@@ -1,6 +1,6 @@
 package com.prodigalgal.ircs.content.image;
 
-import com.prodigalgal.ircs.content.video.ContentCommandPublisher;
+import com.prodigalgal.ircs.content.video.messaging.ContentCommandPublisher;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.util.List;
 import java.util.UUID;

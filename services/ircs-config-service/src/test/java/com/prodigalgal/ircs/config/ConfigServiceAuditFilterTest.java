@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.config;
 
+
+import com.prodigalgal.ircs.config.controller.CommonController;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;

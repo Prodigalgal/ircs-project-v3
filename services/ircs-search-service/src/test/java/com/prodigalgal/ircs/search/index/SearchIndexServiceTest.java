@@ -7,7 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
-import com.prodigalgal.ircs.search.SearchPortalReadModelCache;
+import com.prodigalgal.ircs.search.portal.cache.SearchPortalReadModelCache;
 import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
 import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
 import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;

@@ -5,7 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.prodigalgal.ircs.content.video.ContentCommandPublisher;
+import com.prodigalgal.ircs.content.video.messaging.ContentCommandPublisher;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.util.List;
 import java.util.UUID;

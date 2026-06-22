@@ -14,7 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;

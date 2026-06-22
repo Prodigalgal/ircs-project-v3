@@ -5,7 +5,7 @@ import com.prodigalgal.ircs.common.lock.DistributedLockManager;
 import com.prodigalgal.ircs.common.lock.DistributedLockProfile;
 import com.prodigalgal.ircs.common.lock.TokenBucketReservation;
 import com.prodigalgal.ircs.common.lock.TokenBucketReservationRequest;
-import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

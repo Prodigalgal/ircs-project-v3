@@ -11,7 +11,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import com.prodigalgal.ircs.contracts.credential.ProviderCredentialLease;
-import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.credential.MetadataCredentialServiceProperties;
 import java.io.IOException;
 import java.net.URI;

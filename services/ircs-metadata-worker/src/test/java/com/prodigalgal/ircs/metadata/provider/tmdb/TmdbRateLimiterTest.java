@@ -12,7 +12,7 @@ import com.prodigalgal.ircs.common.lock.TimeSliceReservation;
 import com.prodigalgal.ircs.common.lock.TimeSliceReservationRequest;
 import com.prodigalgal.ircs.common.lock.TokenBucketReservation;
 import com.prodigalgal.ircs.common.lock.TokenBucketReservationRequest;
-import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;

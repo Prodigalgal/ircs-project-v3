@@ -12,7 +12,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
-import com.prodigalgal.ircs.metadata.provider.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.credential.MetadataCredentialServiceProperties;
 import java.io.IOException;
 import java.net.InetAddress;

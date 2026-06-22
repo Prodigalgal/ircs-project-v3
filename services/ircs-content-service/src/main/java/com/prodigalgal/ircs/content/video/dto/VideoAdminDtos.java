@@ -1,0 +1,296 @@
+package com.prodigalgal.ircs.content.video.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+
+public final class VideoAdminDtos {
+
+    private VideoAdminDtos() {
+    }
+
+    public record IdResponse(UUID id) {
+    }
+
+    public record BatchRequest(List<UUID> ids) {
+    }
+
+    public record NamedRef(UUID id, String name, Instant createdAt, Instant updatedAt) {
+    }
+
+    public record RawGenreRef(UUID id, String sourceValue, UUID standardGenreId, String standardGenreName) {
+    }
+
+    public record RawLanguageRef(
+            UUID id,
+            String sourceValue,
+            UUID standardLanguageId,
+            String standardLanguageName,
+            Instant createdAt,
+            Instant updatedAt) {
+    }
+
+    public record RawAreaRef(
+            UUID id,
+            String sourceValue,
+            UUID standardAreaId,
+            String standardAreaName,
+            Instant createdAt,
+            Instant updatedAt) {
+    }
+
+    public record StandardAreaRef(
+            UUID id,
+            String name,
+            String code,
+            String region,
+            Instant createdAt,
+            Instant updatedAt) {
+    }
+
+    public record RawVideoCreateRequest(
+            @NotBlank(message = "Title cannot be blank") @Size(max = 255) String title,
+            String subtitle,
+            Integer season,
+            @Size(max = 255) String aliasTitle,
+            @Size(max = 1024) String coverImageUrl,
+            String description,
+            @Size(max = 20) String year,
+            Set<UUID> rawAreaIds,
+            @Size(max = 255) String remarks,
+            BigDecimal score,
+            LocalDate publishedAt,
+            @Size(max = 50) String totalEpisodes,
+            @Size(max = 50) String duration,
+            String doubanId,
+            String tmdbId,
+            String imdbId,
+            String rottenTomatoesId,
+            UUID dataSourceCategoryId,
+            UUID categoryId,
+            Set<UUID> actorIds,
+            Set<UUID> directorIds,
+            Set<UUID> rawGenreIds,
+            String rawLanguageStr) {
+    }
+
+    public record RawVideoUpdateRequest(
+            @NotNull(message = "ID is required for update") UUID id,
+            @Size(max = 255) String title,
+            @Size(max = 255) String aliasTitle,
+            @Size(max = 1024) String coverImageUrl,
+            String description,
+            String subtitle,
+            Integer season,
+            @Size(max = 20) String year,
+            Set<UUID> rawAreaIds,
+            String remarks,
+            BigDecimal score,
+            LocalDate publishedAt,
+            @Size(max = 50) String totalEpisodes,
+            @Size(max = 50) String duration,
+            String doubanId,
+            String tmdbId,
+            String imdbId,
+            String rottenTomatoesId,
+            Set<String> lockedFields,
+            UUID dataSourceCategoryId,
+            UUID categoryId,
+            UUID unifiedVideoId,
+            Set<UUID> actorIds,
+            Set<UUID> directorIds,
+            Set<UUID> rawGenreIds,
+            String rawLanguageStr) {
+    }
+
+    public record RawVideoCardResponse(
+            UUID id,
+            String sourceVid,
+            String title,
+            String aliasTitle,
+            Integer season,
+            String subtitle,
+            String coverImageUrl,
+            String year,
+            String area,
+            BigDecimal score,
+            String totalEpisodes,
+            String duration,
+            String categoryName,
+            String sourceCategoryName,
+            String dataSourceName,
+            String enrichmentStatus,
+            String normalizationStatus,
+            Instant createdAt,
+            Instant updatedAt) {
+    }
+
+    public record RawVideoDetailResponse(
+            UUID id,
+            String sourceVid,
+            String title,
+            String aliasTitle,
+            Integer season,
+            String subtitle,
+            String description,
+            String coverImageUrl,
+            String coverImageOriginalUrl,
+            String coverImageStoragePath,
+            String coverImageStorageType,
+            String coverImageStatus,
+            String year,
+            Set<String> languages,
+            String rawLanguageStr,
+            String remarks,
+            BigDecimal score,
+            LocalDate publishedAt,
+            String totalEpisodes,
+            String duration,
+            String doubanId,
+            String tmdbId,
+            String imdbId,
+            String rottenTomatoesId,
+            UUID categoryId,
+            String categoryName,
+            UUID dataSourceCategoryId,
+            String sourceCategoryName,
+            String dataSourceName,
+            UUID dataSourceId,
+            String detailApiUrl,
+            UUID unifiedVideoId,
+            String enrichmentStatus,
+            String normalizationStatus,
+            Instant createdAt,
+            Instant updatedAt,
+            Set<String> lockedFields,
+            String rawMetadata,
+            Set<NamedRef> actors,
+            Set<NamedRef> directors,
+            Set<RawGenreRef> rawGenres,
+            Set<RawLanguageRef> rawLanguages,
+            Set<RawAreaRef> rawAreas,
+            Set<Object> playlists) {
+    }
+
+    public record UnifiedVideoCreateRequest(
+            @NotBlank(message = "Title cannot be blank") @Size(max = 255) String title,
+            @Size(max = 255) String aliasTitle,
+            @Size(max = 1024) String coverImageUrl,
+            String description,
+            @Size(max = 20) String year,
+            Set<UUID> standardAreaIds,
+            BigDecimal score,
+            LocalDate publishedAt,
+            @Size(max = 50) String totalEpisodes,
+            @Size(max = 50) String duration,
+            @Size(max = 255) String remarks,
+            Integer season,
+            @Size(max = 255) String subtitle,
+            String doubanId,
+            String tmdbId,
+            String imdbId,
+            String rottenTomatoesId,
+            Set<String> languages,
+            Set<String> actors,
+            Set<String> directors,
+            Set<String> genres,
+            Set<String> tags,
+            UUID categoryId,
+            String contentVisibility,
+            Set<UUID> bindVideoIds,
+            Set<String> lockedFields) {
+    }
+
+    public record UnifiedVideoUpdateRequest(
+            @NotNull(message = "ID cannot be null") UUID id,
+            @Size(max = 255) String title,
+            @Size(max = 255) String aliasTitle,
+            @Size(max = 1024) String coverImageUrl,
+            String description,
+            @Size(max = 20) String year,
+            Set<UUID> standardAreaIds,
+            BigDecimal score,
+            LocalDate publishedAt,
+            @Size(max = 50) String totalEpisodes,
+            @Size(max = 50) String duration,
+            @Size(max = 255) String remarks,
+            Integer season,
+            @Size(max = 255) String subtitle,
+            String doubanId,
+            String tmdbId,
+            String imdbId,
+            String rottenTomatoesId,
+            Set<String> languages,
+            Set<String> actors,
+            Set<String> directors,
+            Set<String> genres,
+            Set<String> tags,
+            UUID categoryId,
+            String contentVisibility,
+            Set<UUID> bindVideoIds,
+            Set<UUID> unbindVideoIds,
+            Set<String> lockedFields) {
+    }
+
+    public record UnifiedVideoCardResponse(
+            UUID id,
+            String title,
+            String aliasTitle,
+            String coverImageUrl,
+            String year,
+            String area,
+            BigDecimal score,
+            String categoryName,
+            String remarks,
+            Integer season,
+            String subtitle,
+            String contentVisibility,
+            Instant lastTrendAt,
+            int sourceCount,
+            boolean hasImdb,
+            boolean hasDouban,
+            boolean hasTmdb,
+            Instant createdAt,
+            Instant updatedAt) {
+    }
+
+    public record UnifiedVideoDetailResponse(
+            UUID id,
+            String title,
+            String aliasTitle,
+            String coverImageUrl,
+            String description,
+            String year,
+            Set<StandardAreaRef> areas,
+            Set<String> languages,
+            BigDecimal score,
+            LocalDate publishedAt,
+            String totalEpisodes,
+            String duration,
+            String remarks,
+            Integer season,
+            String subtitle,
+            String doubanId,
+            String tmdbId,
+            String imdbId,
+            String rottenTomatoesId,
+            Instant lastTrendAt,
+            UUID categoryId,
+            String categoryName,
+            String contentVisibility,
+            Set<String> actors,
+            Set<String> directors,
+            Set<String> genres,
+            Set<String> tags,
+            Set<String> lockedFields,
+            List<RawVideoCardResponse> sourceVideos,
+            Instant createdAt,
+            Instant updatedAt) {
+    }
+}
