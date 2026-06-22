@@ -4,13 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.notification.MailMessageDTO;
 import com.prodigalgal.ircs.contracts.notification.NotificationChannel;
 import com.prodigalgal.ircs.contracts.notification.NotificationCommand;
 import com.prodigalgal.ircs.notification.mail.NotificationMailService;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -40,21 +39,25 @@ class NotificationCommandDispatcherTest {
     }
 
     @Test
-    void skipsWebhookWhenWebhookChannelIsDisabled() {
-        RuntimeConfigService runtimeConfig = mock(RuntimeConfigService.class);
-        when(runtimeConfig.booleanValue(WebhookNotificationChannelExecutor.ENABLED_KEY, false)).thenReturn(false);
+    void ignoresBlankAndNullRecipientsDuringDispatch() {
+        NotificationMailService mailService = mock(NotificationMailService.class);
         NotificationCommandDispatcher dispatcher = new NotificationCommandDispatcher(List.of(
-                new WebhookNotificationChannelExecutor(runtimeConfig)));
+                new MailNotificationChannelExecutor(mailService)));
+        NotificationCommand command = NotificationCommand.builder()
+                .commandId("cmd-1")
+                .correlationId("incident-1")
+                .channel(NotificationChannel.MAIL)
+                .recipients(Arrays.asList(null, " ", "ops@example.invalid"))
+                .subject("IRCS alert")
+                .content("incident opened")
+                .html(false)
+                .build();
 
-        List<NotificationChannelExecution> executions = dispatcher.dispatch(NotificationCommand.builder()
-                .channel(NotificationChannel.WEBHOOK)
-                .recipients(List.of("https://example.invalid/webhook"))
-                .content("payload")
-                .build());
+        List<NotificationChannelExecution> executions = dispatcher.dispatch(command);
 
-        assertThat(executions).hasSize(1);
-        assertThat(executions.getFirst().status()).isEqualTo("SKIPPED");
-        assertThat(executions.getFirst().detail()).contains("disabled");
+        assertThat(executions).extracting(NotificationChannelExecution::recipient)
+                .containsExactly("ops@example.invalid");
+        verify(mailService).send(mail("ops@example.invalid"), "incident-1");
     }
 
     @Test

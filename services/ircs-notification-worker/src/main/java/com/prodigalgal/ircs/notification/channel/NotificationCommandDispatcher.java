@@ -5,6 +5,7 @@ import com.prodigalgal.ircs.contracts.notification.NotificationCommand;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,6 +28,7 @@ public class NotificationCommandDispatcher {
             throw new IllegalArgumentException("Unsupported notification channel: " + command.getChannel());
         }
         return command.getRecipients().stream()
+                .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(StringUtils::hasText)
                 .map(recipient -> executor.execute(command, recipient))

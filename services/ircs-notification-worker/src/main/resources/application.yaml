@@ -56,6 +56,11 @@ app:
       enabled: ${APP_NOTIFICATION_CONFIG_LISTENER_ENABLED:true}
     webhook:
       enabled: ${APP_NOTIFICATION_WEBHOOK_ENABLED:false}
+      request-timeout: ${APP_NOTIFICATION_WEBHOOK_REQUEST_TIMEOUT:5s}
+      max-retries: ${APP_NOTIFICATION_WEBHOOK_MAX_RETRIES:1}
+      max-payload-bytes: ${APP_NOTIFICATION_WEBHOOK_MAX_PAYLOAD_BYTES:65536}
+      user-agent: ${APP_NOTIFICATION_WEBHOOK_USER_AGENT:IRCS-Notification-Webhook/0.1}
+      allow-private-addresses: ${APP_NOTIFICATION_WEBHOOK_ALLOW_PRIVATE_ADDRESSES:false}
     mail:
       enabled: ${APP_MAIL_ENABLED:true}
       from: ${APP_MAIL_FROM:${MAIL_FROM:}}

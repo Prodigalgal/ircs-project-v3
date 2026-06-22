@@ -125,6 +125,12 @@ public class SystemConfigDefaults {
             cfg("app.mail.rate-limit.min-ms", "1000", "邮件发送最小间隔(毫秒)"),
             cfg("app.mail.rate-limit.max-ms", "2000", "邮件发送最大间隔(毫秒)"),
             cfg("app.mail.rate-limit.max-wait-ms", "60000", "邮件限流最大等待时间(毫秒)"),
+            cfg("app.notification.webhook.enabled", "false", "是否启用通知 Webhook 通道"),
+            cfg("app.notification.webhook.request-timeout", "PT5S", "通知 Webhook 请求超时"),
+            cfg("app.notification.webhook.max-retries", "1", "通知 Webhook 可重试 HTTP/网络失败最大重试次数"),
+            cfg("app.notification.webhook.max-payload-bytes", "65536", "通知 Webhook 单次载荷最大字节数"),
+            cfg("app.notification.webhook.user-agent", "IRCS-Notification-Webhook/0.1", "通知 Webhook 请求 User-Agent"),
+            cfg("app.notification.webhook.allow-private-addresses", "false", "是否允许通知 Webhook 投递到内网地址"),
             cfg("app.adaptive.enabled", "true", "是否启用自适应负载调度"),
             cfg("app.adaptive.load-threshold", "0.8", "系统高负载阈值 (0.0-1.0)"),
             cfg("app.adaptive.check-interval-ms", "10000", "资源监控采样间隔(毫秒)"),
@@ -547,6 +553,7 @@ public class SystemConfigDefaults {
                 || (key.startsWith("app.log-retention.")
                 && !key.equals("app.log-retention.initial-delay-ms")
                 && !key.equals("app.log-retention.fixed-delay-ms"))
+                || key.startsWith("app.notification.webhook.")
                 || key.startsWith("app.identity.auth-rate-limit.")
                 || "app.identity.pow.enabled".equals(key)
                 || "app.portal.cache.enabled".equals(key)

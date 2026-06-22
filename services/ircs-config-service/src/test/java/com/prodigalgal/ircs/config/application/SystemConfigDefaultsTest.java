@@ -102,6 +102,9 @@ class SystemConfigDefaultsTest {
         assertEquals("P30D", defaults.staticDefaultValue("app.log-retention.target.audit-es.retention").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.audit.es-replication.enabled").orElseThrow());
         assertEquals("PT10S", defaults.staticDefaultValue("app.rate-metrics.bucket-size").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.notification.webhook.enabled").orElseThrow());
+        assertEquals("PT5S", defaults.staticDefaultValue("app.notification.webhook.request-timeout").orElseThrow());
+        assertEquals("65536", defaults.staticDefaultValue("app.notification.webhook.max-payload-bytes").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.ops.config-listener.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
@@ -171,10 +174,12 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata listenerRestart = defaults.metadata("app.search.config-listener.enabled");
         SystemConfigDefaults.ConfigMetadata logRetentionHot = defaults.metadata("app.log-retention.target.audit-es.retention");
         SystemConfigDefaults.ConfigMetadata logRetentionScheduleRestart = defaults.metadata("app.log-retention.fixed-delay-ms");
+        SystemConfigDefaults.ConfigMetadata notificationWebhookHot = defaults.metadata("app.notification.webhook.enabled");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, logRetentionHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, notificationWebhookHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
         assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
@@ -292,6 +297,12 @@ class SystemConfigDefaultsTest {
             "app.mail.rate-limit.min-ms",
             "app.mail.rate-limit.max-ms",
             "app.mail.rate-limit.max-wait-ms",
+            "app.notification.webhook.enabled",
+            "app.notification.webhook.request-timeout",
+            "app.notification.webhook.max-retries",
+            "app.notification.webhook.max-payload-bytes",
+            "app.notification.webhook.user-agent",
+            "app.notification.webhook.allow-private-addresses",
             "app.adaptive.enabled",
             "app.adaptive.load-threshold",
             "app.adaptive.check-interval-ms",
