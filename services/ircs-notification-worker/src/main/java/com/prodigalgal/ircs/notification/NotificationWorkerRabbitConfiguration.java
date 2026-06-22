@@ -12,6 +12,8 @@ class NotificationWorkerRabbitConfiguration {
     MessageConverter messageConverter() {
         SimpleMessageConverter converter = new SimpleMessageConverter();
         converter.addAllowedListPatterns("com.prodigalgal.ircs.contracts.notification.*");
+        converter.addAllowedListPatterns("java.lang.*");
+        converter.addAllowedListPatterns("java.util.*");
         return converter;
     }
 }

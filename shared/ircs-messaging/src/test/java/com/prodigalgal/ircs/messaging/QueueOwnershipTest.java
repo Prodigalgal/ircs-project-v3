@@ -19,6 +19,7 @@ class QueueOwnershipTest {
     @Test
     void notificationWorkerOwnsMailQueue() {
         assertEquals("ircs-notification-worker", QueueOwnership.OWNER_BY_TOPIC.get(QueueTopic.SEND_MAIL));
+        assertEquals("ircs-notification-worker", QueueOwnership.OWNER_BY_TOPIC.get(QueueTopic.DISPATCH_NOTIFICATION));
     }
 
     @Test

@@ -51,8 +51,11 @@ app:
       worker-id: ${APP_NOTIFICATION_CLUSTER_LOCK_WORKER_ID:}
     listener:
       enabled: ${APP_NOTIFICATION_LISTENER_ENABLED:false}
+      command-enabled: ${APP_NOTIFICATION_COMMAND_LISTENER_ENABLED:${APP_NOTIFICATION_LISTENER_ENABLED:false}}
     config-listener:
       enabled: ${APP_NOTIFICATION_CONFIG_LISTENER_ENABLED:true}
+    webhook:
+      enabled: ${APP_NOTIFICATION_WEBHOOK_ENABLED:false}
     mail:
       enabled: ${APP_MAIL_ENABLED:true}
       from: ${APP_MAIL_FROM:${MAIL_FROM:}}

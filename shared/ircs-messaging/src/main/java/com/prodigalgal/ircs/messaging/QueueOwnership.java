@@ -12,6 +12,7 @@ public final class QueueOwnership {
             Map.entry(QueueTopic.CMD_IMAGE_UNLINK, "ircs-content-service"),
             Map.entry(QueueTopic.EVENT_IMAGE_UNLINKED, "ircs-storage-service"),
             Map.entry(QueueTopic.SEND_MAIL, "ircs-notification-worker"),
+            Map.entry(QueueTopic.DISPATCH_NOTIFICATION, "ircs-notification-worker"),
             Map.entry(QueueTopic.WATCH_PROGRESS, "ircs-interaction-service"),
             Map.entry(QueueTopic.TASK_PAGE, "ircs-scraper-service"),
             Map.entry(QueueTopic.TASK_DETAIL, "ircs-scraper-service"),

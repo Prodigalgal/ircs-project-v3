@@ -7,6 +7,7 @@ public enum QueueTopic {
     CMD_IMAGE_UNLINK(Names.STORAGE_Q_UNLINK, Names.STORAGE_X, "image.cmd.unlink"),
     EVENT_IMAGE_UNLINKED(Names.STORAGE_Q_DELETE, Names.STORAGE_X, "image.event.unlinked"),
     SEND_MAIL(Names.NOTIFICATION_Q_MAIL, Names.NOTIFICATION_X, "notification.mail"),
+    DISPATCH_NOTIFICATION(Names.NOTIFICATION_Q_COMMAND, Names.NOTIFICATION_X, "notification.command"),
     WATCH_PROGRESS(Names.INTERACTION_Q_PROGRESS, Names.INTERACTION_X, "interaction.progress"),
     TASK_PAGE(Names.TASK_Q_PAGE, Names.TASK_X, "task.page"),
     TASK_DETAIL(Names.TASK_Q_DETAIL, Names.TASK_X, "task.detail"),
@@ -71,6 +72,7 @@ public enum QueueTopic {
         public static final String STORAGE_Q_UNLINK = "q.storage.image_unlink";
         public static final String STORAGE_Q_DELETE = "q.storage.image_delete";
         public static final String NOTIFICATION_Q_MAIL = "q.notification.mail";
+        public static final String NOTIFICATION_Q_COMMAND = "q.notification.command";
         public static final String INTERACTION_Q_PROGRESS = "q.interaction.watch_progress";
         public static final String TASK_Q_PAGE = "q.task.page";
         public static final String TASK_Q_DETAIL = "q.task.detail";
