@@ -12,6 +12,7 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.Date;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +58,7 @@ public class RawVideoIngestionRepository {
 
     public UUID upsertRawVideo(IngestionVideoDTO video, UUID existingId) {
         UUID id = existingId == null ? IrcsUuidGenerators.nextId() : existingId;
+        UUID coverImageId = getOrCreateCoverImage(video.coverImageUrl(), video.dataSourceId());
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("sourceVid", trimToLength(video.sourceVid(), 255))
@@ -65,6 +67,7 @@ public class RawVideoIngestionRepository {
                 .addValue("title", trimToLength(video.title(), 255))
                 .addValue("aliasTitle", trimToLength(video.aliasTitle(), 255))
                 .addValue("description", video.description())
+                .addValue("coverImageId", coverImageId)
                 .addValue("year", trimToLength(video.year(), 20))
                 .addValue("area", trimToLength(video.area(), 255))
                 .addValue("language", trimToLength(video.language(), 255))
@@ -85,7 +88,7 @@ public class RawVideoIngestionRepository {
                 insert into raw_videos (
                     id, created_at, updated_at, version,
                     source_vid, source_hash, data_hash, title, alias_title,
-                    description, year, area, raw_language_str, remarks, score, published_at,
+                    description, cover_image_id, year, area, raw_language_str, remarks, score, published_at,
                     total_episodes, duration,
                     douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                     locked_fields, enrichment_status, enrichment_retry_count,
@@ -94,7 +97,7 @@ public class RawVideoIngestionRepository {
                 ) values (
                     :id, now(), now(), 0,
                     :sourceVid, :sourceHash, :dataHash, :title, :aliasTitle,
-                    :description, :year, :area, :language, :remarks, :score, :publishedAt,
+                    :description, :coverImageId, :year, :area, :language, :remarks, :score, :publishedAt,
                     :totalEpisodes, :duration,
                     :doubanId, :tmdbId, :imdbId, :rottenTomatoesId,
                     '[]'::jsonb, 'PENDING', 0,
@@ -107,6 +110,7 @@ public class RawVideoIngestionRepository {
                     title = excluded.title,
                     alias_title = excluded.alias_title,
                     description = excluded.description,
+                    cover_image_id = coalesce(excluded.cover_image_id, raw_videos.cover_image_id),
                     year = excluded.year,
                     area = excluded.area,
                     raw_language_str = excluded.raw_language_str,
@@ -128,6 +132,88 @@ public class RawVideoIngestionRepository {
                 returning id
                 """,
                 params,
+                UUID.class);
+    }
+
+    private UUID getOrCreateCoverImage(String coverImageUrl, UUID dataSourceId) {
+        if (!StringUtils.hasText(coverImageUrl)) {
+            return null;
+        }
+        CoverImageReference reference = resolveCoverImageReference(coverImageUrl);
+        UUID sourceDomainId = upsertSourceDomain(reference.domainValue(), dataSourceId, "ingestion-cover");
+        UUID imageId = jdbcTemplate.queryForObject(
+                """
+                insert into cover_images (
+                    id, created_at, updated_at, version, storage_type, original_url, storage_path,
+                    file_hash, file_size, mime_type, source_domain_id, status, retry_count,
+                    next_retry_time, last_error
+                ) values (
+                    :id, now(), now(), 0, 'EXTERNAL', :originalUrl, null,
+                    null, null, null, :sourceDomainId, 'UNPROCESSED', 0,
+                    now(), null
+                )
+                on conflict (original_url, source_domain_id) do update
+                set updated_at = cover_images.updated_at
+                returning id
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", IrcsUuidGenerators.nextId())
+                        .addValue("originalUrl", trimToLength(reference.originalUrl(), 2048))
+                        .addValue("sourceDomainId", sourceDomainId),
+                UUID.class);
+        jdbcTemplate.update(
+                """
+                update cover_images
+                set status = 'UNPROCESSED',
+                    retry_count = 0,
+                    next_retry_time = now(),
+                    last_error = null,
+                    updated_at = now()
+                where id = :id
+                  and status in ('FAILED', 'DEAD')
+                """,
+                new MapSqlParameterSource("id", imageId));
+        return imageId;
+    }
+
+    private CoverImageReference resolveCoverImageReference(String coverImageUrl) {
+        String trimmed = coverImageUrl.trim();
+        if (trimmed.toLowerCase(Locale.ROOT).startsWith("http")) {
+            try {
+                URI uri = URI.create(trimmed);
+                String scheme = uri.getScheme();
+                String host = uri.getHost();
+                if (StringUtils.hasText(scheme) && StringUtils.hasText(host)) {
+                    String domainValue = scheme + "://" + host + (uri.getPort() > -1 ? ":" + uri.getPort() : "");
+                    String path = StringUtils.hasText(uri.getRawPath()) ? uri.getRawPath() : "/";
+                    String relativeUrl = path
+                            + (StringUtils.hasText(uri.getRawQuery()) ? "?" + uri.getRawQuery() : "")
+                            + (StringUtils.hasText(uri.getRawFragment()) ? "#" + uri.getRawFragment() : "");
+                    return new CoverImageReference(domainValue, relativeUrl);
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return new CoverImageReference("EXTERNAL_COVER", trimmed);
+    }
+
+    private UUID upsertSourceDomain(String domainValue, UUID dataSourceId, String remark) {
+        return jdbcTemplate.queryForObject(
+                """
+                insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
+                values (:id, now(), now(), 0, :domainHash, :domainValue, :remark, :dataSourceId)
+                on conflict (domain_hash) do update set
+                    domain_value = excluded.domain_value,
+                    data_source_id = coalesce(source_domains.data_source_id, excluded.data_source_id),
+                    updated_at = now()
+                returning id
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", IrcsUuidGenerators.nextId())
+                        .addValue("domainHash", sha256(domainValue))
+                        .addValue("domainValue", trimToLength(domainValue, 255))
+                        .addValue("remark", remark)
+                        .addValue("dataSourceId", dataSourceId),
                 UUID.class);
     }
 
@@ -250,5 +336,8 @@ public class RawVideoIngestionRepository {
     }
 
     private record EpisodeLocation(String url, UUID sourceDomainId) {
+    }
+
+    private record CoverImageReference(String domainValue, String originalUrl) {
     }
 }
