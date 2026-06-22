@@ -6,6 +6,7 @@ import static com.prodigalgal.ircs.content.video.domain.VideoAdminText.normalize
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.content.config.ContentCoverImageUrlResolver;
 import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository.RawVideoSnapshot;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.NamedRef;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawAreaRef;
@@ -48,6 +49,7 @@ class VideoAdminQueryRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ContentCoverImageUrlResolver coverImageUrlResolver;
 
     Page<RawVideoCardResponse> findRawVideos(
             Pageable pageable,
@@ -110,7 +112,11 @@ class VideoAdminQueryRepository {
                     base.season(),
                     base.subtitle(),
                     base.description(),
-                    resolveCoverUrl(base.coverOriginalUrl(), base.coverStoragePath(), base.coverDomain()),
+                    resolveCoverUrl(
+                            base.coverStorageType(),
+                            base.coverOriginalUrl(),
+                            base.coverStoragePath(),
+                            base.coverDomain()),
                     base.coverOriginalUrl(),
                     base.coverStoragePath(),
                     base.coverStorageType(),
@@ -218,7 +224,7 @@ class VideoAdminQueryRepository {
                     """
                     select uv.*, sc.name as category_name,
                            ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
-                           sd.domain_value as cover_domain
+                           ci.storage_type as cover_storage_type, sd.domain_value as cover_domain
                     from unified_videos uv
                     left join standard_category sc on uv.category_id = sc.id
                     left join cover_images ci on uv.cover_image_id = ci.id
@@ -231,7 +237,11 @@ class VideoAdminQueryRepository {
                     base.id(),
                     base.title(),
                     base.aliasTitle(),
-                    resolveCoverUrl(base.coverOriginalUrl(), base.coverStoragePath(), base.coverDomain()),
+                    resolveCoverUrl(
+                            base.coverStorageType(),
+                            base.coverOriginalUrl(),
+                            base.coverStoragePath(),
+                            base.coverDomain()),
                     base.description(),
                     base.year(),
                     findStandardAreas(id),
@@ -366,7 +376,7 @@ class VideoAdminQueryRepository {
                        sc.name as category_name, rc.source_name, ds.name as data_source_name,
                        rv.enrichment_status, rv.normalization_status, rv.created_at, rv.updated_at,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
-                       sd.domain_value as cover_domain,
+                       ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
                        (
                            select string_agg(ra.source_value, ', ' order by ra.source_value)
                            from video_raw_areas vra
@@ -447,7 +457,7 @@ class VideoAdminQueryRepository {
                        uv.douban_id, uv.tmdb_id, uv.imdb_id, uv.content_visibility,
                        sc.name as category_name,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
-                       sd.domain_value as cover_domain,
+                       ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
                        (
                            select string_agg(sa.name, ', ' order by sa.name)
                            from unified_video_standard_areas uva
@@ -497,7 +507,11 @@ class VideoAdminQueryRepository {
                 rs.getString("alias_title"),
                 (Integer) rs.getObject("season"),
                 rs.getString("subtitle"),
-                resolveCoverUrl(rs.getString("cover_original_url"), rs.getString("cover_storage_path"), rs.getString("cover_domain")),
+                resolveCoverUrl(
+                        rs.getString("cover_storage_type"),
+                        rs.getString("cover_original_url"),
+                        rs.getString("cover_storage_path"),
+                        rs.getString("cover_domain")),
                 rs.getString("year"),
                 rs.getString("area"),
                 rs.getBigDecimal("score"),
@@ -517,7 +531,11 @@ class VideoAdminQueryRepository {
                 rs.getObject("id", UUID.class),
                 rs.getString("title"),
                 rs.getString("alias_title"),
-                resolveCoverUrl(rs.getString("cover_original_url"), rs.getString("cover_storage_path"), rs.getString("cover_domain")),
+                resolveCoverUrl(
+                        rs.getString("cover_storage_type"),
+                        rs.getString("cover_original_url"),
+                        rs.getString("cover_storage_path"),
+                        rs.getString("cover_domain")),
                 rs.getString("year"),
                 rs.getString("area"),
                 rs.getBigDecimal("score"),
@@ -582,6 +600,7 @@ class VideoAdminQueryRepository {
                 rs.getString("alias_title"),
                 rs.getString("cover_original_url"),
                 rs.getString("cover_storage_path"),
+                rs.getString("cover_storage_type"),
                 rs.getString("cover_domain"),
                 rs.getString("description"),
                 rs.getString("year"),
@@ -765,13 +784,8 @@ class VideoAdminQueryRepository {
         }
     }
 
-    private String resolveCoverUrl(String originalUrl, String storagePath, String domain) {
-        if (StringUtils.hasText(storagePath) && StringUtils.hasText(domain)) {
-            String left = domain.endsWith("/") ? domain.substring(0, domain.length() - 1) : domain;
-            String right = storagePath.startsWith("/") ? storagePath.substring(1) : storagePath;
-            return left + "/" + right;
-        }
-        return originalUrl;
+    private String resolveCoverUrl(String storageType, String originalUrl, String storagePath, String domain) {
+        return coverImageUrlResolver.resolve(storageType, originalUrl, storagePath, domain);
     }
 
     private Instant instant(ResultSet rs, String column) throws SQLException {
@@ -824,6 +838,7 @@ class VideoAdminQueryRepository {
             String aliasTitle,
             String coverOriginalUrl,
             String coverStoragePath,
+            String coverStorageType,
             String coverDomain,
             String description,
             String year,

@@ -2,6 +2,8 @@ package com.prodigalgal.ircs.ops.dashboard.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,10 +56,60 @@ class DashboardQueryServiceTest {
     }
 
     @Test
+    void statisticsUsesShortLivedReadCacheUntilRefresh() {
+        DashboardStatsResponse first = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
+        DashboardStatsResponse refreshed = new DashboardStatsResponse(2, 0, 3, 0, 4, 0, 0, 0, 0, 0, 0, 0);
+        when(repository.loadStats()).thenReturn(first, refreshed);
+
+        assertEquals(first, service.getStatistics());
+        assertEquals(first, service.getStatistics());
+        verify(repository, times(1)).loadStats();
+
+        service.refresh(14);
+
+        assertEquals(refreshed, service.getStatistics());
+        verify(repository, times(2)).loadStats();
+    }
+
+    @Test
+    void analysisUsesKeyedReadCachePerBoundedDayRange() {
+        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
+        when(repository.loadStats()).thenReturn(stats);
+        when(repository.weeklyTrend(14)).thenReturn(List.of());
+        when(repository.weeklyTrend(30)).thenReturn(List.of());
+
+        service.getAnalysis(14);
+        service.getAnalysis(14);
+        service.getAnalysis(30);
+
+        verify(repository, times(1)).weeklyTrend(14);
+        verify(repository, times(1)).weeklyTrend(30);
+    }
+
+    @Test
     void refreshDelegatesToRateMetricsRefresh() {
         service.refresh(14);
 
         verify(metricsService).refreshRateMetrics();
+    }
+
+    @Test
+    void refreshClearsAnalysisAndSourceQualityCaches() {
+        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
+        when(repository.loadStats()).thenReturn(stats);
+        when(repository.weeklyTrend(14)).thenReturn(List.of());
+        when(repository.sourceQuality()).thenReturn(List.of());
+
+        service.getAnalysis(14);
+        service.getSourceQuality();
+        clearInvocations(repository);
+
+        service.refresh(14);
+        service.getAnalysis(14);
+        service.getSourceQuality();
+
+        verify(repository, times(1)).weeklyTrend(14);
+        verify(repository, times(1)).sourceQuality();
     }
 
     @Test
