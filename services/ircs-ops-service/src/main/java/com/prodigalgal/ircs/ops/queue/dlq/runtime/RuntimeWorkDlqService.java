@@ -12,7 +12,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
-class RuntimeWorkDlqService {
+public class RuntimeWorkDlqService {
 
     private static final int DEFAULT_SAMPLE_LIMIT = 5;
     private static final int MAX_SAMPLE_LIMIT = 50;
@@ -45,7 +45,7 @@ class RuntimeWorkDlqService {
                 queueResponse(descriptor, DEFAULT_SAMPLE_LIMIT));
     }
 
-    int requeueOne(String taskType, int maxReplayAttempts) {
+    public int requeueOne(String taskType, int maxReplayAttempts) {
         RuntimeWorkQueueDescriptor descriptor = descriptor(taskType);
         return workQueue.requeueDlq(
                 descriptor.taskType(),

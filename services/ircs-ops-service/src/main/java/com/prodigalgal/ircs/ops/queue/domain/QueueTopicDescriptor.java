@@ -16,6 +16,7 @@ public record QueueTopicDescriptor(
             case CMD_IMAGE_UNLINK -> descriptor(topic, "图片解绑", "Storage", "#475569");
             case EVENT_IMAGE_UNLINKED -> descriptor(topic, "图片删除", "Storage", "#64748b");
             case SEND_MAIL -> descriptor(topic, "邮件通知", "Notification", "#ca8a04");
+            case DISPATCH_NOTIFICATION -> descriptor(topic, "通知命令", "Notification", "#d97706");
             case WATCH_PROGRESS -> descriptor(topic, "观看进度", "Interaction", "#0284c7");
             case TASK_PAGE -> descriptor(topic, "采集 Page Task", "Task", "#0f766e");
             case TASK_DETAIL -> descriptor(topic, "采集 Detail Task", "Task", "#2563eb");

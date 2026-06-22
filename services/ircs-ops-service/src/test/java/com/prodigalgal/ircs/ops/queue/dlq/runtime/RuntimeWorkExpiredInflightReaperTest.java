@@ -3,12 +3,12 @@ package com.prodigalgal.ircs.ops.queue.dlq.runtime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,29 +24,23 @@ class RuntimeWorkExpiredInflightReaperTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<com.prodigalgal.ircs.common.lease.ClusterLeaseService> leaseServiceProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
+    private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
 
     @Test
     void requeuesExpiredInflightAcrossRuntimeWorkTypes() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(queue);
         when(leaseServiceProvider.getIfUnique()).thenReturn(null);
+        when(runtimeConfig.booleanValue("app.ops.runtime-expired-inflight-reaper.enabled", true)).thenReturn(true);
+        when(runtimeConfig.intValue("app.ops.runtime-expired-inflight-reaper.batch-size", 50)).thenReturn(50);
+        when(runtimeConfig.stringValue("app.ops.runtime-expired-inflight-reaper.task-types", "")).thenReturn("");
         RuntimeWorkExpiredInflightReaper reaper =
-                new RuntimeWorkExpiredInflightReaper(runtimeWorkQueueProvider, leaseServiceProvider);
-        set(reaper, "enabled", true);
-        set(reaper, "batchSize", 50);
-        set(reaper, "leaseTtl", Duration.ofSeconds(30));
-        set(reaper, "configuredTaskTypes", "");
+                new RuntimeWorkExpiredInflightReaper(runtimeWorkQueueProvider, leaseServiceProvider, runtimeConfig);
 
         int requeued = reaper.runOnce();
 
         assertThat(requeued).isEqualTo(2);
         assertThat(queue.requeueAttempts).contains(SearchSyncWorkTypes.RAW, SearchSyncWorkTypes.UNIFIED);
-    }
-
-    private void set(Object target, String fieldName, Object value) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(target, value);
     }
 
     private static class FakeRuntimeWorkQueue implements RuntimeWorkQueue {
