@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.common.config;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -28,8 +29,9 @@ public class RuntimeConfigService {
             return Optional.empty();
         }
         List<String> keys = keys(key, aliases);
+        List<RuntimeConfigValueSource> valueSources = valueSources();
         Optional<String> databaseValue = keys.stream()
-                .map(this::findDatabaseValue)
+                .map(databaseKey -> findDatabaseValue(databaseKey, valueSources))
                 .flatMap(Optional::stream)
                 .filter(StringUtils::hasText)
                 .findFirst();
@@ -105,23 +107,38 @@ public class RuntimeConfigService {
     }
 
     public void evict(String key) {
-        RuntimeConfigValueSource valueSource = valueSourceProvider.getIfAvailable();
-        if (valueSource != null) {
+        valueSources().forEach(valueSource -> evict(valueSource, key));
+    }
+
+    private Optional<String> findDatabaseValue(String key, List<RuntimeConfigValueSource> valueSources) {
+        for (RuntimeConfigValueSource valueSource : valueSources) {
+            try {
+                Optional<String> value = valueSource.findValue(key);
+                if (value.filter(StringUtils::hasText).isPresent()) {
+                    return value;
+                }
+            } catch (RuntimeException ex) {
+                log.debug("Runtime config database lookup failed: key={}, error={}", key, ex.getMessage());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void evict(RuntimeConfigValueSource valueSource, String key) {
+        try {
             valueSource.evict(key);
+        } catch (RuntimeException ex) {
+            log.debug("Runtime config cache eviction failed: key={}, error={}", key, ex.getMessage());
         }
     }
 
-    private Optional<String> findDatabaseValue(String key) {
-        RuntimeConfigValueSource valueSource = valueSourceProvider.getIfAvailable();
-        if (valueSource == null) {
-            return Optional.empty();
+    private List<RuntimeConfigValueSource> valueSources() {
+        if (valueSourceProvider == null) {
+            return List.of();
         }
-        try {
-            return valueSource.findValue(key);
-        } catch (RuntimeException ex) {
-            log.debug("Runtime config database lookup failed: key={}, error={}", key, ex.getMessage());
-            return Optional.empty();
-        }
+        return valueSourceProvider.orderedStream()
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     private List<String> keys(String key, String... aliases) {

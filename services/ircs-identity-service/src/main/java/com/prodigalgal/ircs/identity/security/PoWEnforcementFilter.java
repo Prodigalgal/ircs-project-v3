@@ -47,7 +47,7 @@ class PoWEnforcementFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        if (!enabled() || !"POST".equalsIgnoreCase(request.getMethod())) {
+        if (!"POST".equalsIgnoreCase(request.getMethod()) || !enabled()) {
             return true;
         }
         return !REQUIREMENTS.containsKey(request.getRequestURI());
