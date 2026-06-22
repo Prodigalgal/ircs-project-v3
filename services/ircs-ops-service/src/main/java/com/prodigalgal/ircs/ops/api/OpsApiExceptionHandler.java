@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.ops.maintenance.controller.MaintenanceController;
 import com.prodigalgal.ircs.ops.queue.dlq.persistence.DlqController;
 import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqController;
 import com.prodigalgal.ircs.ops.selfhealing.LowRiskSelfHealingController;
+import com.prodigalgal.ircs.ops.selfhealing.ServiceSelfHealingController;
 import com.prodigalgal.ircs.ops.traffic.controller.TrafficMonitorController;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.Ordered;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
         DlqController.class,
         RabbitDlqController.class,
         LowRiskSelfHealingController.class,
+        ServiceSelfHealingController.class,
         TrafficMonitorController.class,
         MaintenanceController.class
 })

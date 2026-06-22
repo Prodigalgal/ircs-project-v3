@@ -69,6 +69,22 @@ app:
       batch-size: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_BATCH_SIZE:50}
       lease-ttl: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_LEASE_TTL:PT30S}
       task-types: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_TASK_TYPES:}
+    service-restart:
+      enabled: ${APP_OPS_SERVICE_RESTART_ENABLED:false}
+      kubernetes-api-base-url: ${APP_OPS_SERVICE_RESTART_KUBERNETES_API_BASE_URL:}
+      namespace: ${APP_OPS_SERVICE_RESTART_NAMESPACE:}
+      allowed-services: ${APP_OPS_SERVICE_RESTART_ALLOWED_SERVICES:}
+      request-timeout: ${APP_OPS_SERVICE_RESTART_REQUEST_TIMEOUT:PT10S}
+    self-healing:
+      service-restart:
+        enabled: ${APP_OPS_SELF_HEALING_SERVICE_RESTART_ENABLED:false}
+        default-dry-run: ${APP_OPS_SELF_HEALING_SERVICE_RESTART_DEFAULT_DRY_RUN:true}
+        cooldown: ${APP_OPS_SELF_HEALING_SERVICE_RESTART_COOLDOWN:PT10M}
+        max-attempts-per-window: ${APP_OPS_SELF_HEALING_SERVICE_RESTART_MAX_ATTEMPTS_PER_WINDOW:1}
+        attempt-window: ${APP_OPS_SELF_HEALING_SERVICE_RESTART_ATTEMPT_WINDOW:PT1H}
+      low-risk:
+        execute-enabled: ${APP_OPS_SELF_HEALING_LOW_RISK_EXECUTE_ENABLED:false}
+        default-dry-run: ${APP_OPS_SELF_HEALING_LOW_RISK_DEFAULT_DRY_RUN:true}
     maintenance:
       reindex:
         dev-limit: ${OPS_MAINTENANCE_REINDEX_DEV_LIMIT:${APP_OPS_MAINTENANCE_REINDEX_DEV_LIMIT:5}}
