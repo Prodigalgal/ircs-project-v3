@@ -69,9 +69,6 @@ class AdminBffProxyController {
         if (path.startsWith("/api/v1/catalog")
                 || path.startsWith("/api/v1/standard-")
                 || path.startsWith("/api/v1/raw-categories")
-                || path.startsWith("/api/v1/raw-genres")
-                || path.startsWith("/api/v1/raw-areas")
-                || path.startsWith("/api/v1/raw-languages")
                 || path.startsWith("/api/v1/data-sources")) {
             return isRead(method) ? IrcsPermissions.CATALOG_READ : IrcsPermissions.CATALOG_WRITE;
         }

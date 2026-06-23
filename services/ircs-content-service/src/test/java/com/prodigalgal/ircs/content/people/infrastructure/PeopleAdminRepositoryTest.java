@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.content.people.infrastructure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.never;
@@ -33,7 +34,11 @@ class PeopleAdminRepositoryTest {
         when(jdbcTemplate.queryForObject(startsWith("select exists"), any(MapSqlParameterSource.class), eq(Boolean.class)))
                 .thenReturn(true);
         when(jdbcTemplate.queryForObject(
-                startsWith("select (select count(*) from video_actors"),
+                argThat(sql -> sql != null
+                        && sql.contains("from raw_videos rv")
+                        && sql.contains("from unified_videos uv")
+                        && sql.contains("jsonb_array_elements_text")
+                        && sql.contains("actor_names")),
                 any(MapSqlParameterSource.class),
                 eq(Long.class)))
                 .thenReturn(1L);
@@ -53,7 +58,11 @@ class PeopleAdminRepositoryTest {
         when(jdbcTemplate.queryForObject(startsWith("select exists"), any(MapSqlParameterSource.class), eq(Boolean.class)))
                 .thenReturn(true);
         when(jdbcTemplate.queryForObject(
-                startsWith("select (select count(*) from video_directors"),
+                argThat(sql -> sql != null
+                        && sql.contains("from raw_videos rv")
+                        && sql.contains("from unified_videos uv")
+                        && sql.contains("jsonb_array_elements_text")
+                        && sql.contains("director_names")),
                 any(MapSqlParameterSource.class),
                 eq(Long.class)))
                 .thenReturn(0L);

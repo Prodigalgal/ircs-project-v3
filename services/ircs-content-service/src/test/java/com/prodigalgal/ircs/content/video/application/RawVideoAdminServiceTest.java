@@ -46,32 +46,38 @@ class RawVideoAdminServiceTest {
         UUID oldUnifiedId = UUID.randomUUID();
         UUID newUnifiedId = UUID.randomUUID();
         RawVideoUpdateRequest request = new RawVideoUpdateRequest(
-                rawId,
-                "新标题",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                newUnifiedId,
-                null,
-                null,
-                null,
-                null);
+                rawId,       // id
+                "新标题",     // title
+                null,        // aliasTitle
+                null,        // coverImageUrl
+                null,        // description
+                null,        // subtitle
+                null,        // season
+                null,        // year
+                null,        // remarks
+                null,        // score
+                null,        // publishedAt
+                null,        // totalEpisodes
+                null,        // duration
+                null,        // doubanId
+                null,        // tmdbId
+                null,        // imdbId
+                null,        // rottenTomatoesId
+                null,        // lockedFields
+                null,        // dataSourceCategoryId
+                null,        // categoryId
+                newUnifiedId, // unifiedVideoId
+                null,        // actorIds
+                null,        // directorIds
+                null,        // rawLanguageStr
+                null,        // actorNames
+                null,        // directorNames
+                null,        // areaCodes
+                null,        // languageCodes
+                null,        // genreCodes
+                null,        // categoryCode
+                null,        // sourceCategoryCode
+                null);       // sourceCategoryName
         when(repository.rawSnapshot(rawId)).thenReturn(
                 new RawVideoSnapshot(rawId, "旧标题", null, "2024", 1, "hash-old", oldUnifiedId));
 

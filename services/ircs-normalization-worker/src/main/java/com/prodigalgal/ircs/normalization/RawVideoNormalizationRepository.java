@@ -1,15 +1,20 @@
 package com.prodigalgal.ircs.normalization;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -23,15 +28,19 @@ public class RawVideoNormalizationRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
+    private final ObjectMapper objectMapper;
+
     public RawVideoNormalizationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
-            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider) {
+            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.metadataNameCacheProvider = metadataNameCacheProvider;
+        this.objectMapper = objectMapper;
     }
 
     static RawVideoNormalizationRepository forTest(NamedParameterJdbcTemplate jdbcTemplate) {
-        return new RawVideoNormalizationRepository(jdbcTemplate, null);
+        return new RawVideoNormalizationRepository(jdbcTemplate, null, JsonMapper.builder().build());
     }
 
     public Optional<RawVideoRecord> findById(UUID id) {
@@ -102,23 +111,23 @@ public class RawVideoNormalizationRepository {
                 where id = :id
                 """,
                 params(id, patch));
-        List<LlmCleaningRawTerm> llmCleaningTerms = new ArrayList<>();
-        bindRawCategory(
+        Optional<CategoryBinding> categoryBinding = bindRawCategory(
                 id,
                 patch.rawCategoryDataSourceId(),
                 patch.rawCategorySourceCode(),
-                patch.rawCategorySourceName())
-                .ifPresent(llmCleaningTerms::add);
-        llmCleaningTerms.addAll(
-                replaceRawRelations("raw_genres", "video_raw_genres", "raw_genre_id", id, patch.rawGenreValues()));
-        llmCleaningTerms.addAll(
-                replaceRawRelations("raw_languages", "video_raw_languages", "raw_language_id", id, patch.rawLanguageValues()));
-        llmCleaningTerms.addAll(
-                replaceRawRelations("raw_areas", "video_raw_areas", "raw_area_id", id, patch.rawAreaValues()));
-        replaceNamedRelations("actors", "video_actors", "actor_id", id, patch.actorValues());
-        replaceNamedRelations("directors", "video_directors", "director_id", id, patch.directorValues());
+                patch.rawCategorySourceName());
+        Set<String> genreCodes = resolveStandardCodes("GENRE", patch.rawGenreValues());
+        Set<String> languageCodes = resolveStandardCodes("LANGUAGE", patch.rawLanguageValues());
+        Set<String> areaCodes = resolveStandardCodes("AREA", patch.rawAreaValues());
+        updateFlatMetadata(
+                id,
+                patch,
+                genreCodes,
+                languageCodes,
+                areaCodes,
+                categoryBinding.map(CategoryBinding::categoryCode).orElse(null));
         evictMetadataNameCache(id);
-        return new MarkReadyResult(List.copyOf(llmCleaningTerms));
+        return new MarkReadyResult();
     }
 
     public void markFailure(UUID id, String status, int retryCount, Instant nextRetryTime) {
@@ -189,7 +198,7 @@ public class RawVideoNormalizationRepository {
                 .addValue("rottenTomatoesId", patch.rottenTomatoesId());
     }
 
-    private Optional<LlmCleaningRawTerm> bindRawCategory(
+    private Optional<CategoryBinding> bindRawCategory(
             UUID rawVideoId,
             UUID dataSourceId,
             String sourceCode,
@@ -199,7 +208,7 @@ public class RawVideoNormalizationRepository {
         }
         String safeSourceCode = trimToLength(sourceCode, 100);
         String safeSourceName = StringUtils.hasText(sourceName) ? trimToLength(sourceName, 255) : null;
-        UUID rawCategoryId = jdbcTemplate.queryForObject(
+        DataSourceCategoryBinding binding = jdbcTemplate.queryForObject(
                 """
                 insert into raw_category (
                     id, created_at, updated_at, version, data_source_id, source_code, source_name, category_id
@@ -225,15 +234,22 @@ public class RawVideoNormalizationRepository {
                     source_name = coalesce(excluded.source_name, raw_category.source_name),
                     category_id = coalesce(raw_category.category_id, excluded.category_id),
                     updated_at = excluded.updated_at
-                returning id
+                returning id,
+                          (
+                              select slug
+                              from standard_category
+                              where id = raw_category.category_id
+                          ) as category_code
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", IrcsUuidGenerators.nextId())
                         .addValue("dataSourceId", dataSourceId)
                         .addValue("sourceCode", safeSourceCode)
                         .addValue("sourceName", safeSourceName),
-                UUID.class);
-        if (rawCategoryId == null) {
+                (rs, rowNum) -> new DataSourceCategoryBinding(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("category_code")));
+        if (binding == null || binding.rawCategoryId() == null) {
             return Optional.empty();
         }
         jdbcTemplate.update(
@@ -245,208 +261,117 @@ public class RawVideoNormalizationRepository {
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", rawVideoId)
-                        .addValue("rawCategoryId", rawCategoryId));
-        return Optional.of(new LlmCleaningRawTerm(
-                "category",
-                rawCategoryId,
-                StringUtils.hasText(safeSourceName) ? safeSourceName : safeSourceCode));
+                        .addValue("rawCategoryId", binding.rawCategoryId()));
+        return Optional.of(new CategoryBinding(binding.categoryCode()));
     }
 
-    private List<LlmCleaningRawTerm> replaceRawRelations(
-            String rawTable,
-            String joinTable,
-            String rawIdColumn,
-            UUID rawVideoId,
-            Collection<String> values) {
-        List<String> safeValues = values == null
-                ? List.of()
-                : values.stream()
-                        .filter(StringUtils::hasText)
-                        .map(String::trim)
-                        .distinct()
-                        .toList();
-        if (safeValues.isEmpty()) {
-            return List.of();
+    private Optional<CategoryBinding> resolveCategoryBinding(UUID dataSourceId, String sourceCode) {
+        if (dataSourceId == null || !StringUtils.hasText(sourceCode)) {
+            return Optional.empty();
         }
-
-        upsertRawValues(rawTable, safeValues);
-        List<LlmCleaningRawTerm> rawTerms = jdbcTemplate.query(
-                "select id, source_value from %s where source_value in (:values)".formatted(rawTable),
-                new MapSqlParameterSource("values", safeValues),
-                (rs, rowNum) -> new LlmCleaningRawTerm(
-                        llmCleaningKind(rawTable),
-                        rs.getObject("id", UUID.class),
-                        rs.getString("source_value")));
-        List<UUID> rawIds = rawTerms.stream().map(LlmCleaningRawTerm::rawId).toList();
-        if (rawIds.isEmpty()) {
-            return List.of();
-        }
-
-        jdbcTemplate.update(
-                "delete from %s where video_id = :videoId".formatted(joinTable),
-                new MapSqlParameterSource("videoId", rawVideoId));
-        List<MapSqlParameterSource> batch = rawIds.stream()
-                .map(rawId -> new MapSqlParameterSource()
-                        .addValue("videoId", rawVideoId)
-                        .addValue("rawId", rawId))
-                .toList();
-        jdbcTemplate.batchUpdate(
+        List<CategoryBinding> bindings = jdbcTemplate.query(
                 """
-                insert into %s (video_id, %s)
-                values (:videoId, :rawId)
-                on conflict do nothing
-                """.formatted(joinTable, rawIdColumn),
-                batch.toArray(MapSqlParameterSource[]::new));
-        return rawTerms;
+                select sc.slug as category_code
+                  from raw_category rc
+                  left join standard_category sc on sc.id = rc.category_id
+                 where rc.data_source_id = :dataSourceId
+                   and rc.source_code = :sourceCode
+                 limit 1
+                """,
+                new MapSqlParameterSource()
+                        .addValue("dataSourceId", dataSourceId)
+                        .addValue("sourceCode", trimToLength(sourceCode, 100)),
+                (rs, rowNum) -> new CategoryBinding(rs.getString("category_code")));
+        return bindings == null || bindings.isEmpty() ? Optional.empty() : Optional.of(bindings.getFirst());
     }
 
-    private void upsertRawValues(String table, List<String> values) {
-        List<MapSqlParameterSource> batch = values.stream()
-                .map(value -> new MapSqlParameterSource()
-                        .addValue("id", IrcsUuidGenerators.nextId())
-                        .addValue("sourceValue", value))
+    private Set<String> resolveStandardCodes(String kind, Collection<String> values) {
+        List<String> lookupValues = safeValues(values).stream()
+                .map(value -> value.toLowerCase(java.util.Locale.ROOT))
                 .toList();
-        jdbcTemplate.batchUpdate(
-                rawValueUpsertSql(table),
-                batch.toArray(MapSqlParameterSource[]::new));
-    }
-
-    private String rawValueUpsertSql(String table) {
-        return switch (table) {
-            case "raw_genres" -> """
-                    insert into raw_genres (
-                        id, created_at, updated_at, version, source_value, standard_genre_id
-                    )
-                    values (
-                        :id,
-                        now(),
-                        now(),
-                        0,
-                        :sourceValue,
-                        (
-                            select id
-                            from standard_genre
-                            where lower(name) = lower(:sourceValue)
-                            order by name
-                            limit 1
-                        )
-                    )
-                    on conflict (source_value) do update set
-                        standard_genre_id = coalesce(raw_genres.standard_genre_id, excluded.standard_genre_id),
-                        updated_at = excluded.updated_at
+        if (lookupValues.isEmpty()) {
+            return Set.of();
+        }
+        String sql = switch (kind) {
+            case "GENRE" -> """
+                    select distinct sg.code
+                      from standard_genre sg
+                     where nullif(trim(sg.code), '') is not null
+                       and (
+                           lower(sg.name) in (:values)
+                           or lower(sg.code) in (:values)
+                       )
+                     order by sg.code
                     """;
-            case "raw_languages" -> """
-                    insert into raw_languages (
-                        id, created_at, updated_at, version, source_value, standard_language_id
-                    )
-                    values (
-                        :id,
-                        now(),
-                        now(),
-                        0,
-                        :sourceValue,
-                        (
-                            select id
-                            from standard_languages
-                            where lower(name) = lower(:sourceValue)
-                               or lower(code) = lower(:sourceValue)
-                               or lower(coalesce(english_name, '')) = lower(:sourceValue)
-                               or lower(coalesce(native_name, '')) = lower(:sourceValue)
-                            order by name
-                            limit 1
-                        )
-                    )
-                    on conflict (source_value) do update set
-                        standard_language_id = coalesce(raw_languages.standard_language_id, excluded.standard_language_id),
-                        updated_at = excluded.updated_at
+            case "LANGUAGE" -> """
+                    select distinct sl.code
+                      from standard_languages sl
+                     where nullif(trim(sl.code), '') is not null
+                       and (
+                           lower(sl.name) in (:values)
+                           or lower(sl.code) in (:values)
+                           or lower(coalesce(sl.english_name, '')) in (:values)
+                           or lower(coalesce(sl.native_name, '')) in (:values)
+                       )
+                     order by sl.code
                     """;
-            case "raw_areas" -> """
-                    insert into raw_areas (
-                        id, created_at, updated_at, version, source_value, standard_area_id
-                    )
-                    values (
-                        :id,
-                        now(),
-                        now(),
-                        0,
-                        :sourceValue,
-                        (
-                            select id
-                            from standard_areas
-                            where lower(name) = lower(:sourceValue)
-                               or lower(code) = lower(:sourceValue)
-                            order by name
-                            limit 1
-                        )
-                    )
-                    on conflict (source_value) do update set
-                        standard_area_id = coalesce(raw_areas.standard_area_id, excluded.standard_area_id),
-                        updated_at = excluded.updated_at
+            case "AREA" -> """
+                    select distinct sa.code
+                      from standard_areas sa
+                     where nullif(trim(sa.code), '') is not null
+                       and (
+                           lower(sa.name) in (:values)
+                           or lower(sa.code) in (:values)
+                       )
+                     order by sa.code
                     """;
-            default -> """
-                    insert into %s (id, created_at, updated_at, version, source_value)
-                    values (:id, now(), now(), 0, :sourceValue)
-                    on conflict (source_value) do update set updated_at = excluded.updated_at
-                    """.formatted(table);
+            default -> throw new IllegalArgumentException("Unsupported standard code kind: " + kind);
         };
+        List<String> codes = jdbcTemplate.queryForList(
+                sql,
+                new MapSqlParameterSource("values", lookupValues),
+                String.class);
+        return JsonStringArrays.normalize(codes);
     }
 
-    private void replaceNamedRelations(
-            String personTable,
-            String joinTable,
-            String personIdColumn,
+    private void updateFlatMetadata(
             UUID rawVideoId,
-            Collection<String> names) {
-        List<String> safeNames = names == null
-                ? List.of()
-                : names.stream()
-                        .filter(StringUtils::hasText)
-                        .map(String::trim)
-                        .distinct()
-                        .toList();
-        if (safeNames.isEmpty()) {
-            return;
-        }
-
-        upsertNamedValues(personTable, safeNames);
-        List<UUID> personIds = jdbcTemplate.queryForList(
-                "select id from %s where name in (:names)".formatted(personTable),
-                new MapSqlParameterSource("names", safeNames),
-                UUID.class);
-        if (personIds.isEmpty()) {
-            return;
-        }
-
+            RawVideoPatch patch,
+            Set<String> genreCodes,
+            Set<String> languageCodes,
+            Set<String> areaCodes,
+            String categoryCode) {
         jdbcTemplate.update(
-                "delete from %s where video_id = :videoId".formatted(joinTable),
-                new MapSqlParameterSource("videoId", rawVideoId));
-        List<MapSqlParameterSource> batch = personIds.stream()
-                .map(personId -> new MapSqlParameterSource()
-                        .addValue("videoId", rawVideoId)
-                        .addValue("personId", personId))
-                .toList();
-        jdbcTemplate.batchUpdate(
                 """
-                insert into %s (video_id, %s)
-                values (:videoId, :personId)
-                on conflict do nothing
-                """.formatted(joinTable, personIdColumn),
-                batch.toArray(MapSqlParameterSource[]::new));
-    }
-
-    private void upsertNamedValues(String table, List<String> names) {
-        List<MapSqlParameterSource> batch = names.stream()
-                .map(name -> new MapSqlParameterSource()
-                        .addValue("id", IrcsUuidGenerators.nextId())
-                        .addValue("name", name))
-                .toList();
-        jdbcTemplate.batchUpdate(
-                """
-                insert into %s (id, created_at, updated_at, version, name)
-                values (:id, now(), now(), 0, :name)
-                on conflict (name) do update set updated_at = excluded.updated_at
-                """.formatted(table),
-                batch.toArray(MapSqlParameterSource[]::new));
+                update raw_videos
+                   set actor_names = case when :hasActorNames then cast(:actorNames as jsonb) else actor_names end,
+                       director_names = case when :hasDirectorNames then cast(:directorNames as jsonb) else director_names end,
+                       area_codes = case when :hasAreaCodes then cast(:areaCodes as jsonb) else area_codes end,
+                       language_codes = case when :hasLanguageCodes then cast(:languageCodes as jsonb) else language_codes end,
+                       genre_codes = case when :hasGenreCodes then cast(:genreCodes as jsonb) else genre_codes end,
+                       category_code = coalesce(:categoryCode, category_code),
+                       source_category_code = coalesce(:sourceCategoryCode, source_category_code),
+                       source_category_name = coalesce(:sourceCategoryName, source_category_name),
+                       normalization_snapshot = cast(:normalizationSnapshot as jsonb),
+                       updated_at = now()
+                 where id = :id
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", rawVideoId)
+                        .addValue("hasActorNames", !safeValues(patch.actorValues()).isEmpty())
+                        .addValue("actorNames", jsonArray(patch.actorValues()))
+                        .addValue("hasDirectorNames", !safeValues(patch.directorValues()).isEmpty())
+                        .addValue("directorNames", jsonArray(patch.directorValues()))
+                        .addValue("hasAreaCodes", !areaCodes.isEmpty())
+                        .addValue("areaCodes", jsonArray(areaCodes))
+                        .addValue("hasLanguageCodes", !languageCodes.isEmpty())
+                        .addValue("languageCodes", jsonArray(languageCodes))
+                        .addValue("hasGenreCodes", !genreCodes.isEmpty())
+                        .addValue("genreCodes", jsonArray(genreCodes))
+                        .addValue("categoryCode", categoryCode)
+                        .addValue("sourceCategoryCode", trimNullable(patch.rawCategorySourceCode(), 100))
+                        .addValue("sourceCategoryName", trimNullable(patch.rawCategorySourceName(), 255))
+                        .addValue("normalizationSnapshot", normalizationSnapshot(patch)));
     }
 
     private String trimToLength(String value, int maxLength) {
@@ -454,13 +379,39 @@ public class RawVideoNormalizationRepository {
         return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
     }
 
-    private String llmCleaningKind(String rawTable) {
-        return switch (rawTable) {
-            case "raw_genres" -> "genre";
-            case "raw_languages" -> "language";
-            case "raw_areas" -> "area";
-            default -> throw new IllegalArgumentException("Unsupported LLM cleaning table: " + rawTable);
-        };
+    private String trimNullable(String value, int maxLength) {
+        return StringUtils.hasText(value) ? trimToLength(value, maxLength) : null;
+    }
+
+    private List<String> safeValues(Collection<String> values) {
+        return values == null
+                ? List.of()
+                : values.stream()
+                        .filter(StringUtils::hasText)
+                        .map(String::trim)
+                        .distinct()
+                        .toList();
+    }
+
+    private String jsonArray(Collection<String> values) {
+        return JsonStringArrays.write(objectMapper, values);
+    }
+
+    private String normalizationSnapshot(RawVideoPatch patch) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("version", 1);
+        snapshot.put("rawGenreValues", List.copyOf(JsonStringArrays.normalize(patch.rawGenreValues())));
+        snapshot.put("rawLanguageValues", List.copyOf(JsonStringArrays.normalize(patch.rawLanguageValues())));
+        snapshot.put("rawAreaValues", List.copyOf(JsonStringArrays.normalize(patch.rawAreaValues())));
+        snapshot.put("actorNames", List.copyOf(JsonStringArrays.normalize(patch.actorValues())));
+        snapshot.put("directorNames", List.copyOf(JsonStringArrays.normalize(patch.directorValues())));
+        snapshot.put("sourceCategoryCode", trimNullable(patch.rawCategorySourceCode(), 100));
+        snapshot.put("sourceCategoryName", trimNullable(patch.rawCategorySourceName(), 255));
+        try {
+            return objectMapper.writeValueAsString(snapshot);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize normalization snapshot", ex);
+        }
     }
 
     private void evictMetadataNameCache(UUID rawVideoId) {
@@ -472,9 +423,12 @@ public class RawVideoNormalizationRepository {
         }
     }
 
-    public record MarkReadyResult(List<LlmCleaningRawTerm> llmCleaningTerms) {
+    public record MarkReadyResult() {
     }
 
-    public record LlmCleaningRawTerm(String kind, UUID rawId, String rawValue) {
+    private record CategoryBinding(String categoryCode) {
+    }
+
+    private record DataSourceCategoryBinding(UUID rawCategoryId, String categoryCode) {
     }
 }

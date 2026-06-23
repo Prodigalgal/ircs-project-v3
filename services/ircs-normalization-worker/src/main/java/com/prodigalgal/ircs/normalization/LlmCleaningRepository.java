@@ -39,6 +39,7 @@ class LlmCleaningRepository {
     }
 
     boolean applyMatch(LlmCleaningKind kind, UUID rawId, UUID standardId) {
+        requireCategory(kind);
         int updated = jdbcTemplate.update(
                 """
                 update %s
@@ -54,37 +55,8 @@ class LlmCleaningRepository {
     }
 
     boolean applyNoise(LlmCleaningKind kind, UUID rawId) {
-        if (kind == LlmCleaningKind.CATEGORY) {
-            return mapCategoryNoiseToFallback(rawId);
-        }
-        String joinTable = switch (kind) {
-            case GENRE -> "video_raw_genres";
-            case LANGUAGE -> "video_raw_languages";
-            case AREA -> "video_raw_areas";
-            case CATEGORY -> throw new IllegalArgumentException("CATEGORY noise uses fallback mapping");
-        };
-        String joinColumn = switch (kind) {
-            case GENRE -> "raw_genre_id";
-            case LANGUAGE -> "raw_language_id";
-            case AREA -> "raw_area_id";
-            case CATEGORY -> throw new IllegalArgumentException("CATEGORY noise uses fallback mapping");
-        };
-        jdbcTemplate.update(
-                """
-                delete from %s
-                where %s = :rawId
-                  and exists (
-                        select 1
-                        from %s
-                        where id = :rawId
-                          and %s is null
-                    )
-                """.formatted(joinTable, joinColumn, rawTable(kind), standardColumn(kind)),
-                new MapSqlParameterSource("rawId", rawId));
-        int deleted = jdbcTemplate.update(
-                "delete from %s where id = :rawId and %s is null".formatted(rawTable(kind), standardColumn(kind)),
-                new MapSqlParameterSource("rawId", rawId));
-        return deleted > 0;
+        requireCategory(kind);
+        return mapCategoryNoiseToFallback(rawId);
     }
 
     private boolean mapCategoryNoiseToFallback(UUID rawId) {
@@ -130,31 +102,8 @@ class LlmCleaningRepository {
     }
 
     private String candidateSql(LlmCleaningKind kind) {
+        requireCategory(kind);
         return switch (kind) {
-            case GENRE -> """
-                    select id, source_value as raw_value
-                    from raw_genres
-                    where id = :rawId
-                      and standard_genre_id is null
-                      and source_value is not null
-                    limit 1
-                    """;
-            case LANGUAGE -> """
-                    select id, source_value as raw_value
-                    from raw_languages
-                    where id = :rawId
-                      and standard_language_id is null
-                      and source_value is not null
-                    limit 1
-                    """;
-            case AREA -> """
-                    select id, source_value as raw_value
-                    from raw_areas
-                    where id = :rawId
-                      and standard_area_id is null
-                      and source_value is not null
-                    limit 1
-                    """;
             case CATEGORY -> """
                     select id, source_name as raw_value
                     from raw_category
@@ -163,34 +112,42 @@ class LlmCleaningRepository {
                       and source_name is not null
                     limit 1
                     """;
+            default -> throw unsupportedKind(kind);
         };
     }
 
     private String standardSql(LlmCleaningKind kind) {
+        requireCategory(kind);
         return switch (kind) {
-            case GENRE -> "select id, name from standard_genre where name is not null order by name";
-            case LANGUAGE -> "select id, name from standard_languages where name is not null order by name";
-            case AREA -> "select id, name from standard_areas where name is not null order by name";
             case CATEGORY -> "select id, name from standard_category where name is not null order by name";
+            default -> throw unsupportedKind(kind);
         };
     }
 
     private String rawTable(LlmCleaningKind kind) {
+        requireCategory(kind);
         return switch (kind) {
-            case GENRE -> "raw_genres";
-            case LANGUAGE -> "raw_languages";
-            case AREA -> "raw_areas";
             case CATEGORY -> "raw_category";
+            default -> throw unsupportedKind(kind);
         };
     }
 
     private String standardColumn(LlmCleaningKind kind) {
+        requireCategory(kind);
         return switch (kind) {
-            case GENRE -> "standard_genre_id";
-            case LANGUAGE -> "standard_language_id";
-            case AREA -> "standard_area_id";
             case CATEGORY -> "category_id";
+            default -> throw unsupportedKind(kind);
         };
+    }
+
+    private void requireCategory(LlmCleaningKind kind) {
+        if (kind != LlmCleaningKind.CATEGORY) {
+            throw unsupportedKind(kind);
+        }
+    }
+
+    private IllegalArgumentException unsupportedKind(LlmCleaningKind kind) {
+        return new IllegalArgumentException("Only category LLM cleaning is supported after content metadata flattening: " + kind);
     }
 
     static String safeValue(String value) {

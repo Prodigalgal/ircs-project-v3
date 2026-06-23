@@ -6,12 +6,9 @@ import static com.prodigalgal.ircs.content.video.domain.VideoAdminText.normalize
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.content.config.ContentCoverImageUrlResolver;
 import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository.RawVideoSnapshot;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.NamedRef;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawAreaRef;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawGenreRef;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawLanguageRef;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoDetailResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.StandardAreaRef;
@@ -23,8 +20,10 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -83,8 +82,14 @@ class VideoAdminQueryRepository {
         try {
             RawVideoDetailBase base = jdbcTemplate.queryForObject(
                     """
-                    select rv.*, rc.category_id, sc.name as category_name, rc.source_name,
+                    select rv.*, sc.id as category_id, sc.name as category_name,
+                           coalesce(rv.source_category_name, rc.source_name) as source_name,
                            ds.name as data_source_name, coalesce(rv.data_source_id, rc.data_source_id) as resolved_data_source_id,
+                           cast(rv.actor_names as varchar) as flat_actor_names,
+                           cast(rv.director_names as varchar) as flat_director_names,
+                           cast(rv.area_codes as varchar) as flat_area_codes,
+                           cast(rv.language_codes as varchar) as flat_language_codes,
+                           cast(rv.genre_codes as varchar) as flat_genre_codes,
                            ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                            ci.storage_type as cover_storage_type, ci.status as cover_status,
                            sd.domain_value as cover_domain,
@@ -96,7 +101,7 @@ class VideoAdminQueryRepository {
                            ) as unified_video_id
                     from raw_videos rv
                     left join raw_category rc on rv.data_source_category_id = rc.id
-                    left join standard_category sc on rc.category_id = sc.id
+                    left join standard_category sc on sc.slug = rv.category_code
                     left join data_sources ds on coalesce(rv.data_source_id, rc.data_source_id) = ds.id
                     left join cover_images ci on rv.cover_image_id = ci.id
                     left join source_domains sd on ci.source_domain_id = sd.id
@@ -122,7 +127,7 @@ class VideoAdminQueryRepository {
                     base.coverStorageType(),
                     base.coverStatus(),
                     base.year(),
-                    findRawLanguageNames(id),
+                    resolveLanguageNames(base.languageCodesJson()),
                     base.rawLanguageStr(),
                     base.remarks(),
                     base.score(),
@@ -147,12 +152,16 @@ class VideoAdminQueryRepository {
                     base.updatedAt(),
                     readStringSet(base.lockedFieldsJson()),
                     base.rawMetadata(),
-                    findNamedRefs("video_actors", "video_id", "actor_id", "actors", id),
-                    findNamedRefs("video_directors", "video_id", "director_id", "directors", id),
-                    findRawGenres(id),
-                    findRawLanguages(id),
-                    findRawAreas(id),
-                    Set.of()));
+                    Set.of(),
+                    Set.of(),
+                    Set.of(),
+                    base.categoryCode(),
+                    base.sourceCategoryCode(),
+                    readJsonStringSet(base.actorNamesJson()),
+                    readJsonStringSet(base.directorNamesJson()),
+                    readJsonStringSet(base.areaCodesJson()),
+                    readJsonStringSet(base.languageCodesJson()),
+                    readJsonStringSet(base.genreCodesJson())));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -219,14 +228,19 @@ class VideoAdminQueryRepository {
     }
 
     Optional<UnifiedVideoDetailResponse> findUnifiedDetail(UUID id) {
-        try {
+                try {
             UnifiedVideoDetailBase base = jdbcTemplate.queryForObject(
                     """
-                    select uv.*, sc.name as category_name,
+                    select uv.*, sc.id as resolved_category_id, sc.name as category_name,
+                           cast(uv.actor_names as varchar) as flat_actor_names,
+                           cast(uv.director_names as varchar) as flat_director_names,
+                           cast(uv.area_codes as varchar) as flat_area_codes,
+                           cast(uv.language_codes as varchar) as flat_language_codes,
+                           cast(uv.genre_codes as varchar) as flat_genre_codes,
                            ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                            ci.storage_type as cover_storage_type, sd.domain_value as cover_domain
                     from unified_videos uv
-                    left join standard_category sc on uv.category_id = sc.id
+                    left join standard_category sc on sc.slug = uv.category_code
                     left join cover_images ci on uv.cover_image_id = ci.id
                     left join source_domains sd on ci.source_domain_id = sd.id
                     where uv.id = :id
@@ -244,8 +258,8 @@ class VideoAdminQueryRepository {
                             base.coverDomain()),
                     base.description(),
                     base.year(),
-                    findStandardAreas(id),
-                    findUnifiedNames("unified_video_standard_languages", "standard_language_id", "standard_languages", id),
+                    findStandardAreas(base.areaCodesJson()),
+                    resolveLanguageNames(base.languageCodesJson()),
                     base.score(),
                     base.publishedAt(),
                     base.totalEpisodes(),
@@ -261,14 +275,20 @@ class VideoAdminQueryRepository {
                     base.categoryId(),
                     base.categoryName(),
                     base.contentVisibility(),
-                    findUnifiedNames("unified_video_actors", "actor_id", "actors", id),
-                    findUnifiedNames("unified_video_directors", "director_id", "directors", id),
-                    findUnifiedNames("unified_video_genres", "genre_id", "standard_genre", id),
+                    readJsonStringSet(base.actorNamesJson()),
+                    readJsonStringSet(base.directorNamesJson()),
+                    resolveGenreNames(base.genreCodesJson()),
                     findUnifiedTags(id),
                     readStringSet(base.lockedFieldsJson()),
                     findRawCardsForUnified(id),
                     base.createdAt(),
-                    base.updatedAt()));
+                    base.updatedAt(),
+                    base.categoryCode(),
+                    readJsonStringSet(base.actorNamesJson()),
+                    readJsonStringSet(base.directorNamesJson()),
+                    readJsonStringSet(base.areaCodesJson()),
+                    readJsonStringSet(base.languageCodesJson()),
+                    readJsonStringSet(base.genreCodesJson())));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -294,7 +314,7 @@ class VideoAdminQueryRepository {
             params.addValue("title", "%" + title.trim() + "%");
         }
         if (categoryId != null) {
-            clauses.add("rc.category_id = :categoryId");
+            clauses.add("sc.id = :categoryId");
             params.addValue("categoryId", categoryId);
         }
         if (StringUtils.hasText(enrichmentStatus)) {
@@ -318,15 +338,17 @@ class VideoAdminQueryRepository {
             params.addValue("dataSourceId", dataSourceId);
         }
         if (StringUtils.hasText(sourceCategoryName)) {
-            clauses.add("lower(rc.source_name) like lower(:sourceCategoryName)");
+            clauses.add("lower(coalesce(rv.source_category_name, rc.source_name)) like lower(:sourceCategoryName)");
             params.addValue("sourceCategoryName", "%" + sourceCategoryName.trim() + "%");
         }
         if (StringUtils.hasText(area)) {
             clauses.add("""
                     exists (
-                        select 1 from video_raw_areas vra
-                        join raw_areas ra on vra.raw_area_id = ra.id
-                        where vra.video_id = rv.id and lower(ra.source_value) like lower(:area)
+                        select 1
+                          from jsonb_array_elements_text(coalesce(rv.area_codes, '[]'::jsonb)) ac(code)
+                          left join standard_areas sa on sa.code = ac.code
+                         where lower(ac.code) like lower(:area)
+                            or lower(coalesce(sa.name, '')) like lower(:area)
                     )
                     """);
             params.addValue("area", "%" + area.trim() + "%");
@@ -334,9 +356,11 @@ class VideoAdminQueryRepository {
         if (StringUtils.hasText(genre)) {
             clauses.add("""
                     exists (
-                        select 1 from video_raw_genres vrg
-                        join raw_genres rg on vrg.raw_genre_id = rg.id
-                        where vrg.video_id = rv.id and lower(rg.source_value) like lower(:genre)
+                        select 1
+                          from jsonb_array_elements_text(coalesce(rv.genre_codes, '[]'::jsonb)) gc(code)
+                          left join standard_genre sg on sg.code = gc.code
+                         where lower(gc.code) like lower(:genre)
+                            or lower(coalesce(sg.name, '')) like lower(:genre)
                     )
                     """);
             params.addValue("genre", "%" + genre.trim() + "%");
@@ -345,17 +369,19 @@ class VideoAdminQueryRepository {
             clauses.add("""
                     (lower(rv.raw_language_str) like lower(:language)
                      or exists (
-                        select 1 from video_raw_languages vrl
-                        join raw_languages rl on vrl.raw_language_id = rl.id
-                        where vrl.video_id = rv.id and lower(rl.source_value) like lower(:language)
+                        select 1
+                          from jsonb_array_elements_text(coalesce(rv.language_codes, '[]'::jsonb)) lc(code)
+                          left join standard_languages sl on sl.code = lc.code
+                         where lower(lc.code) like lower(:language)
+                            or lower(coalesce(sl.name, '')) like lower(:language)
                      ))
                     """);
             params.addValue("language", "%" + language.trim() + "%");
         }
         if (isMissingSlug != null) {
             clauses.add(Boolean.TRUE.equals(isMissingSlug)
-                    ? "(sc.slug is null or sc.slug = '')"
-                    : "(sc.slug is not null and sc.slug <> '')");
+                    ? "(rv.category_code is null or rv.category_code = '')"
+                    : "(rv.category_code is not null and rv.category_code <> '')");
         }
         return clauses.isEmpty() ? "" : " where " + String.join(" and ", clauses);
     }
@@ -365,7 +391,7 @@ class VideoAdminQueryRepository {
                 select count(*)
                 from raw_videos rv
                 left join raw_category rc on rv.data_source_category_id = rc.id
-                left join standard_category sc on rc.category_id = sc.id
+                left join standard_category sc on sc.slug = rv.category_code
                 """ + where;
     }
 
@@ -373,19 +399,22 @@ class VideoAdminQueryRepository {
         return """
                 select rv.id, rv.source_vid, rv.title, rv.alias_title, rv.season, rv.subtitle,
                        rv.year, rv.score, rv.total_episodes, rv.duration,
-                       sc.name as category_name, rc.source_name, ds.name as data_source_name,
+                       sc.name as category_name, rv.category_code, rv.source_category_code,
+                       cast(rv.area_codes as varchar) as area_codes,
+                       cast(rv.language_codes as varchar) as language_codes,
+                       cast(rv.genre_codes as varchar) as genre_codes,
+                       coalesce(rv.source_category_name, rc.source_name) as source_name, ds.name as data_source_name,
                        rv.enrichment_status, rv.normalization_status, rv.created_at, rv.updated_at,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                        ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
                        (
-                           select string_agg(ra.source_value, ', ' order by ra.source_value)
-                           from video_raw_areas vra
-                           join raw_areas ra on vra.raw_area_id = ra.id
-                           where vra.video_id = rv.id
+                           select string_agg(coalesce(sa.name, ac.code), ', ' order by coalesce(sa.name, ac.code))
+                           from jsonb_array_elements_text(coalesce(rv.area_codes, '[]'::jsonb)) ac(code)
+                           left join standard_areas sa on sa.code = ac.code
                        ) as area
                 from raw_videos rv
                 left join raw_category rc on rv.data_source_category_id = rc.id
-                left join standard_category sc on rc.category_id = sc.id
+                left join standard_category sc on sc.slug = rv.category_code
                 left join data_sources ds on coalesce(rv.data_source_id, rc.data_source_id) = ds.id
                 left join cover_images ci on rv.cover_image_id = ci.id
                 left join source_domains sd on ci.source_domain_id = sd.id
@@ -408,7 +437,7 @@ class VideoAdminQueryRepository {
             params.addValue("title", "%" + title.trim() + "%");
         }
         if (categoryId != null) {
-            clauses.add("uv.category_id = :categoryId");
+            clauses.add("sc.id = :categoryId");
             params.addValue("categoryId", categoryId);
         }
         if (StringUtils.hasText(year)) {
@@ -422,9 +451,11 @@ class VideoAdminQueryRepository {
         if (StringUtils.hasText(area)) {
             clauses.add("""
                     exists (
-                        select 1 from unified_video_standard_areas uva
-                        join standard_areas sa on uva.standard_area_id = sa.id
-                        where uva.unified_video_id = uv.id and lower(sa.name) like lower(:area)
+                        select 1
+                          from jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
+                          left join standard_areas sa on sa.code = ac.code
+                         where lower(ac.code) like lower(:area)
+                            or lower(coalesce(sa.name, '')) like lower(:area)
                     )
                     """);
             params.addValue("area", "%" + area.trim() + "%");
@@ -447,7 +478,11 @@ class VideoAdminQueryRepository {
     }
 
     private String unifiedCountSql(String where) {
-        return "select count(*) from unified_videos uv " + where;
+        return """
+                select count(*)
+                from unified_videos uv
+                left join standard_category sc on sc.slug = uv.category_code
+                """ + where;
     }
 
     private String unifiedCardSql(String where) {
@@ -455,14 +490,13 @@ class VideoAdminQueryRepository {
                 select uv.id, uv.title, uv.alias_title, uv.year, uv.score, uv.remarks,
                        uv.season, uv.subtitle, uv.last_trend_at, uv.created_at, uv.updated_at,
                        uv.douban_id, uv.tmdb_id, uv.imdb_id, uv.content_visibility,
-                       sc.name as category_name,
+                       sc.name as category_name, uv.category_code, cast(uv.area_codes as varchar) as area_codes,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                        ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
                        (
-                           select string_agg(sa.name, ', ' order by sa.name)
-                           from unified_video_standard_areas uva
-                           join standard_areas sa on uva.standard_area_id = sa.id
-                           where uva.unified_video_id = uv.id
+                           select string_agg(coalesce(sa.name, ac.code), ', ' order by coalesce(sa.name, ac.code))
+                           from jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
+                           left join standard_areas sa on sa.code = ac.code
                        ) as area,
                        (
                            select count(*)
@@ -470,7 +504,7 @@ class VideoAdminQueryRepository {
                            where rvu.unified_video_id = uv.id
                        ) as source_count
                 from unified_videos uv
-                left join standard_category sc on uv.category_id = sc.id
+                left join standard_category sc on sc.slug = uv.category_code
                 left join cover_images ci on uv.cover_image_id = ci.id
                 left join source_domains sd on ci.source_domain_id = sd.id
                 """ + where;
@@ -523,7 +557,12 @@ class VideoAdminQueryRepository {
                 rs.getString("enrichment_status"),
                 rs.getString("normalization_status"),
                 instant(rs, "created_at"),
-                instant(rs, "updated_at"));
+                instant(rs, "updated_at"),
+                rs.getString("category_code"),
+                rs.getString("source_category_code"),
+                readJsonStringSet(rs.getString("area_codes")),
+                readJsonStringSet(rs.getString("language_codes")),
+                readJsonStringSet(rs.getString("genre_codes")));
     }
 
     private UnifiedVideoCardResponse mapUnifiedCard(ResultSet rs, int rowNum) throws SQLException {
@@ -550,7 +589,9 @@ class VideoAdminQueryRepository {
                 StringUtils.hasText(rs.getString("douban_id")),
                 StringUtils.hasText(rs.getString("tmdb_id")),
                 instant(rs, "created_at"),
-                instant(rs, "updated_at"));
+                instant(rs, "updated_at"),
+                rs.getString("category_code"),
+                readJsonStringSet(rs.getString("area_codes")));
     }
 
     private RawVideoDetailBase mapRawDetailBase(ResultSet rs, int rowNum) throws SQLException {
@@ -578,10 +619,12 @@ class VideoAdminQueryRepository {
                 rs.getString("tmdb_id"),
                 rs.getString("imdb_id"),
                 rs.getString("rotten_tomatoes_id"),
-                rs.getObject("category_id", UUID.class),
+                rs.getObject("resolved_category_id", UUID.class),
                 rs.getString("category_name"),
                 rs.getObject("data_source_category_id", UUID.class),
                 rs.getString("source_name"),
+                rs.getString("category_code"),
+                rs.getString("source_category_code"),
                 rs.getString("data_source_name"),
                 rs.getObject("resolved_data_source_id", UUID.class),
                 rs.getObject("unified_video_id", UUID.class),
@@ -590,7 +633,12 @@ class VideoAdminQueryRepository {
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"),
                 rs.getString("locked_fields"),
-                rs.getString("raw_metadata"));
+                rs.getString("raw_metadata"),
+                rs.getString("flat_actor_names"),
+                rs.getString("flat_director_names"),
+                rs.getString("flat_area_codes"),
+                rs.getString("flat_language_codes"),
+                rs.getString("flat_genre_codes"));
     }
 
     private UnifiedVideoDetailBase mapUnifiedDetailBase(ResultSet rs, int rowNum) throws SQLException {
@@ -618,10 +666,16 @@ class VideoAdminQueryRepository {
                 instant(rs, "last_trend_at"),
                 rs.getObject("category_id", UUID.class),
                 rs.getString("category_name"),
+                rs.getString("category_code"),
                 rs.getString("content_visibility"),
                 rs.getString("locked_fields"),
                 instant(rs, "created_at"),
-                instant(rs, "updated_at"));
+                instant(rs, "updated_at"),
+                rs.getString("flat_actor_names"),
+                rs.getString("flat_director_names"),
+                rs.getString("flat_area_codes"),
+                rs.getString("flat_language_codes"),
+                rs.getString("flat_genre_codes"));
     }
 
     private List<RawVideoCardResponse> findRawCardsForUnified(UUID unifiedVideoId) {
@@ -630,36 +684,6 @@ class VideoAdminQueryRepository {
                         + " order by rv.updated_at desc",
                 new MapSqlParameterSource("id", unifiedVideoId),
                 this::mapRawCard);
-    }
-
-    private Set<NamedRef> findNamedRefs(String joinTable, String ownerColumn, String relatedColumn, String relatedTable, UUID ownerId) {
-        return new LinkedHashSet<>(jdbcTemplate.query(
-                """
-                select t.id, t.name, t.created_at, t.updated_at
-                from %s jt
-                join %s t on jt.%s = t.id
-                where jt.%s = :ownerId
-                order by t.name
-                """.formatted(joinTable, relatedTable, relatedColumn, ownerColumn),
-                new MapSqlParameterSource("ownerId", ownerId),
-                (rs, rowNum) -> new NamedRef(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("name"),
-                        instant(rs, "created_at"),
-                        instant(rs, "updated_at"))));
-    }
-
-    private Set<String> findUnifiedNames(String joinTable, String relatedColumn, String relatedTable, UUID ownerId) {
-        return new LinkedHashSet<>(jdbcTemplate.queryForList(
-                """
-                select t.name
-                from %s jt
-                join %s t on jt.%s = t.id
-                where jt.unified_video_id = :ownerId
-                order by t.name
-                """.formatted(joinTable, relatedTable, relatedColumn),
-                new MapSqlParameterSource("ownerId", ownerId),
-                String.class));
     }
 
     private Set<String> findUnifiedTags(UUID unifiedVideoId) {
@@ -674,97 +698,62 @@ class VideoAdminQueryRepository {
                 String.class));
     }
 
-    private Set<String> findRawLanguageNames(UUID rawVideoId) {
-        return new LinkedHashSet<>(jdbcTemplate.queryForList(
-                """
-                select coalesce(sl.name, rl.source_value)
-                from video_raw_languages vrl
-                join raw_languages rl on vrl.raw_language_id = rl.id
-                left join standard_languages sl on rl.standard_language_id = sl.id
-                where vrl.video_id = :id
-                order by coalesce(sl.name, rl.source_value)
-                """,
-                new MapSqlParameterSource("id", rawVideoId),
-                String.class));
+    private Set<String> resolveGenreNames(String genreCodesJson) {
+        return resolveNamesByCodes("standard_genre", "code", "name", readJsonStringSet(genreCodesJson));
     }
 
-    private Set<RawGenreRef> findRawGenres(UUID rawVideoId) {
-        return new LinkedHashSet<>(jdbcTemplate.query(
-                """
-                select rg.id, rg.source_value, rg.standard_genre_id, sg.name as standard_genre_name
-                from video_raw_genres vrg
-                join raw_genres rg on vrg.raw_genre_id = rg.id
-                left join standard_genre sg on rg.standard_genre_id = sg.id
-                where vrg.video_id = :id
-                order by rg.source_value
-                """,
-                new MapSqlParameterSource("id", rawVideoId),
-                (rs, rowNum) -> new RawGenreRef(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("source_value"),
-                        rs.getObject("standard_genre_id", UUID.class),
-                        rs.getString("standard_genre_name"))));
+    private Set<String> resolveLanguageNames(String languageCodesJson) {
+        return resolveNamesByCodes("standard_languages", "code", "name", readJsonStringSet(languageCodesJson));
     }
 
-    private Set<RawLanguageRef> findRawLanguages(UUID rawVideoId) {
-        return new LinkedHashSet<>(jdbcTemplate.query(
-                """
-                select rl.id, rl.source_value, rl.standard_language_id, sl.name as standard_language_name,
-                       rl.created_at, rl.updated_at
-                from video_raw_languages vrl
-                join raw_languages rl on vrl.raw_language_id = rl.id
-                left join standard_languages sl on rl.standard_language_id = sl.id
-                where vrl.video_id = :id
-                order by rl.source_value
-                """,
-                new MapSqlParameterSource("id", rawVideoId),
-                (rs, rowNum) -> new RawLanguageRef(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("source_value"),
-                        rs.getObject("standard_language_id", UUID.class),
-                        rs.getString("standard_language_name"),
-                        instant(rs, "created_at"),
-                        instant(rs, "updated_at"))));
+    private Set<String> resolveNamesByCodes(String table, String codeColumn, String nameColumn, Set<String> codes) {
+        Set<String> normalizedCodes = JsonStringArrays.normalize(codes);
+        if (normalizedCodes.isEmpty()) {
+            return Set.of();
+        }
+        Map<String, String> namesByCode = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                "select %s as code, %s as name from %s where %s in (:codes)"
+                        .formatted(codeColumn, nameColumn, table, codeColumn),
+                new MapSqlParameterSource("codes", normalizedCodes),
+                (org.springframework.jdbc.core.RowCallbackHandler)
+                        rs -> namesByCode.put(rs.getString("code"), rs.getString("name")));
+        Set<String> resolved = new LinkedHashSet<>();
+        for (String code : normalizedCodes) {
+            String name = namesByCode.get(code);
+            resolved.add(StringUtils.hasText(name) ? name : code);
+        }
+        return resolved;
     }
 
-    private Set<RawAreaRef> findRawAreas(UUID rawVideoId) {
-        return new LinkedHashSet<>(jdbcTemplate.query(
+    private Set<StandardAreaRef> findStandardAreas(String areaCodesJson) {
+        Set<String> areaCodes = JsonStringArrays.normalize(readJsonStringSet(areaCodesJson));
+        if (areaCodes.isEmpty()) {
+            return Set.of();
+        }
+        Map<String, StandardAreaRef> refsByCode = new LinkedHashMap<>();
+        jdbcTemplate.query(
                 """
-                select ra.id, ra.source_value, ra.standard_area_id, sa.name as standard_area_name,
-                       ra.created_at, ra.updated_at
-                from video_raw_areas vra
-                join raw_areas ra on vra.raw_area_id = ra.id
-                left join standard_areas sa on ra.standard_area_id = sa.id
-                where vra.video_id = :id
-                order by ra.source_value
+                select id, name, code, region, created_at, updated_at
+                  from standard_areas
+                 where code in (:codes)
                 """,
-                new MapSqlParameterSource("id", rawVideoId),
-                (rs, rowNum) -> new RawAreaRef(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("source_value"),
-                        rs.getObject("standard_area_id", UUID.class),
-                        rs.getString("standard_area_name"),
-                        instant(rs, "created_at"),
-                        instant(rs, "updated_at"))));
-    }
-
-    private Set<StandardAreaRef> findStandardAreas(UUID unifiedVideoId) {
-        return new LinkedHashSet<>(jdbcTemplate.query(
-                """
-                select sa.id, sa.name, sa.code, sa.region, sa.created_at, sa.updated_at
-                from unified_video_standard_areas uva
-                join standard_areas sa on uva.standard_area_id = sa.id
-                where uva.unified_video_id = :id
-                order by sa.name
-                """,
-                new MapSqlParameterSource("id", unifiedVideoId),
-                (rs, rowNum) -> new StandardAreaRef(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("name"),
-                        rs.getString("code"),
-                        rs.getString("region"),
-                        instant(rs, "created_at"),
-                        instant(rs, "updated_at"))));
+                new MapSqlParameterSource("codes", areaCodes),
+                (org.springframework.jdbc.core.RowCallbackHandler)
+                        rs -> refsByCode.put(
+                                rs.getString("code"),
+                                new StandardAreaRef(
+                                        rs.getObject("id", UUID.class),
+                                        rs.getString("name"),
+                                        rs.getString("code"),
+                                        rs.getString("region"),
+                                        instant(rs, "created_at"),
+                                        instant(rs, "updated_at"))));
+        Set<StandardAreaRef> resolved = new LinkedHashSet<>();
+        for (String code : areaCodes) {
+            resolved.add(refsByCode.getOrDefault(code, new StandardAreaRef(null, code, code, null, null, null)));
+        }
+        return resolved;
     }
 
     private Pageable sanitize(Pageable pageable) {
@@ -782,6 +771,10 @@ class VideoAdminQueryRepository {
         } catch (Exception ignored) {
             return Set.of();
         }
+    }
+
+    private Set<String> readJsonStringSet(String json) {
+        return JsonStringArrays.readSet(objectMapper, json);
     }
 
     private String resolveCoverUrl(String storageType, String originalUrl, String storagePath, String domain) {
@@ -821,6 +814,8 @@ class VideoAdminQueryRepository {
             String categoryName,
             UUID dataSourceCategoryId,
             String sourceCategoryName,
+            String categoryCode,
+            String sourceCategoryCode,
             String dataSourceName,
             UUID dataSourceId,
             UUID unifiedVideoId,
@@ -829,7 +824,12 @@ class VideoAdminQueryRepository {
             Instant createdAt,
             Instant updatedAt,
             String lockedFieldsJson,
-            String rawMetadata) {
+            String rawMetadata,
+            String actorNamesJson,
+            String directorNamesJson,
+            String areaCodesJson,
+            String languageCodesJson,
+            String genreCodesJson) {
     }
 
     private record UnifiedVideoDetailBase(
@@ -856,9 +856,15 @@ class VideoAdminQueryRepository {
             Instant lastTrendAt,
             UUID categoryId,
             String categoryName,
+            String categoryCode,
             String contentVisibility,
             String lockedFieldsJson,
             Instant createdAt,
-            Instant updatedAt) {
+            Instant updatedAt,
+            String actorNamesJson,
+            String directorNamesJson,
+            String areaCodesJson,
+            String languageCodesJson,
+            String genreCodesJson) {
     }
 }

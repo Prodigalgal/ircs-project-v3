@@ -1,6 +1,9 @@
 package com.prodigalgal.ircs.aggregation;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
 
@@ -9,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -32,15 +36,21 @@ public class JdbcAggregationRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final AggregationCandidateRepository candidateRepository;
     private final AggregationMetadataNameRepository metadataNameRepository;
+    private final ObjectMapper objectMapper;
 
     public JdbcAggregationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
             AggregationMatchingStrategy matchingStrategy,
             AggregationContextSearchClient contextSearchClient,
             ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            ObjectMapper objectMapper,
             @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {
         this.jdbcTemplate = jdbcTemplate;
-        this.metadataNameRepository = new AggregationMetadataNameRepository(jdbcTemplate, metadataNameCacheProvider);
+        this.objectMapper = objectMapper;
+        this.metadataNameRepository = new AggregationMetadataNameRepository(
+                jdbcTemplate,
+                metadataNameCacheProvider,
+                objectMapper);
         this.candidateRepository = new AggregationCandidateRepository(
                 jdbcTemplate,
                 matchingStrategy,
@@ -59,6 +69,7 @@ public class JdbcAggregationRepository {
                 matchingStrategy,
                 (title, year) -> AggregationContextSearchClient.ContextSearchResult.notAttempted(),
                 null,
+                JsonMapper.builder().build(),
                 30);
     }
 
@@ -71,6 +82,7 @@ public class JdbcAggregationRepository {
                 matchingStrategy,
                 contextSearchClient,
                 null,
+                JsonMapper.builder().build(),
                 30);
     }
 
@@ -84,12 +96,11 @@ public class JdbcAggregationRepository {
                            douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                            normalization_status, enrichment_status, aggregation_status
                     from (
-                        select rv.*,
-                               sc.name as category_name
-                        from raw_videos rv
-                        left join raw_category rc on rc.id = rv.data_source_category_id
-                        left join standard_category sc on sc.id = rc.category_id
-                        where rv.id = :id
+                    select rv.*,
+                           sc.name as category_name
+                    from raw_videos rv
+                    left join standard_category sc on sc.slug = rv.category_code
+                    where rv.id = :id
                     ) raw_candidate
                     """,
                     new MapSqlParameterSource("id", rawVideoId),
@@ -122,8 +133,7 @@ public class JdbcAggregationRepository {
                     select rv.*,
                            sc.name as category_name
                     from raw_videos rv
-                    left join raw_category rc on rc.id = rv.data_source_category_id
-                    left join standard_category sc on sc.id = rc.category_id
+                    left join standard_category sc on sc.slug = rv.category_code
                     where rv.id in (:ids)
                 ) raw_candidate
                 """,
@@ -253,75 +263,7 @@ public class JdbcAggregationRepository {
 
     public void rebuildUnifiedPipelineMetadataRelations(UUID unifiedVideoId) {
         Set<String> lockedFields = findLockedFields(unifiedVideoId);
-        MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
-        if (!isLocked(lockedFields, "genres")) {
-            rebuildUnifiedRelation(
-                    "unified_video_genres",
-                    "genre_id",
-                    """
-                    select distinct rg.standard_genre_id as relation_id
-                    from raw_video_unified_video rvuv
-                    join video_raw_genres vrg on vrg.video_id = rvuv.raw_video_id
-                    join raw_genres rg on rg.id = vrg.raw_genre_id
-                    where rvuv.unified_video_id = :unifiedVideoId
-                      and rg.standard_genre_id is not null
-                    """,
-                    params);
-        }
-        if (!isLocked(lockedFields, "actors")) {
-            rebuildUnifiedRelation(
-                    "unified_video_actors",
-                    "actor_id",
-                    """
-                    select distinct va.actor_id as relation_id
-                    from raw_video_unified_video rvuv
-                    join video_actors va on va.video_id = rvuv.raw_video_id
-                    where rvuv.unified_video_id = :unifiedVideoId
-                      and va.actor_id is not null
-                    """,
-                    params);
-        }
-        if (!isLocked(lockedFields, "directors")) {
-            rebuildUnifiedRelation(
-                    "unified_video_directors",
-                    "director_id",
-                    """
-                    select distinct vd.director_id as relation_id
-                    from raw_video_unified_video rvuv
-                    join video_directors vd on vd.video_id = rvuv.raw_video_id
-                    where rvuv.unified_video_id = :unifiedVideoId
-                      and vd.director_id is not null
-                    """,
-                    params);
-        }
-        if (!isLocked(lockedFields, "area", "areas")) {
-            rebuildUnifiedRelation(
-                    "unified_video_standard_areas",
-                    "standard_area_id",
-                    """
-                    select distinct ra.standard_area_id as relation_id
-                    from raw_video_unified_video rvuv
-                    join video_raw_areas vra on vra.video_id = rvuv.raw_video_id
-                    join raw_areas ra on ra.id = vra.raw_area_id
-                    where rvuv.unified_video_id = :unifiedVideoId
-                      and ra.standard_area_id is not null
-                    """,
-                    params);
-        }
-        if (!isLocked(lockedFields, "language", "languages")) {
-            rebuildUnifiedRelation(
-                    "unified_video_standard_languages",
-                    "standard_language_id",
-                    """
-                    select distinct rl.standard_language_id as relation_id
-                    from raw_video_unified_video rvuv
-                    join video_raw_languages vrl on vrl.video_id = rvuv.raw_video_id
-                    join raw_languages rl on rl.id = vrl.raw_language_id
-                    where rvuv.unified_video_id = :unifiedVideoId
-                      and rl.standard_language_id is not null
-                    """,
-                    params);
-        }
+        rebuildUnifiedFlatMetadata(unifiedVideoId, lockedFields);
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(unifiedVideoId));
     }
 
@@ -385,7 +327,9 @@ public class JdbcAggregationRepository {
     public void rebuildUnifiedPipelineCategory(UUID unifiedVideoId) {
         Set<String> lockedFields = findLockedFields(unifiedVideoId);
         if (!isLocked(lockedFields, "category")) {
-            voteUnifiedCategory(new MapSqlParameterSource("unifiedVideoId", unifiedVideoId));
+            MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+            voteUnifiedCategory(params);
+            voteUnifiedCategoryCode(params);
         }
     }
 
@@ -434,7 +378,7 @@ public class JdbcAggregationRepository {
         migrateFavoritesToRoot(params);
         migrateWatchHistoriesToRoot(params);
         mergeVictimScalarsToRoot(rootUnifiedVideoId, victims);
-        mergeVictimRelationsToRoot(params);
+        mergeVictimFlatMetadataToRoot(rootUnifiedVideoId, victims);
         deleteVictimUnifiedRows(params);
         List<UUID> changedIds = new ArrayList<>(victims.size() + 1);
         changedIds.add(rootUnifiedVideoId);
@@ -547,11 +491,6 @@ public class JdbcAggregationRepository {
                 """);
         changedRows += updateIfTableExists("delete from raw_video_unified_video");
         changedRows += updateIfTableExists("delete from unified_video_tags");
-        changedRows += updateIfTableExists("delete from unified_video_actors");
-        changedRows += updateIfTableExists("delete from unified_video_directors");
-        changedRows += updateIfTableExists("delete from unified_video_genres");
-        changedRows += updateIfTableExists("delete from unified_video_standard_languages");
-        changedRows += updateIfTableExists("delete from unified_video_standard_areas");
         changedRows += jdbcTemplate.update("delete from unified_videos", new MapSqlParameterSource());
         evictAllMetadataNameCache();
         return changedRows;
@@ -981,6 +920,96 @@ public class JdbcAggregationRepository {
         return "nullif(trim(%s), '') is not null and trim(%s) <> '0'".formatted(column, column);
     }
 
+    private void rebuildUnifiedFlatMetadata(UUID unifiedVideoId, Set<String> lockedFields) {
+        List<RawFlatMetadataRow> rows = findRawFlatMetadataRows(unifiedVideoId);
+        if (rows.isEmpty()) {
+            return;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+        appendFlatJsonUpdate(params, "actorNames", collectFlatValues(rows, RawFlatMetadataRow::actorNames),
+                !isLocked(lockedFields, "actors"));
+        appendFlatJsonUpdate(params, "directorNames", collectFlatValues(rows, RawFlatMetadataRow::directorNames),
+                !isLocked(lockedFields, "directors"));
+        appendFlatJsonUpdate(params, "areaCodes", collectFlatValues(rows, RawFlatMetadataRow::areaCodes),
+                !isLocked(lockedFields, "area", "areas"));
+        appendFlatJsonUpdate(params, "languageCodes", collectFlatValues(rows, RawFlatMetadataRow::languageCodes),
+                !isLocked(lockedFields, "language", "languages"));
+        appendFlatJsonUpdate(params, "genreCodes", collectFlatValues(rows, RawFlatMetadataRow::genreCodes),
+                !isLocked(lockedFields, "genres"));
+        if (params.getValues().size() == 1) {
+            return;
+        }
+        String setSql = params.getValues().keySet().stream()
+                .filter(name -> !"unifiedVideoId".equals(name))
+                .map(this::flatJsonSetSql)
+                .reduce((left, right) -> left + ",\n                       " + right)
+                .orElse("");
+        jdbcTemplate.update(
+                """
+                update unified_videos
+                   set %s,
+                       updated_at = now(),
+                       version = coalesce(version, 0) + 1
+                 where id = :unifiedVideoId
+                """.formatted(setSql),
+                params);
+    }
+
+    private List<RawFlatMetadataRow> findRawFlatMetadataRows(UUID unifiedVideoId) {
+        return jdbcTemplate.query(
+                """
+                select cast(rv.actor_names as varchar) as actor_names,
+                       cast(rv.director_names as varchar) as director_names,
+                       cast(rv.area_codes as varchar) as area_codes,
+                       cast(rv.language_codes as varchar) as language_codes,
+                       cast(rv.genre_codes as varchar) as genre_codes,
+                       rv.category_code
+                  from raw_video_unified_video rvuv
+                  join raw_videos rv on rv.id = rvuv.raw_video_id
+                 where rvuv.unified_video_id = :unifiedVideoId
+                """,
+                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                (rs, rowNum) -> new RawFlatMetadataRow(
+                        JsonStringArrays.readSet(objectMapper, rs.getString("actor_names")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("director_names")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("area_codes")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("language_codes")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("genre_codes")),
+                        rs.getString("category_code")));
+    }
+
+    private Set<String> collectFlatValues(
+            List<RawFlatMetadataRow> rows,
+            java.util.function.Function<RawFlatMetadataRow, Set<String>> extractor) {
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        for (RawFlatMetadataRow row : rows) {
+            values.addAll(extractor.apply(row));
+        }
+        return JsonStringArrays.normalize(values);
+    }
+
+    private void appendFlatJsonUpdate(
+            MapSqlParameterSource params,
+            String paramName,
+            Set<String> values,
+            boolean updateAllowed) {
+        if (updateAllowed && !values.isEmpty()) {
+            params.addValue(paramName, JsonStringArrays.write(objectMapper, values));
+        }
+    }
+
+    private String flatJsonSetSql(String paramName) {
+        String columnName = switch (paramName) {
+            case "actorNames" -> "actor_names";
+            case "directorNames" -> "director_names";
+            case "areaCodes" -> "area_codes";
+            case "languageCodes" -> "language_codes";
+            case "genreCodes" -> "genre_codes";
+            default -> throw new IllegalArgumentException("Unsupported flat metadata parameter: " + paramName);
+        };
+        return "%s = cast(:%s as jsonb)".formatted(columnName, paramName);
+    }
+
     private List<CoverImageChoice> findCoverImageChoices(UUID unifiedVideoId) {
         return jdbcTemplate.query(
                 """
@@ -1055,14 +1084,14 @@ public class JdbcAggregationRepository {
                 set category_id = (
                         select category_id
                         from (
-                            select rc.category_id, count(*) as votes
+                            select sc.id as category_id, count(*) as votes
                             from raw_video_unified_video rvuv
                             join raw_videos rv on rv.id = rvuv.raw_video_id
-                            join raw_category rc on rc.id = rv.data_source_category_id
+                            join standard_category sc on sc.slug = rv.category_code
                             where rvuv.unified_video_id = :unifiedVideoId
-                              and rc.category_id is not null
-                            group by rc.category_id
-                            order by votes desc, cast(rc.category_id as varchar) asc
+                              and nullif(trim(rv.category_code), '') is not null
+                            group by sc.id
+                            order by votes desc, cast(sc.id as varchar) asc
                             limit 1
                         ) voted
                     ),
@@ -1073,57 +1102,42 @@ public class JdbcAggregationRepository {
                       select 1
                       from raw_video_unified_video rvuv
                       join raw_videos rv on rv.id = rvuv.raw_video_id
-                      join raw_category rc on rc.id = rv.data_source_category_id
+                      join standard_category sc on sc.slug = rv.category_code
                       where rvuv.unified_video_id = :unifiedVideoId
-                        and rc.category_id is not null
+                        and nullif(trim(rv.category_code), '') is not null
                   )
                 """,
                 params);
     }
 
-    private void rebuildUnifiedRelation(
-            String tableName,
-            String relationIdColumn,
-            String relationSelectSql,
-            MapSqlParameterSource params) {
-        jdbcTemplate.update(
-                "delete from %s where unified_video_id = :unifiedVideoId".formatted(tableName),
-                params);
+    private void voteUnifiedCategoryCode(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                insert into %s (%s, unified_video_id)
-                select relation_id, :unifiedVideoId
-                from (
-                %s
-                ) relation_rows
-                on conflict do nothing
-                """.formatted(tableName, relationIdColumn, relationSelectSql),
-                params);
-    }
-
-    private void mergeVictimRelationsToRoot(MapSqlParameterSource params) {
-        mergeVictimRelationToRoot("unified_video_actors", "actor_id", params);
-        mergeVictimRelationToRoot("unified_video_directors", "director_id", params);
-        mergeVictimRelationToRoot("unified_video_genres", "genre_id", params);
-        mergeVictimRelationToRoot(
-                "unified_video_standard_languages",
-                "standard_language_id",
-                params);
-        mergeVictimRelationToRoot(
-                "unified_video_standard_areas",
-                "standard_area_id",
-                params);
-    }
-
-    private void mergeVictimRelationToRoot(String tableName, String relationIdColumn, MapSqlParameterSource params) {
-        jdbcTemplate.update(
-                """
-                insert into %s (%s, unified_video_id)
-                select %s, :rootId
-                from %s
-                where unified_video_id in (:victimIds)
-                on conflict do nothing
-                """.formatted(tableName, relationIdColumn, relationIdColumn, tableName),
+                update unified_videos
+                set category_code = (
+                        select category_code
+                        from (
+                            select rv.category_code, count(*) as votes
+                            from raw_video_unified_video rvuv
+                            join raw_videos rv on rv.id = rvuv.raw_video_id
+                            where rvuv.unified_video_id = :unifiedVideoId
+                              and nullif(trim(rv.category_code), '') is not null
+                            group by rv.category_code
+                            order by votes desc, rv.category_code asc
+                            limit 1
+                        ) voted
+                    ),
+                    updated_at = now(),
+                    version = coalesce(version, 0) + 1
+                where id = :unifiedVideoId
+                  and exists (
+                      select 1
+                      from raw_video_unified_video rvuv
+                      join raw_videos rv on rv.id = rvuv.raw_video_id
+                      where rvuv.unified_video_id = :unifiedVideoId
+                        and nullif(trim(rv.category_code), '') is not null
+                  )
+                """,
                 params);
     }
 
@@ -1167,12 +1181,79 @@ public class JdbcAggregationRepository {
         }
     }
 
+    private void mergeVictimFlatMetadataToRoot(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
+        if (victimUnifiedVideoIds == null || victimUnifiedVideoIds.isEmpty()) {
+            return;
+        }
+        List<RawFlatMetadataRow> rows = jdbcTemplate.query(
+                """
+                select cast(actor_names as varchar) as actor_names,
+                       cast(director_names as varchar) as director_names,
+                       cast(area_codes as varchar) as area_codes,
+                       cast(language_codes as varchar) as language_codes,
+                       cast(genre_codes as varchar) as genre_codes,
+                       category_code
+                 from unified_videos
+                 where id = :rootId
+                    or id in (:victimIds)
+                 order by case when id = :rootId then 0 else 1 end, id
+                """,
+                new MapSqlParameterSource()
+                        .addValue("rootId", rootUnifiedVideoId)
+                        .addValue("victimIds", victimUnifiedVideoIds),
+                (rs, rowNum) -> new RawFlatMetadataRow(
+                        JsonStringArrays.readSet(objectMapper, rs.getString("actor_names")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("director_names")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("area_codes")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("language_codes")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("genre_codes")),
+                        rs.getString("category_code")));
+        if (rows.isEmpty()) {
+            return;
+        }
+        jdbcTemplate.update(
+                """
+                update unified_videos
+                   set actor_names = cast(:actorNames as jsonb),
+                       director_names = cast(:directorNames as jsonb),
+                       area_codes = cast(:areaCodes as jsonb),
+                       language_codes = cast(:languageCodes as jsonb),
+                       genre_codes = cast(:genreCodes as jsonb),
+                       category_code = coalesce(nullif(category_code, ''), nullif(:categoryCode, '')),
+                       updated_at = now(),
+                       version = coalesce(version, 0) + 1
+                 where id = :rootId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("rootId", rootUnifiedVideoId)
+                        .addValue("actorNames", JsonStringArrays.write(
+                                objectMapper,
+                                collectFlatValues(rows, RawFlatMetadataRow::actorNames)))
+                        .addValue("directorNames", JsonStringArrays.write(
+                                objectMapper,
+                                collectFlatValues(rows, RawFlatMetadataRow::directorNames)))
+                        .addValue("areaCodes", JsonStringArrays.write(
+                                objectMapper,
+                                collectFlatValues(rows, RawFlatMetadataRow::areaCodes)))
+                        .addValue("languageCodes", JsonStringArrays.write(
+                                objectMapper,
+                                collectFlatValues(rows, RawFlatMetadataRow::languageCodes)))
+                        .addValue("genreCodes", JsonStringArrays.write(
+                                objectMapper,
+                                collectFlatValues(rows, RawFlatMetadataRow::genreCodes)))
+                        .addValue("categoryCode", firstCategoryCode(rows)));
+    }
+
+    private String firstCategoryCode(List<RawFlatMetadataRow> rows) {
+        for (RawFlatMetadataRow row : rows) {
+            if (StringUtils.hasText(row.categoryCode())) {
+                return row.categoryCode().trim();
+            }
+        }
+        return null;
+    }
+
     private void deleteVictimUnifiedRows(MapSqlParameterSource params) {
-        jdbcTemplate.update("delete from unified_video_actors where unified_video_id in (:victimIds)", params);
-        jdbcTemplate.update("delete from unified_video_directors where unified_video_id in (:victimIds)", params);
-        jdbcTemplate.update("delete from unified_video_genres where unified_video_id in (:victimIds)", params);
-        jdbcTemplate.update("delete from unified_video_standard_languages where unified_video_id in (:victimIds)", params);
-        jdbcTemplate.update("delete from unified_video_standard_areas where unified_video_id in (:victimIds)", params);
         jdbcTemplate.update("delete from unified_videos where id in (:victimIds)", params);
     }
 
@@ -1257,5 +1338,14 @@ public class JdbcAggregationRepository {
         long fileSizeOrZero() {
             return fileSizeWasNull ? 0L : fileSize;
         }
+    }
+
+    private record RawFlatMetadataRow(
+            Set<String> actorNames,
+            Set<String> directorNames,
+            Set<String> areaCodes,
+            Set<String> languageCodes,
+            Set<String> genreCodes,
+            String categoryCode) {
     }
 }

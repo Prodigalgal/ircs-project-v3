@@ -134,64 +134,16 @@ class CatalogAdminControllerTest {
     }
 
     @Test
-    void routesRawDictionaryWriteContract() throws Exception {
+    void routesRawCategoryWriteContract() throws Exception {
         UUID rawCategoryId = UUID.randomUUID();
-        UUID rawGenreId = UUID.randomUUID();
-        UUID rawAreaId = UUID.randomUUID();
-        UUID rawLanguageId = UUID.randomUUID();
         when(catalogService.updateRawCategory(eq(rawCategoryId), any()))
                 .thenReturn(new RawCategoryRead(rawCategoryId, "1", "Movies", null, null, null, null, null, null));
-        when(catalogService.createRawGenre(any()))
-                .thenReturn(new RawGenreRead(rawGenreId, "Action Raw", null, null));
-        when(catalogService.updateRawGenre(eq(rawGenreId), any()))
-                .thenReturn(Optional.of(new RawGenreRead(rawGenreId, "Action Raw 2", null, null)));
-        when(catalogService.createRawArea(any()))
-                .thenReturn(new RawAreaRead(rawAreaId, "CN Raw", null, null, null, null));
-        when(catalogService.updateRawArea(eq(rawAreaId), any()))
-                .thenReturn(Optional.of(new RawAreaRead(rawAreaId, "CN Raw 2", null, null, null, null)));
-        when(catalogService.createRawLanguage(any()))
-                .thenReturn(new RawLanguageRead(rawLanguageId, "ZH Raw", null, null, null, null));
-        when(catalogService.updateRawLanguage(eq(rawLanguageId), any()))
-                .thenReturn(Optional.of(new RawLanguageRead(rawLanguageId, "ZH Raw 2", null, null, null, null)));
 
         mockMvc.perform(put("/api/v1/raw-categories/{id}", rawCategoryId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"id\":\"" + rawCategoryId + "\",\"sourceName\":\"Movies\"}"))
                 .andExpect(status().isOk());
         mockMvc.perform(delete("/api/v1/raw-categories/{id}", rawCategoryId))
-                .andExpect(status().isNoContent());
-
-        mockMvc.perform(post("/api/v1/raw-genres")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"sourceValue\":\"Action Raw\"}"))
-                .andExpect(status().isCreated());
-        mockMvc.perform(put("/api/v1/raw-genres/{id}", rawGenreId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"id\":\"" + rawGenreId + "\",\"sourceValue\":\"Action Raw 2\"}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(delete("/api/v1/raw-genres/{id}", rawGenreId))
-                .andExpect(status().isNoContent());
-
-        mockMvc.perform(post("/api/v1/raw-areas")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"sourceValue\":\"CN Raw\"}"))
-                .andExpect(status().isCreated());
-        mockMvc.perform(put("/api/v1/raw-areas/{id}", rawAreaId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"id\":\"" + rawAreaId + "\",\"sourceValue\":\"CN Raw 2\"}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(delete("/api/v1/raw-areas/{id}", rawAreaId))
-                .andExpect(status().isNoContent());
-
-        mockMvc.perform(post("/api/v1/raw-languages")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"sourceValue\":\"ZH Raw\"}"))
-                .andExpect(status().isCreated());
-        mockMvc.perform(put("/api/v1/raw-languages/{id}", rawLanguageId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"id\":\"" + rawLanguageId + "\",\"sourceValue\":\"ZH Raw 2\"}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(delete("/api/v1/raw-languages/{id}", rawLanguageId))
                 .andExpect(status().isNoContent());
     }
 

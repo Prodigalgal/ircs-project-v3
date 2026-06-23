@@ -14,6 +14,7 @@ import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardResponse;
@@ -31,6 +32,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,7 +107,10 @@ public class JdbcVideoAdminRepository {
                     title, alias_title, season, subtitle, cover_image_id, description, year, raw_language_str,
                     remarks, score, published_at, total_episodes, duration,
                     douban_id, tmdb_id, imdb_id, rotten_tomatoes_id, locked_fields,
-                    data_source_category_id, data_source_id, enrichment_status, enrichment_retry_count,
+                    data_source_category_id, data_source_id, actor_names, director_names,
+                    area_codes, language_codes, genre_codes, category_code,
+                    source_category_code, source_category_name,
+                    enrichment_status, enrichment_retry_count,
                     normalization_status, normalization_retry_count, next_normalization_retry_time,
                     aggregation_status, playlist_retry_count, raw_metadata
                 ) values (
@@ -113,7 +118,10 @@ public class JdbcVideoAdminRepository {
                     :title, :aliasTitle, :season, :subtitle, :coverImageId, :description, :year, :rawLanguageStr,
                     :remarks, :score, :publishedAt, :totalEpisodes, :duration,
                     :doubanId, :tmdbId, :imdbId, :rottenTomatoesId, cast(:lockedFields as jsonb),
-                    :dataSourceCategoryId, :dataSourceId, 'PENDING', 0,
+                    :dataSourceCategoryId, :dataSourceId, cast(:actorNames as jsonb), cast(:directorNames as jsonb),
+                    cast(:areaCodes as jsonb), cast(:languageCodes as jsonb), cast(:genreCodes as jsonb), :categoryCode,
+                    :sourceCategoryCode, :sourceCategoryName,
+                    'PENDING', 0,
                     'READY', 0, null,
                     'PENDING', 0, null
                 )
@@ -142,11 +150,15 @@ public class JdbcVideoAdminRepository {
                         .addValue("rottenTomatoesId", normalizeExternalId(request.rottenTomatoesId(), 50))
                         .addValue("lockedFields", "[]")
                         .addValue("dataSourceCategoryId", request.dataSourceCategoryId())
-                        .addValue("dataSourceId", binding.dataSourceId()));
-        replaceUuidRelations("video_actors", "video_id", "actor_id", "actors", id, request.actorIds());
-        replaceUuidRelations("video_directors", "video_id", "director_id", "directors", id, request.directorIds());
-        replaceUuidRelations("video_raw_genres", "video_id", "raw_genre_id", "raw_genres", id, request.rawGenreIds());
-        replaceUuidRelations("video_raw_areas", "video_id", "raw_area_id", "raw_areas", id, request.rawAreaIds());
+                        .addValue("dataSourceId", binding.dataSourceId())
+                        .addValue("actorNames", jsonStringArray(request.actorNames()))
+                        .addValue("directorNames", jsonStringArray(request.directorNames()))
+                        .addValue("areaCodes", jsonStringArray(request.areaCodes()))
+                        .addValue("languageCodes", jsonStringArray(request.languageCodes()))
+                        .addValue("genreCodes", jsonStringArray(request.genreCodes()))
+                        .addValue("categoryCode", firstText(request.categoryCode(), findCategoryCode(request.categoryId(), binding.categoryId()).orElse(null)))
+                        .addValue("sourceCategoryCode", firstText(request.sourceCategoryCode(), binding.sourceCode()))
+                        .addValue("sourceCategoryName", firstText(request.sourceCategoryName(), binding.sourceName(), 255)));
         evictMetadataNameCache(MetadataNameOwnerType.RAW, List.of(id));
         return id;
     }
@@ -183,23 +195,39 @@ public class JdbcVideoAdminRepository {
                             "DataSourceCategory not found: " + request.dataSourceCategoryId()));
             updates.put("data_source_category_id", request.dataSourceCategoryId());
             updates.put("data_source_id", binding.dataSourceId());
+            Optional<String> bindingCategoryCode = findCategoryCode(request.categoryId(), binding.categoryId());
+            putIfPresent(
+                    updates,
+                    "category_code",
+                    firstText(request.categoryCode(), bindingCategoryCode.orElse(null)),
+                    request.categoryCode() != null || bindingCategoryCode.isPresent());
+            putIfPresent(
+                    updates,
+                    "source_category_code",
+                    firstText(request.sourceCategoryCode(), binding.sourceCode()),
+                    request.sourceCategoryCode() != null || StringUtils.hasText(binding.sourceCode()));
+            putIfPresent(
+                    updates,
+                    "source_category_name",
+                    firstText(request.sourceCategoryName(), binding.sourceName(), 255),
+                    request.sourceCategoryName() != null || StringUtils.hasText(binding.sourceName()));
         }
+        putJsonIfPresent(updates, "actor_names", request.actorNames(), request.actorNames() != null);
+        putJsonIfPresent(updates, "director_names", request.directorNames(), request.directorNames() != null);
+        putJsonIfPresent(updates, "area_codes", request.areaCodes(), request.areaCodes() != null);
+        putJsonIfPresent(updates, "language_codes", request.languageCodes(), request.languageCodes() != null);
+        putJsonIfPresent(updates, "genre_codes", request.genreCodes(), request.genreCodes() != null);
+        putIfPresent(updates, "category_code", trimToLength(request.categoryCode(), 100), request.categoryCode() != null);
+        putIfPresent(updates, "source_category_code", trimToLength(request.sourceCategoryCode(), 100), request.sourceCategoryCode() != null);
+        putIfPresent(updates, "source_category_name", trimToLength(request.sourceCategoryName(), 255), request.sourceCategoryName() != null);
         if (!updates.isEmpty()) {
             updateTable("raw_videos", id, updates);
         }
-        if (request.actorIds() != null) {
-            replaceUuidRelations("video_actors", "video_id", "actor_id", "actors", id, request.actorIds());
-        }
-        if (request.directorIds() != null) {
-            replaceUuidRelations("video_directors", "video_id", "director_id", "directors", id, request.directorIds());
-        }
-        if (request.rawGenreIds() != null) {
-            replaceUuidRelations("video_raw_genres", "video_id", "raw_genre_id", "raw_genres", id, request.rawGenreIds());
-        }
-        if (request.rawAreaIds() != null) {
-            replaceUuidRelations("video_raw_areas", "video_id", "raw_area_id", "raw_areas", id, request.rawAreaIds());
-        }
-        if (request.actorIds() != null || request.directorIds() != null || request.rawAreaIds() != null) {
+        if (request.actorNames() != null
+                || request.directorNames() != null
+                || request.areaCodes() != null
+                || request.languageCodes() != null
+                || request.genreCodes() != null) {
             evictMetadataNameCache(MetadataNameOwnerType.RAW, List.of(id));
         }
     }
@@ -276,11 +304,6 @@ public class JdbcVideoAdminRepository {
                 UUID.class);
         jdbcTemplate.update("delete from episodes where playlist_id in (select id from playlists where video_id in (:ids))", params);
         jdbcTemplate.update("delete from playlists where video_id in (:ids)", params);
-        jdbcTemplate.update("delete from video_actors where video_id in (:ids)", params);
-        jdbcTemplate.update("delete from video_directors where video_id in (:ids)", params);
-        jdbcTemplate.update("delete from video_raw_genres where video_id in (:ids)", params);
-        jdbcTemplate.update("delete from video_raw_languages where video_id in (:ids)", params);
-        jdbcTemplate.update("delete from video_raw_areas where video_id in (:ids)", params);
         jdbcTemplate.update("delete from raw_video_unified_video where raw_video_id in (:ids)", params);
         jdbcTemplate.update("delete from raw_videos where id in (:ids)", params);
         evictMetadataNameCache(MetadataNameOwnerType.RAW, ids);
@@ -324,13 +347,15 @@ public class JdbcVideoAdminRepository {
                     cover_image_id, description, year, area, score, published_at,
                     total_episodes, duration, remarks,
                     douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
-                    locked_fields, category_id, content_visibility, metadata_status
+                    locked_fields, category_id, category_code, actor_names, director_names,
+                    area_codes, language_codes, genre_codes, content_visibility, metadata_status
                 ) values (
                     :id, :now, :now, 0, :title, :aliasTitle, :season, :subtitle,
                     :coverImageId, :description, :year, null, :score, :publishedAt,
                     :totalEpisodes, :duration, :remarks,
                     :doubanId, :tmdbId, :imdbId, :rottenTomatoesId,
-                    cast(:lockedFields as jsonb), :categoryId, :contentVisibility, 'DIRTY'
+                    cast(:lockedFields as jsonb), :categoryId, :categoryCode, cast(:actorNames as jsonb), cast(:directorNames as jsonb),
+                    cast(:areaCodes as jsonb), cast(:languageCodes as jsonb), cast(:genreCodes as jsonb), :contentVisibility, 'DIRTY'
                 )
                 """,
                 new MapSqlParameterSource()
@@ -354,15 +379,14 @@ public class JdbcVideoAdminRepository {
                         .addValue("rottenTomatoesId", normalizeExternalId(request.rottenTomatoesId(), 50))
                         .addValue("lockedFields", jsonOrEmpty(request.lockedFields()))
                         .addValue("categoryId", request.categoryId())
+                        .addValue("categoryCode", firstText(request.categoryCode(), findCategoryCode(request.categoryId()).orElse(null)))
+                        .addValue("actorNames", jsonStringArray(firstPresent(request.actorNames(), request.actors())))
+                        .addValue("directorNames", jsonStringArray(firstPresent(request.directorNames(), request.directors())))
+                        .addValue("areaCodes", jsonStringArray(firstPresent(request.areaCodes(), findAreaCodesByStandardAreaIds(request.standardAreaIds()))))
+                        .addValue("languageCodes", jsonStringArray(firstPresent(request.languageCodes(), findLanguageCodesByNames(request.languages()))))
+                        .addValue("genreCodes", jsonStringArray(firstPresent(request.genreCodes(), findGenreCodesByNames(request.genres()))))
                         .addValue("contentVisibility", normalizeContentVisibility(request.contentVisibility())));
-        replaceUuidRelations("unified_video_standard_areas", "unified_video_id", "standard_area_id", "standard_areas", id,
-                request.standardAreaIds());
-        replaceNamedRelations("unified_video_actors", "unified_video_id", "actor_id", "actors", id, request.actors());
-        replaceNamedRelations("unified_video_directors", "unified_video_id", "director_id", "directors", id, request.directors());
-        replaceNamedRelations("unified_video_genres", "unified_video_id", "genre_id", "standard_genre", id, request.genres());
         replaceUnifiedTags(id, request.tags());
-        replaceNamedRelations("unified_video_standard_languages", "unified_video_id", "standard_language_id",
-                "standard_languages", id, request.languages());
         bindRawVideosToUnified(id, request.bindVideoIds());
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(id));
         return id;
@@ -417,6 +441,21 @@ public class JdbcVideoAdminRepository {
         putIfPresent(updates, "category_id", request.categoryId());
         putIfPresent(
                 updates,
+                "category_code",
+                firstText(request.categoryCode(), findCategoryCode(request.categoryId()).orElse(null)),
+                request.categoryCode() != null || request.categoryId() != null);
+        putJsonIfPresent(updates, "actor_names", firstPresent(request.actorNames(), request.actors()),
+                request.actorNames() != null || request.actors() != null);
+        putJsonIfPresent(updates, "director_names", firstPresent(request.directorNames(), request.directors()),
+                request.directorNames() != null || request.directors() != null);
+        putJsonIfPresent(updates, "area_codes", firstPresent(request.areaCodes(), findAreaCodesByStandardAreaIds(request.standardAreaIds())),
+                request.areaCodes() != null || request.standardAreaIds() != null);
+        putJsonIfPresent(updates, "language_codes", firstPresent(request.languageCodes(), findLanguageCodesByNames(request.languages())),
+                request.languageCodes() != null || request.languages() != null);
+        putJsonIfPresent(updates, "genre_codes", firstPresent(request.genreCodes(), findGenreCodesByNames(request.genres())),
+                request.genreCodes() != null || request.genres() != null);
+        putIfPresent(
+                updates,
                 "content_visibility",
                 normalizeContentVisibility(request.contentVisibility()),
                 request.contentVisibility() != null);
@@ -425,31 +464,21 @@ public class JdbcVideoAdminRepository {
         }
         updates.put("metadata_status", "DIRTY");
         updateTable("unified_videos", id, updates);
-        if (request.standardAreaIds() != null) {
-            replaceUuidRelations("unified_video_standard_areas", "unified_video_id", "standard_area_id", "standard_areas", id,
-                    request.standardAreaIds());
-        }
-        if (request.actors() != null) {
-            replaceNamedRelations("unified_video_actors", "unified_video_id", "actor_id", "actors", id, request.actors());
-        }
-        if (request.directors() != null) {
-            replaceNamedRelations("unified_video_directors", "unified_video_id", "director_id", "directors", id,
-                    request.directors());
-        }
-        if (request.genres() != null) {
-            replaceNamedRelations("unified_video_genres", "unified_video_id", "genre_id", "standard_genre", id,
-                    request.genres());
-        }
         if (request.tags() != null) {
             replaceUnifiedTags(id, request.tags());
         }
-        if (request.languages() != null) {
-            replaceNamedRelations("unified_video_standard_languages", "unified_video_id", "standard_language_id",
-                    "standard_languages", id, request.languages());
-        }
         unbindRawVideos(request.unbindVideoIds());
         bindRawVideosToUnified(id, request.bindVideoIds());
-        if (request.standardAreaIds() != null || request.actors() != null || request.directors() != null) {
+        if (request.standardAreaIds() != null
+                || request.areaCodes() != null
+                || request.actors() != null
+                || request.actorNames() != null
+                || request.directors() != null
+                || request.directorNames() != null
+                || request.genres() != null
+                || request.genreCodes() != null
+                || request.languages() != null
+                || request.languageCodes() != null) {
             evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(id));
         }
     }
@@ -541,11 +570,6 @@ public class JdbcVideoAdminRepository {
         }
         MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
         jdbcTemplate.update("delete from raw_video_unified_video where unified_video_id in (:ids)", params);
-        jdbcTemplate.update("delete from unified_video_actors where unified_video_id in (:ids)", params);
-        jdbcTemplate.update("delete from unified_video_directors where unified_video_id in (:ids)", params);
-        jdbcTemplate.update("delete from unified_video_genres where unified_video_id in (:ids)", params);
-        jdbcTemplate.update("delete from unified_video_standard_languages where unified_video_id in (:ids)", params);
-        jdbcTemplate.update("delete from unified_video_standard_areas where unified_video_id in (:ids)", params);
         jdbcTemplate.update("delete from unified_videos where id in (:ids)", params);
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, ids);
     }
@@ -557,68 +581,6 @@ public class JdbcVideoAdminRepository {
         if (metadataNameCache != null) {
             metadataNameCache.evictOwner(ownerType, ownerIds);
         }
-    }
-
-    private void replaceUuidRelations(
-            String joinTable,
-            String ownerColumn,
-            String relatedColumn,
-            String relatedTable,
-            UUID ownerId,
-            Set<UUID> relatedIds) {
-        jdbcTemplate.update(
-                "delete from %s where %s = :ownerId".formatted(joinTable, ownerColumn),
-                new MapSqlParameterSource("ownerId", ownerId));
-        if (CollectionUtils.isEmpty(relatedIds)) {
-            return;
-        }
-        ensureAllExist(relatedTable, relatedIds);
-        List<MapSqlParameterSource> batch = relatedIds.stream()
-                .map(id -> new MapSqlParameterSource().addValue("ownerId", ownerId).addValue("relatedId", id))
-                .toList();
-        jdbcTemplate.batchUpdate(
-                """
-                insert into %s (%s, %s)
-                values (:ownerId, :relatedId)
-                on conflict do nothing
-                """.formatted(joinTable, ownerColumn, relatedColumn),
-                batch.toArray(MapSqlParameterSource[]::new));
-    }
-
-    private void replaceNamedRelations(
-            String joinTable,
-            String ownerColumn,
-            String relatedColumn,
-            String relatedTable,
-            UUID ownerId,
-            Set<String> names) {
-        jdbcTemplate.update(
-                "delete from %s where %s = :ownerId".formatted(joinTable, ownerColumn),
-                new MapSqlParameterSource("ownerId", ownerId));
-        if (CollectionUtils.isEmpty(names)) {
-            return;
-        }
-        List<String> safeNames = names.stream().filter(StringUtils::hasText).map(String::trim).distinct().toList();
-        if (safeNames.isEmpty()) {
-            return;
-        }
-        List<UUID> ids = jdbcTemplate.queryForList(
-                "select id from %s where name in (:names)".formatted(relatedTable),
-                new MapSqlParameterSource("names", safeNames),
-                UUID.class);
-        if (ids.isEmpty()) {
-            return;
-        }
-        List<MapSqlParameterSource> batch = ids.stream()
-                .map(id -> new MapSqlParameterSource().addValue("ownerId", ownerId).addValue("relatedId", id))
-                .toList();
-        jdbcTemplate.batchUpdate(
-                """
-                insert into %s (%s, %s)
-                values (:ownerId, :relatedId)
-                on conflict do nothing
-                """.formatted(joinTable, ownerColumn, relatedColumn),
-                batch.toArray(MapSqlParameterSource[]::new));
     }
 
     private void replaceUnifiedTags(UUID unifiedVideoId, Set<String> tags) {
@@ -649,12 +611,14 @@ public class JdbcVideoAdminRepository {
         }
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select id, data_source_id, category_id from raw_category where id = :id",
+                    "select id, data_source_id, category_id, source_code, source_name from raw_category where id = :id",
                     new MapSqlParameterSource("id", rawCategoryId),
                     (rs, rowNum) -> new DataSourceBinding(
                             rs.getObject("id", UUID.class),
                             rs.getObject("data_source_id", UUID.class),
-                            rs.getObject("category_id", UUID.class))));
+                            rs.getObject("category_id", UUID.class),
+                            rs.getString("source_code"),
+                            rs.getString("source_name"))));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -669,7 +633,7 @@ public class JdbcVideoAdminRepository {
         int i = 0;
         for (Map.Entry<String, Object> entry : updates.entrySet()) {
             String param = "p" + i++;
-            if ("locked_fields".equals(entry.getKey())) {
+            if (isJsonbColumn(entry.getKey())) {
                 assignments.add(entry.getKey() + " = cast(:" + param + " as jsonb)");
             } else {
                 assignments.add(entry.getKey() + " = :" + param);
@@ -695,19 +659,6 @@ public class JdbcVideoAdminRepository {
         }
     }
 
-    private void ensureAllExist(String table, Set<UUID> ids) {
-        if (CollectionUtils.isEmpty(ids)) {
-            return;
-        }
-        Long count = jdbcTemplate.queryForObject(
-                "select count(*) from %s where id in (:ids)".formatted(table),
-                new MapSqlParameterSource("ids", ids),
-                Long.class);
-        if (count == null || count != ids.size()) {
-            throw new ContentApiException(HttpStatus.BAD_REQUEST, "Invalid relation id for table " + table);
-        }
-    }
-
     private void putIfPresent(Map<String, Object> updates, String column, Object value) {
         putIfPresent(updates, column, value, value != null);
     }
@@ -718,8 +669,120 @@ public class JdbcVideoAdminRepository {
         }
     }
 
+    private void putJsonIfPresent(
+            Map<String, Object> updates,
+            String column,
+            Collection<String> values,
+            boolean present) {
+        if (present) {
+            updates.put(column, jsonStringArray(values));
+        }
+    }
+
+    private boolean isJsonbColumn(String column) {
+        return Set.of(
+                "locked_fields",
+                "actor_names",
+                "director_names",
+                "area_codes",
+                "language_codes",
+                "genre_codes").contains(column);
+    }
+
     private String jsonOrEmpty(Set<String> values) {
         return json(values == null ? Collections.emptySet() : values);
+    }
+
+    private String jsonStringArray(Collection<String> values) {
+        return JsonStringArrays.write(objectMapper, values);
+    }
+
+    private Set<String> firstPresent(Set<String> preferred, Collection<String> fallback) {
+        Set<String> normalizedPreferred = JsonStringArrays.normalize(preferred);
+        return normalizedPreferred.isEmpty() ? JsonStringArrays.normalize(fallback) : normalizedPreferred;
+    }
+
+    private String firstText(String preferred, String fallback) {
+        return firstText(preferred, fallback, 100);
+    }
+
+    private String firstText(String preferred, String fallback, int maxLength) {
+        if (StringUtils.hasText(preferred)) {
+            return trimToLength(preferred, maxLength);
+        }
+        return StringUtils.hasText(fallback) ? trimToLength(fallback, maxLength) : null;
+    }
+
+    private Set<String> findAreaCodesByStandardAreaIds(Set<UUID> ids) {
+        if (CollectionUtils.isEmpty(ids)) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(jdbcTemplate.queryForList(
+                """
+                select code
+                  from standard_areas
+                 where id in (:ids)
+                   and nullif(trim(code), '') is not null
+                 order by code
+                """,
+                new MapSqlParameterSource("ids", ids),
+                String.class));
+    }
+
+    private Set<String> findGenreCodesByNames(Set<String> names) {
+        Set<String> safeNames = JsonStringArrays.normalize(names);
+        if (safeNames.isEmpty()) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(jdbcTemplate.queryForList(
+                """
+                select code
+                  from standard_genre
+                 where name in (:names)
+                   and nullif(trim(code), '') is not null
+                 order by code
+                """,
+                new MapSqlParameterSource("names", safeNames),
+                String.class));
+    }
+
+    private Set<String> findLanguageCodesByNames(Set<String> names) {
+        Set<String> safeNames = JsonStringArrays.normalize(names);
+        if (safeNames.isEmpty()) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(jdbcTemplate.queryForList(
+                """
+                select code
+                  from standard_languages
+                 where name in (:names)
+                   and nullif(trim(code), '') is not null
+                 order by code
+                """,
+                new MapSqlParameterSource("names", safeNames),
+                String.class));
+    }
+
+    private Optional<String> findCategoryCode(UUID... categoryIds) {
+        List<UUID> ids = java.util.Arrays.stream(categoryIds)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Optional.empty();
+        }
+        List<String> codes = jdbcTemplate.queryForList(
+                """
+                select slug
+                  from standard_category
+                 where id in (:ids)
+                   and nullif(trim(slug), '') is not null
+                 order by name
+                 limit 1
+                """,
+                new MapSqlParameterSource("ids", ids),
+                String.class);
+        return codes.isEmpty() ? Optional.empty() : Optional.of(codes.getFirst());
     }
 
     private String json(Set<String> values) {
@@ -740,9 +803,9 @@ public class JdbcVideoAdminRepository {
             UUID unifiedVideoId) {
     }
 
-    private record DataSourceBinding(UUID rawCategoryId, UUID dataSourceId, UUID categoryId) {
+    private record DataSourceBinding(UUID rawCategoryId, UUID dataSourceId, UUID categoryId, String sourceCode, String sourceName) {
         static DataSourceBinding empty() {
-            return new DataSourceBinding(null, null, null);
+            return new DataSourceBinding(null, null, null, null, null);
         }
     }
 }

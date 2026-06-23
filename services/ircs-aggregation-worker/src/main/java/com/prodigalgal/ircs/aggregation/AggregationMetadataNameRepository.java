@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.aggregation;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameRelation;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
@@ -18,20 +20,22 @@ import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.util.StringUtils;
 
 final class AggregationMetadataNameRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final MetadataNameValkeyCache metadataNameCache;
+    private final ObjectMapper objectMapper;
 
     AggregationMetadataNameRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
-            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider) {
+            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.metadataNameCache = metadataNameCacheProvider == null
                 ? null
                 : metadataNameCacheProvider.getIfAvailable();
+        this.objectMapper = objectMapper;
     }
 
     RawVideoAggregationRecord populateRawMetadata(RawVideoAggregationRecord rawVideo) {
@@ -108,14 +112,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryRawActorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select va.video_id as owner_id, a.name
-                from video_actors va
-                join actors a on a.id = va.actor_id
-                where va.video_id in (:ids)
-                """,
-                ids);
+        return queryFlatNameSetById("raw_videos", "id", "actor_names", ids);
     }
 
     private Map<UUID, Set<String>> findRawDirectorNames(Collection<UUID> ids) {
@@ -127,14 +124,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryRawDirectorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select vd.video_id as owner_id, d.name
-                from video_directors vd
-                join directors d on d.id = vd.director_id
-                where vd.video_id in (:ids)
-                """,
-                ids);
+        return queryFlatNameSetById("raw_videos", "id", "director_names", ids);
     }
 
     private Map<UUID, Set<String>> findRawAreaNames(Collection<UUID> ids) {
@@ -146,15 +136,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryRawAreaNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select vra.video_id as owner_id, sa.name
-                from video_raw_areas vra
-                join raw_areas ra on ra.id = vra.raw_area_id
-                join standard_areas sa on sa.id = ra.standard_area_id
-                where vra.video_id in (:ids)
-                """,
-                ids);
+        return queryFlatNameSetById("raw_videos", "id", "area_codes", ids);
     }
 
     private Map<UUID, Set<String>> findUnifiedActorNames(Collection<UUID> ids) {
@@ -166,14 +148,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryUnifiedActorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select uva.unified_video_id as owner_id, a.name
-                from unified_video_actors uva
-                join actors a on a.id = uva.actor_id
-                where uva.unified_video_id in (:ids)
-                """,
-                ids);
+        return queryFlatNameSetById("unified_videos", "id", "actor_names", ids);
     }
 
     private Map<UUID, Set<String>> findUnifiedDirectorNames(Collection<UUID> ids) {
@@ -185,14 +160,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryUnifiedDirectorNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select uvd.unified_video_id as owner_id, d.name
-                from unified_video_directors uvd
-                join directors d on d.id = uvd.director_id
-                where uvd.unified_video_id in (:ids)
-                """,
-                ids);
+        return queryFlatNameSetById("unified_videos", "id", "director_names", ids);
     }
 
     private Map<UUID, Set<String>> findUnifiedAreaNames(Collection<UUID> ids) {
@@ -204,14 +172,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryUnifiedAreaNames(Collection<UUID> ids) {
-        return queryNameSetById(
-                """
-                select uvsa.unified_video_id as owner_id, sa.name
-                from unified_video_standard_areas uvsa
-                join standard_areas sa on sa.id = uvsa.standard_area_id
-                where uvsa.unified_video_id in (:ids)
-                """,
-                ids);
+        return queryFlatNameSetById("unified_videos", "id", "area_codes", ids);
     }
 
     private Map<UUID, Set<String>> cachedNameSetById(
@@ -259,20 +220,28 @@ final class AggregationMetadataNameRepository {
         return result;
     }
 
-    private Map<UUID, Set<String>> queryNameSetById(String sql, Collection<UUID> ids) {
+    private Map<UUID, Set<String>> queryFlatNameSetById(
+            String tableName,
+            String idColumn,
+            String jsonColumn,
+            Collection<UUID> ids) {
         List<UUID> normalizedIds = normalizeIds(ids);
         if (normalizedIds.isEmpty()) {
             return Map.of();
         }
         Map<UUID, Set<String>> result = new HashMap<>();
         jdbcTemplate.query(
-                sql,
+                """
+                select %s as owner_id, cast(%s as varchar) as names
+                from %s
+                where %s in (:ids)
+                """.formatted(idColumn, jsonColumn, tableName, idColumn),
                 new MapSqlParameterSource("ids", normalizedIds),
                 rs -> {
                     UUID ownerId = rs.getObject("owner_id", UUID.class);
-                    String name = rs.getString("name");
-                    if (ownerId != null && StringUtils.hasText(name)) {
-                        result.computeIfAbsent(ownerId, ignored -> new HashSet<>()).add(name);
+                    Set<String> names = JsonStringArrays.readSet(objectMapper, rs.getString("names"));
+                    if (ownerId != null && !names.isEmpty()) {
+                        result.put(ownerId, names);
                     }
                 });
         return result;

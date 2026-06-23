@@ -59,7 +59,7 @@ public class JdbcDashboardRepository {
                 SELECT coalesce(sc.name, '未分类') AS label,
                        count(uv.id) AS value
                   FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON uv.category_id = sc.id
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                  GROUP BY coalesce(sc.name, '未分类')
                  ORDER BY value DESC, label ASC
                  LIMIT 20
@@ -148,7 +148,7 @@ public class JdbcDashboardRepository {
     public List<EfficiencyStatsResponse> categoryEfficiency() {
         return jdbcTemplate.query(
                 """
-                SELECT coalesce(nullif(trim(rc.source_name), ''), rc.source_code, '未分类') AS name,
+                SELECT coalesce(sc.name, nullif(trim(rc.source_name), ''), rv.source_category_code, rc.source_code, '未分类') AS name,
                        count(rv.id) AS total,
                        count(rv.id) FILTER (
                            WHERE rv.enrichment_status = 'SUCCESS'
@@ -156,8 +156,9 @@ public class JdbcDashboardRepository {
                               OR nullif(trim(coalesce(rv.tmdb_id, '')), '') IS NOT NULL
                        ) AS success_count
                   FROM raw_videos rv
+                  LEFT JOIN standard_category sc ON sc.slug = rv.category_code
                   LEFT JOIN raw_category rc ON rv.data_source_category_id = rc.id
-                 GROUP BY coalesce(nullif(trim(rc.source_name), ''), rc.source_code, '未分类')
+                 GROUP BY coalesce(sc.name, nullif(trim(rc.source_name), ''), rv.source_category_code, rc.source_code, '未分类')
                  ORDER BY total DESC, name ASC
                  LIMIT 10
                 """,

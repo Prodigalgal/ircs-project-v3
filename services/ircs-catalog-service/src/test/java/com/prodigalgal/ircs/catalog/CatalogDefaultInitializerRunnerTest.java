@@ -2,7 +2,6 @@ package com.prodigalgal.ircs.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -22,7 +21,7 @@ class CatalogDefaultInitializerRunnerTest {
             CatalogDefaultInitializerRunner.forTest(repository, defaults, objectMapper, true);
 
     @Test
-    void seedsV1CoreCatalogDefaultsAndAliases() throws Exception {
+    void seedsV1CoreCatalogDefaultsWithoutLegacyRawAliases() throws Exception {
         UUID stableId = UUID.randomUUID();
         stubSeedDefaults(stableId);
         when(repository.listDataSourceSeedMappings()).thenReturn(List.of());
@@ -37,11 +36,6 @@ class CatalogDefaultInitializerRunnerTest {
         verify(repository).seedStandardArea("US", "美国", "Americas");
         verify(repository).seedStandardLanguage("zh", "普通话", "Mandarin", "普通话");
         verify(repository).seedStandardLanguage("cn", "粤语", "Cantonese", "广州话 / 廣州話");
-        verify(repository).seedRawLanguageAlias("国语", stableId);
-        verify(repository, atLeastOnce()).seedRawLanguageAlias("粤语", stableId);
-        verify(repository).seedRawAreaAlias("中国大陆", stableId);
-        verify(repository).seedRawAreaAlias("美剧", stableId);
-        verify(repository).seedRawGenreAlias("短剧", stableId);
         verify(repository).seedDataSource(
                 "光速资源",
                 "https://api.guangsuapi.com",
@@ -144,12 +138,6 @@ class CatalogDefaultInitializerRunnerTest {
                         org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(new JdbcCatalogRepository.SeedResult(stableId, true, false));
-        when(repository.seedRawGenreAlias(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new JdbcCatalogRepository.SeedResult(stableId, true, false));
-        when(repository.seedRawAreaAlias(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new JdbcCatalogRepository.SeedResult(stableId, true, false));
-        when(repository.seedRawLanguageAlias(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new JdbcCatalogRepository.SeedResult(stableId, true, false));
         when(repository.seedDataSource(
                         org.mockito.ArgumentMatchers.anyString(),

@@ -9,7 +9,6 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
-import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkPublisher;
 import com.prodigalgal.ircs.contracts.normalization.NormalizationMaintenanceRunResponse;
 import java.util.List;
 import java.util.Optional;
@@ -38,9 +37,6 @@ class RawVideoNormalizationServiceTest {
     private AggregationWorkPublisher aggregationWorkPublisher;
 
     @Mock
-    private LlmCleaningWorkPublisher llmCleaningWorkPublisher;
-
-    @Mock
     private NormalizationConfigValues configValues;
 
     private RawVideoNormalizationService service;
@@ -57,7 +53,6 @@ class RawVideoNormalizationServiceTest {
                 searchSyncPublisher,
                 metadataEnrichPublisher,
                 aggregationWorkPublisher,
-                llmCleaningWorkPublisher,
                 objectMapper,
                 configValues);
     }
@@ -106,7 +101,7 @@ class RawVideoNormalizationServiceTest {
                 dataSourceId,
                 "hash-v1")));
         when(repository.markReady(eq(id), any()))
-                .thenReturn(new RawVideoNormalizationRepository.MarkReadyResult(List.of()));
+                .thenReturn(new RawVideoNormalizationRepository.MarkReadyResult());
 
         RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
 

@@ -8,6 +8,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,6 +33,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings({"unchecked", "rawtypes"})
 class JdbcAggregationRepositoryTest {
+
+    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder().build();
 
     @Mock
     private NamedParameterJdbcTemplate jdbcTemplate;
@@ -302,17 +307,15 @@ class JdbcAggregationRepositoryTest {
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
         JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
         UUID categoryId = UUID.randomUUID();
-        UUID rawCategoryId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
-        jdbc.update("insert into standard_category (id, name) values (?, ?)", categoryId, "电影");
-        jdbc.update("insert into raw_category (id, category_id) values (?, ?)", rawCategoryId, categoryId);
+        jdbc.update("insert into standard_category (id, name, slug) values (?, ?, ?)", categoryId, "电影", "movie");
         jdbc.update("""
                 insert into raw_videos (
                     id, created_at, updated_at, version, source_vid, source_hash, title, year,
-                    enrichment_status, normalization_status, aggregation_status, data_source_category_id
+                    enrichment_status, normalization_status, aggregation_status, category_code
                 ) values (?, now(), now(), 0, 'source-1', 'hash-1', 'Codex Signal', '2026',
-                    'SUCCESS', 'READY', 'PROCESSING', ?)
-                """, rawVideoId, rawCategoryId);
+                    'SUCCESS', 'READY', 'PROCESSING', 'movie')
+                """, rawVideoId);
 
         RawVideoAggregationRecord result = repository.findRawVideo(rawVideoId).orElseThrow();
 
@@ -329,24 +332,21 @@ class JdbcAggregationRepositoryTest {
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
         JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
         UUID rawVideoId = UUID.randomUUID();
-        UUID actorId = UUID.randomUUID();
-        UUID directorId = UUID.randomUUID();
-        UUID standardAreaId = UUID.randomUUID();
-        UUID rawAreaId = UUID.randomUUID();
-        jdbc.update("insert into raw_videos (id, created_at, updated_at, version, source_vid, source_hash, title, year, enrichment_status, normalization_status, aggregation_status) values (?, now(), now(), 0, 'source-1', 'hash-1', 'Codex Signal', '2026', 'SUCCESS', 'READY', 'PROCESSING')", rawVideoId);
-        jdbc.update("insert into actors (id, name) values (?, ?)", actorId, "Actor A");
-        jdbc.update("insert into directors (id, name) values (?, ?)", directorId, "Director A");
-        jdbc.update("insert into standard_areas (id, name) values (?, ?)", standardAreaId, "日本");
-        jdbc.update("insert into raw_areas (id, source_value, standard_area_id) values (?, ?, ?)", rawAreaId, "JP", standardAreaId);
-        jdbc.update("insert into video_actors (actor_id, video_id) values (?, ?)", actorId, rawVideoId);
-        jdbc.update("insert into video_directors (director_id, video_id) values (?, ?)", directorId, rawVideoId);
-        jdbc.update("insert into video_raw_areas (raw_area_id, video_id) values (?, ?)", rawAreaId, rawVideoId);
+        jdbc.update("""
+                insert into raw_videos (
+                    id, created_at, updated_at, version, source_vid, source_hash, title, year,
+                    actor_names, director_names, area_codes,
+                    enrichment_status, normalization_status, aggregation_status
+                ) values (?, now(), now(), 0, 'source-1', 'hash-1', 'Codex Signal', '2026',
+                    cast(? as jsonb), cast(? as jsonb), cast(? as jsonb),
+                    'SUCCESS', 'READY', 'PROCESSING')
+                """, rawVideoId, flatJson("Actor A"), flatJson("Director A"), flatJson("JP"));
 
         RawVideoAggregationRecord result = repository.findRawVideo(rawVideoId).orElseThrow();
 
         assertEquals(Set.of("Actor A"), result.actorNames());
         assertEquals(Set.of("Director A"), result.directorNames());
-        assertEquals(Set.of("日本"), result.areaNames());
+        assertEquals(Set.of("JP"), result.areaNames());
     }
 
     @Test
@@ -361,7 +361,7 @@ class JdbcAggregationRepositoryTest {
         UUID categoryId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
-        jdbc.update("insert into standard_category (id, name) values (?, ?)", categoryId, "电视剧");
+        jdbc.update("insert into standard_category (id, name, slug) values (?, ?, ?)", categoryId, "电视剧", "tv");
         jdbc.update("""
                 insert into raw_videos (
                     id, created_at, updated_at, version, source_vid, source_hash, title, year,
@@ -371,9 +371,9 @@ class JdbcAggregationRepositoryTest {
                 """, rawVideoId);
         jdbc.update("""
                 insert into unified_videos (
-                    id, created_at, updated_at, version, title, year, douban_id, category_id, metadata_status
-                ) values (?, now(), now(), 0, 'Codex Signal', '2026', 'douban-1', ?, 'SYNCED')
-                """, unifiedVideoId, categoryId);
+                    id, created_at, updated_at, version, title, year, douban_id, category_code, metadata_status
+                ) values (?, now(), now(), 0, 'Codex Signal', '2026', 'douban-1', 'tv', 'SYNCED')
+                """, unifiedVideoId);
         RawVideoAggregationRecord rawVideo = repository.findRawVideo(rawVideoId).orElseThrow();
 
         List<UnifiedVideoAggregationCandidate> result = repository.findContextUnifiedCandidates(List.of(rawVideo));
@@ -393,9 +393,6 @@ class JdbcAggregationRepositoryTest {
         JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
-        UUID actorId = UUID.randomUUID();
-        UUID directorId = UUID.randomUUID();
-        UUID standardAreaId = UUID.randomUUID();
         jdbc.update("""
                 insert into raw_videos (
                     id, created_at, updated_at, version, source_vid, source_hash, title, year,
@@ -405,15 +402,11 @@ class JdbcAggregationRepositoryTest {
                 """, rawVideoId);
         jdbc.update("""
                 insert into unified_videos (
-                    id, created_at, updated_at, version, title, year, douban_id, metadata_status
-                ) values (?, now(), now(), 0, 'Codex Signal', '2026', 'douban-1', 'SYNCED')
-                """, unifiedVideoId);
-        jdbc.update("insert into actors (id, name) values (?, ?)", actorId, "Actor U");
-        jdbc.update("insert into directors (id, name) values (?, ?)", directorId, "Director U");
-        jdbc.update("insert into standard_areas (id, name) values (?, ?)", standardAreaId, "美国");
-        jdbc.update("insert into unified_video_actors (actor_id, unified_video_id) values (?, ?)", actorId, unifiedVideoId);
-        jdbc.update("insert into unified_video_directors (director_id, unified_video_id) values (?, ?)", directorId, unifiedVideoId);
-        jdbc.update("insert into unified_video_standard_areas (standard_area_id, unified_video_id) values (?, ?)", standardAreaId, unifiedVideoId);
+                    id, created_at, updated_at, version, title, year, douban_id,
+                    actor_names, director_names, area_codes, metadata_status
+                ) values (?, now(), now(), 0, 'Codex Signal', '2026', 'douban-1',
+                    cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), 'SYNCED')
+                """, unifiedVideoId, flatJson("Actor U"), flatJson("Director U"), flatJson("US"));
         RawVideoAggregationRecord rawVideo = repository.findRawVideo(rawVideoId).orElseThrow();
 
         List<UnifiedVideoAggregationCandidate> result = repository.findContextUnifiedCandidates(List.of(rawVideo));
@@ -421,7 +414,7 @@ class JdbcAggregationRepositoryTest {
         assertEquals(1, result.size());
         assertEquals(Set.of("Actor U"), result.getFirst().actorNames());
         assertEquals(Set.of("Director U"), result.getFirst().directorNames());
-        assertEquals(Set.of("美国"), result.getFirst().areaNames());
+        assertEquals(Set.of("US"), result.getFirst().areaNames());
     }
 
 
@@ -430,10 +423,12 @@ class JdbcAggregationRepositoryTest {
         UUID rootId = UUID.randomUUID();
         UUID victimId = UUID.randomUUID();
         JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy);
+        when(jdbcTemplate.query(any(String.class), any(MapSqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(List.of());
 
         repository.mergeDuplicateUnifiedVideos(rootId, List.of(victimId));
 
-        verify(jdbcTemplate, times(18)).update(sqlCaptor.capture(), paramsCaptor.capture());
+        verify(jdbcTemplate, times(8)).update(sqlCaptor.capture(), paramsCaptor.capture());
         List<String> sqlStatements = sqlCaptor.getAllValues();
         assertTrue(sqlStatements.get(0).contains("insert into raw_video_unified_video"));
         assertTrue(sqlStatements.get(0).contains("on conflict do nothing"));
@@ -446,26 +441,15 @@ class JdbcAggregationRepositoryTest {
         assertTrue(sqlStatements.get(5).contains("update member_watch_histories"));
         assertTrue(sqlStatements.get(6).contains("update unified_videos root"));
         assertTrue(sqlStatements.get(6).contains("victim.id = :victimId"));
-        assertTrue(sqlStatements.get(7).contains("insert into unified_video_actors"));
-        assertTrue(sqlStatements.get(7).contains("on conflict do nothing"));
-        assertTrue(sqlStatements.get(8).contains("insert into unified_video_directors"));
-        assertTrue(sqlStatements.get(9).contains("insert into unified_video_genres"));
-        assertTrue(sqlStatements.get(10).contains("insert into unified_video_standard_languages"));
-        assertTrue(sqlStatements.get(11).contains("insert into unified_video_standard_areas"));
-        assertTrue(sqlStatements.get(12).contains("delete from unified_video_actors"));
-        assertTrue(sqlStatements.get(13).contains("delete from unified_video_directors"));
-        assertTrue(sqlStatements.get(14).contains("delete from unified_video_genres"));
-        assertTrue(sqlStatements.get(15).contains("delete from unified_video_standard_languages"));
-        assertTrue(sqlStatements.get(16).contains("delete from unified_video_standard_areas"));
-        assertTrue(sqlStatements.get(17).contains("delete from unified_videos"));
+        assertTrue(sqlStatements.get(7).contains("delete from unified_videos"));
+        assertTrue(sqlStatements.stream().noneMatch(this::containsRetiredUnifiedMetadataTable));
         assertTrue(paramsCaptor.getAllValues().subList(0, 6).stream()
                 .allMatch(params -> rootId.equals(params.getValue("rootId"))
                         && List.of(victimId).equals(params.getValue("victimIds"))));
         assertEquals(rootId, paramsCaptor.getAllValues().get(6).getValue("rootId"));
         assertEquals(victimId, paramsCaptor.getAllValues().get(6).getValue("victimId"));
-        assertTrue(paramsCaptor.getAllValues().subList(7, 18).stream()
-                .allMatch(params -> rootId.equals(params.getValue("rootId"))
-                        && List.of(victimId).equals(params.getValue("victimIds"))));
+        assertEquals(rootId, paramsCaptor.getAllValues().get(7).getValue("rootId"));
+        assertEquals(List.of(victimId), paramsCaptor.getAllValues().get(7).getValue("victimIds"));
     }
 
     @Test
@@ -475,8 +459,8 @@ class JdbcAggregationRepositoryTest {
 
         int changedRows = repository.deleteAllAggregationResetOwnedRows();
 
-        assertEquals(13, changedRows);
-        verify(jdbcTemplate, times(13)).update(sqlCaptor.capture(), any(MapSqlParameterSource.class));
+        assertEquals(8, changedRows);
+        verify(jdbcTemplate, times(8)).update(sqlCaptor.capture(), any(MapSqlParameterSource.class));
         List<String> sqlStatements = sqlCaptor.getAllValues();
         assertTrue(sqlStatements.get(0).contains("delete from magnet_provider_runs"));
         assertTrue(sqlStatements.get(1).contains("delete from magnet_search_jobs"));
@@ -485,12 +469,7 @@ class JdbcAggregationRepositoryTest {
         assertTrue(sqlStatements.get(4).contains("delete from member_watch_histories"));
         assertTrue(sqlStatements.get(5).contains("delete from raw_video_unified_video"));
         assertTrue(sqlStatements.get(6).contains("delete from unified_video_tags"));
-        assertTrue(sqlStatements.get(7).contains("delete from unified_video_actors"));
-        assertTrue(sqlStatements.get(8).contains("delete from unified_video_directors"));
-        assertTrue(sqlStatements.get(9).contains("delete from unified_video_genres"));
-        assertTrue(sqlStatements.get(10).contains("delete from unified_video_standard_languages"));
-        assertTrue(sqlStatements.get(11).contains("delete from unified_video_standard_areas"));
-        assertTrue(sqlStatements.get(12).contains("delete from unified_videos"));
+        assertTrue(sqlStatements.get(7).contains("delete from unified_videos"));
     }
 
     @Test
@@ -536,16 +515,12 @@ class JdbcAggregationRepositoryTest {
         assertEquals(0, count(jdbc, "select count(*) from member_favorites where unified_video_id = ?", victimId));
         assertEquals(1, count(jdbc, "select count(*) from member_watch_histories where member_id = ? and unified_video_id = ?", memberWithoutConflict, rootId));
         assertEquals(0, count(jdbc, "select count(*) from member_watch_histories where unified_video_id = ?", victimId));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ?", victimId));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ?", victimId));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ?", victimId));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ?", victimId));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ?", victimId));
-        assertEquals(2, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ?", rootId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ?", rootId));
-        assertEquals(2, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ?", rootId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ?", rootId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ?", rootId));
+        assertEquals(Set.of("Root Actor", "Victim Actor"), jsonSet(jdbc, "select actor_names from unified_videos where id = ?", rootId));
+        assertEquals(Set.of("Victim Director"), jsonSet(jdbc, "select director_names from unified_videos where id = ?", rootId));
+        assertEquals(Set.of("shared-genre", "victim-genre"), jsonSet(jdbc, "select genre_codes from unified_videos where id = ?", rootId));
+        assertEquals(Set.of("zh"), jsonSet(jdbc, "select language_codes from unified_videos where id = ?", rootId));
+        assertEquals(Set.of("CN"), jsonSet(jdbc, "select area_codes from unified_videos where id = ?", rootId));
+        assertEquals("movie", scalar(jdbc, "select category_code from unified_videos where id = ?", rootId, String.class));
         assertEquals("victim-douban", scalar(jdbc, "select douban_id from unified_videos where id = ?", rootId, String.class));
         assertEquals("root-tmdb", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", rootId, String.class));
         assertEquals("victim-imdb", scalar(jdbc, "select imdb_id from unified_videos where id = ?", rootId, String.class));
@@ -658,23 +633,12 @@ class JdbcAggregationRepositoryTest {
                 "select category_id from unified_videos where id = ?",
                 unifiedVideoId,
                 UUID.class));
-        assertEquals(2, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ?", unifiedVideoId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ? and actor_id = ?", unifiedVideoId, actorOne));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ? and actor_id = ?", unifiedVideoId, actorTwo));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ? and actor_id = ?", unifiedVideoId, staleActor));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ?", unifiedVideoId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ? and director_id = ?", unifiedVideoId, directorOne));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ? and director_id = ?", unifiedVideoId, staleDirector));
-        assertEquals(2, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ?", unifiedVideoId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ? and genre_id = ?", unifiedVideoId, genreOne));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ? and genre_id = ?", unifiedVideoId, genreTwo));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ? and genre_id = ?", unifiedVideoId, staleGenre));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ?", unifiedVideoId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ? and standard_language_id = ?", unifiedVideoId, languageOne));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ? and standard_language_id = ?", unifiedVideoId, staleLanguage));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ?", unifiedVideoId));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ? and standard_area_id = ?", unifiedVideoId, areaOne));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ? and standard_area_id = ?", unifiedVideoId, staleArea));
+        assertEquals("movie", scalar(jdbc, "select category_code from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals(Set.of("Actor One", "Actor Two"), jsonSet(jdbc, "select actor_names from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("Director One"), jsonSet(jdbc, "select director_names from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("genre-one", "genre-two"), jsonSet(jdbc, "select genre_codes from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("language-one"), jsonSet(jdbc, "select language_codes from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("area-one"), jsonSet(jdbc, "select area_codes from unified_videos where id = ?", unifiedVideoId));
     }
 
     @Test
@@ -724,16 +688,12 @@ class JdbcAggregationRepositoryTest {
                 "select category_id from unified_videos where id = ?",
                 unifiedVideoId,
                 UUID.class));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ? and actor_id = ?", unifiedVideoId, lockedActor));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_actors where unified_video_id = ? and actor_id = ?", unifiedVideoId, rawActor));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ? and director_id = ?", unifiedVideoId, lockedDirector));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_directors where unified_video_id = ? and director_id = ?", unifiedVideoId, rawDirector));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ? and genre_id = ?", unifiedVideoId, lockedGenre));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_genres where unified_video_id = ? and genre_id = ?", unifiedVideoId, rawGenre));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ? and standard_language_id = ?", unifiedVideoId, lockedLanguage));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_standard_languages where unified_video_id = ? and standard_language_id = ?", unifiedVideoId, rawLanguage));
-        assertEquals(1, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ? and standard_area_id = ?", unifiedVideoId, lockedArea));
-        assertEquals(0, count(jdbc, "select count(*) from unified_video_standard_areas where unified_video_id = ? and standard_area_id = ?", unifiedVideoId, rawArea));
+        assertEquals("locked-category", scalar(jdbc, "select category_code from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals(Set.of("Locked Actor"), jsonSet(jdbc, "select actor_names from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("Locked Director"), jsonSet(jdbc, "select director_names from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("locked-genre"), jsonSet(jdbc, "select genre_codes from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("locked-language"), jsonSet(jdbc, "select language_codes from unified_videos where id = ?", unifiedVideoId));
+        assertEquals(Set.of("locked-area"), jsonSet(jdbc, "select area_codes from unified_videos where id = ?", unifiedVideoId));
     }
 
     @Test
@@ -968,13 +928,8 @@ class JdbcAggregationRepositoryTest {
         jdbc.execute("""
                 create table standard_category (
                     id uuid primary key,
-                    name varchar(100) not null
-                )
-                """);
-        jdbc.execute("""
-                create table raw_category (
-                    id uuid primary key,
-                    category_id uuid
+                    name varchar(100) not null,
+                    slug varchar(100) not null unique
                 )
                 """);
         jdbc.execute("""
@@ -1004,7 +959,13 @@ class JdbcAggregationRepositoryTest {
                     enrichment_status varchar(50) not null,
                     normalization_status varchar(50) not null,
                     aggregation_status varchar(50) not null,
-                    data_source_category_id uuid
+                    data_source_category_id uuid,
+                    actor_names jsonb default '[]',
+                    director_names jsonb default '[]',
+                    area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',
+                    genre_codes jsonb default '[]',
+                    category_code varchar(100)
                 )
                 """);
         jdbc.execute("""
@@ -1026,19 +987,15 @@ class JdbcAggregationRepositoryTest {
                     rotten_tomatoes_id varchar(50),
                     season integer,
                     category_id uuid,
+                    category_code varchar(100),
+                    actor_names jsonb default '[]',
+                    director_names jsonb default '[]',
+                    area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',
+                    genre_codes jsonb default '[]',
                     metadata_status varchar(50) not null
                 )
                 """);
-        jdbc.execute("create table actors (id uuid primary key, name varchar(255) not null)");
-        jdbc.execute("create table directors (id uuid primary key, name varchar(255) not null)");
-        jdbc.execute("create table standard_areas (id uuid primary key, name varchar(100) not null)");
-        jdbc.execute("create table raw_areas (id uuid primary key, source_value varchar(100), standard_area_id uuid)");
-        jdbc.execute("create table video_actors (actor_id uuid not null, video_id uuid not null, primary key (actor_id, video_id))");
-        jdbc.execute("create table video_directors (director_id uuid not null, video_id uuid not null, primary key (director_id, video_id))");
-        jdbc.execute("create table video_raw_areas (raw_area_id uuid not null, video_id uuid not null, primary key (raw_area_id, video_id))");
-        jdbc.execute("create table unified_video_actors (actor_id uuid not null, unified_video_id uuid not null, primary key (actor_id, unified_video_id))");
-        jdbc.execute("create table unified_video_directors (director_id uuid not null, unified_video_id uuid not null, primary key (director_id, unified_video_id))");
-        jdbc.execute("create table unified_video_standard_areas (standard_area_id uuid not null, unified_video_id uuid not null, primary key (standard_area_id, unified_video_id))");
     }
 
     private void createMergeSchema(JdbcTemplate jdbc) {
@@ -1064,6 +1021,12 @@ class JdbcAggregationRepositoryTest {
                     subtitle varchar(255),
                     last_trend_at timestamp,
                     locked_fields jsonb,
+                    category_code varchar(100),
+                    actor_names jsonb default '[]',
+                    director_names jsonb default '[]',
+                    area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',
+                    genre_codes jsonb default '[]',
                     metadata_status varchar(50) not null
                 )
                 """);
@@ -1079,7 +1042,13 @@ class JdbcAggregationRepositoryTest {
                     title varchar(255) not null,
                     enrichment_status varchar(50) not null,
                     normalization_status varchar(50) not null,
-                    aggregation_status varchar(50) not null
+                    aggregation_status varchar(50) not null,
+                    actor_names jsonb default '[]',
+                    director_names jsonb default '[]',
+                    area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',
+                    genre_codes jsonb default '[]',
+                    category_code varchar(100)
                 )
                 """);
         jdbc.execute("""
@@ -1126,11 +1095,6 @@ class JdbcAggregationRepositoryTest {
                     unique (member_id, unified_video_id)
                 )
                 """);
-        jdbc.execute("create table unified_video_actors (actor_id uuid not null, unified_video_id uuid not null, primary key (actor_id, unified_video_id))");
-        jdbc.execute("create table unified_video_directors (director_id uuid not null, unified_video_id uuid not null, primary key (director_id, unified_video_id))");
-        jdbc.execute("create table unified_video_genres (genre_id uuid not null, unified_video_id uuid not null, primary key (genre_id, unified_video_id))");
-        jdbc.execute("create table unified_video_standard_languages (standard_language_id uuid not null, unified_video_id uuid not null, primary key (standard_language_id, unified_video_id))");
-        jdbc.execute("create table unified_video_standard_areas (standard_area_id uuid not null, unified_video_id uuid not null, primary key (standard_area_id, unified_video_id))");
     }
 
     private void createPipelineSchema(JdbcTemplate jdbc) {
@@ -1158,6 +1122,12 @@ class JdbcAggregationRepositoryTest {
                     cover_image_id uuid,
                     locked_fields jsonb,
                     category_id uuid,
+                    category_code varchar(100),
+                    actor_names jsonb default '[]',
+                    director_names jsonb default '[]',
+                    area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',
+                    genre_codes jsonb default '[]',
                     metadata_status varchar(50) not null
                 )
                 """);
@@ -1189,7 +1159,13 @@ class JdbcAggregationRepositoryTest {
                     enrichment_status varchar(50) not null,
                     normalization_status varchar(50) not null,
                     aggregation_status varchar(50) not null,
-                    data_source_category_id uuid
+                    data_source_category_id uuid,
+                    actor_names jsonb default '[]',
+                    director_names jsonb default '[]',
+                    area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',
+                    genre_codes jsonb default '[]',
+                    category_code varchar(100)
                 )
                 """);
         jdbc.execute("""
@@ -1200,16 +1176,12 @@ class JdbcAggregationRepositoryTest {
                 )
                 """);
         jdbc.execute("""
-                create table raw_category (
+                create table standard_category (
                     id uuid primary key,
-                    category_id uuid
+                    name varchar(100) not null,
+                    slug varchar(100) not null unique
                 )
                 """);
-        jdbc.execute("create table video_actors (actor_id uuid not null, video_id uuid not null, primary key (actor_id, video_id))");
-        jdbc.execute("create table video_directors (director_id uuid not null, video_id uuid not null, primary key (director_id, video_id))");
-        jdbc.execute("create table raw_genres (id uuid primary key, source_value varchar(100), standard_genre_id uuid)");
-        jdbc.execute("create table raw_languages (id uuid primary key, source_value varchar(100), standard_language_id uuid)");
-        jdbc.execute("create table raw_areas (id uuid primary key, source_value varchar(100), standard_area_id uuid)");
         jdbc.execute("""
                 create table cover_images (
                     id uuid primary key,
@@ -1218,14 +1190,6 @@ class JdbcAggregationRepositoryTest {
                     file_size bigint
                 )
                 """);
-        jdbc.execute("create table video_raw_genres (raw_genre_id uuid not null, video_id uuid not null, primary key (raw_genre_id, video_id))");
-        jdbc.execute("create table video_raw_languages (raw_language_id uuid not null, video_id uuid not null, primary key (raw_language_id, video_id))");
-        jdbc.execute("create table video_raw_areas (raw_area_id uuid not null, video_id uuid not null, primary key (raw_area_id, video_id))");
-        jdbc.execute("create table unified_video_actors (actor_id uuid not null, unified_video_id uuid not null, primary key (actor_id, unified_video_id))");
-        jdbc.execute("create table unified_video_directors (director_id uuid not null, unified_video_id uuid not null, primary key (director_id, unified_video_id))");
-        jdbc.execute("create table unified_video_genres (genre_id uuid not null, unified_video_id uuid not null, primary key (genre_id, unified_video_id))");
-        jdbc.execute("create table unified_video_standard_languages (standard_language_id uuid not null, unified_video_id uuid not null, primary key (standard_language_id, unified_video_id))");
-        jdbc.execute("create table unified_video_standard_areas (standard_area_id uuid not null, unified_video_id uuid not null, primary key (standard_area_id, unified_video_id))");
     }
 
     private void seedMergeFixture(
@@ -1292,15 +1256,29 @@ class JdbcAggregationRepositoryTest {
         jdbc.update("insert into member_watch_histories (id, created_at, updated_at, version, member_id, unified_video_id, episode_name, progress_seconds, duration_seconds, last_watched_at) values (?, now(), now(), 0, ?, ?, 'Root Episode', 1, 10, now())", UUID.randomUUID(), memberWithConflict, rootId);
         jdbc.update("insert into member_watch_histories (id, created_at, updated_at, version, member_id, unified_video_id, episode_name, progress_seconds, duration_seconds, last_watched_at) values (?, now(), now(), 0, ?, ?, 'Victim Episode', 2, 10, now())", UUID.randomUUID(), memberWithConflict, victimId);
         jdbc.update("insert into member_watch_histories (id, created_at, updated_at, version, member_id, unified_video_id, episode_name, progress_seconds, duration_seconds, last_watched_at) values (?, now(), now(), 0, ?, ?, 'Move Episode', 3, 10, now())", UUID.randomUUID(), memberWithoutConflict, victimId);
-        UUID sharedGenreId = UUID.randomUUID();
-        jdbc.update("insert into unified_video_actors (actor_id, unified_video_id) values (?, ?)", UUID.randomUUID(), rootId);
-        jdbc.update("insert into unified_video_actors (actor_id, unified_video_id) values (?, ?)", UUID.randomUUID(), victimId);
-        jdbc.update("insert into unified_video_directors (director_id, unified_video_id) values (?, ?)", UUID.randomUUID(), victimId);
-        jdbc.update("insert into unified_video_genres (genre_id, unified_video_id) values (?, ?)", sharedGenreId, rootId);
-        jdbc.update("insert into unified_video_genres (genre_id, unified_video_id) values (?, ?)", sharedGenreId, victimId);
-        jdbc.update("insert into unified_video_genres (genre_id, unified_video_id) values (?, ?)", UUID.randomUUID(), victimId);
-        jdbc.update("insert into unified_video_standard_languages (standard_language_id, unified_video_id) values (?, ?)", UUID.randomUUID(), victimId);
-        jdbc.update("insert into unified_video_standard_areas (standard_area_id, unified_video_id) values (?, ?)", UUID.randomUUID(), victimId);
+        jdbc.update("""
+                update unified_videos
+                   set actor_names = cast(? as jsonb),
+                       genre_codes = cast(? as jsonb),
+                       category_code = 'movie'
+                 where id = ?
+                """, flatJson("Root Actor"), flatJson("shared-genre"), rootId);
+        jdbc.update("""
+                update unified_videos
+                   set actor_names = cast(? as jsonb),
+                       director_names = cast(? as jsonb),
+                       genre_codes = cast(? as jsonb),
+                       language_codes = cast(? as jsonb),
+                       area_codes = cast(? as jsonb),
+                       category_code = 'tv'
+                 where id = ?
+                """,
+                flatJson("Victim Actor"),
+                flatJson("Victim Director"),
+                flatJson("shared-genre", "victim-genre"),
+                flatJson("zh"),
+                flatJson("CN"),
+                victimId);
     }
 
     private void seedPipelineUnlockedFixture(
@@ -1324,46 +1302,49 @@ class JdbcAggregationRepositoryTest {
             UUID staleLanguage,
             UUID areaOne,
             UUID staleArea) {
-        jdbc.update("insert into unified_videos (id, created_at, updated_at, version, title, locked_fields, category_id, metadata_status) values (?, now(), now(), 0, 'Unified', '[]', ?, 'SYNCED')", unifiedVideoId, oldCategoryId);
-        seedRawCategory(jdbc, UUID.fromString("00000000-0000-0000-0000-0000000000a1"), votedCategoryId);
-        seedRawCategory(jdbc, UUID.fromString("00000000-0000-0000-0000-0000000000a2"), losingCategoryId);
-        seedPipelineRawVideo(jdbc, rawOne, "hash-pipeline-1", UUID.fromString("00000000-0000-0000-0000-0000000000a1"));
-        seedPipelineRawVideo(jdbc, rawTwo, "hash-pipeline-2", UUID.fromString("00000000-0000-0000-0000-0000000000a1"));
-        seedPipelineRawVideo(jdbc, rawThree, "hash-pipeline-3", UUID.fromString("00000000-0000-0000-0000-0000000000a2"));
+        jdbc.update("insert into unified_videos (id, created_at, updated_at, version, title, locked_fields, category_id, category_code, actor_names, director_names, genre_codes, language_codes, area_codes, metadata_status) values (?, now(), now(), 0, 'Unified', '[]', ?, 'old-category', cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), 'SYNCED')",
+                unifiedVideoId,
+                oldCategoryId,
+                flatJson("Stale Actor"),
+                flatJson("Stale Director"),
+                flatJson("stale-genre"),
+                flatJson("stale-language"),
+                flatJson("stale-area"));
+        seedStandardCategory(jdbc, votedCategoryId, "movie", "电影");
+        seedStandardCategory(jdbc, losingCategoryId, "tv", "电视剧");
+        seedPipelineRawVideo(jdbc, rawOne, "hash-pipeline-1", "movie");
+        seedPipelineRawVideo(jdbc, rawTwo, "hash-pipeline-2", "movie");
+        seedPipelineRawVideo(jdbc, rawThree, "hash-pipeline-3", "tv");
         bindPipelineRaw(jdbc, rawOne, unifiedVideoId);
         bindPipelineRaw(jdbc, rawTwo, unifiedVideoId);
         bindPipelineRaw(jdbc, rawThree, unifiedVideoId);
-        jdbc.update("insert into unified_video_actors (actor_id, unified_video_id) values (?, ?)", staleActor, unifiedVideoId);
-        jdbc.update("insert into unified_video_directors (director_id, unified_video_id) values (?, ?)", staleDirector, unifiedVideoId);
-        jdbc.update("insert into unified_video_genres (genre_id, unified_video_id) values (?, ?)", staleGenre, unifiedVideoId);
-        jdbc.update("insert into unified_video_standard_languages (standard_language_id, unified_video_id) values (?, ?)", staleLanguage, unifiedVideoId);
-        jdbc.update("insert into unified_video_standard_areas (standard_area_id, unified_video_id) values (?, ?)", staleArea, unifiedVideoId);
-        jdbc.update("insert into video_actors (actor_id, video_id) values (?, ?)", actorOne, rawOne);
-        jdbc.update("insert into video_actors (actor_id, video_id) values (?, ?)", actorTwo, rawTwo);
-        jdbc.update("insert into video_actors (actor_id, video_id) values (?, ?)", actorOne, rawThree);
-        jdbc.update("insert into video_directors (director_id, video_id) values (?, ?)", directorOne, rawTwo);
-        UUID rawGenreOne = UUID.randomUUID();
-        UUID rawGenreTwo = UUID.randomUUID();
-        UUID rawGenreUnmapped = UUID.randomUUID();
-        jdbc.update("insert into raw_genres (id, source_value, standard_genre_id) values (?, 'genre-one', ?)", rawGenreOne, genreOne);
-        jdbc.update("insert into raw_genres (id, source_value, standard_genre_id) values (?, 'genre-two', ?)", rawGenreTwo, genreTwo);
-        jdbc.update("insert into raw_genres (id, source_value, standard_genre_id) values (?, 'genre-unmapped', null)", rawGenreUnmapped);
-        jdbc.update("insert into video_raw_genres (raw_genre_id, video_id) values (?, ?)", rawGenreOne, rawOne);
-        jdbc.update("insert into video_raw_genres (raw_genre_id, video_id) values (?, ?)", rawGenreOne, rawTwo);
-        jdbc.update("insert into video_raw_genres (raw_genre_id, video_id) values (?, ?)", rawGenreTwo, rawThree);
-        jdbc.update("insert into video_raw_genres (raw_genre_id, video_id) values (?, ?)", rawGenreUnmapped, rawThree);
-        UUID rawLanguageOne = UUID.randomUUID();
-        UUID rawLanguageUnmapped = UUID.randomUUID();
-        jdbc.update("insert into raw_languages (id, source_value, standard_language_id) values (?, 'language-one', ?)", rawLanguageOne, languageOne);
-        jdbc.update("insert into raw_languages (id, source_value, standard_language_id) values (?, 'language-unmapped', null)", rawLanguageUnmapped);
-        jdbc.update("insert into video_raw_languages (raw_language_id, video_id) values (?, ?)", rawLanguageOne, rawOne);
-        jdbc.update("insert into video_raw_languages (raw_language_id, video_id) values (?, ?)", rawLanguageUnmapped, rawTwo);
-        UUID rawAreaOne = UUID.randomUUID();
-        UUID rawAreaUnmapped = UUID.randomUUID();
-        jdbc.update("insert into raw_areas (id, source_value, standard_area_id) values (?, 'area-one', ?)", rawAreaOne, areaOne);
-        jdbc.update("insert into raw_areas (id, source_value, standard_area_id) values (?, 'area-unmapped', null)", rawAreaUnmapped);
-        jdbc.update("insert into video_raw_areas (raw_area_id, video_id) values (?, ?)", rawAreaOne, rawTwo);
-        jdbc.update("insert into video_raw_areas (raw_area_id, video_id) values (?, ?)", rawAreaUnmapped, rawThree);
+        updateRawFlatMetadata(
+                jdbc,
+                rawOne,
+                flatJson("Actor One"),
+                flatJson(),
+                flatJson(),
+                flatJson("language-one"),
+                flatJson("genre-one"),
+                "movie");
+        updateRawFlatMetadata(
+                jdbc,
+                rawTwo,
+                flatJson("Actor Two"),
+                flatJson("Director One"),
+                flatJson("area-one"),
+                flatJson(),
+                flatJson("genre-one"),
+                "movie");
+        updateRawFlatMetadata(
+                jdbc,
+                rawThree,
+                flatJson("Actor One"),
+                flatJson(),
+                flatJson(),
+                flatJson(),
+                flatJson("genre-two"),
+                "tv");
     }
 
     private void seedPipelineLockedFixture(
@@ -1384,46 +1365,68 @@ class JdbcAggregationRepositoryTest {
             UUID rawArea) {
         jdbc.update("""
                 insert into unified_videos (
-                    id, created_at, updated_at, version, title, locked_fields, category_id, metadata_status
+                    id, created_at, updated_at, version, title, locked_fields, category_id, category_code,
+                    actor_names, director_names, genre_codes, language_codes, area_codes, metadata_status
                 ) values (
                     ?, now(), now(), 0, 'Locked Unified',
                     '["category","actors","directors","genres","area","language"]',
-                    ?, 'SYNCED'
+                    ?, 'locked-category',
+                    cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), 'SYNCED'
                 )
-                """, unifiedVideoId, lockedCategoryId);
-        UUID rawCategoryRow = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
-        seedRawCategory(jdbc, rawCategoryRow, rawCategoryId);
-        seedPipelineRawVideo(jdbc, rawVideoId, "hash-pipeline-locked", rawCategoryRow);
+                """,
+                unifiedVideoId,
+                lockedCategoryId,
+                flatJson("Locked Actor"),
+                flatJson("Locked Director"),
+                flatJson("locked-genre"),
+                flatJson("locked-language"),
+                flatJson("locked-area"));
+        seedStandardCategory(jdbc, rawCategoryId, "raw-category", "Raw Category");
+        seedPipelineRawVideo(jdbc, rawVideoId, "hash-pipeline-locked", "raw-category");
         bindPipelineRaw(jdbc, rawVideoId, unifiedVideoId);
-        jdbc.update("insert into unified_video_actors (actor_id, unified_video_id) values (?, ?)", lockedActor, unifiedVideoId);
-        jdbc.update("insert into unified_video_directors (director_id, unified_video_id) values (?, ?)", lockedDirector, unifiedVideoId);
-        jdbc.update("insert into unified_video_genres (genre_id, unified_video_id) values (?, ?)", lockedGenre, unifiedVideoId);
-        jdbc.update("insert into unified_video_standard_languages (standard_language_id, unified_video_id) values (?, ?)", lockedLanguage, unifiedVideoId);
-        jdbc.update("insert into unified_video_standard_areas (standard_area_id, unified_video_id) values (?, ?)", lockedArea, unifiedVideoId);
-        jdbc.update("insert into video_actors (actor_id, video_id) values (?, ?)", rawActor, rawVideoId);
-        jdbc.update("insert into video_directors (director_id, video_id) values (?, ?)", rawDirector, rawVideoId);
-        UUID rawGenreRow = UUID.randomUUID();
-        UUID rawLanguageRow = UUID.randomUUID();
-        UUID rawAreaRow = UUID.randomUUID();
-        jdbc.update("insert into raw_genres (id, source_value, standard_genre_id) values (?, 'raw-genre', ?)", rawGenreRow, rawGenre);
-        jdbc.update("insert into raw_languages (id, source_value, standard_language_id) values (?, 'raw-language', ?)", rawLanguageRow, rawLanguage);
-        jdbc.update("insert into raw_areas (id, source_value, standard_area_id) values (?, 'raw-area', ?)", rawAreaRow, rawArea);
-        jdbc.update("insert into video_raw_genres (raw_genre_id, video_id) values (?, ?)", rawGenreRow, rawVideoId);
-        jdbc.update("insert into video_raw_languages (raw_language_id, video_id) values (?, ?)", rawLanguageRow, rawVideoId);
-        jdbc.update("insert into video_raw_areas (raw_area_id, video_id) values (?, ?)", rawAreaRow, rawVideoId);
+        updateRawFlatMetadata(
+                jdbc,
+                rawVideoId,
+                flatJson("Raw Actor"),
+                flatJson("Raw Director"),
+                flatJson("raw-area"),
+                flatJson("raw-language"),
+                flatJson("raw-genre"),
+                "raw-category");
     }
 
-    private void seedRawCategory(JdbcTemplate jdbc, UUID rawCategoryRowId, UUID categoryId) {
-        jdbc.update("insert into raw_category (id, category_id) values (?, ?)", rawCategoryRowId, categoryId);
+    private void seedStandardCategory(JdbcTemplate jdbc, UUID categoryId, String slug, String name) {
+        jdbc.update("insert into standard_category (id, name, slug) values (?, ?, ?)", categoryId, name, slug);
     }
 
-    private void seedPipelineRawVideo(JdbcTemplate jdbc, UUID rawVideoId, String sourceHash, UUID rawCategoryId) {
+    private void seedPipelineRawVideo(JdbcTemplate jdbc, UUID rawVideoId, String sourceHash, String categoryCode) {
         jdbc.update("""
                 insert into raw_videos (
                     id, created_at, updated_at, version, source_vid, source_hash, title,
-                    enrichment_status, normalization_status, aggregation_status, data_source_category_id
+                    enrichment_status, normalization_status, aggregation_status, category_code
                 ) values (?, now(), now(), 0, ?, ?, 'Raw', 'SUCCESS', 'READY', 'BOUND', ?)
-                """, rawVideoId, sourceHash, sourceHash, rawCategoryId);
+                """, rawVideoId, sourceHash, sourceHash, categoryCode);
+    }
+
+    private void updateRawFlatMetadata(
+            JdbcTemplate jdbc,
+            UUID rawVideoId,
+            String actorNames,
+            String directorNames,
+            String areaCodes,
+            String languageCodes,
+            String genreCodes,
+            String categoryCode) {
+        jdbc.update("""
+                update raw_videos
+                   set actor_names = cast(? as jsonb),
+                       director_names = cast(? as jsonb),
+                       area_codes = cast(? as jsonb),
+                       language_codes = cast(? as jsonb),
+                       genre_codes = cast(? as jsonb),
+                       category_code = ?
+                 where id = ?
+                """, actorNames, directorNames, areaCodes, languageCodes, genreCodes, categoryCode, rawVideoId);
     }
 
     private void seedScalarUnlockedFixture(JdbcTemplate jdbc, UUID unifiedVideoId, UUID rawOne, UUID rawTwo, UUID rawThree) {
@@ -1669,5 +1672,21 @@ class JdbcAggregationRepositoryTest {
 
     private <T> T scalar(JdbcTemplate jdbc, String sql, Object arg, Class<T> type) {
         return jdbc.queryForObject(sql, type, arg);
+    }
+
+    private Set<String> jsonSet(JdbcTemplate jdbc, String sql, Object arg) {
+        return JsonStringArrays.readSet(OBJECT_MAPPER, scalar(jdbc, sql, arg, String.class));
+    }
+
+    private String flatJson(String... values) {
+        return JsonStringArrays.write(OBJECT_MAPPER, List.of(values));
+    }
+
+    private boolean containsRetiredUnifiedMetadataTable(String sql) {
+        return sql.contains("unified_video_actors")
+                || sql.contains("unified_video_directors")
+                || sql.contains("unified_video_genres")
+                || sql.contains("unified_video_standard_languages")
+                || sql.contains("unified_video_standard_areas");
     }
 }

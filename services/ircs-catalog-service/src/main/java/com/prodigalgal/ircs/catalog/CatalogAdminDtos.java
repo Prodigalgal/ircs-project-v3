@@ -92,7 +92,12 @@ record StandardCategoryAdminRequest(
         Instant createdAt,
         Instant updatedAt) {}
 
-record StandardGenreAdminRequest(UUID id, String name) {}
+record StandardGenreAdminRequest(UUID id, String name, String code) {
+
+    StandardGenreAdminRequest(UUID id, String name) {
+        this(id, name, null);
+    }
+}
 
 record StandardAreaAdminRequest(
         UUID id,
@@ -117,27 +122,5 @@ record RawCategoryAdminRequest(
         String dataSourceName,
         UUID categoryId,
         String categoryName,
-        Instant createdAt,
-        Instant updatedAt) {}
-
-record RawGenreAdminRequest(
-        UUID id,
-        String sourceValue,
-        UUID standardGenreId,
-        String standardGenreName) {}
-
-record RawAreaAdminRequest(
-        UUID id,
-        String sourceValue,
-        UUID standardAreaId,
-        String standardAreaName,
-        Instant createdAt,
-        Instant updatedAt) {}
-
-record RawLanguageAdminRequest(
-        UUID id,
-        String sourceValue,
-        UUID standardLanguageId,
-        String standardLanguageName,
         Instant createdAt,
         Instant updatedAt) {}

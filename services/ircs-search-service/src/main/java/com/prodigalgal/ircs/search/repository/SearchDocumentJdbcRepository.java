@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.search.repository;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
 import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
 import com.prodigalgal.ircs.search.support.CoverImageUrlResolver;
@@ -50,9 +52,14 @@ public class SearchDocumentJdbcRepository {
                    rv.normalization_status,
                    rv.created_at,
                    rv.updated_at,
+                   cast(rv.actor_names as varchar) AS actor_names,
+                   cast(rv.director_names as varchar) AS director_names,
+                   cast(rv.area_codes as varchar) AS area_codes,
+                   cast(rv.language_codes as varchar) AS language_codes,
+                   cast(rv.genre_codes as varchar) AS genre_codes,
                    COALESCE(ds.name, dsc_ds.name) AS data_source_name,
                    COALESCE(ds.id, dsc_ds.id) AS data_source_id,
-                   rc.source_name AS source_category_name,
+                   COALESCE(rv.source_category_name, rc.source_name) AS source_category_name,
                    sc.name AS category_name,
                    sc.id AS category_id,
                    ci.storage_type AS cover_storage_type,
@@ -64,7 +71,7 @@ public class SearchDocumentJdbcRepository {
               LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
               LEFT JOIN raw_category rc ON rv.data_source_category_id = rc.id
               LEFT JOIN data_sources dsc_ds ON rc.data_source_id = dsc_ds.id
-              LEFT JOIN standard_category sc ON rc.category_id = sc.id
+              LEFT JOIN standard_category sc ON sc.slug = rv.category_code
               LEFT JOIN cover_images ci ON rv.cover_image_id = ci.id
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
              WHERE rv.id = :id
@@ -90,7 +97,12 @@ public class SearchDocumentJdbcRepository {
                    uv.last_trend_at,
                    uv.created_at,
                    uv.updated_at,
-                   sc.slug AS category_slug,
+                   cast(uv.actor_names as varchar) AS actor_names,
+                   cast(uv.director_names as varchar) AS director_names,
+                   cast(uv.area_codes as varchar) AS area_codes,
+                   cast(uv.language_codes as varchar) AS language_codes,
+                   cast(uv.genre_codes as varchar) AS genre_codes,
+                   uv.category_code AS category_slug,
                    sc.name AS category_name,
                    sc.id AS category_id,
                    uv.content_visibility,
@@ -99,7 +111,7 @@ public class SearchDocumentJdbcRepository {
                    ci.storage_path AS cover_storage_path,
                    sd.domain_value AS cover_source_domain
               FROM unified_videos uv
-              LEFT JOIN standard_category sc ON uv.category_id = sc.id
+              LEFT JOIN standard_category sc ON sc.slug = uv.category_code
               LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
              WHERE uv.id = :id
@@ -107,6 +119,7 @@ public class SearchDocumentJdbcRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final CoverImageUrlResolver coverImageUrlResolver;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.search.sync.jdbc-query-timeout-seconds:30}")
     private int queryTimeoutSeconds;
@@ -130,44 +143,6 @@ public class SearchDocumentJdbcRepository {
         if (doc == null) {
             return Optional.empty();
         }
-
-        doc.setRawGenres(findRawValues("""
-                SELECT rg.source_value
-                  FROM video_raw_genres vrg
-                  JOIN raw_genres rg ON vrg.raw_genre_id = rg.id
-                 WHERE vrg.video_id = :id
-                 ORDER BY rg.source_value
-                """, id));
-        doc.setRawAreas(findRawValues("""
-                SELECT ra.source_value
-                  FROM video_raw_areas vra
-                  JOIN raw_areas ra ON vra.raw_area_id = ra.id
-                 WHERE vra.video_id = :id
-                 ORDER BY ra.source_value
-                """, id));
-        if (!StringUtils.hasText(doc.getRawLanguagesAsCsv())) {
-            doc.setRawLanguages(findRawValues("""
-                    SELECT rl.source_value
-                      FROM video_raw_languages vrl
-                      JOIN raw_languages rl ON vrl.raw_language_id = rl.id
-                     WHERE vrl.video_id = :id
-                     ORDER BY rl.source_value
-                    """, id));
-        }
-        doc.setActors(findNames("""
-                SELECT a.name
-                  FROM video_actors va
-                  JOIN actors a ON va.actor_id = a.id
-                 WHERE va.video_id = :id
-                 ORDER BY a.name
-                """, id));
-        doc.setDirectors(findNames("""
-                SELECT d.name
-                  FROM video_directors vd
-                  JOIN directors d ON vd.director_id = d.id
-                 WHERE vd.video_id = :id
-                 ORDER BY d.name
-                """, id));
 
         StringBuilder metadata = new StringBuilder();
         append(metadata, doc.getTitle());
@@ -204,55 +179,16 @@ public class SearchDocumentJdbcRepository {
             return Optional.empty();
         }
 
-        doc.setGenres(findNames("""
-                SELECT sg.name
-                  FROM unified_video_genres uvg
-                  JOIN standard_genre sg ON uvg.genre_id = sg.id
-                 WHERE uvg.unified_video_id = :id
-                 ORDER BY sg.name
-                """, id));
         doc.setTags(findNames("""
                 SELECT tag
                   FROM unified_video_tags
                  WHERE unified_video_id = :id
                  ORDER BY tag
                 """, id));
-        doc.setAreas(findNames("""
-                SELECT sa.name
-                  FROM unified_video_standard_areas uvsa
-                  JOIN standard_areas sa ON uvsa.standard_area_id = sa.id
-                 WHERE uvsa.unified_video_id = :id
-                 ORDER BY sa.name
-                """, id));
-        doc.setLanguages(findNames("""
-                SELECT sl.name
-                  FROM unified_video_standard_languages uvsl
-                  JOIN standard_languages sl ON uvsl.standard_language_id = sl.id
-                 WHERE uvsl.unified_video_id = :id
-                 ORDER BY sl.name
-                """, id));
-        doc.setActors(findNames("""
-                SELECT a.name
-                  FROM unified_video_actors uva
-                  JOIN actors a ON uva.actor_id = a.id
-                 WHERE uva.unified_video_id = :id
-                 ORDER BY a.name
-                """, id));
-        doc.setDirectors(findNames("""
-                SELECT d.name
-                  FROM unified_video_directors uvd
-                  JOIN directors d ON uvd.director_id = d.id
-                 WHERE uvd.unified_video_id = :id
-                 ORDER BY d.name
-                """, id));
         doc.setSourceCount(countSources(id));
         doc.setSuggestion(new org.springframework.data.elasticsearch.core.suggest.Completion(
                 buildSuggestionInputs(doc)));
         return Optional.of(doc);
-    }
-
-    private List<String> findRawValues(String sql, UUID id) {
-        return findNames(sql, id);
     }
 
     private List<String> findNames(String sql, UUID id) {
@@ -299,6 +235,10 @@ public class SearchDocumentJdbcRepository {
         if (values != null) {
             values.forEach(value -> append(builder, value));
         }
+    }
+
+    private List<String> readJsonStringList(ResultSet rs, String column) throws SQLException {
+        return List.copyOf(JsonStringArrays.readSet(objectMapper, rs.getString(column)));
     }
 
     private UUID getUuid(ResultSet rs, String column) throws SQLException {
@@ -354,8 +294,13 @@ public class SearchDocumentJdbcRepository {
             doc.setCategoryId(getUuid(rs, "category_id"));
             doc.setSourceCategoryName(rs.getString("source_category_name"));
             String rawLanguageCsv = rs.getString("raw_language_str");
-            doc.setRawLanguages(splitCsv(rawLanguageCsv));
+            doc.setRawGenres(readJsonStringList(rs, "genre_codes"));
+            doc.setRawAreas(readJsonStringList(rs, "area_codes"));
+            List<String> languageCodes = readJsonStringList(rs, "language_codes");
+            doc.setRawLanguages(languageCodes.isEmpty() ? splitCsv(rawLanguageCsv) : languageCodes);
             doc.setRawLanguagesAsCsv(rawLanguageCsv);
+            doc.setActors(readJsonStringList(rs, "actor_names"));
+            doc.setDirectors(readJsonStringList(rs, "director_names"));
             doc.setEnrichmentStatus(rs.getString("enrichment_status"));
             doc.setNormalizationStatus(rs.getString("normalization_status"));
             doc.setHasDoubanId(StringUtils.hasText(rs.getString("douban_id")));
@@ -409,6 +354,11 @@ public class SearchDocumentJdbcRepository {
             doc.setCategorySlug(rs.getString("category_slug"));
             doc.setCategoryName(rs.getString("category_name"));
             doc.setCategoryId(getUuid(rs, "category_id"));
+            doc.setGenres(readJsonStringList(rs, "genre_codes"));
+            doc.setAreas(readJsonStringList(rs, "area_codes"));
+            doc.setLanguages(readJsonStringList(rs, "language_codes"));
+            doc.setActors(readJsonStringList(rs, "actor_names"));
+            doc.setDirectors(readJsonStringList(rs, "director_names"));
             doc.setContentVisibility(rs.getString("content_visibility"));
             doc.setHasDouban(StringUtils.hasText(rs.getString("douban_id")));
             doc.setHasTmdb(StringUtils.hasText(rs.getString("tmdb_id")));

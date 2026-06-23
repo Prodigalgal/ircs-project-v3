@@ -19,8 +19,7 @@ public class RawVideoEnrichmentRepository {
                    v.douban_id, v.tmdb_id, v.imdb_id, v.rotten_tomatoes_id,
                    v.enrichment_status, v.enrichment_retry_count, v.data_hash
             from raw_videos v
-            left join raw_category rc on v.data_source_category_id = rc.id
-            left join standard_category c on rc.category_id = c.id
+            left join standard_category c on c.slug = v.category_code
             where v.id = ?
             """;
 

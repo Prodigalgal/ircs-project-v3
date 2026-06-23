@@ -163,52 +163,6 @@ class CatalogControllerTest {
         verify(catalogService).findRawCategory(id);
     }
 
-    @Test
-    void returnsRawGenreAndRawAreaReadContracts() {
-        CatalogPageRequest request = CatalogPageRequest.of(0, 20, List.of("sourceValue,asc"));
-        RawValueQuery query = new RawValueQuery("动作", false);
-        RawGenreRead genre = new RawGenreRead(UUID.randomUUID(), "动作片", UUID.randomUUID(), "动作");
-        RawAreaRead area = new RawAreaRead(UUID.randomUUID(), "大陆", UUID.randomUUID(), "中国大陆", null, null);
-        CatalogPage<RawGenreRead> genrePage = CatalogPage.of(List.of(genre), request, 1);
-        CatalogPage<RawAreaRead> areaPage = CatalogPage.of(List.of(area), request, 1);
-        when(catalogService.pageRawGenres(request, query)).thenReturn(genrePage);
-        when(catalogService.pageRawAreas(request, query)).thenReturn(areaPage);
-        when(catalogService.findRawArea(area.id())).thenReturn(Optional.of(area));
-
-        assertPageEquals(genrePage, controller.pageRawGenres(0, 20, List.of("sourceValue,asc"), "动作", false));
-        assertPageEquals(areaPage, controller.pageRawAreas(0, 20, List.of("sourceValue,asc"), "动作", false));
-        assertEquals(ResponseEntity.ok(area), controller.getRawArea(area.id()));
-        verify(catalogService).pageRawGenres(request, query);
-        verify(catalogService).pageRawAreas(request, query);
-        verify(catalogService).findRawArea(area.id());
-    }
-
-    @Test
-    void returnsRawLanguagePageDetailAndTrace() {
-        UUID id = UUID.randomUUID();
-        CatalogPageRequest request = CatalogPageRequest.of(0, 20, List.of("sourceValue,asc"));
-        RawValueQuery query = new RawValueQuery("粤语", true);
-        RawLanguageRead language = new RawLanguageRead(id, "粤语中字", null, null, null, null);
-        LanguageTraceRead trace = new LanguageTraceRead(
-                UUID.randomUUID(),
-                "Example",
-                "abc-1",
-                UUID.randomUUID(),
-                "dev-source",
-                "https://example.invalid/detail?ids=abc-1");
-        CatalogPage<RawLanguageRead> page = CatalogPage.of(List.of(language), request, 1);
-        when(catalogService.pageRawLanguages(request, query)).thenReturn(page);
-        when(catalogService.findRawLanguage(id)).thenReturn(Optional.of(language));
-        when(catalogService.traceRawLanguage(id)).thenReturn(List.of(trace));
-
-        assertPageEquals(page, controller.pageRawLanguages(0, 20, List.of("sourceValue,asc"), "粤语", true));
-        assertEquals(ResponseEntity.ok(language), controller.getRawLanguage(id));
-        assertEquals(List.of(trace), controller.traceRawLanguage(id));
-        verify(catalogService).pageRawLanguages(request, query);
-        verify(catalogService).findRawLanguage(id);
-        verify(catalogService).traceRawLanguage(id);
-    }
-
     private static <T> void assertPageEquals(CatalogPage<T> expected, PageEnvelope<T> actual) {
         assertEquals(expected.content(), actual.content());
         assertEquals(expected.number(), actual.page().number());

@@ -8,10 +8,8 @@ import com.prodigalgal.ircs.common.lock.DistributedLockManager;
 import com.prodigalgal.ircs.common.lock.DistributedLockProfile;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -95,9 +93,6 @@ class CatalogDefaultInitializerRunner implements ApplicationRunner {
 
     private void seedDefaults() {
         SeedStats stats = new SeedStats();
-        Map<String, UUID> genreIds = new HashMap<>();
-        Map<String, UUID> areaIds = new HashMap<>();
-        Map<String, UUID> languageIds = new HashMap<>();
 
         for (CatalogDefaultSeedCatalog.CategorySeed category : defaults.categories()) {
             stats.record(repository.seedStandardCategory(category.name(), category.slug()));
@@ -105,8 +100,6 @@ class CatalogDefaultInitializerRunner implements ApplicationRunner {
         for (CatalogDefaultSeedCatalog.GenreSeed genre : defaults.genres()) {
             JdbcCatalogRepository.SeedResult result = repository.seedStandardGenre(genre.name());
             stats.record(result);
-            genreIds.put(genre.name(), result.id());
-            stats.record(repository.seedRawGenreAlias(genre.name(), result.id()));
         }
         for (CatalogDefaultSeedCatalog.AreaSeed area : defaults.areas()) {
             JdbcCatalogRepository.SeedResult result = repository.seedStandardArea(
@@ -114,18 +107,7 @@ class CatalogDefaultInitializerRunner implements ApplicationRunner {
                     area.name(),
                     area.region());
             stats.record(result);
-            areaIds.put(area.code(), result.id());
-            stats.record(repository.seedRawAreaAlias(area.name(), result.id()));
         }
-        defaults.areaAliases().forEach((code, aliases) -> {
-            UUID areaId = areaIds.get(code);
-            if (areaId != null) {
-                aliases.stream()
-                        .filter(StringUtils::hasText)
-                        .distinct()
-                        .forEach(alias -> stats.record(repository.seedRawAreaAlias(alias, areaId)));
-            }
-        });
 
         for (CatalogDefaultSeedCatalog.LanguageSeed language : defaults.languages()) {
             JdbcCatalogRepository.SeedResult result = repository.seedStandardLanguage(
@@ -134,20 +116,7 @@ class CatalogDefaultInitializerRunner implements ApplicationRunner {
                     language.englishName(),
                     language.nativeName());
             stats.record(result);
-            languageIds.put(language.code(), result.id());
-            stats.record(repository.seedRawLanguageAlias(language.name(), result.id()));
-            stats.record(repository.seedRawLanguageAlias(language.englishName(), result.id()));
-            stats.record(repository.seedRawLanguageAlias(language.nativeName(), result.id()));
         }
-        defaults.languageAliases().forEach((code, aliases) -> {
-            UUID languageId = languageIds.get(code);
-            if (languageId != null) {
-                aliases.stream()
-                        .filter(StringUtils::hasText)
-                        .distinct()
-                        .forEach(alias -> stats.record(repository.seedRawLanguageAlias(alias, languageId)));
-            }
-        });
 
         for (CatalogDefaultSeedCatalog.DataSourceSeed dataSource : defaults.dataSources()) {
             stats.record(repository.seedDataSource(

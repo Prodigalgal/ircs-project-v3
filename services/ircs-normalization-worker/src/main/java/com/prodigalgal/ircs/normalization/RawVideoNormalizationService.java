@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.normalization;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
-import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkPublisher;
 import com.prodigalgal.ircs.contracts.normalization.NormalizationMaintenanceRunResponse;
 import java.time.Instant;
 import java.util.List;
@@ -25,7 +24,6 @@ public class RawVideoNormalizationService {
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final MetadataEnrichPublisher metadataEnrichPublisher;
     private final AggregationWorkPublisher aggregationWorkPublisher;
-    private final LlmCleaningWorkPublisher llmCleaningWorkPublisher;
     private final ObjectMapper objectMapper;
     private final NormalizationConfigValues configValues;
 
@@ -64,21 +62,11 @@ public class RawVideoNormalizationService {
             return markFailure(record, "INVALID_RAW_METADATA");
         }
 
-        RawVideoNormalizationRepository.MarkReadyResult readyResult = repository.markReady(rawVideoId, patch);
-        enqueueLlmCleaning(readyResult.llmCleaningTerms());
+        repository.markReady(rawVideoId, patch);
         searchSyncPublisher.publishIndex(rawVideoId);
         metadataEnrichPublisher.publish(rawVideoId, record.dataHash());
         enqueueAggregation(rawVideoId, record.dataHash(), "normalization-ready");
         return NormalizationResult.ready(rawVideoId);
-    }
-
-    private void enqueueLlmCleaning(List<RawVideoNormalizationRepository.LlmCleaningRawTerm> terms) {
-        if (terms == null || terms.isEmpty()) {
-            return;
-        }
-        for (RawVideoNormalizationRepository.LlmCleaningRawTerm term : terms) {
-            llmCleaningWorkPublisher.enqueue(term.kind(), term.rawId(), term.rawValue(), "normalization-ready");
-        }
     }
 
     private void enqueueAggregation(UUID rawVideoId, String pipelineVersion, String reason) {

@@ -2,26 +2,20 @@ package com.prodigalgal.ircs.content.people.domain;
 
 public enum PeopleResource {
 
-    ACTORS("actor", "actors", "video_actors", "unified_video_actors", "actor_id"),
-    DIRECTORS("director", "directors", "video_directors", "unified_video_directors", "director_id");
+    ACTORS("actor", "actors", "actor_names"),
+    DIRECTORS("director", "directors", "director_names");
 
     private final String entityName;
     private final String tableName;
-    private final String rawJoinTableName;
-    private final String unifiedJoinTableName;
-    private final String joinColumnName;
+    private final String flatColumnName;
 
     PeopleResource(
             String entityName,
             String tableName,
-            String rawJoinTableName,
-            String unifiedJoinTableName,
-            String joinColumnName) {
+            String flatColumnName) {
         this.entityName = entityName;
         this.tableName = tableName;
-        this.rawJoinTableName = rawJoinTableName;
-        this.unifiedJoinTableName = unifiedJoinTableName;
-        this.joinColumnName = joinColumnName;
+        this.flatColumnName = flatColumnName;
     }
 
     public String entityName() {
@@ -32,15 +26,7 @@ public enum PeopleResource {
         return tableName;
     }
 
-    public String rawJoinTableName() {
-        return rawJoinTableName;
-    }
-
-    public String unifiedJoinTableName() {
-        return unifiedJoinTableName;
-    }
-
-    public String joinColumnName() {
-        return joinColumnName;
+    public String flatColumnName() {
+        return flatColumnName;
     }
 }

@@ -44,13 +44,14 @@ public class JdbcCatalogRepository {
     public List<StandardGenreSummary> listStandardGenres() {
         return jdbcTemplate.query(
                 """
-                select id, name
+                select id, name, code
                 from standard_genre
                 order by name
                 """,
                 (rs, rowNum) -> new StandardGenreSummary(
                         rs.getObject("id", UUID.class),
-                        rs.getString("name")));
+                        rs.getString("name"),
+                        rs.getString("code")));
     }
 
     public List<StandardAreaSummary> listStandardAreas() {
@@ -107,60 +108,6 @@ public class JdbcCatalogRepository {
                         rs.getObject("category_id", UUID.class),
                         rs.getString("category_name"),
                         rs.getString("category_slug")));
-    }
-
-    public List<RawValueMappingSummary> listRawGenres() {
-        return jdbcTemplate.query(
-                """
-                select rg.id,
-                       rg.source_value,
-                       rg.standard_genre_id as standard_id,
-                       sg.name as standard_name,
-                       null::varchar as standard_code
-                from raw_genres rg
-                left join standard_genre sg on rg.standard_genre_id = sg.id
-                order by rg.source_value
-                """,
-                rawValueMapper());
-    }
-
-    public List<RawValueMappingSummary> listRawAreas() {
-        return jdbcTemplate.query(
-                """
-                select ra.id,
-                       ra.source_value,
-                       ra.standard_area_id as standard_id,
-                       sa.name as standard_name,
-                       sa.code as standard_code
-                from raw_areas ra
-                left join standard_areas sa on ra.standard_area_id = sa.id
-                order by ra.source_value
-                """,
-                rawValueMapper());
-    }
-
-    public List<RawLanguageSummary> listRawLanguages() {
-        return jdbcTemplate.query(
-                """
-                select rl.id,
-                       rl.source_value,
-                       rl.standard_language_id,
-                       sl.name as standard_name,
-                       sl.code as standard_code,
-                       sl.english_name,
-                       sl.native_name
-                from raw_languages rl
-                left join standard_languages sl on rl.standard_language_id = sl.id
-                order by rl.source_value
-                """,
-                (rs, rowNum) -> new RawLanguageSummary(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("source_value"),
-                        rs.getObject("standard_language_id", UUID.class),
-                        rs.getString("standard_name"),
-                        rs.getString("standard_code"),
-                        rs.getString("english_name"),
-                        rs.getString("native_name")));
     }
 
     public List<DataSourceSummary> listDataSources() {
@@ -330,7 +277,7 @@ public class JdbcCatalogRepository {
     public List<StandardGenreRead> listStandardGenreReads() {
         return jdbcTemplate.query(
                 """
-                select id, name
+                select id, name, code
                 from standard_genre
                 order by name
                 """,
@@ -342,11 +289,11 @@ public class JdbcCatalogRepository {
         List<String> predicates = new ArrayList<>();
         addLikePredicate(predicates, params, "name", "name", name);
         return queryPage(
-                "select id, name",
+                "select id, name, code",
                 fromWhere("standard_genre", predicates),
                 params,
                 pageRequest,
-                Map.of("id", "id", "name", "name"),
+                Map.of("id", "id", "name", "name", "code", "code"),
                 "name asc, id asc",
                 "id asc",
                 standardGenreReadMapper());
@@ -355,7 +302,7 @@ public class JdbcCatalogRepository {
     public Optional<StandardGenreRead> findStandardGenre(UUID id) {
         return queryOptional(
                 """
-                select id, name
+                select id, name, code
                 from standard_genre
                 where id = :id
                 """,
@@ -438,123 +385,6 @@ public class JdbcCatalogRepository {
                 rawCategorySelect() + " " + rawCategoryFromWhere(List.of("rc.id = :id")),
                 new MapSqlParameterSource("id", id),
                 rawCategoryReadMapper());
-    }
-
-    public CatalogPage<RawGenreRead> pageRawGenres(CatalogPageRequest pageRequest, RawValueQuery query) {
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        List<String> predicates = new ArrayList<>();
-        addLikePredicate(predicates, params, "rg.source_value", "keyword", query.keyword());
-        addMappedPredicate(predicates, "rg.standard_genre_id", query.isUnmapped(), true);
-
-        return queryPage(
-                rawGenreSelect(),
-                rawGenreFromWhere(predicates),
-                params,
-                pageRequest,
-                Map.of(
-                        "id", "rg.id",
-                        "sourceValue", "rg.source_value",
-                        "standardGenreName", "sg.name"),
-                "rg.source_value asc, rg.id asc",
-                "rg.id asc",
-                rawGenreReadMapper());
-    }
-
-    public Optional<RawGenreRead> findRawGenre(UUID id) {
-        return queryOptional(
-                rawGenreSelect() + " " + rawGenreFromWhere(List.of("rg.id = :id")),
-                new MapSqlParameterSource("id", id),
-                rawGenreReadMapper());
-    }
-
-    public CatalogPage<RawAreaRead> pageRawAreas(CatalogPageRequest pageRequest, RawValueQuery query) {
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        List<String> predicates = new ArrayList<>();
-        addLikeAnyPredicate(predicates, params, "keyword", query.keyword(), "ra.source_value", "sa.name");
-        addMappedPredicate(predicates, "ra.standard_area_id", query.isUnmapped(), false);
-
-        return queryPage(
-                rawAreaSelect(),
-                rawAreaFromWhere(predicates),
-                params,
-                pageRequest,
-                Map.of(
-                        "id", "ra.id",
-                        "sourceValue", "ra.source_value",
-                        "standardAreaName", "sa.name",
-                        "createdAt", "ra.created_at",
-                        "updatedAt", "ra.updated_at"),
-                "ra.source_value asc, ra.id asc",
-                "ra.id asc",
-                rawAreaReadMapper());
-    }
-
-    public Optional<RawAreaRead> findRawArea(UUID id) {
-        return queryOptional(
-                rawAreaSelect() + " " + rawAreaFromWhere(List.of("ra.id = :id")),
-                new MapSqlParameterSource("id", id),
-                rawAreaReadMapper());
-    }
-
-    public CatalogPage<RawLanguageRead> pageRawLanguages(CatalogPageRequest pageRequest, RawValueQuery query) {
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        List<String> predicates = new ArrayList<>();
-        addLikeAnyPredicate(predicates, params, "keyword", query.keyword(), "rl.source_value", "sl.name");
-        addMappedPredicate(predicates, "rl.standard_language_id", query.isUnmapped(), false);
-
-        return queryPage(
-                rawLanguageSelect(),
-                rawLanguageFromWhere(predicates),
-                params,
-                pageRequest,
-                Map.of(
-                        "id", "rl.id",
-                        "sourceValue", "rl.source_value",
-                        "standardLanguageName", "sl.name",
-                        "createdAt", "rl.created_at",
-                        "updatedAt", "rl.updated_at"),
-                "rl.source_value asc, rl.id asc",
-                "rl.id asc",
-                rawLanguageReadMapper());
-    }
-
-    public Optional<RawLanguageRead> findRawLanguage(UUID id) {
-        return queryOptional(
-                rawLanguageSelect() + " " + rawLanguageFromWhere(List.of("rl.id = :id")),
-                new MapSqlParameterSource("id", id),
-                rawLanguageReadMapper());
-    }
-
-    public List<LanguageTraceSource> traceRawLanguage(UUID id) {
-        return namedParameterJdbcTemplate.query(
-                """
-                select v.id as video_id,
-                       v.title as video_title,
-                       v.source_vid,
-                       coalesce(ds.id, direct_ds.id) as data_source_id,
-                       coalesce(ds.name, direct_ds.name, 'Unknown') as data_source_name,
-                       coalesce(ds.base_url, direct_ds.base_url) as base_url,
-                       coalesce(ds.detail_path, direct_ds.detail_path) as detail_path,
-                       coalesce(ds.detail_params::text, direct_ds.detail_params::text) as detail_params
-                from video_raw_languages vrl
-                join raw_videos v on vrl.video_id = v.id
-                left join raw_category rc on v.data_source_category_id = rc.id
-                left join data_sources ds on rc.data_source_id = ds.id
-                left join data_sources direct_ds on v.data_source_id = direct_ds.id
-                where vrl.raw_language_id = :id
-                order by v.updated_at desc nulls last, v.id
-                limit 20
-                """,
-                new MapSqlParameterSource("id", id),
-                (rs, rowNum) -> new LanguageTraceSource(
-                        rs.getObject("video_id", UUID.class),
-                        rs.getString("video_title"),
-                        rs.getString("source_vid"),
-                        rs.getObject("data_source_id", UUID.class),
-                        rs.getString("data_source_name"),
-                        rs.getString("base_url"),
-                        rs.getString("detail_path"),
-                        rs.getString("detail_params")));
     }
 
     public DataSourceRead createDataSource(DataSourceAdminRequest request) {
@@ -783,13 +613,14 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_genre (id, created_at, updated_at, version, name)
-                values (:id, :now, :now, 0, :name)
+                insert into standard_genre (id, created_at, updated_at, version, name, code)
+                values (:id, :now, :now, 0, :name, :code)
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("now", now)
-                        .addValue("name", request.name()));
+                        .addValue("name", request.name())
+                        .addValue("code", stableCode(request.code(), request.name())));
         return findStandardGenre(id).orElseThrow();
     }
 
@@ -797,12 +628,15 @@ public class JdbcCatalogRepository {
         int updated = namedParameterJdbcTemplate.update(
                 """
                 update standard_genre
-                set name = :name, updated_at = :updatedAt
+                set name = :name,
+                    code = :code,
+                    updated_at = :updatedAt
                 where id = :id
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("name", request.name())
+                        .addValue("code", stableCode(request.code(), request.name()))
                         .addValue("updatedAt", Timestamp.from(Instant.now())));
         return updated == 0 ? Optional.empty() : findStandardGenre(id);
     }
@@ -951,105 +785,6 @@ public class JdbcCatalogRepository {
         return SeedResult.inserted(id);
     }
 
-    public RawGenreRead createRawGenre(RawGenreAdminRequest request) {
-        UUID id = IrcsUuidGenerators.nextId();
-        Timestamp now = Timestamp.from(Instant.now());
-        namedParameterJdbcTemplate.update(
-                """
-                insert into raw_genres (id, created_at, updated_at, version, source_value, standard_genre_id)
-                values (:id, :now, :now, 0, :sourceValue, :standardGenreId)
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("now", now)
-                        .addValue("sourceValue", request.sourceValue())
-                        .addValue("standardGenreId", request.standardGenreId()));
-        return findRawGenre(id).orElseThrow();
-    }
-
-    public Optional<RawGenreRead> updateRawGenre(UUID id, RawGenreAdminRequest request) {
-        namedParameterJdbcTemplate.update(
-                """
-                update raw_genres
-                set source_value = coalesce(:sourceValue, source_value),
-                    standard_genre_id = :standardGenreId,
-                    updated_at = :updatedAt
-                where id = :id
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("sourceValue", request.sourceValue())
-                        .addValue("standardGenreId", request.standardGenreId())
-                        .addValue("updatedAt", Timestamp.from(Instant.now())));
-        return findRawGenre(id);
-    }
-
-    public RawAreaRead createRawArea(RawAreaAdminRequest request) {
-        UUID id = IrcsUuidGenerators.nextId();
-        Timestamp now = Timestamp.from(Instant.now());
-        namedParameterJdbcTemplate.update(
-                """
-                insert into raw_areas (id, created_at, updated_at, version, source_value, standard_area_id)
-                values (:id, :now, :now, 0, :sourceValue, :standardAreaId)
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("now", now)
-                        .addValue("sourceValue", request.sourceValue())
-                        .addValue("standardAreaId", request.standardAreaId()));
-        return findRawArea(id).orElseThrow();
-    }
-
-    public Optional<RawAreaRead> updateRawArea(UUID id, RawAreaAdminRequest request) {
-        namedParameterJdbcTemplate.update(
-                """
-                update raw_areas
-                set source_value = coalesce(:sourceValue, source_value),
-                    standard_area_id = :standardAreaId,
-                    updated_at = :updatedAt
-                where id = :id
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("sourceValue", request.sourceValue())
-                        .addValue("standardAreaId", request.standardAreaId())
-                        .addValue("updatedAt", Timestamp.from(Instant.now())));
-        return findRawArea(id);
-    }
-
-    public RawLanguageRead createRawLanguage(RawLanguageAdminRequest request) {
-        UUID id = IrcsUuidGenerators.nextId();
-        Timestamp now = Timestamp.from(Instant.now());
-        namedParameterJdbcTemplate.update(
-                """
-                insert into raw_languages (id, created_at, updated_at, version, source_value, standard_language_id)
-                values (:id, :now, :now, 0, :sourceValue, :standardLanguageId)
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("now", now)
-                        .addValue("sourceValue", request.sourceValue())
-                        .addValue("standardLanguageId", request.standardLanguageId()));
-        return findRawLanguage(id).orElseThrow();
-    }
-
-    public Optional<RawLanguageRead> updateRawLanguage(UUID id, RawLanguageAdminRequest request) {
-        namedParameterJdbcTemplate.update(
-                """
-                update raw_languages
-                set source_value = coalesce(:sourceValue, source_value),
-                    standard_language_id = :standardLanguageId,
-                    updated_at = :updatedAt
-                where id = :id
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("sourceValue", request.sourceValue())
-                        .addValue("standardLanguageId", request.standardLanguageId())
-                        .addValue("updatedAt", Timestamp.from(Instant.now())));
-        return findRawLanguage(id);
-    }
-
     public SeedResult seedStandardCategory(String name, String slug) {
         Optional<UUID> existing = findIdByText("standard_category", "name", name);
         if (existing.isPresent()) {
@@ -1079,13 +814,14 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_genre (id, created_at, updated_at, version, name)
-                values (:id, :now, :now, 0, :name)
+                insert into standard_genre (id, created_at, updated_at, version, name, code)
+                values (:id, :now, :now, 0, :name, :code)
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("now", now)
-                        .addValue("name", name));
+                        .addValue("name", name)
+                        .addValue("code", stableCode(null, name)));
         return SeedResult.inserted(id);
     }
 
@@ -1209,30 +945,6 @@ public class JdbcCatalogRepository {
         return SeedResult.inserted(id);
     }
 
-    public SeedResult seedRawGenreAlias(String sourceValue, UUID standardGenreId) {
-        return seedRawAlias(
-                "raw_genres",
-                "standard_genre_id",
-                sourceValue,
-                standardGenreId);
-    }
-
-    public SeedResult seedRawAreaAlias(String sourceValue, UUID standardAreaId) {
-        return seedRawAlias(
-                "raw_areas",
-                "standard_area_id",
-                sourceValue,
-                standardAreaId);
-    }
-
-    public SeedResult seedRawLanguageAlias(String sourceValue, UUID standardLanguageId) {
-        return seedRawAlias(
-                "raw_languages",
-                "standard_language_id",
-                sourceValue,
-                standardLanguageId);
-    }
-
     public void deleteById(String tableName, UUID id) {
         namedParameterJdbcTemplate.update(
                 "delete from " + tableName + " where id = :id",
@@ -1243,15 +955,6 @@ public class JdbcCatalogRepository {
         namedParameterJdbcTemplate.update(
                 "delete from " + tableName + " where " + idColumn + " = :id",
                 new MapSqlParameterSource("id", id));
-    }
-
-    private RowMapper<RawValueMappingSummary> rawValueMapper() {
-        return (rs, rowNum) -> new RawValueMappingSummary(
-                rs.getObject("id", UUID.class),
-                rs.getString("source_value"),
-                rs.getObject("standard_id", UUID.class),
-                rs.getString("standard_name"),
-                rs.getString("standard_code"));
     }
 
     private RowMapper<DataSourceRead> dataSourceReadMapper() {
@@ -1288,7 +991,8 @@ public class JdbcCatalogRepository {
     private RowMapper<StandardGenreRead> standardGenreReadMapper() {
         return (rs, rowNum) -> new StandardGenreRead(
                 rs.getObject("id", UUID.class),
-                rs.getString("name"));
+                rs.getString("name"),
+                rs.getString("code"));
     }
 
     private RowMapper<StandardAreaRead> standardAreaReadMapper() {
@@ -1323,34 +1027,6 @@ public class JdbcCatalogRepository {
                 instant(rs, "updated_at"));
     }
 
-    private RowMapper<RawGenreRead> rawGenreReadMapper() {
-        return (rs, rowNum) -> new RawGenreRead(
-                rs.getObject("id", UUID.class),
-                rs.getString("source_value"),
-                rs.getObject("standard_genre_id", UUID.class),
-                rs.getString("standard_genre_name"));
-    }
-
-    private RowMapper<RawAreaRead> rawAreaReadMapper() {
-        return (rs, rowNum) -> new RawAreaRead(
-                rs.getObject("id", UUID.class),
-                rs.getString("source_value"),
-                rs.getObject("standard_area_id", UUID.class),
-                rs.getString("standard_area_name"),
-                instant(rs, "created_at"),
-                instant(rs, "updated_at"));
-    }
-
-    private RowMapper<RawLanguageRead> rawLanguageReadMapper() {
-        return (rs, rowNum) -> new RawLanguageRead(
-                rs.getObject("id", UUID.class),
-                rs.getString("source_value"),
-                rs.getObject("standard_language_id", UUID.class),
-                rs.getString("standard_language_name"),
-                instant(rs, "created_at"),
-                instant(rs, "updated_at"));
-    }
-
     private String rawCategorySelect() {
         return """
                 select rc.id,
@@ -1371,64 +1047,6 @@ public class JdbcCatalogRepository {
                 raw_category rc
                 left join data_sources ds on rc.data_source_id = ds.id
                 left join standard_category sc on rc.category_id = sc.id
-                """,
-                predicates);
-    }
-
-    private String rawGenreSelect() {
-        return """
-                select rg.id,
-                       rg.source_value,
-                       rg.standard_genre_id,
-                       sg.name as standard_genre_name
-                """;
-    }
-
-    private String rawGenreFromWhere(List<String> predicates) {
-        return fromWhere(
-                """
-                raw_genres rg
-                left join standard_genre sg on rg.standard_genre_id = sg.id
-                """,
-                predicates);
-    }
-
-    private String rawAreaSelect() {
-        return """
-                select ra.id,
-                       ra.source_value,
-                       ra.standard_area_id,
-                       sa.name as standard_area_name,
-                       ra.created_at,
-                       ra.updated_at
-                """;
-    }
-
-    private String rawAreaFromWhere(List<String> predicates) {
-        return fromWhere(
-                """
-                raw_areas ra
-                left join standard_areas sa on ra.standard_area_id = sa.id
-                """,
-                predicates);
-    }
-
-    private String rawLanguageSelect() {
-        return """
-                select rl.id,
-                       rl.source_value,
-                       rl.standard_language_id,
-                       sl.name as standard_language_name,
-                       rl.created_at,
-                       rl.updated_at
-                """;
-    }
-
-    private String rawLanguageFromWhere(List<String> predicates) {
-        return fromWhere(
-                """
-                raw_languages rl
-                left join standard_languages sl on rl.standard_language_id = sl.id
                 """,
                 predicates);
     }
@@ -1518,41 +1136,18 @@ public class JdbcCatalogRepository {
                 (rs, rowNum) -> rs.getObject("id", UUID.class));
     }
 
-    private SeedResult seedRawAlias(String tableName, String standardColumn, String sourceValue, UUID standardId) {
-        Optional<RawAliasSeedRow> existing = queryOptional(
-                "select id, " + standardColumn + " as standard_id from " + tableName + " where source_value = :sourceValue",
-                new MapSqlParameterSource("sourceValue", sourceValue),
-                (rs, rowNum) -> new RawAliasSeedRow(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("standard_id", UUID.class)));
-        if (existing.isPresent()) {
-            RawAliasSeedRow row = existing.get();
-            if (row.standardId() == null && standardId != null) {
-                namedParameterJdbcTemplate.update(
-                        "update " + tableName
-                                + " set " + standardColumn + " = :standardId, updated_at = :updatedAt,"
-                                + " version = coalesce(version, 0) + 1 where id = :id",
-                        new MapSqlParameterSource()
-                                .addValue("id", row.id())
-                                .addValue("standardId", standardId)
-                                .addValue("updatedAt", Timestamp.from(Instant.now())));
-                return SeedResult.updated(row.id());
-            }
-            return SeedResult.unchanged(row.id());
+    private String stableCode(String preferredCode, String name) {
+        String source = StringUtils.hasText(preferredCode) ? preferredCode : name;
+        if (!StringUtils.hasText(source)) {
+            return "genre-" + UUID.randomUUID();
         }
-
-        UUID id = IrcsUuidGenerators.nextId();
-        Timestamp now = Timestamp.from(Instant.now());
-        namedParameterJdbcTemplate.update(
-                "insert into " + tableName
-                        + " (id, created_at, updated_at, version, source_value, " + standardColumn + ")"
-                        + " values (:id, :now, :now, 0, :sourceValue, :standardId)",
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("now", now)
-                        .addValue("sourceValue", sourceValue)
-                        .addValue("standardId", standardId));
-        return SeedResult.inserted(id);
+        String normalized = source.trim()
+                .toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        return StringUtils.hasText(normalized)
+                ? normalized
+                : "genre-" + Integer.toHexString(source.hashCode());
     }
 
     private String fromWhere(String tableExpression, List<String> predicates) {
@@ -1670,8 +1265,6 @@ public class JdbcCatalogRepository {
     private record LanguageSeedRow(UUID id, String code, String englishName, String nativeName) {}
 
     private record AreaSeedRow(UUID id, String region) {}
-
-    private record RawAliasSeedRow(UUID id, UUID standardId) {}
 
     private record RawCategorySeedRow(UUID id, String sourceName, UUID categoryId) {}
 

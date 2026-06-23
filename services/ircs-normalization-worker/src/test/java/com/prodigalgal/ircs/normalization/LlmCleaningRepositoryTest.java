@@ -1,9 +1,11 @@
 package com.prodigalgal.ircs.normalization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,13 +27,13 @@ class LlmCleaningRepositoryTest {
     private NamedParameterJdbcTemplate jdbcTemplate;
 
     @Test
-    void findCandidateReadsExactQueuedRawIdWithoutDbLease() {
+    void findCandidateReadsExactQueuedCategoryIdWithoutDbLease() {
         UUID rawId = UUID.randomUUID();
         when(jdbcTemplate.query(
                         argThat(sql -> sql != null
-                                && sql.contains("from raw_languages")
+                                && sql.contains("from raw_category")
                                 && sql.contains("where id = :rawId")
-                                && sql.contains("standard_language_id is null")
+                                && sql.contains("category_id is null")
                                 && !sql.contains("skip locked")
                                 && !sql.contains("llm_cleaning_claimed")),
                         any(MapSqlParameterSource.class),
@@ -39,53 +41,47 @@ class LlmCleaningRepositoryTest {
                 .thenReturn(List.of(new LlmCleaningCandidate(rawId, "国语")));
         LlmCleaningRepository repository = new LlmCleaningRepository(jdbcTemplate);
 
-        Optional<LlmCleaningCandidate> candidate = repository.findCandidate(LlmCleaningKind.LANGUAGE, rawId);
+        Optional<LlmCleaningCandidate> candidate = repository.findCandidate(LlmCleaningKind.CATEGORY, rawId);
 
         assertThat(candidate).contains(new LlmCleaningCandidate(rawId, "国语"));
     }
 
     @Test
-    void applyMatchOnlyUpdatesUnmappedRawRows() {
+    void applyMatchOnlyUpdatesUnmappedCategoryRows() {
         UUID rawId = UUID.randomUUID();
         UUID standardId = UUID.randomUUID();
         when(jdbcTemplate.update(
                         argThat(sql -> sql != null
-                                && sql.contains("update raw_languages")
-                                && sql.contains("set standard_language_id = :standardId")
+                                && sql.contains("update raw_category")
+                                && sql.contains("set category_id = :standardId")
                                 && sql.contains("updated_at = now()")
-                                && sql.contains("standard_language_id is null")
+                                && sql.contains("category_id is null")
                                 && !sql.contains("llm_cleaning_claimed")),
                         any(MapSqlParameterSource.class)))
                 .thenReturn(1);
         LlmCleaningRepository repository = new LlmCleaningRepository(jdbcTemplate);
 
-        boolean changed = repository.applyMatch(LlmCleaningKind.LANGUAGE, rawId, standardId);
+        boolean changed = repository.applyMatch(LlmCleaningKind.CATEGORY, rawId, standardId);
 
         assertThat(changed).isTrue();
     }
 
     @Test
-    void applyNoiseOnlyDeletesUnmappedNonCategoryRawRows() {
+    void nonCategoryKindsAreRejectedAfterFlatMetadataMigration() {
         UUID rawId = UUID.randomUUID();
-        when(jdbcTemplate.update(
-                        argThat(sql -> sql != null
-                                && sql.contains("delete from video_raw_genres")
-                                && sql.contains("exists")
-                                && sql.contains("from raw_genres")
-                                && sql.contains("standard_genre_id is null")),
-                        any(MapSqlParameterSource.class)))
-                .thenReturn(1);
-        when(jdbcTemplate.update(
-                        argThat(sql -> sql != null
-                                && sql.contains("delete from raw_genres")
-                                && sql.contains("where id = :rawId and standard_genre_id is null")),
-                        any(MapSqlParameterSource.class)))
-                .thenReturn(1);
+        UUID standardId = UUID.randomUUID();
         LlmCleaningRepository repository = new LlmCleaningRepository(jdbcTemplate);
 
-        boolean changed = repository.applyNoise(LlmCleaningKind.GENRE, rawId);
-
-        assertThat(changed).isTrue();
+        assertThatThrownBy(() -> repository.findCandidate(LlmCleaningKind.LANGUAGE, rawId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Only category LLM cleaning is supported");
+        assertThatThrownBy(() -> repository.applyMatch(LlmCleaningKind.GENRE, rawId, standardId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Only category LLM cleaning is supported");
+        assertThatThrownBy(() -> repository.applyNoise(LlmCleaningKind.AREA, rawId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Only category LLM cleaning is supported");
+        verify(jdbcTemplate, never()).update(any(String.class), any(MapSqlParameterSource.class));
     }
 
     @Test

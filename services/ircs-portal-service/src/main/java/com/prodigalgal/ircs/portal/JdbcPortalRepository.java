@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.portal;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.math.BigDecimal;
@@ -53,7 +54,7 @@ public class JdbcPortalRepository {
                    ci.storage_path AS cover_storage_path,
                    sd.domain_value AS cover_source_domain
               FROM unified_videos uv
-              LEFT JOIN standard_category sc ON uv.category_id = sc.id
+              LEFT JOIN standard_category sc ON sc.slug = uv.category_code
               LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
             """;
@@ -70,7 +71,7 @@ public class JdbcPortalRepository {
                 """
                 SELECT sc.name, sc.slug
                   FROM unified_videos uv
-                  JOIN standard_category sc ON uv.category_id = sc.id
+                  JOIN standard_category sc ON sc.slug = uv.category_code
                 """ + where + """
                  GROUP BY sc.id, sc.name, sc.slug
                  ORDER BY count(uv.id) DESC, sc.name ASC
@@ -86,12 +87,12 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query("""
                 SELECT sg.name
                   FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON uv.category_id = sc.id
-                  JOIN unified_video_genres uvg ON uv.id = uvg.unified_video_id
-                  JOIN standard_genre sg ON uvg.genre_id = sg.id
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code) ON true
+                  LEFT JOIN standard_genre sg ON sg.code = gc.code
                 """ + where + """
-                 GROUP BY sg.name
-                 ORDER BY count(uv.id) DESC, sg.name ASC
+                 GROUP BY coalesce(sg.name, gc.code)
+                 ORDER BY count(uv.id) DESC, coalesce(sg.name, gc.code) ASC
                 """, params, (rs, rowNum) -> rs.getString(1));
     }
 
@@ -102,12 +103,12 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query("""
                 SELECT sa.name
                   FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON uv.category_id = sc.id
-                  JOIN unified_video_standard_areas uvsa ON uv.id = uvsa.unified_video_id
-                  JOIN standard_areas sa ON uvsa.standard_area_id = sa.id
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code) ON true
+                  LEFT JOIN standard_areas sa ON sa.code = ac.code
                 """ + where + """
-                 GROUP BY sa.name
-                 ORDER BY count(uv.id) DESC, sa.name ASC
+                 GROUP BY coalesce(sa.name, ac.code)
+                 ORDER BY count(uv.id) DESC, coalesce(sa.name, ac.code) ASC
                 """, params, (rs, rowNum) -> rs.getString(1));
     }
 
@@ -118,12 +119,12 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query("""
                 SELECT sl.name
                   FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON uv.category_id = sc.id
-                  JOIN unified_video_standard_languages uvsl ON uv.id = uvsl.unified_video_id
-                  JOIN standard_languages sl ON uvsl.standard_language_id = sl.id
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code) ON true
+                  LEFT JOIN standard_languages sl ON sl.code = lc.code
                 """ + where + """
-                 GROUP BY sl.name
-                 ORDER BY count(uv.id) DESC, sl.name ASC
+                 GROUP BY coalesce(sl.name, lc.code)
+                 ORDER BY count(uv.id) DESC, coalesce(sl.name, lc.code) ASC
                 """, params, (rs, rowNum) -> rs.getString(1));
     }
 
@@ -137,7 +138,7 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query("""
                 SELECT uv.year
                   FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON uv.category_id = sc.id
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                 """ + where + """
                  GROUP BY uv.year
                  ORDER BY uv.year DESC
@@ -210,7 +211,7 @@ public class JdbcPortalRepository {
         Map<String, Object> params = new HashMap<>();
         String where = exploreWhere(params, principal, keyword, type, genre, area, year, language);
         Long total = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON uv.category_id = sc.id " + where,
+                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
                 params,
                 Long.class);
 
@@ -245,13 +246,18 @@ public class JdbcPortalRepository {
                            uv.tmdb_id,
                            uv.imdb_id,
                            uv.last_trend_at,
+                           cast(uv.actor_names as varchar) as actor_names,
+                           cast(uv.director_names as varchar) as director_names,
+                           cast(uv.area_codes as varchar) as area_codes,
+                           cast(uv.language_codes as varchar) as language_codes,
+                           cast(uv.genre_codes as varchar) as genre_codes,
                            sc.name AS category_name,
                            ci.storage_type AS cover_storage_type,
                            ci.original_url AS cover_original_url,
                            ci.storage_path AS cover_storage_path,
                            sd.domain_value AS cover_source_domain
                       FROM unified_videos uv
-                      LEFT JOIN standard_category sc ON uv.category_id = sc.id
+                      LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                       LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
                       LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
                     """ + where,
@@ -275,7 +281,12 @@ public class JdbcPortalRepository {
                             rs.getString("douban_id"),
                             rs.getString("tmdb_id"),
                             rs.getString("imdb_id"),
-                            getInstant(rs, "last_trend_at")));
+                            getInstant(rs, "last_trend_at"),
+                            rs.getString("actor_names"),
+                            rs.getString("director_names"),
+                            rs.getString("area_codes"),
+                            rs.getString("language_codes"),
+                            rs.getString("genre_codes")));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -292,33 +303,15 @@ public class JdbcPortalRepository {
                 base.remarks(),
                 base.duration(),
                 base.posterUrl(),
-                String.join(", ", findNames("""
-                        SELECT sa.name
-                          FROM unified_video_standard_areas uvsa
-                          JOIN standard_areas sa ON uvsa.standard_area_id = sa.id
-                         WHERE uvsa.unified_video_id = :id
-                         ORDER BY sa.name ASC
-                        """, id)),
-                String.join(", ", findNames("""
-                        SELECT sl.name
-                          FROM unified_video_standard_languages uvsl
-                          JOIN standard_languages sl ON uvsl.standard_language_id = sl.id
-                         WHERE uvsl.unified_video_id = :id
-                         ORDER BY sl.name ASC
-                        """, id)),
+                String.join(", ", resolveAreaNames(base.areaCodesJson())),
+                String.join(", ", resolveLanguageNames(base.languageCodesJson())),
                 base.categoryName(),
                 base.doubanId(),
                 base.tmdbId(),
                 base.imdbId(),
                 base.lastTrendAt(),
-                findNames("""
-                        SELECT sg.name
-                          FROM unified_video_genres uvg
-                          JOIN standard_genre sg ON uvg.genre_id = sg.id
-                         WHERE uvg.unified_video_id = :id
-                         ORDER BY sg.name ASC
-                        """, id),
-                findCast(id),
+                resolveGenreNames(base.genreCodesJson()),
+                findCast(base.directorNamesJson(), base.actorNamesJson()),
                 findSources(id),
                 findMagnets(id),
                 findTags(id),
@@ -350,28 +343,25 @@ public class JdbcPortalRepository {
         addExistsFilter(where, params, "genre", genre, """
                  AND EXISTS (
                      SELECT 1
-                       FROM unified_video_genres uvg
-                       JOIN standard_genre sg ON uvg.genre_id = sg.id
-                      WHERE uvg.unified_video_id = uv.id
-                        AND sg.name = :genre
+                       FROM jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code)
+                       LEFT JOIN standard_genre sg ON sg.code = gc.code
+                      WHERE gc.code = :genre OR sg.name = :genre
                  )
                 """);
         addExistsFilter(where, params, "area", area, """
                  AND EXISTS (
                      SELECT 1
-                       FROM unified_video_standard_areas uvsa
-                       JOIN standard_areas sa ON uvsa.standard_area_id = sa.id
-                      WHERE uvsa.unified_video_id = uv.id
-                        AND sa.name = :area
+                       FROM jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
+                       LEFT JOIN standard_areas sa ON sa.code = ac.code
+                      WHERE ac.code = :area OR sa.name = :area
                  )
                 """);
         addExistsFilter(where, params, "language", language, """
                  AND EXISTS (
                      SELECT 1
-                       FROM unified_video_standard_languages uvsl
-                       JOIN standard_languages sl ON uvsl.standard_language_id = sl.id
-                      WHERE uvsl.unified_video_id = uv.id
-                        AND sl.name = :language
+                       FROM jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code)
+                       LEFT JOIN standard_languages sl ON sl.code = lc.code
+                      WHERE lc.code = :language OR sl.name = :language
                  )
                 """);
         appendScopeFilters(where, params, principal);
@@ -390,7 +380,7 @@ public class JdbcPortalRepository {
             params.put("dataCategories", effective.dataCategories());
             where.append("""
                      AND (
-                         cast(uv.category_id as varchar) IN (:dataCategories)
+                         cast(sc.id as varchar) IN (:dataCategories)
                          OR sc.name IN (:dataCategories)
                          OR sc.slug IN (:dataCategories)
                      )
@@ -401,12 +391,13 @@ public class JdbcPortalRepository {
             where.append("""
                      AND EXISTS (
                          SELECT 1
-                           FROM unified_video_genres scope_uvg
-                           JOIN standard_genre scope_sg ON scope_uvg.genre_id = scope_sg.id
-                          WHERE scope_uvg.unified_video_id = uv.id
+                           FROM jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) scope_gc(code)
+                           LEFT JOIN standard_genre scope_sg ON scope_sg.code = scope_gc.code
+                          WHERE 1 = 1
                             AND (
                                 cast(scope_sg.id as varchar) IN (:dataGenres)
                                 OR scope_sg.name IN (:dataGenres)
+                                OR scope_gc.code IN (:dataGenres)
                             )
                      )
                     """);
@@ -471,34 +462,14 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query(sql, Map.of("id", id), (rs, rowNum) -> rs.getString(1));
     }
 
-    private List<PortalMovieDetailResponse.CastMember> findCast(UUID id) {
+    private List<PortalMovieDetailResponse.CastMember> findCast(String directorNamesJson, String actorNamesJson) {
         List<PortalMovieDetailResponse.CastMember> cast = new ArrayList<>();
-        cast.addAll(jdbcTemplate.query(
-                """
-                SELECT d.id, d.name
-                  FROM unified_video_directors uvd
-                  JOIN directors d ON uvd.director_id = d.id
-                 WHERE uvd.unified_video_id = :id
-                 ORDER BY d.name ASC
-                """,
-                Map.of("id", id),
-                (rs, rowNum) -> new PortalMovieDetailResponse.CastMember(
-                        rs.getObject("id", UUID.class).toString(),
-                        rs.getString("name"),
-                        "导演")));
-        cast.addAll(jdbcTemplate.query(
-                """
-                SELECT a.id, a.name
-                  FROM unified_video_actors uva
-                  JOIN actors a ON uva.actor_id = a.id
-                 WHERE uva.unified_video_id = :id
-                 ORDER BY a.name ASC
-                """,
-                Map.of("id", id),
-                (rs, rowNum) -> new PortalMovieDetailResponse.CastMember(
-                        rs.getObject("id", UUID.class).toString(),
-                        rs.getString("name"),
-                        "演员")));
+        for (String name : JsonStringArrays.readSet(objectMapper, directorNamesJson)) {
+            cast.add(new PortalMovieDetailResponse.CastMember(name, name, "导演"));
+        }
+        for (String name : JsonStringArrays.readSet(objectMapper, actorNamesJson)) {
+            cast.add(new PortalMovieDetailResponse.CastMember(name, name, "演员"));
+        }
         return cast;
     }
 
@@ -592,6 +563,40 @@ public class JdbcPortalRepository {
                 """, id);
     }
 
+    private List<String> resolveGenreNames(String genreCodesJson) {
+        return resolveNamesByCodes("standard_genre", "code", "name", JsonStringArrays.readSet(objectMapper, genreCodesJson));
+    }
+
+    private List<String> resolveAreaNames(String areaCodesJson) {
+        return resolveNamesByCodes("standard_areas", "code", "name", JsonStringArrays.readSet(objectMapper, areaCodesJson));
+    }
+
+    private List<String> resolveLanguageNames(String languageCodesJson) {
+        return resolveNamesByCodes("standard_languages", "code", "name", JsonStringArrays.readSet(objectMapper, languageCodesJson));
+    }
+
+    private List<String> resolveNamesByCodes(String table, String codeColumn, String nameColumn, Iterable<String> codes) {
+        List<String> normalizedCodes = new ArrayList<>();
+        for (String code : codes) {
+            if (StringUtils.hasText(code) && !normalizedCodes.contains(code.trim())) {
+                normalizedCodes.add(code.trim());
+            }
+        }
+        if (normalizedCodes.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> namesByCode = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                "select %s as code, %s as name from %s where %s in (:codes)"
+                        .formatted(codeColumn, nameColumn, table, codeColumn),
+                Map.of("codes", normalizedCodes),
+                (org.springframework.jdbc.core.RowCallbackHandler)
+                        rs -> namesByCode.put(rs.getString("code"), rs.getString("name")));
+        return normalizedCodes.stream()
+                .map(code -> fallback(namesByCode.get(code), code))
+                .toList();
+    }
+
     private List<PortalMovieCard> enrichCards(List<PortalMovieCard> cards) {
         if (cards == null || cards.isEmpty()) {
             return List.of();
@@ -601,18 +606,20 @@ public class JdbcPortalRepository {
                 .map(PortalMovieCard::id)
                 .toList();
         Map<UUID, List<String>> genresByVideo = findNamesByVideoId("""
-                SELECT uvg.unified_video_id, sg.name
-                  FROM unified_video_genres uvg
-                  JOIN standard_genre sg ON uvg.genre_id = sg.id
-                 WHERE uvg.unified_video_id IN (:ids)
-                 ORDER BY sg.name ASC
+                SELECT uv.id, coalesce(sg.name, gc.code) as name
+                  FROM unified_videos uv
+                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code) ON true
+                  LEFT JOIN standard_genre sg ON sg.code = gc.code
+                 WHERE uv.id IN (:ids)
+                 ORDER BY coalesce(sg.name, gc.code) ASC
                 """, ids);
         Map<UUID, List<String>> areasByVideo = findNamesByVideoId("""
-                SELECT uvsa.unified_video_id, sa.name
-                  FROM unified_video_standard_areas uvsa
-                  JOIN standard_areas sa ON uvsa.standard_area_id = sa.id
-                 WHERE uvsa.unified_video_id IN (:ids)
-                 ORDER BY sa.name ASC
+                SELECT uv.id, coalesce(sa.name, ac.code) as name
+                  FROM unified_videos uv
+                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code) ON true
+                  LEFT JOIN standard_areas sa ON sa.code = ac.code
+                 WHERE uv.id IN (:ids)
+                 ORDER BY coalesce(sa.name, ac.code) ASC
                 """, ids);
 
         return cards.stream()
@@ -756,7 +763,12 @@ public class JdbcPortalRepository {
             String doubanId,
             String tmdbId,
             String imdbId,
-            Instant lastTrendAt) {
+            Instant lastTrendAt,
+            String actorNamesJson,
+            String directorNamesJson,
+            String areaCodesJson,
+            String languageCodesJson,
+            String genreCodesJson) {
     }
 
     private record SourceAccumulator(

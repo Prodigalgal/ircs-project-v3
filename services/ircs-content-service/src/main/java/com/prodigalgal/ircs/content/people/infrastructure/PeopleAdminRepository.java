@@ -161,11 +161,29 @@ public class PeopleAdminRepository {
 
     private long referenceCount(PeopleResource resource, UUID id) {
         Long count = jdbcTemplate.queryForObject(
-                "select "
-                        + "(select count(*) from " + resource.rawJoinTableName()
-                        + " where " + resource.joinColumnName() + " = :id) + "
-                        + "(select count(*) from " + resource.unifiedJoinTableName()
-                        + " where " + resource.joinColumnName() + " = :id)",
+                """
+                select
+                    (select count(*)
+                       from raw_videos rv
+                       join %s p on p.id = :id
+                      where exists (
+                          select 1
+                            from jsonb_array_elements_text(coalesce(rv.%s, '[]'::jsonb)) n(name)
+                           where n.name = p.name
+                      )) +
+                    (select count(*)
+                       from unified_videos uv
+                       join %s p on p.id = :id
+                      where exists (
+                          select 1
+                            from jsonb_array_elements_text(coalesce(uv.%s, '[]'::jsonb)) n(name)
+                           where n.name = p.name
+                      ))
+                """.formatted(
+                        resource.tableName(),
+                        resource.flatColumnName(),
+                        resource.tableName(),
+                        resource.flatColumnName()),
                 new MapSqlParameterSource("id", id),
                 Long.class);
         return count == null ? 0 : count;

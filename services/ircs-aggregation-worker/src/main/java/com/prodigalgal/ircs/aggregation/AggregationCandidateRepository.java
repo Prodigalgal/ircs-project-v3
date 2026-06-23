@@ -169,7 +169,7 @@ final class AggregationCandidateRepository {
                     select uv.*,
                            sc.name as category_name
                     from unified_videos uv
-                    left join standard_category sc on sc.id = uv.category_id
+                    left join standard_category sc on sc.slug = uv.category_code
                 ) unified_candidate
                 %s
                 """.formatted(whereAndOrderBy),

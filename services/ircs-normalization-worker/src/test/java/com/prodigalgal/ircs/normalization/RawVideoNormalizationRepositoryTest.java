@@ -8,9 +8,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.sql.ResultSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -30,26 +32,17 @@ class RawVideoNormalizationRepositoryTest {
     private NamedParameterJdbcTemplate jdbcTemplate;
 
     @Test
-    void markReadyUpsertsRawRelationsAndReplacesJoinRows() {
+    void markReadyWritesFlatMetadataWithoutLegacyRelationTables() {
         UUID rawVideoId = UUID.randomUUID();
-        UUID genreId = UUID.randomUUID();
-        UUID languageId = UUID.randomUUID();
-        UUID areaId = UUID.randomUUID();
-        UUID actorId = UUID.randomUUID();
-        UUID directorId = UUID.randomUUID();
-        doReturn(List.of(new RawVideoNormalizationRepository.LlmCleaningRawTerm("genre", genreId, "动作")))
+        doReturn(List.of("action"))
                 .when(jdbcTemplate)
-                .query(contains("raw_genres"), any(MapSqlParameterSource.class), any(RowMapper.class));
-        doReturn(List.of(new RawVideoNormalizationRepository.LlmCleaningRawTerm("language", languageId, "国语")))
+                .queryForList(argThat(sql -> sql.contains("standard_genre sg")), any(MapSqlParameterSource.class), eq(String.class));
+        doReturn(List.of("zh-CN"))
                 .when(jdbcTemplate)
-                .query(contains("raw_languages"), any(MapSqlParameterSource.class), any(RowMapper.class));
-        doReturn(List.of(new RawVideoNormalizationRepository.LlmCleaningRawTerm("area", areaId, "中国大陆")))
+                .queryForList(argThat(sql -> sql.contains("standard_languages sl")), any(MapSqlParameterSource.class), eq(String.class));
+        doReturn(List.of("CN"))
                 .when(jdbcTemplate)
-                .query(contains("raw_areas"), any(MapSqlParameterSource.class), any(RowMapper.class));
-        when(jdbcTemplate.queryForList(contains("actors"), any(MapSqlParameterSource.class), eq(UUID.class)))
-                .thenReturn(List.of(actorId));
-        when(jdbcTemplate.queryForList(contains("directors"), any(MapSqlParameterSource.class), eq(UUID.class)))
-                .thenReturn(List.of(directorId));
+                .queryForList(argThat(sql -> sql.contains("standard_areas sa")), any(MapSqlParameterSource.class), eq(String.class));
 
         RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
@@ -60,60 +53,31 @@ class RawVideoNormalizationRepositoryTest {
                 Set.of("演员甲"),
                 Set.of("导演甲")));
 
-        assertEquals(List.of(
-                new RawVideoNormalizationRepository.LlmCleaningRawTerm("genre", genreId, "动作"),
-                new RawVideoNormalizationRepository.LlmCleaningRawTerm("language", languageId, "国语"),
-                new RawVideoNormalizationRepository.LlmCleaningRawTerm("area", areaId, "中国大陆")),
-                result.llmCleaningTerms());
-        verify(jdbcTemplate).batchUpdate(contains("insert into raw_genres"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into raw_languages"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into raw_areas"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(
-                argThat(sql -> sql.contains("standard_genre_id")
-                        && sql.contains("standard_genre")
-                        && sql.contains("coalesce(raw_genres.standard_genre_id, excluded.standard_genre_id)")),
-                any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(
-                argThat(sql -> sql.contains("standard_language_id")
-                        && sql.contains("standard_languages")
-                        && sql.contains("coalesce(raw_languages.standard_language_id, excluded.standard_language_id)")),
-                any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(
-                argThat(sql -> sql.contains("standard_area_id")
-                        && sql.contains("standard_areas")
-                        && sql.contains("coalesce(raw_areas.standard_area_id, excluded.standard_area_id)")),
-                any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into actors"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into directors"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).update(startsWith("delete from video_raw_genres"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate).update(startsWith("delete from video_raw_languages"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate).update(startsWith("delete from video_raw_areas"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate).update(startsWith("delete from video_actors"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate).update(startsWith("delete from video_directors"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into video_raw_genres"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into video_raw_languages"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into video_raw_areas"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into video_actors"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate).batchUpdate(contains("insert into video_directors"), any(SqlParameterSource[].class));
+        assertEquals(new RawVideoNormalizationRepository.MarkReadyResult(), result);
+        verify(jdbcTemplate).update(
+                argThat(sql -> sql != null
+                        && sql.contains("actor_names")
+                        && sql.contains("director_names")
+                        && sql.contains("area_codes")
+                        && sql.contains("language_codes")
+                        && sql.contains("genre_codes")
+                        && sql.contains("normalization_snapshot")),
+                any(MapSqlParameterSource.class));
+        verify(jdbcTemplate, never()).batchUpdate(any(String.class), any(SqlParameterSource[].class));
     }
 
     @Test
-    void markReadyDoesNotReplaceRelationsWhenPatchHasNoRelationValues() {
+    void markReadyDoesNotResolveCodesWhenPatchHasNoRelationValues() {
         UUID rawVideoId = UUID.randomUUID();
         RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         repository.markReady(rawVideoId, patch(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
 
-        verify(jdbcTemplate, never()).batchUpdate(contains("insert into raw_genres"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate, never()).batchUpdate(contains("insert into raw_languages"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate, never()).batchUpdate(contains("insert into raw_areas"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate, never()).batchUpdate(contains("insert into actors"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate, never()).batchUpdate(contains("insert into directors"), any(SqlParameterSource[].class));
-        verify(jdbcTemplate, never()).update(startsWith("delete from video_raw_genres"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate, never()).update(startsWith("delete from video_raw_languages"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate, never()).update(startsWith("delete from video_raw_areas"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate, never()).update(startsWith("delete from video_actors"), any(MapSqlParameterSource.class));
-        verify(jdbcTemplate, never()).update(startsWith("delete from video_directors"), any(MapSqlParameterSource.class));
+        verify(jdbcTemplate, never()).queryForList(
+                argThat(sql -> sql != null && sql.contains("standard_")),
+                any(MapSqlParameterSource.class),
+                eq(String.class));
+        verify(jdbcTemplate, never()).batchUpdate(any(String.class), any(SqlParameterSource[].class));
     }
 
     @Test
@@ -124,8 +88,15 @@ class RawVideoNormalizationRepositoryTest {
         when(jdbcTemplate.queryForObject(
                         contains("insert into raw_category"),
                         any(MapSqlParameterSource.class),
-                        eq(UUID.class)))
-                .thenReturn(rawCategoryId);
+                        any(RowMapper.class)))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    RowMapper<Object> mapper = invocation.getArgument(2, RowMapper.class);
+                    ResultSet rs = mock(ResultSet.class);
+                    when(rs.getObject("id", UUID.class)).thenReturn(rawCategoryId);
+                    when(rs.getString("category_code")).thenReturn("movie");
+                    return mapper.mapRow(rs, 0);
+                });
 
         RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
@@ -137,7 +108,7 @@ class RawVideoNormalizationRepositoryTest {
                         && sql.contains("standard_category")
                         && sql.contains("coalesce(raw_category.category_id, excluded.category_id)")),
                 any(MapSqlParameterSource.class),
-                eq(UUID.class));
+                any(RowMapper.class));
         verify(jdbcTemplate).update(contains("data_source_category_id"), any(MapSqlParameterSource.class));
     }
 

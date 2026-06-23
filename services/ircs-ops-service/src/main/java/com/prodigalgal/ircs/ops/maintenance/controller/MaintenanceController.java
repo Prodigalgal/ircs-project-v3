@@ -101,16 +101,6 @@ public class MaintenanceController {
         return session("unified-recalculate");
     }
 
-    @PostMapping("/area/clean-init")
-    public ResponseEntity<Map<String, String>> initAreaCleaning() {
-        return session("area-clean");
-    }
-
-    @PostMapping("/language/clean-init")
-    public ResponseEntity<Map<String, String>> initLanguageCleaning() {
-        return session("language-clean");
-    }
-
     @PostMapping("/search/reindex-raw/init")
     public ResponseEntity<Map<String, String>> initRawReindex() {
         return session("search-reindex-raw");

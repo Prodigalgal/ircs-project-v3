@@ -61,18 +61,6 @@ public class CatalogService {
         return catalogRepository.listRawCategories();
     }
 
-    public List<RawValueMappingSummary> listRawGenres() {
-        return catalogRepository.listRawGenres();
-    }
-
-    public List<RawValueMappingSummary> listRawAreas() {
-        return catalogRepository.listRawAreas();
-    }
-
-    public List<RawLanguageSummary> listRawLanguages() {
-        return catalogRepository.listRawLanguages();
-    }
-
     public List<DataSourceSummary> listDataSources() {
         return catalogRepository.listDataSources();
     }
@@ -289,105 +277,6 @@ public class CatalogService {
     @Transactional
     public void deleteRawCategory(UUID id) {
         catalogRepository.deleteById("raw_category", id);
-    }
-
-    public CatalogPage<RawGenreRead> pageRawGenres(CatalogPageRequest pageRequest, RawValueQuery query) {
-        return catalogRepository.pageRawGenres(pageRequest, query);
-    }
-
-    public Optional<RawGenreRead> findRawGenre(UUID id) {
-        return catalogRepository.findRawGenre(id);
-    }
-
-    @Transactional
-    public RawGenreRead createRawGenre(RawGenreAdminRequest request) {
-        if (request.id() != null) {
-            throw badRequest("A new raw genre cannot already have an ID");
-        }
-        requireText(request.sourceValue(), "Raw genre sourceValue is required");
-        return catalogRepository.createRawGenre(request);
-    }
-
-    @Transactional
-    public Optional<RawGenreRead> updateRawGenre(UUID id, RawGenreAdminRequest request) {
-        validatePathId(id, request.id());
-        return catalogRepository.updateRawGenre(id, request);
-    }
-
-    @Transactional
-    public void deleteRawGenre(UUID id) {
-        catalogRepository.deleteFromJoinTable("video_raw_genres", "raw_genre_id", id);
-        catalogRepository.deleteById("raw_genres", id);
-    }
-
-    public CatalogPage<RawAreaRead> pageRawAreas(CatalogPageRequest pageRequest, RawValueQuery query) {
-        return catalogRepository.pageRawAreas(pageRequest, query);
-    }
-
-    public Optional<RawAreaRead> findRawArea(UUID id) {
-        return catalogRepository.findRawArea(id);
-    }
-
-    @Transactional
-    public RawAreaRead createRawArea(RawAreaAdminRequest request) {
-        if (request.id() != null) {
-            throw badRequest("A new raw area cannot already have an ID");
-        }
-        requireText(request.sourceValue(), "Raw area sourceValue is required");
-        return catalogRepository.createRawArea(request);
-    }
-
-    @Transactional
-    public Optional<RawAreaRead> updateRawArea(UUID id, RawAreaAdminRequest request) {
-        validatePathId(id, request.id());
-        return catalogRepository.updateRawArea(id, request);
-    }
-
-    @Transactional
-    public void deleteRawArea(UUID id) {
-        catalogRepository.deleteFromJoinTable("video_raw_areas", "raw_area_id", id);
-        catalogRepository.deleteById("raw_areas", id);
-    }
-
-    public CatalogPage<RawLanguageRead> pageRawLanguages(CatalogPageRequest pageRequest, RawValueQuery query) {
-        return catalogRepository.pageRawLanguages(pageRequest, query);
-    }
-
-    public Optional<RawLanguageRead> findRawLanguage(UUID id) {
-        return catalogRepository.findRawLanguage(id);
-    }
-
-    @Transactional
-    public RawLanguageRead createRawLanguage(RawLanguageAdminRequest request) {
-        if (request.id() != null) {
-            throw badRequest("A new raw language cannot already have an ID");
-        }
-        requireText(request.sourceValue(), "Raw language sourceValue is required");
-        return catalogRepository.createRawLanguage(request);
-    }
-
-    @Transactional
-    public Optional<RawLanguageRead> updateRawLanguage(UUID id, RawLanguageAdminRequest request) {
-        validatePathId(id, request.id());
-        return catalogRepository.updateRawLanguage(id, request);
-    }
-
-    @Transactional
-    public void deleteRawLanguage(UUID id) {
-        catalogRepository.deleteFromJoinTable("video_raw_languages", "raw_language_id", id);
-        catalogRepository.deleteById("raw_languages", id);
-    }
-
-    public List<LanguageTraceRead> traceRawLanguage(UUID id) {
-        return catalogRepository.traceRawLanguage(id).stream()
-                .map(source -> new LanguageTraceRead(
-                        source.videoId(),
-                        source.videoTitle(),
-                        source.sourceVid(),
-                        source.dataSourceId(),
-                        source.dataSourceName(),
-                        buildDetailUrl(source)))
-                .toList();
     }
 
     private String buildDetailUrl(LanguageTraceSource source) {
