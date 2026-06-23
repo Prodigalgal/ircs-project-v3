@@ -197,19 +197,20 @@ public class AggregationService {
 
     @Transactional
     public AggregationMaintenanceRunResponse backfillUnifiedCovers(int limit) {
-        List<UUID> unifiedVideoIds = repository.findUnifiedIdsMissingCoverFromRaw(Math.max(1, limit));
-        int processed = 0;
-        for (UUID unifiedVideoId : unifiedVideoIds) {
-            List<UUID> promoteCandidates = repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId);
-            promoteCandidates.forEach(storageCommandPublisher::enqueueCoverR2Sync);
-            publisher.publishUnifiedIndex(unifiedVideoId);
-            processed++;
+        List<UnifiedCoverBackfillResult> backfilled = repository.backfillUnifiedCoverImagesFromRaw(Math.max(1, limit));
+        for (UnifiedCoverBackfillResult result : backfilled) {
+            if (result.shouldPromoteToR2()) {
+                storageCommandPublisher.enqueueCoverR2Sync(result.coverImageId());
+            }
+            publisher.publishUnifiedIndex(result.unifiedVideoId());
         }
         return new AggregationMaintenanceRunResponse(
                 "aggregation-cover-backfill",
-                unifiedVideoIds.size(),
-                processed,
-                unifiedVideoIds);
+                backfilled.size(),
+                backfilled.size(),
+                backfilled.stream()
+                        .map(UnifiedCoverBackfillResult::unifiedVideoId)
+                        .toList());
     }
 
     public int resetStuckProcessing(int timeoutMinutes, int limit) {

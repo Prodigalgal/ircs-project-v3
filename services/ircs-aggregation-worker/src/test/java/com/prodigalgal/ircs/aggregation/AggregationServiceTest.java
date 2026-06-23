@@ -520,11 +520,11 @@ class AggregationServiceTest {
     }
 
     @Test
-    void backfillUnifiedCoversRebuildsCoverAndPublishesFollowUpSyncs() {
+    void backfillUnifiedCoversUpdatesCoverAndPublishesFollowUpSyncs() {
         UUID unifiedVideoId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
-        when(repository.findUnifiedIdsMissingCoverFromRaw(20)).thenReturn(List.of(unifiedVideoId));
-        when(repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId)).thenReturn(List.of(coverImageId));
+        when(repository.backfillUnifiedCoverImagesFromRaw(20))
+                .thenReturn(List.of(new UnifiedCoverBackfillResult(unifiedVideoId, coverImageId, "LOCAL", "LOCAL_STORED")));
 
         var result = service.backfillUnifiedCovers(20);
 
@@ -532,8 +532,21 @@ class AggregationServiceTest {
         assertEquals(1, result.candidates());
         assertEquals(1, result.processed());
         assertEquals(List.of(unifiedVideoId), result.entityIds());
-        verify(repository).rebuildUnifiedPipelineCoverImage(unifiedVideoId);
         verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
+        verify(publisher).publishUnifiedIndex(unifiedVideoId);
+    }
+
+    @Test
+    void backfillUnifiedCoversSkipsR2SyncForExternalCover() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        UUID coverImageId = UUID.randomUUID();
+        when(repository.backfillUnifiedCoverImagesFromRaw(20))
+                .thenReturn(List.of(new UnifiedCoverBackfillResult(unifiedVideoId, coverImageId, "EXTERNAL", "UNPROCESSED")));
+
+        var result = service.backfillUnifiedCovers(20);
+
+        assertEquals(1, result.processed());
+        verify(storageCommandPublisher, never()).enqueueCoverR2Sync(coverImageId);
         verify(publisher).publishUnifiedIndex(unifiedVideoId);
     }
 

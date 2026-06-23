@@ -520,6 +520,34 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
+    void backfillUnifiedCoverImagesFromRawUpdatesMissingUnifiedCoversInBatch() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:aggregation-cover-backfill-" + UUID.randomUUID()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createPipelineSchema(jdbc);
+        NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        UUID unifiedVideoId = UUID.randomUUID();
+        UUID firstRawVideoId = UUID.randomUUID();
+        UUID secondRawVideoId = UUID.randomUUID();
+        UUID firstCover = UUID.randomUUID();
+        UUID secondCover = UUID.randomUUID();
+        seedCoverImage(jdbc, firstCover, "EXTERNAL", null);
+        seedCoverImage(jdbc, secondCover, "LOCAL", 128L);
+        seedCoverUnified(jdbc, unifiedVideoId, null, "[]");
+        seedCoverRaw(jdbc, firstRawVideoId, "cover-backfill-first", firstCover, LocalDateTime.of(2026, 1, 1, 0, 0));
+        seedCoverRaw(jdbc, secondRawVideoId, "cover-backfill-second", secondCover, LocalDateTime.of(2026, 1, 2, 0, 0));
+        bindPipelineRaw(jdbc, firstRawVideoId, unifiedVideoId);
+        bindPipelineRaw(jdbc, secondRawVideoId, unifiedVideoId);
+
+        List<UnifiedCoverBackfillResult> result = repository.backfillUnifiedCoverImagesFromRaw(10);
+
+        assertEquals(List.of(new UnifiedCoverBackfillResult(unifiedVideoId, firstCover, "EXTERNAL", "UNPROCESSED")), result);
+        assertEquals(firstCover, scalar(jdbc, "select cover_image_id from unified_videos where id = ?", unifiedVideoId, UUID.class));
+    }
+
+    @Test
     void mergeDuplicateUnifiedVideosMigratesRowsWithConflictSafeCleanup() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:aggregation-merge-" + UUID.randomUUID()

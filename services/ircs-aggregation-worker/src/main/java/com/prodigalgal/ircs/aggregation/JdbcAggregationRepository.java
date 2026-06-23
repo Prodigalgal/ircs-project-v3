@@ -213,6 +213,70 @@ public class JdbcAggregationRepository {
                 UUID.class);
     }
 
+    public List<UnifiedCoverBackfillResult> backfillUnifiedCoverImagesFromRaw(int limit) {
+        List<UnifiedCoverBackfillResult> candidates = jdbcTemplate.query(
+                """
+                select unified_video_id, cover_image_id, storage_type, status
+                from (
+                    select rvuv.unified_video_id,
+                           rv.cover_image_id,
+                           ci.storage_type,
+                           ci.status,
+                           row_number() over (
+                               partition by rvuv.unified_video_id
+                               order by rv.created_at asc, rv.id asc
+                           ) as rn
+                    from (
+                        select distinct uv.id
+                        from unified_videos uv
+                        join raw_video_unified_video rvuv on rvuv.unified_video_id = uv.id
+                        join raw_videos rv on rv.id = rvuv.raw_video_id
+                        where uv.cover_image_id is null
+                          and rv.cover_image_id is not null
+                        order by uv.id
+                        limit :limit
+                    ) cu
+                    join raw_video_unified_video rvuv on rvuv.unified_video_id = cu.id
+                    join raw_videos rv on rv.id = rvuv.raw_video_id
+                    join cover_images ci on ci.id = rv.cover_image_id
+                    where rv.cover_image_id is not null
+                )
+                where rn = 1
+                order by unified_video_id
+                """,
+                new MapSqlParameterSource("limit", Math.max(1, limit)),
+                (rs, rowNum) -> new UnifiedCoverBackfillResult(
+                        rs.getObject("unified_video_id", UUID.class),
+                        rs.getObject("cover_image_id", UUID.class),
+                        rs.getString("storage_type"),
+                        rs.getString("status")));
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        MapSqlParameterSource[] batch = candidates.stream()
+                .map(result -> new MapSqlParameterSource()
+                        .addValue("unifiedVideoId", result.unifiedVideoId())
+                        .addValue("coverImageId", result.coverImageId()))
+                .toArray(MapSqlParameterSource[]::new);
+        int[] updates = jdbcTemplate.batchUpdate(
+                """
+                update unified_videos
+                set cover_image_id = :coverImageId,
+                    updated_at = now(),
+                    version = coalesce(version, 0) + 1
+                where id = :unifiedVideoId
+                  and cover_image_id is null
+                """,
+                batch);
+        List<UnifiedCoverBackfillResult> backfilled = new ArrayList<>();
+        for (int i = 0; i < updates.length; i++) {
+            if (updates[i] > 0) {
+                backfilled.add(candidates.get(i));
+            }
+        }
+        return backfilled;
+    }
+
     public Optional<UUID> findMatchingUnifiedVideo(RawVideoAggregationRecord rawVideo) {
         return candidateRepository.findMatchingUnifiedVideo(rawVideo);
     }

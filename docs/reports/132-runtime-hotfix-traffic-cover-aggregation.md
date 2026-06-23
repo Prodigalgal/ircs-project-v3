@@ -13,6 +13,7 @@
 - 性能修复：Traffic limiter 状态读取从全库扫描改为活跃索引集合读取。
 - 数据补偿：封面下载任务自动投递、定时安全回填、手工 backfill API。
 - 聚合补偿：新增 pending raw 运行队列补投递、unified cover 回灌维护入口。
+- 聚合补偿加固：线上 smoke 发现 `aggregation-cover-backfill` 在短超时内部请求内重跑逐条 pipeline 会超时，已改为 set-based 批量补齐 `unified_videos.cover_image_id`，后续 search/R2 同步继续走队列。
 - 运维入口：将两个聚合补偿动作接入 ops maintenance runner，可通过 token API 初始化维护会话。
 - 配置治理：补齐 aggregation config listener 与 storage image download backfill 的系统默认配置及重启语义。
 - 回归测试：补齐 common、ops、storage、aggregation、config 的精准测试与模块测试。
@@ -33,6 +34,7 @@
 - `services:ircs-aggregation-worker`
   - 新增 `/internal/v1/aggregation/raw-videos/enqueue-pending`。
   - 新增 `/internal/v1/aggregation/unified-videos/backfill-covers`。
+  - `aggregation-cover-backfill` 改为批量从绑定 raw video 选择首个封面并补齐 unified cover，避免维护请求内逐条重跑聚合 pipeline。
   - 新增 `q.aggregation.config_changed` 配置变更监听队列。
 - `services:ircs-config-service`
   - 新增 `app.aggregation.config-listener.enabled` 默认项。
@@ -44,6 +46,7 @@
 - 已存在但没有被新脚本登记的历史 traffic key 不会再被接口主动扫描展示；这些 key 会随 TTL 过期，新的限流请求会自动进入索引。
 - 外链封面创建后会进入下载队列；历史 `EXTERNAL + UNPROCESSED/FAILED + retry due` 的封面会被定时补投递。
 - 聚合维护入口只投递或回灌候选记录，不删除业务数据，不改变现有 aggregation reset 行为。
+- `aggregation-cover-backfill` 现在只补齐缺失封面字段；若选择到的封面为 `LOCAL/LOCAL_STORED`，才追加 R2 promote 运行队列；`EXTERNAL/UNPROCESSED` 封面只刷新 unified search index，避免产生无效 R2 同步任务。
 - aggregation config listener 默认启用，收到系统配置变更事件后驱逐本地运行时配置缓存。
 
 ## 兼容性影响
@@ -60,9 +63,19 @@
 - `./gradlew :services:ircs-storage-service:test`
 - `./gradlew :services:ircs-aggregation-worker:test`
 - `./gradlew :services:ircs-config-service:test`
+- 二次修复精准验证：
+  - `./gradlew :services:ircs-aggregation-worker:test --tests com.prodigalgal.ircs.aggregation.AggregationServiceTest --tests com.prodigalgal.ircs.aggregation.JdbcAggregationRepositoryTest --tests com.prodigalgal.ircs.aggregation.InternalAggregationControllerTest`
+  - `./gradlew :services:ircs-ops-service:test --tests com.prodigalgal.ircs.ops.maintenance.infrastructure.AggregationMaintenanceClientTest --tests com.prodigalgal.ircs.ops.maintenance.application.MaintenanceRunnerServiceTest`
 - `rg -n "@Autowired\\b|org\\.springframework\\.beans\\.factory\\.annotation\\.Autowired" shared services --glob '!**/build/**'`：零命中。
 - `git diff --check`：通过。
-- 线上只读基线：`kubectl -n ircs-prod get pods` 显示 IRCS 相关服务当前均为 Running。
+- 线上验证：
+  - `kubectl -n ircs-prod get pods` 显示 IRCS 相关服务当前均为 Running。
+  - `GET /api/v1/ops/traffic/status` 预热后约 0.5-1.4s，返回 19-20 个活跃限流器。
+  - `GET /api/v1/dashboard/metrics`、`task-runtime`、`search-ops`、`aggregation-ops` 均返回 200。
+  - `q.aggregation.config_changed` 从 `231/0` 下降到 `0/1`，确认新增 listener 已消费积压。
+  - storage-service 日志已出现 `Queued cover image download backfill` 与 `Downloaded cover image`，确认封面下载回填链路在线运行。
+  - `aggregation-pending-backfill` 线上维护 smoke 成功选择并投递 5 条。
+  - `aggregation-cover-backfill` 首次线上 smoke 暴露 request timeout，已通过批量轻量回填修复，待新镜像部署后复测。
 
 ## 部署与运行态状态
 
