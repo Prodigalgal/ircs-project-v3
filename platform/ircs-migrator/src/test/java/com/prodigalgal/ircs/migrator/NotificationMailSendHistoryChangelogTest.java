@@ -27,6 +27,8 @@ class NotificationMailSendHistoryChangelogTest {
             "db/changelog/2026/07/add-admin-api-tokens.sql";
     private static final String OPS_ALERT_SELF_HEALING_CHANGELOG =
             "db/changelog/2026/07/add-ops-alert-self-healing.sql";
+    private static final String COVER_IMAGE_BACKFILL_CHANGELOG =
+            "db/changelog/2026/07/backfill-raw-video-cover-images.sql";
 
     @Test
     void masterChangelogIncludesNotificationMailSendHistory() throws IOException {
@@ -41,6 +43,7 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(master).contains("file: " + AVATAR_SYNC_RUNTIME_QUEUE_DROP_CHANGELOG);
         assertThat(master).contains("file: " + ADMIN_API_TOKENS_CHANGELOG);
         assertThat(master).contains("file: " + OPS_ALERT_SELF_HEALING_CHANGELOG);
+        assertThat(master).contains("file: " + COVER_IMAGE_BACKFILL_CHANGELOG);
     }
 
     @Test
@@ -148,6 +151,23 @@ class NotificationMailSendHistoryChangelogTest {
         assertThat(changelog).contains("ux_ops_incidents_open_fingerprint");
         assertThat(changelog).contains("idx_ops_healing_actions_incident_created");
         assertThat(changelog).contains("dry_run BOOLEAN NOT NULL DEFAULT true");
+    }
+
+    @Test
+    void coverImageBackfillChangelogIsSafeAndIdempotent() throws IOException {
+        String changelog = normalize(readClasspath(COVER_IMAGE_BACKFILL_CHANGELOG));
+
+        assertThat(changelog).contains("liquibase formatted sql");
+        assertThat(changelog).contains("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+        assertThat(changelog).contains("backfill-raw-video-cover-images splitStatements:false");
+        assertThat(changelog).contains("rv.cover_image_id IS NULL");
+        assertThat(changelog).contains("uv.cover_image_id IS NULL");
+        assertThat(changelog).contains("raw_metadata ? 'coverImageUrl'");
+        assertThat(changelog).contains("ON CONFLICT (domain_hash) DO UPDATE");
+        assertThat(changelog).contains("ON CONFLICT (original_url, source_domain_id) DO UPDATE");
+        assertThat(changelog).contains("lower(coalesce(uv.locked_fields::text, '')) NOT LIKE '%coverimageurl%'");
+        assertThat(changelog).doesNotContain("publishImageDownload");
+        assertThat(changelog).doesNotContain("delete from cover_images");
     }
 
     private static String readClasspath(String path) throws IOException {
