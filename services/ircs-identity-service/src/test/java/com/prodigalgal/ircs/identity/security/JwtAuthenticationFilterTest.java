@@ -9,9 +9,12 @@ import com.prodigalgal.ircs.identity.application.IdentityConfigService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.security.IrcsAuthClaims;
+import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -69,5 +72,29 @@ class JwtAuthenticationFilterTest {
                 SecurityContextHolder.getContext().getAuthentication().getAuthorities().iterator().next().getAuthority());
         assertTrue(SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
                 .anyMatch(authority -> authority.getAuthority().equals(IrcsPermissions.authority(IrcsPermissions.ALL))));
+    }
+
+    @Test
+    void acceptsTrustedBffAdminHeadersAndGrantsRoleAdmin() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/members");
+        request.addHeader(IrcsAuthHeaders.AUTH_SUBJECT, "admin");
+        request.addHeader(IrcsAuthHeaders.AUTH_ROLE, IrcsPermissions.ROLE_ADMIN);
+        request.addHeader(IrcsAuthHeaders.AUTH_PERMISSIONS, IrcsPermissions.ALL);
+        request.addHeader(IrcsAuthHeaders.AUTH_SCOPES, IrcsPermissions.SCOPE_ADMIN_ALL + "," + IrcsPermissions.SCOPE_DATA_ALL);
+        request.addHeader(IrcsAuthHeaders.DATA_CATEGORIES, IrcsPermissions.ALL);
+        request.addHeader(IrcsAuthHeaders.DATA_GENRES, IrcsPermissions.ALL);
+        request.addHeader(IrcsAuthHeaders.DATA_TAGS, IrcsPermissions.ALL);
+        request.addHeader(IrcsAuthHeaders.CONTENT_VISIBILITY, IrcsPermissions.ALL);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(200, response.getStatus());
+        assertEquals("admin", SecurityContextHolder.getContext().getAuthentication().getPrincipal());
+        assertTrue(SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals(IrcsPermissions.ROLE_ADMIN)));
+        assertTrue(SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals(IrcsPermissions.authority(IrcsPermissions.ALL))));
+        verify(jwtTokenService, never()).parse(org.mockito.ArgumentMatchers.anyString());
     }
 }

@@ -14,6 +14,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.NoHandlerFoundException;
@@ -39,6 +40,19 @@ public class CommonApiExceptionHandler {
             MethodArgumentNotValidException exception,
             HttpServletRequest request) {
         return ApiErrorResponses.validation(exception, request);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingRequestParameter(
+            MissingServletRequestParameterException exception,
+            HttpServletRequest request) {
+        return ApiErrorResponses.response(
+                HttpStatus.BAD_REQUEST,
+                "request.parameter.missing",
+                "Missing required request parameter: " + exception.getParameterName(),
+                "request",
+                request,
+                Map.of("parameter", exception.getParameterName()));
     }
 
     @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})

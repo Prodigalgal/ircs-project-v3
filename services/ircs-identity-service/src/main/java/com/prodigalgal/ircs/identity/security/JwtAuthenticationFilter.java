@@ -10,7 +10,9 @@ import com.prodigalgal.ircs.identity.application.IdentityConfigService;
 import com.prodigalgal.ircs.identity.domain.MemberStatus;
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
 import com.prodigalgal.ircs.common.security.IrcsAuthClaims;
+import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
+import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
@@ -42,6 +44,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        if (authenticateTrustedHeaders(request, response, filterChain)) {
+            return;
+        }
+
         String token = resolveToken(request);
         if (!StringUtils.hasText(token)) {
             filterChain.doFilter(request, response);
@@ -93,11 +99,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 authorities = authorities(IrcsPermissions.ROLE_ADMIN, claims);
             }
 
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    subject,
-                    null,
-                    authorities);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            SecurityContextHolder.getContext().setAuthentication(authentication(subject, authorities));
             filterChain.doFilter(request, response);
         } catch (ExpiredJwtException ex) {
             SecurityContextHolder.clearContext();
@@ -106,6 +108,53 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.clearContext();
             sendJsonError(request, response, HttpServletResponse.SC_UNAUTHORIZED, "无效的登录凭证");
         }
+    }
+
+    private boolean authenticateTrustedHeaders(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain) throws IOException, ServletException {
+        var principal = IrcsAuthHeaders.fromTrustedHeaders(request);
+        if (principal.isEmpty()) {
+            return false;
+        }
+        IrcsRequestPrincipal trustedPrincipal = principal.get();
+        if (trustedPrincipal.isAnonymous()) {
+            return false;
+        }
+        if (IrcsPermissions.ROLE_MEMBER.equals(trustedPrincipal.role())
+                && !validateMemberStatus(trustedPrincipal.subject(), request, response)) {
+            return true;
+        }
+        SecurityContextHolder.getContext().setAuthentication(authentication(
+                trustedPrincipal.subject(),
+                trustedPrincipal.role(),
+                trustedPrincipal.permissions()));
+        filterChain.doFilter(request, response);
+        return true;
+    }
+
+    private boolean validateMemberStatus(
+            String subject,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        UUID memberId;
+        try {
+            memberId = UUID.fromString(subject);
+        } catch (RuntimeException ex) {
+            sendJsonError(request, response, HttpServletResponse.SC_UNAUTHORIZED, "无效的身份标识");
+            return false;
+        }
+        MemberStatus status = memberStatusCacheService.getStatus(memberId);
+        if (status == null) {
+            sendJsonError(request, response, HttpServletResponse.SC_UNAUTHORIZED, "账号已不存在");
+            return false;
+        }
+        if (status == MemberStatus.BANNED) {
+            sendJsonError(request, response, HttpServletResponse.SC_FORBIDDEN, "账号已被封禁");
+            return false;
+        }
+        return true;
     }
 
     private String resolveToken(HttpServletRequest request) {
@@ -117,9 +166,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private List<SimpleGrantedAuthority> authorities(String role, Claims claims) {
+        return authorities(role, permissions(claims, role));
+    }
+
+    private UsernamePasswordAuthenticationToken authentication(
+            String subject,
+            String role,
+            Collection<String> permissions) {
+        return authentication(subject, authorities(role, permissions));
+    }
+
+    private UsernamePasswordAuthenticationToken authentication(
+            String subject,
+            List<SimpleGrantedAuthority> authorities) {
+        return new UsernamePasswordAuthenticationToken(subject, null, authorities);
+    }
+
+    private List<SimpleGrantedAuthority> authorities(String role, Collection<String> permissions) {
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
         authorities.add(new SimpleGrantedAuthority(role));
-        for (String permission : permissions(claims, role)) {
+        for (String permission : permissions) {
             authorities.add(new SimpleGrantedAuthority(IrcsPermissions.authority(permission)));
         }
         return List.copyOf(authorities);

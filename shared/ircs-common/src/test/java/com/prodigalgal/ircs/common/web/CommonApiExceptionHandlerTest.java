@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 class CommonApiExceptionHandlerTest {
@@ -43,6 +44,21 @@ class CommonApiExceptionHandlerTest {
         assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("internal.error");
+    }
+
+    @Test
+    void mapsMissingRequestParameterToBadRequestEnvelope() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/credentials/templates");
+        MissingServletRequestParameterException exception =
+                new MissingServletRequestParameterException("provider", "String");
+
+        var response = handler.handleMissingRequestParameter(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().code()).isEqualTo("request.parameter.missing");
+        assertThat(response.getBody().message()).isEqualTo("Missing required request parameter: provider");
+        assertThat(response.getBody().details()).containsEntry("parameter", "provider");
     }
 
     @Test
