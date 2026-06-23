@@ -106,6 +106,9 @@ class SystemConfigDefaultsTest {
         assertEquals("PT5S", defaults.staticDefaultValue("app.notification.webhook.request-timeout").orElseThrow());
         assertEquals("65536", defaults.staticDefaultValue("app.notification.webhook.max-payload-bytes").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.ops.config-listener.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.aggregation.config-listener.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.storage.image.download-backfill.enabled").orElseThrow());
+        assertEquals("25", defaults.staticDefaultValue("app.storage.image.download-backfill.batch-size").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
@@ -192,6 +195,7 @@ class SystemConfigDefaultsTest {
         assertTrue(listenerRestart.restartServices().contains("ircs-search-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, logRetentionScheduleRestart.activationMode());
         assertTrue(logRetentionScheduleRestart.restartServices().contains("ircs-search-service"));
+        assertConfigListenerRequiresRestart("app.aggregation.config-listener.enabled", "ircs-aggregation-worker");
         assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
         assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
         assertConfigListenerRequiresRestart("app.interaction.config-listener.enabled", "ircs-interaction-service");
@@ -308,6 +312,7 @@ class SystemConfigDefaultsTest {
             "app.adaptive.check-interval-ms",
             "app.runtime-config.local-cache.ttl",
             "app.ops.config-listener.enabled",
+            "app.aggregation.config-listener.enabled",
             "app.content.config-listener.enabled",
             "app.identity.config-listener.enabled",
             "app.interaction.config-listener.enabled",
@@ -449,6 +454,10 @@ class SystemConfigDefaultsTest {
             "app.storage.image.download.batch-size",
             "app.storage.image.download.batch-size.min",
             "app.storage.image.download.batch-size.max",
+            "app.storage.image.download-backfill.enabled",
+            "app.storage.image.download-backfill.batch-size",
+            "app.storage.image.download-backfill.initial-delay-ms",
+            "app.storage.image.download-backfill.fixed-delay-ms",
             "app.storage.image.cleanup.batch-size",
             "app.storage.image.cleanup.batch-size.min",
             "app.storage.image.cleanup.batch-size.max",

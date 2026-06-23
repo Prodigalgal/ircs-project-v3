@@ -49,7 +49,7 @@ class RedisDistributedLockManagerMetricsTest {
     void recordsTimeSliceRejectedAndWaitDuration() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:DataSource:source-1")),
+                eq(List.of("traffic:limit:DataSource:source-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -81,7 +81,7 @@ class RedisDistributedLockManagerMetricsTest {
     void recordsTokenBucketWaitingResult() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:cred:tmdb-1")),
+                eq(List.of("traffic:limit:cred:tmdb-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),

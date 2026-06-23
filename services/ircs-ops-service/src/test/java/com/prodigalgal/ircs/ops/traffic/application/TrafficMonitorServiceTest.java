@@ -7,18 +7,19 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.lock.TrafficLimitKeys;
 import com.prodigalgal.ircs.ops.traffic.dto.TrafficSlotResponse;
 import com.prodigalgal.ircs.ops.traffic.dto.TrafficStatusResponse;
 import com.prodigalgal.ircs.ops.traffic.infrastructure.CredentialLabelRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.DataType;
-import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.HashOperations;
-import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -35,17 +36,16 @@ class TrafficMonitorServiceTest {
     void groupsGlobalAndCredentialLimitersAndSkipsStaleKeys() {
         UUID credentialId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         long now = System.currentTimeMillis();
-        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
         ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+        SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(cursor.hasNext()).thenReturn(true, true, true, true, false);
-        when(cursor.next()).thenReturn(
+        when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY)).thenReturn(Set.of(
                 PREFIX + "Provider:TMDB",
                 PREFIX + "Global:Scraper:Ip:203.0.113.10",
                 PREFIX + "cred:" + credentialId,
-                PREFIX + "Domain:stale.example");
+                PREFIX + "Domain:stale.example"));
         when(valueOps.get(PREFIX + "Provider:TMDB")).thenReturn(String.valueOf(now + 2500L));
         when(valueOps.get(PREFIX + "Global:Scraper:Ip:203.0.113.10")).thenReturn(String.valueOf(now + 1500L));
         when(valueOps.get(PREFIX + "cred:" + credentialId)).thenReturn(String.valueOf(now + 35_000L));
@@ -62,11 +62,12 @@ class TrafficMonitorServiceTest {
         assertEquals(1, status.credentialLimiters().size());
         assertEquals("[TMDB] main", status.credentialLimiters().getFirst().label());
         assertTrue(status.credentialLimiters().getFirst().isBlocked());
+        verify(setOps).remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, PREFIX + "Domain:stale.example");
     }
 
     @Test
-    void returnsEmptyStatusWhenRedisScanFails() {
-        when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new IllegalStateException("redis down"));
+    void returnsEmptyStatusWhenRedisIndexReadFails() {
+        when(redisTemplate.opsForSet()).thenThrow(new IllegalStateException("redis down"));
 
         TrafficStatusResponse status = service.getTrafficStatus();
 
@@ -78,14 +79,13 @@ class TrafficMonitorServiceTest {
     void exposesCredentialTokenBucketsStoredAsRedisHashes() {
         UUID credentialId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         String key = PREFIX + "cred:" + credentialId;
-        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
         HashOperations<String, Object, Object> hashOps = org.mockito.Mockito.mock(HashOperations.class);
+        SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY)).thenReturn(Set.of(key));
         when(redisTemplate.type(key)).thenReturn(DataType.HASH);
         when(redisTemplate.opsForHash()).thenReturn(hashOps);
-        when(cursor.hasNext()).thenReturn(true, false);
-        when(cursor.next()).thenReturn(key);
         when(hashOps.entries(key)).thenReturn(Map.of(
                 "tokens", "17",
                 "capacity", "30",
@@ -110,10 +110,10 @@ class TrafficMonitorServiceTest {
     void includesEnabledTmdbCredentialsWithoutRuntimeBucket() {
         UUID firstCredentialId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID secondCredentialId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
+        SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
-        when(cursor.hasNext()).thenReturn(false);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY)).thenReturn(Set.of());
         when(credentialLabelRepository.findEnabledProviderLabels("TMDB", "api_key", 100))
                 .thenReturn(List.of(
                         new CredentialLabelRepository.CredentialTrafficLabel(
@@ -143,13 +143,13 @@ class TrafficMonitorServiceTest {
     void labelsDatasourceIpLimiter() {
         UUID sourceId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         long now = System.currentTimeMillis();
-        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
         ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+        SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(cursor.hasNext()).thenReturn(true, false);
-        when(cursor.next()).thenReturn(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId);
+        when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY))
+                .thenReturn(Set.of(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId));
         when(valueOps.get(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId))
                 .thenReturn(String.valueOf(now + 1200L));
 
@@ -162,15 +162,14 @@ class TrafficMonitorServiceTest {
     @Test
     void labelsProviderAndDomainIpLimiters() {
         long now = System.currentTimeMillis();
-        Cursor<String> cursor = org.mockito.Mockito.mock(Cursor.class);
         ValueOperations<String, String> valueOps = org.mockito.Mockito.mock(ValueOperations.class);
+        SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
 
-        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(cursor.hasNext()).thenReturn(true, true, false);
-        when(cursor.next()).thenReturn(
+        when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY)).thenReturn(Set.of(
                 PREFIX + "Provider:Ip:2001_db8__10:DOUBAN",
-                PREFIX + "Domain:Ip:203.0.113.10:img.example.com");
+                PREFIX + "Domain:Ip:203.0.113.10:img.example.com"));
         when(valueOps.get(PREFIX + "Provider:Ip:2001_db8__10:DOUBAN"))
                 .thenReturn(String.valueOf(now + 1200L));
         when(valueOps.get(PREFIX + "Domain:Ip:203.0.113.10:img.example.com"))
@@ -185,8 +184,12 @@ class TrafficMonitorServiceTest {
 
     @Test
     void resetDeletesNamespacedTrafficKey() {
+        SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+
         service.resetKey("Provider:TMDB");
 
         verify(redisTemplate).delete(PREFIX + "Provider:TMDB");
+        verify(setOps).remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, PREFIX + "Provider:TMDB");
     }
 }

@@ -184,6 +184,35 @@ public class JdbcAggregationRepository {
                 UUID.class);
     }
 
+    public List<UUID> findPendingRawIdsWithoutRuntimeProgress(int limit) {
+        return jdbcTemplate.queryForList(
+                """
+                select rv.id
+                from raw_videos rv
+                where rv.aggregation_status = 'PENDING'
+                order by rv.aggregation_status_updated_at asc nulls first, rv.updated_at asc nulls first, rv.id
+                limit :limit
+                """,
+                new MapSqlParameterSource("limit", Math.max(1, limit)),
+                UUID.class);
+    }
+
+    public List<UUID> findUnifiedIdsMissingCoverFromRaw(int limit) {
+        return jdbcTemplate.queryForList(
+                """
+                select distinct uv.id
+                from unified_videos uv
+                join raw_video_unified_video rvuv on rvuv.unified_video_id = uv.id
+                join raw_videos rv on rv.id = rvuv.raw_video_id
+                where uv.cover_image_id is null
+                  and rv.cover_image_id is not null
+                order by uv.id
+                limit :limit
+                """,
+                new MapSqlParameterSource("limit", Math.max(1, limit)),
+                UUID.class);
+    }
+
     public Optional<UUID> findMatchingUnifiedVideo(RawVideoAggregationRecord rawVideo) {
         return candidateRepository.findMatchingUnifiedVideo(rawVideo);
     }

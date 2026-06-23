@@ -74,6 +74,26 @@ public class CoverImageAdminRepository {
         return findRowById(id).map(this::toResponse);
     }
 
+    public List<UUID> findDownloadCandidates(int limit) {
+        return jdbcTemplate.queryForList(
+                """
+                select id
+                from cover_images
+                where storage_type = 'EXTERNAL'
+                  and status in ('UNPROCESSED', 'FAILED')
+                  and (next_retry_time is null or next_retry_time <= now())
+                  and nullif(trim(original_url), '') is not null
+                order by
+                  case status when 'FAILED' then 0 else 1 end,
+                  next_retry_time asc nulls first,
+                  updated_at asc,
+                  id
+                limit :limit
+                """,
+                new MapSqlParameterSource("limit", Math.max(1, limit)),
+                UUID.class);
+    }
+
     public Optional<CoverImageRow> findRowById(UUID id) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(

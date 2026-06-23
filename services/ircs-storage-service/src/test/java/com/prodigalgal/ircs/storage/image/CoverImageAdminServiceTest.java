@@ -11,6 +11,7 @@ import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageResponse;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.NormalizedFile;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -125,6 +126,33 @@ class CoverImageAdminServiceTest {
 
         verify(repository).resetForDownload(id);
         verify(publisher).publishImageDownload(id);
+    }
+
+    @Test
+    void createFromUrlQueuesDownloadCommand() {
+        CoverImageAdminService service = newService();
+        UUID id = UUID.randomUUID();
+        when(repository.getOrCreateExternalReference("https://images.example.test/a.jpg"))
+                .thenReturn(row(id, CoverImageStatus.UNPROCESSED));
+        CoverImageResponse response = response(id, CoverImageStorageType.EXTERNAL, CoverImageStatus.UNPROCESSED);
+        when(repository.findResponseById(id)).thenReturn(Optional.of(response));
+
+        assertEquals(response, service.createFromUrl("https://images.example.test/a.jpg"));
+
+        verify(publisher).publishImageDownload(id);
+    }
+
+    @Test
+    void enqueueDownloadBackfillPublishesCandidateCommands() {
+        CoverImageAdminService service = newService();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        when(repository.findDownloadCandidates(50)).thenReturn(List.of(first, second));
+
+        assertEquals(2, service.enqueueDownloadBackfill(50));
+
+        verify(publisher).publishImageDownload(first);
+        verify(publisher).publishImageDownload(second);
     }
 
     @Test

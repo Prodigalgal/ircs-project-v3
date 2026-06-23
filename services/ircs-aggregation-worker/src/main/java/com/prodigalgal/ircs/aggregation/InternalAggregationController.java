@@ -44,6 +44,26 @@ class InternalAggregationController {
         return ResponseEntity.accepted().body(aggregationService.recalculateDirtyUnified(limit));
     }
 
+    @PostMapping("/raw-videos/enqueue-pending")
+    ResponseEntity<AggregationMaintenanceRunResponse> enqueuePendingRawWork(
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
+        accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
+        return ResponseEntity.accepted().body(aggregationService.enqueuePendingRawWork(limit));
+    }
+
+    @PostMapping("/unified-videos/backfill-covers")
+    ResponseEntity<AggregationMaintenanceRunResponse> backfillUnifiedCovers(
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
+        accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
+        return ResponseEntity.accepted().body(aggregationService.backfillUnifiedCovers(limit));
+    }
+
     @PostMapping("/reset/prepare")
     ResponseEntity<AggregationResetStepResponse> prepareAggregationReset(
             @RequestParam(defaultValue = "5") int sampleLimit,

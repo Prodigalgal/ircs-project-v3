@@ -97,6 +97,19 @@ class CoverImageAdminRepositoryTest {
         assertEquals("covers/hash.png", params.getValue().getValue("storagePath"));
     }
 
+    @Test
+    void findDownloadCandidatesOnlySelectsEligibleExternalRows() {
+        repository().findDownloadCandidates(25);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<MapSqlParameterSource> params = ArgumentCaptor.forClass(MapSqlParameterSource.class);
+        verify(jdbcTemplate).queryForList(sql.capture(), params.capture(), org.mockito.Mockito.eq(UUID.class));
+        assertTrue(sql.getValue().contains("storage_type = 'EXTERNAL'"));
+        assertTrue(sql.getValue().contains("status in ('UNPROCESSED', 'FAILED')"));
+        assertTrue(sql.getValue().contains("next_retry_time is null or next_retry_time <= now()"));
+        assertEquals(25, params.getValue().getValue("limit"));
+    }
+
     private CoverImageAdminRepository repository() {
         SystemConfigRepository configRepository = org.mockito.Mockito.mock(SystemConfigRepository.class);
         return new CoverImageAdminRepository(

@@ -486,6 +486,40 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
+    void findPendingRawIdsWithoutRuntimeProgressSelectsPendingRawVideosOnly() {
+        UUID rawVideoId = UUID.randomUUID();
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy);
+        when(jdbcTemplate.queryForList(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
+                .thenReturn(List.of(rawVideoId));
+
+        List<UUID> result = repository.findPendingRawIdsWithoutRuntimeProgress(25);
+
+        assertEquals(List.of(rawVideoId), result);
+        verify(jdbcTemplate).queryForList(sqlCaptor.capture(), paramsCaptor.capture(), eq(UUID.class));
+        assertTrue(sqlCaptor.getValue().contains("from raw_videos rv"));
+        assertTrue(sqlCaptor.getValue().contains("where rv.aggregation_status = 'PENDING'"));
+        assertEquals(25, paramsCaptor.getValue().getValue("limit"));
+    }
+
+    @Test
+    void findUnifiedIdsMissingCoverFromRawSelectsBoundUnifiedVideosWithRawCover() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy);
+        when(jdbcTemplate.queryForList(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
+                .thenReturn(List.of(unifiedVideoId));
+
+        List<UUID> result = repository.findUnifiedIdsMissingCoverFromRaw(10);
+
+        assertEquals(List.of(unifiedVideoId), result);
+        verify(jdbcTemplate).queryForList(sqlCaptor.capture(), paramsCaptor.capture(), eq(UUID.class));
+        assertTrue(sqlCaptor.getValue().contains("from unified_videos uv"));
+        assertTrue(sqlCaptor.getValue().contains("join raw_video_unified_video rvuv"));
+        assertTrue(sqlCaptor.getValue().contains("uv.cover_image_id is null"));
+        assertTrue(sqlCaptor.getValue().contains("rv.cover_image_id is not null"));
+        assertEquals(10, paramsCaptor.getValue().getValue("limit"));
+    }
+
+    @Test
     void mergeDuplicateUnifiedVideosMigratesRowsWithConflictSafeCleanup() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:aggregation-merge-" + UUID.randomUUID()

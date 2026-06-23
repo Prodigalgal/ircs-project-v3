@@ -101,6 +101,44 @@ class AggregationMaintenanceClientTest {
     }
 
     @Test
+    void postsPendingBackfillToAggregationOwner() {
+        UUID rawId = UUID.randomUUID();
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(response(202, """
+                {"taskName":"aggregation-pending-backfill","candidates":1,"processed":1,"entityIds":["%s"]}
+                """.formatted(rawId)));
+        AggregationMaintenanceClient client = client(transport);
+
+        MaintenanceRunResult result = client.enqueuePendingRawWork("corr-pending");
+
+        assertThat(result.taskName()).isEqualTo("aggregation-pending-backfill");
+        assertThat(result.selectedCount()).isEqualTo(1);
+        assertThat(result.publishedCount()).isEqualTo(1);
+        assertThat(result.entityIds()).containsExactly(rawId);
+        assertThat(transport.requests.getFirst().uri().toString())
+                .isEqualTo("http://aggregation-worker:8080/internal/v1/aggregation/raw-videos/enqueue-pending?limit=7");
+    }
+
+    @Test
+    void postsCoverBackfillToAggregationOwner() {
+        UUID unifiedId = UUID.randomUUID();
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(response(202, """
+                {"taskName":"aggregation-cover-backfill","candidates":1,"processed":1,"entityIds":["%s"]}
+                """.formatted(unifiedId)));
+        AggregationMaintenanceClient client = client(transport);
+
+        MaintenanceRunResult result = client.backfillUnifiedCovers("corr-cover");
+
+        assertThat(result.taskName()).isEqualTo("aggregation-cover-backfill");
+        assertThat(result.selectedCount()).isEqualTo(1);
+        assertThat(result.publishedCount()).isEqualTo(1);
+        assertThat(result.entityIds()).containsExactly(unifiedId);
+        assertThat(transport.requests.getFirst().uri().toString())
+                .isEqualTo("http://aggregation-worker:8080/internal/v1/aggregation/unified-videos/backfill-covers?limit=7");
+    }
+
+    @Test
     void postsAggregationResetMarkRawPendingToAggregationOwner() {
         UUID rawId = UUID.randomUUID();
         FakeTransport transport = new FakeTransport();

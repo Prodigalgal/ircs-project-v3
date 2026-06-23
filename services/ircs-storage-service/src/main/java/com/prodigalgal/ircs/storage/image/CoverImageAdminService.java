@@ -90,6 +90,7 @@ public class CoverImageAdminService {
             throw new StorageApiException(HttpStatus.BAD_REQUEST, "URL cannot be empty");
         }
         CoverImageRow row = repository.getOrCreateExternalReference(url);
+        queueDownloadIfEligible(row.id());
         return repository.findResponseById(row.id()).orElseThrow();
     }
 
@@ -118,5 +119,20 @@ public class CoverImageAdminService {
         }
         repository.resetForDownload(id);
         publisher.publishImageDownload(id);
+    }
+
+    int enqueueDownloadBackfill(int limit) {
+        int count = 0;
+        for (UUID id : repository.findDownloadCandidates(limit)) {
+            queueDownloadIfEligible(id);
+            count++;
+        }
+        return count;
+    }
+
+    private void queueDownloadIfEligible(UUID id) {
+        if (id != null) {
+            publisher.publishImageDownload(id);
+        }
     }
 }

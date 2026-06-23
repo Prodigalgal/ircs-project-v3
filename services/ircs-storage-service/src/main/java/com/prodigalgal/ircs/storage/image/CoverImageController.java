@@ -70,4 +70,10 @@ public class CoverImageController {
         service.retryDownload(id);
         return ResponseEntity.accepted().build();
     }
+
+    @PostMapping("/download-backfill")
+    public ResponseEntity<Integer> enqueueDownloadBackfill(
+            @RequestParam(defaultValue = "25") int limit) {
+        return ResponseEntity.accepted().body(service.enqueueDownloadBackfill(limit));
+    }
 }

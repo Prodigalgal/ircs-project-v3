@@ -25,6 +25,8 @@ public class MaintenanceRunnerService {
     static final String JOB_TYPE_MAINTENANCE_RUNNER = "maintenance-runner";
     static final String TASK_SANITIZE = "sanitize";
     static final String TASK_UNIFIED_RECALCULATE = "unified-recalculate";
+    static final String TASK_AGGREGATION_PENDING_BACKFILL = "aggregation-pending-backfill";
+    static final String TASK_AGGREGATION_COVER_BACKFILL = "aggregation-cover-backfill";
     static final String TASK_AGGREGATION_RESET = "aggregation-reset";
     static final String TASK_TREND_SYNC = "trend-sync";
     static final String DEV_REFUSAL_REASON = "refused: high-risk maintenance runner is not allowed in dev";
@@ -43,6 +45,16 @@ public class MaintenanceRunnerService {
             "recalculate-dirty-unified",
             "ircs-aggregation-worker",
             "POST /internal/v1/aggregation/unified-videos/recalculate-dirty",
+            "aggregation:maintenance");
+    static final MaintenanceOwnerStep AGGREGATION_PENDING_BACKFILL_OWNER_STEP = new MaintenanceOwnerStep(
+            "enqueue-pending-raw-work",
+            "ircs-aggregation-worker",
+            "POST /internal/v1/aggregation/raw-videos/enqueue-pending",
+            "aggregation:maintenance");
+    static final MaintenanceOwnerStep AGGREGATION_COVER_BACKFILL_OWNER_STEP = new MaintenanceOwnerStep(
+            "backfill-unified-covers",
+            "ircs-aggregation-worker",
+            "POST /internal/v1/aggregation/unified-videos/backfill-covers",
             "aggregation:maintenance");
     static final MaintenanceOwnerStep AGGREGATION_RESET_PREPARE_OWNER_STEP = new MaintenanceOwnerStep(
             "prepare-aggregation-reset",
@@ -118,6 +130,24 @@ public class MaintenanceRunnerService {
                     OpsConfigValues.MAX_AGGREGATION_DEV_LIMIT,
                     "",
                     List.of(UNIFIED_RECALCULATE_OWNER_STEP)),
+            metadata(
+                    TASK_AGGREGATION_PENDING_BACKFILL,
+                    MaintenanceRiskLevel.LOW,
+                    true,
+                    true,
+                    OpsConfigValues.DEFAULT_AGGREGATION_DEV_LIMIT,
+                    OpsConfigValues.MAX_AGGREGATION_DEV_LIMIT,
+                    "",
+                    List.of(AGGREGATION_PENDING_BACKFILL_OWNER_STEP)),
+            metadata(
+                    TASK_AGGREGATION_COVER_BACKFILL,
+                    MaintenanceRiskLevel.LOW,
+                    true,
+                    true,
+                    OpsConfigValues.DEFAULT_AGGREGATION_DEV_LIMIT,
+                    OpsConfigValues.MAX_AGGREGATION_DEV_LIMIT,
+                    "",
+                    List.of(AGGREGATION_COVER_BACKFILL_OWNER_STEP)),
             metadata("area-clean", DEV_REFUSAL_REASON),
             metadata("language-clean", DEV_REFUSAL_REASON),
             metadata(
@@ -178,6 +208,12 @@ public class MaintenanceRunnerService {
         }
         if (TASK_UNIFIED_RECALCULATE.equals(metadata.taskName())) {
             return execute(metadata, correlationId, startedAt, () -> aggregationClient.recalculateDirtyUnified(correlationId));
+        }
+        if (TASK_AGGREGATION_PENDING_BACKFILL.equals(metadata.taskName())) {
+            return execute(metadata, correlationId, startedAt, () -> aggregationClient.enqueuePendingRawWork(correlationId));
+        }
+        if (TASK_AGGREGATION_COVER_BACKFILL.equals(metadata.taskName())) {
+            return execute(metadata, correlationId, startedAt, () -> aggregationClient.backfillUnifiedCovers(correlationId));
         }
         if (TASK_AGGREGATION_RESET.equals(metadata.taskName())) {
             return execute(metadata, correlationId, startedAt, () -> runAggregationReset(correlationId));

@@ -136,6 +136,7 @@ public class SystemConfigDefaults {
             cfg("app.adaptive.check-interval-ms", "10000", "资源监控采样间隔(毫秒)"),
             cfg("app.runtime-config.local-cache.ttl", "PT2S", "运行时系统配置本地缓存 TTL"),
             cfg("app.ops.config-listener.enabled", "true", "是否启用运维服务配置变更事件监听"),
+            cfg("app.aggregation.config-listener.enabled", "true", "是否启用聚合 Worker 配置变更事件监听"),
             cfg("app.content.config-listener.enabled", "true", "是否启用内容服务配置变更事件监听"),
             cfg("app.identity.config-listener.enabled", "true", "是否启用认证服务配置变更事件监听"),
             cfg("app.interaction.config-listener.enabled", "true", "是否启用互动服务配置变更事件监听"),
@@ -297,6 +298,10 @@ public class SystemConfigDefaults {
             cfg("app.storage.image.download.batch-size", "100", "图片下载任务基准批次"),
             cfg("app.storage.image.download.batch-size.min", "20", "图片下载任务最小批次"),
             cfg("app.storage.image.download.batch-size.max", "200", "图片下载任务最大批次"),
+            cfg("app.storage.image.download-backfill.enabled", "true", "是否启用封面下载任务安全回填"),
+            cfg("app.storage.image.download-backfill.batch-size", "25", "封面下载任务安全回填每轮投递数量"),
+            cfg("app.storage.image.download-backfill.initial-delay-ms", "60000", "封面下载任务安全回填启动延迟(毫秒)"),
+            cfg("app.storage.image.download-backfill.fixed-delay-ms", "30000", "封面下载任务安全回填轮询间隔(毫秒)"),
             cfg("app.storage.image.cleanup.batch-size", "100", "图片清理任务基准批次"),
             cfg("app.storage.image.cleanup.batch-size.min", "50", "图片清理任务最小批次"),
             cfg("app.storage.image.cleanup.batch-size.max", "500", "图片清理任务最大批次"),
@@ -535,6 +540,7 @@ public class SystemConfigDefaults {
                 || key.startsWith("app.task.")
                 || isCacheStartupKey(key)
                 || key.startsWith("app.storage.r2.")
+                || key.startsWith("app.storage.image.download-backfill.")
                 || key.startsWith("app.storage.base-path")
                 || key.startsWith("app.storage.public-path")
                 || key.startsWith("app.system-config.valkey-cache.")

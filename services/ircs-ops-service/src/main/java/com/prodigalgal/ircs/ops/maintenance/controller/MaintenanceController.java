@@ -101,6 +101,16 @@ public class MaintenanceController {
         return session("unified-recalculate");
     }
 
+    @PostMapping("/aggregation/pending-backfill/init")
+    public ResponseEntity<Map<String, String>> initAggregationPendingBackfill() {
+        return session("aggregation-pending-backfill");
+    }
+
+    @PostMapping("/aggregation/cover-backfill/init")
+    public ResponseEntity<Map<String, String>> initAggregationCoverBackfill() {
+        return session("aggregation-cover-backfill");
+    }
+
     @PostMapping("/search/reindex-raw/init")
     public ResponseEntity<Map<String, String>> initRawReindex() {
         return session("search-reindex-raw");

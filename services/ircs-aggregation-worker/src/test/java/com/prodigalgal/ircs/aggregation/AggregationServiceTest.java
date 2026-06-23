@@ -2,13 +2,14 @@ package com.prodigalgal.ircs.aggregation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -42,6 +43,9 @@ class AggregationServiceTest {
 
     @Mock
     private AggregationMatchKeyLock matchKeyLock;
+
+    @Mock
+    private AggregationWorkPublisher workPublisher;
 
     @InjectMocks
     private AggregationService service;
@@ -496,6 +500,41 @@ class AggregationServiceTest {
         assertEquals(8L, result.changedRows());
         assertEquals(List.of(rawVideoId), result.sampleRawVideoIds());
         verify(repository).markAllRawAggregationPending();
+    }
+
+    @Test
+    void enqueuePendingRawWorkPublishesRuntimeWorkForPendingRawVideos() {
+        UUID firstRawVideoId = UUID.randomUUID();
+        UUID secondRawVideoId = UUID.randomUUID();
+        when(repository.findPendingRawIdsWithoutRuntimeProgress(50))
+                .thenReturn(List.of(firstRawVideoId, secondRawVideoId));
+
+        var result = service.enqueuePendingRawWork(50);
+
+        assertEquals("aggregation-pending-backfill", result.taskName());
+        assertEquals(2, result.candidates());
+        assertEquals(2, result.processed());
+        assertEquals(List.of(firstRawVideoId, secondRawVideoId), result.entityIds());
+        verify(workPublisher).enqueue(firstRawVideoId, null, "aggregation-pending-backfill");
+        verify(workPublisher).enqueue(secondRawVideoId, null, "aggregation-pending-backfill");
+    }
+
+    @Test
+    void backfillUnifiedCoversRebuildsCoverAndPublishesFollowUpSyncs() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        UUID coverImageId = UUID.randomUUID();
+        when(repository.findUnifiedIdsMissingCoverFromRaw(20)).thenReturn(List.of(unifiedVideoId));
+        when(repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId)).thenReturn(List.of(coverImageId));
+
+        var result = service.backfillUnifiedCovers(20);
+
+        assertEquals("aggregation-cover-backfill", result.taskName());
+        assertEquals(1, result.candidates());
+        assertEquals(1, result.processed());
+        assertEquals(List.of(unifiedVideoId), result.entityIds());
+        verify(repository).rebuildUnifiedPipelineCoverImage(unifiedVideoId);
+        verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
+        verify(publisher).publishUnifiedIndex(unifiedVideoId);
     }
 
     @Test

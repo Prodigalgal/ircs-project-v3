@@ -23,6 +23,8 @@ import org.springframework.util.StringUtils;
 class AggregationMaintenanceClient implements MaintenanceAggregationClient {
 
     private static final String RECALCULATE_DIRTY_PATH = "/internal/v1/aggregation/unified-videos/recalculate-dirty";
+    private static final String ENQUEUE_PENDING_RAW_PATH = "/internal/v1/aggregation/raw-videos/enqueue-pending";
+    private static final String BACKFILL_UNIFIED_COVERS_PATH = "/internal/v1/aggregation/unified-videos/backfill-covers";
     private static final String RESET_PREPARE_PATH = "/internal/v1/aggregation/reset/prepare";
     private static final String RESET_MARK_RAW_PENDING_PATH = "/internal/v1/aggregation/reset/mark-raw-pending";
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
@@ -42,12 +44,26 @@ class AggregationMaintenanceClient implements MaintenanceAggregationClient {
 
     @Override
     public MaintenanceRunResult recalculateDirtyUnified(String correlationId) {
+        return maintenanceRun("unified-recalculate", limitUri(RECALCULATE_DIRTY_PATH), correlationId);
+    }
+
+    @Override
+    public MaintenanceRunResult enqueuePendingRawWork(String correlationId) {
+        return maintenanceRun("aggregation-pending-backfill", limitUri(ENQUEUE_PENDING_RAW_PATH), correlationId);
+    }
+
+    @Override
+    public MaintenanceRunResult backfillUnifiedCovers(String correlationId) {
+        return maintenanceRun("aggregation-cover-backfill", limitUri(BACKFILL_UNIFIED_COVERS_PATH), correlationId);
+    }
+
+    private MaintenanceRunResult maintenanceRun(String fallbackTaskName, URI uri, String correlationId) {
         try {
-            OutboundHttpResponse response = post(recalculateDirtyUri(), correlationId);
+            OutboundHttpResponse response = post(uri, correlationId);
             AggregationMaintenanceRunResponse body =
                     objectMapper.readValue(response.body(), AggregationMaintenanceRunResponse.class);
             return new MaintenanceRunResult(
-                    "unified-recalculate",
+                    StringUtils.hasText(body.taskName()) ? body.taskName() : fallbackTaskName,
                     Math.max(0, body.candidates()),
                     Math.max(0, body.processed()),
                     body.entityIds());
@@ -114,10 +130,10 @@ class AggregationMaintenanceClient implements MaintenanceAggregationClient {
         return response;
     }
 
-    private URI recalculateDirtyUri() {
+    private URI limitUri(String path) {
         String baseUrl = configValues.aggregationOwnerBaseUrl();
         String normalizedBase = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        return URI.create(normalizedBase + RECALCULATE_DIRTY_PATH
+        return URI.create(normalizedBase + path
                 + "?limit=" + configValues.aggregationMaintenanceDevLimit());
     }
 

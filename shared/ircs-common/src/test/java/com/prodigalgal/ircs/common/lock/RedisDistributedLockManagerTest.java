@@ -35,7 +35,7 @@ class RedisDistributedLockManagerTest {
     void reserveTimeSliceReturnsReservedWaitAndNextAvailableTime() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:Provider:DOUBAN")),
+                eq(List.of("traffic:limit:Provider:DOUBAN", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -59,7 +59,7 @@ class RedisDistributedLockManagerTest {
     void reserveTimeSliceRejectsWhenQueueWaitExceedsMaxWait() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:DataSource:source-1")),
+                eq(List.of("traffic:limit:DataSource:source-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -82,7 +82,7 @@ class RedisDistributedLockManagerTest {
     void reserveTokenBucketAllowsWhenTokensAreAvailable() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:cred:tmdb-1")),
+                eq(List.of("traffic:limit:cred:tmdb-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -111,7 +111,7 @@ class RedisDistributedLockManagerTest {
     void reserveTokenBucketRejectsWhenRetryAfterExceedsMaxWait() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:cred:tmdb-1")),
+                eq(List.of("traffic:limit:cred:tmdb-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),

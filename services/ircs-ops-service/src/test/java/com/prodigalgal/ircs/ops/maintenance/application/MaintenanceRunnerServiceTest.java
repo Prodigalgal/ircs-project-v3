@@ -64,6 +64,24 @@ class MaintenanceRunnerServiceTest {
         assertEquals(List.of(MaintenanceRunnerService.UNIFIED_RECALCULATE_OWNER_STEP),
                 unifiedRecalculate.ownerSteps());
 
+        MaintenanceRunnerMetadata pendingBackfill = find(registry, "aggregation-pending-backfill");
+        assertEquals(MaintenanceRiskLevel.LOW, pendingBackfill.riskLevel());
+        assertTrue(pendingBackfill.devAllowed());
+        assertTrue(pendingBackfill.supportsDryRun());
+        assertEquals(OpsConfigValues.DEFAULT_AGGREGATION_DEV_LIMIT, pendingBackfill.defaultLimit());
+        assertEquals(OpsConfigValues.MAX_AGGREGATION_DEV_LIMIT, pendingBackfill.maxLimit());
+        assertEquals(List.of(MaintenanceRunnerService.AGGREGATION_PENDING_BACKFILL_OWNER_STEP),
+                pendingBackfill.ownerSteps());
+
+        MaintenanceRunnerMetadata coverBackfill = find(registry, "aggregation-cover-backfill");
+        assertEquals(MaintenanceRiskLevel.LOW, coverBackfill.riskLevel());
+        assertTrue(coverBackfill.devAllowed());
+        assertTrue(coverBackfill.supportsDryRun());
+        assertEquals(OpsConfigValues.DEFAULT_AGGREGATION_DEV_LIMIT, coverBackfill.defaultLimit());
+        assertEquals(OpsConfigValues.MAX_AGGREGATION_DEV_LIMIT, coverBackfill.maxLimit());
+        assertEquals(List.of(MaintenanceRunnerService.AGGREGATION_COVER_BACKFILL_OWNER_STEP),
+                coverBackfill.ownerSteps());
+
         MaintenanceRunnerMetadata aggregationReset = find(registry, "aggregation-reset");
         assertEquals(MaintenanceRiskLevel.HIGH, aggregationReset.riskLevel());
         assertTrue(aggregationReset.devAllowed());
@@ -205,6 +223,54 @@ class MaintenanceRunnerServiceTest {
     }
 
     @Test
+    void aggregationPendingBackfillRunnerCallsAggregationOwnerAndWritesSucceededAuditEvidence() {
+        MaintenanceRunResult result = new MaintenanceRunResult(
+                "aggregation-pending-backfill",
+                2,
+                2,
+                List.of(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()));
+        when(aggregationClient.enqueuePendingRawWork("corr-pending")).thenReturn(result);
+
+        MaintenanceRunnerExecution execution = runnerService.run("aggregation-pending-backfill", "corr-pending");
+
+        assertFalse(execution.refused());
+        assertEquals(result, execution.result());
+        assertEquals("aggregation-pending-backfill", execution.metadata().taskName());
+        verify(aggregationClient).enqueuePendingRawWork("corr-pending");
+
+        WorkerJobAuditEvent event = captureAuditEvent();
+        assertEquals(MaintenanceRunnerService.JOB_TYPE_MAINTENANCE_RUNNER, event.jobType());
+        assertEquals("aggregation-pending-backfill", event.jobName());
+        assertEquals("succeeded", event.status());
+        assertEquals("corr-pending", event.correlationId());
+        assertNotNull(event.duration());
+    }
+
+    @Test
+    void aggregationCoverBackfillRunnerCallsAggregationOwnerAndWritesSucceededAuditEvidence() {
+        MaintenanceRunResult result = new MaintenanceRunResult(
+                "aggregation-cover-backfill",
+                1,
+                1,
+                List.of(java.util.UUID.randomUUID()));
+        when(aggregationClient.backfillUnifiedCovers("corr-cover")).thenReturn(result);
+
+        MaintenanceRunnerExecution execution = runnerService.run("aggregation-cover-backfill", "corr-cover");
+
+        assertFalse(execution.refused());
+        assertEquals(result, execution.result());
+        assertEquals("aggregation-cover-backfill", execution.metadata().taskName());
+        verify(aggregationClient).backfillUnifiedCovers("corr-cover");
+
+        WorkerJobAuditEvent event = captureAuditEvent();
+        assertEquals(MaintenanceRunnerService.JOB_TYPE_MAINTENANCE_RUNNER, event.jobType());
+        assertEquals("aggregation-cover-backfill", event.jobName());
+        assertEquals("succeeded", event.status());
+        assertEquals("corr-cover", event.correlationId());
+        assertNotNull(event.duration());
+    }
+
+    @Test
     void aggregationResetRunnerCallsOwnersInV1OrderAndWritesSucceededAuditEvidence() {
         java.util.UUID sampleRawId = java.util.UUID.randomUUID();
         MaintenanceRunResult prepare = new MaintenanceRunResult(
@@ -309,6 +375,8 @@ class MaintenanceRunnerServiceTest {
         verify(reindexCommand, never()).hardResetUnifiedIndex(org.mockito.ArgumentMatchers.any());
         verify(normalizationClient, never()).resetAllNormalization(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).recalculateDirtyUnified(org.mockito.ArgumentMatchers.any());
+        verify(aggregationClient, never()).enqueuePendingRawWork(org.mockito.ArgumentMatchers.any());
+        verify(aggregationClient, never()).backfillUnifiedCovers(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).prepareAggregationReset(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).markAggregationResetRawPending(org.mockito.ArgumentMatchers.any());
         verify(trendSyncClient, never()).syncTrends(org.mockito.ArgumentMatchers.any());
@@ -333,6 +401,8 @@ class MaintenanceRunnerServiceTest {
         verify(reindexCommand, never()).hardResetUnifiedIndex(org.mockito.ArgumentMatchers.any());
         verify(normalizationClient, never()).resetAllNormalization(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).recalculateDirtyUnified(org.mockito.ArgumentMatchers.any());
+        verify(aggregationClient, never()).enqueuePendingRawWork(org.mockito.ArgumentMatchers.any());
+        verify(aggregationClient, never()).backfillUnifiedCovers(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).prepareAggregationReset(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).markAggregationResetRawPending(org.mockito.ArgumentMatchers.any());
         verify(trendSyncClient, never()).syncTrends(org.mockito.ArgumentMatchers.any());

@@ -6,6 +6,10 @@ public interface MaintenanceAggregationClient {
 
     MaintenanceRunResult recalculateDirtyUnified(String correlationId);
 
+    MaintenanceRunResult enqueuePendingRawWork(String correlationId);
+
+    MaintenanceRunResult backfillUnifiedCovers(String correlationId);
+
     MaintenanceRunResult prepareAggregationReset(String correlationId);
 
     MaintenanceRunResult markAggregationResetRawPending(String correlationId);

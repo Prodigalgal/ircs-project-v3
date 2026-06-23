@@ -1,18 +1,19 @@
 package com.prodigalgal.ircs.ops.traffic.application;
 
+import com.prodigalgal.ircs.common.lock.TrafficLimitKeys;
 import com.prodigalgal.ircs.ops.traffic.dto.TrafficSlotResponse;
 import com.prodigalgal.ircs.ops.traffic.dto.TrafficStatusResponse;
 import com.prodigalgal.ircs.ops.traffic.infrastructure.CredentialLabelRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.connection.DataType;
-import org.springframework.data.redis.core.Cursor;
-import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -21,7 +22,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class TrafficMonitorService {
 
-    private static final String PREFIX = "traffic:limit:";
+    private static final String PREFIX = TrafficLimitKeys.PREFIX;
     private static final String TMDB_PROVIDER = "TMDB";
     private static final String TMDB_API_KEY_PAYLOAD = "api_key";
     private static final int MAX_CONFIGURED_CREDENTIALS = 100;
@@ -33,17 +34,13 @@ public class TrafficMonitorService {
     public TrafficStatusResponse getTrafficStatus() {
         List<TrafficSlotResponse> globals = new ArrayList<>();
         Map<String, TrafficSlotResponse> credentialSlots = new LinkedHashMap<>();
-        ScanOptions options = ScanOptions.scanOptions().match(PREFIX + "*").count(100).build();
 
-        try (Cursor<String> cursor = redisTemplate.scan(options)) {
-            while (cursor.hasNext()) {
-                String fullKey = cursor.next();
-                if (fullKey == null || !fullKey.startsWith(PREFIX)) {
-                    continue;
-                }
+        try {
+            for (String fullKey : indexedTrafficKeys()) {
                 String rawKey = fullKey.substring(PREFIX.length());
                 TrafficSlotResponse slot = buildSlot(rawKey, fullKey);
                 if (slot == null) {
+                    removeIndexedKey(fullKey);
                     continue;
                 }
                 if (rawKey.startsWith("cred:")) {
@@ -67,7 +64,25 @@ public class TrafficMonitorService {
         if (!StringUtils.hasText(key)) {
             return;
         }
-        redisTemplate.delete(PREFIX + key.trim());
+        String redisKey = PREFIX + key.trim();
+        redisTemplate.delete(redisKey);
+        removeIndexedKey(redisKey);
+    }
+
+    private Set<String> indexedTrafficKeys() {
+        Set<String> keys = redisTemplate.opsForSet().members(TrafficLimitKeys.ACTIVE_INDEX_KEY);
+        if (keys == null || keys.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> indexedKeys = new HashSet<>(keys);
+        indexedKeys.removeIf(key -> !TrafficLimitKeys.isTrafficKey(key));
+        return indexedKeys;
+    }
+
+    private void removeIndexedKey(String redisKey) {
+        if (TrafficLimitKeys.isTrafficKey(redisKey)) {
+            redisTemplate.opsForSet().remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, redisKey);
+        }
     }
 
     private TrafficSlotResponse buildSlot(String rawKey, String redisKey) {

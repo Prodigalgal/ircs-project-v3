@@ -17,6 +17,7 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
     private static final DefaultRedisScript<List> TIME_SLICE_SCRIPT = new DefaultRedisScript<>(
             """
             local key = KEYS[1]
+            local index_key = KEYS[2]
             local now = tonumber(ARGV[1])
             local gap = tonumber(ARGV[2])
             local max_wait = tonumber(ARGV[3])
@@ -33,6 +34,7 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
             local next_scheduled = target_time + gap
             local ttl = math.max(min_ttl, next_scheduled - now + 60000)
             redis.call('SET', key, next_scheduled, 'PX', ttl)
+            redis.call('SADD', index_key, key)
             return {1, wait_time, next_scheduled}
             """,
             List.class);
@@ -40,6 +42,7 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
     private static final DefaultRedisScript<List> TOKEN_BUCKET_SCRIPT = new DefaultRedisScript<>(
             """
             local key = KEYS[1]
+            local index_key = KEYS[2]
             local now = tonumber(ARGV[1])
             local capacity = tonumber(ARGV[2])
             local refill_tokens = tonumber(ARGV[3])
@@ -81,6 +84,7 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
               'permits', permits,
               'retry_after_ms', retry_after)
             redis.call('PEXPIRE', key, ttl_ms)
+            redis.call('SADD', index_key, key)
             return {allowed, tokens, retry_after}
             """,
             List.class);
@@ -164,7 +168,7 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
         try {
             List<Long> result = (List<Long>) redisTemplate.execute(
                     TIME_SLICE_SCRIPT,
-                    List.of(request.key()),
+                    List.of(request.key(), TrafficLimitKeys.ACTIVE_INDEX_KEY),
                     String.valueOf(now.toEpochMilli()),
                     String.valueOf(request.gap().toMillis()),
                     String.valueOf(request.maxWait().toMillis()),
@@ -206,7 +210,7 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
         try {
             List<Long> result = (List<Long>) redisTemplate.execute(
                     TOKEN_BUCKET_SCRIPT,
-                    List.of(request.key()),
+                    List.of(request.key(), TrafficLimitKeys.ACTIVE_INDEX_KEY),
                     String.valueOf(now.toEpochMilli()),
                     String.valueOf(request.capacity()),
                     String.valueOf(request.refillTokens()),

@@ -113,6 +113,50 @@ class InternalAggregationControllerTest {
     }
 
     @Test
+    void enqueuePendingRawWorkChecksAccessAndDelegatesToService() {
+        UUID rawId = UUID.randomUUID();
+        AggregationMaintenanceRunResponse response = new AggregationMaintenanceRunResponse(
+                "aggregation-pending-backfill",
+                1,
+                1,
+                List.of(rawId));
+        when(aggregationService.enqueuePendingRawWork(7)).thenReturn(response);
+
+        ResponseEntity<AggregationMaintenanceRunResponse> result = controller.enqueuePendingRawWork(
+                7,
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        verify(aggregationService).enqueuePendingRawWork(7);
+    }
+
+    @Test
+    void backfillUnifiedCoversChecksAccessAndDelegatesToService() {
+        UUID unifiedId = UUID.randomUUID();
+        AggregationMaintenanceRunResponse response = new AggregationMaintenanceRunResponse(
+                "aggregation-cover-backfill",
+                1,
+                1,
+                List.of(unifiedId));
+        when(aggregationService.backfillUnifiedCovers(8)).thenReturn(response);
+
+        ResponseEntity<AggregationMaintenanceRunResponse> result = controller.backfillUnifiedCovers(
+                8,
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        verify(aggregationService).backfillUnifiedCovers(8);
+    }
+
+    @Test
     void workQueueStateChecksAccessAndReturnsNullWhenWorkerUnavailable() {
         when(workerProvider.getIfAvailable()).thenReturn(null);
 

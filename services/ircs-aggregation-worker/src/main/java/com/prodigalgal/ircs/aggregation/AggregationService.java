@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.aggregation;
 
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunResponse;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ public class AggregationService {
     private final RawVideoGraphClusterer rawVideoGraphClusterer;
     private final AggregationPipelineRuntime aggregationPipelineRuntime;
     private final AggregationMatchKeyLock matchKeyLock;
+    private final AggregationWorkPublisher workPublisher;
 
     @Transactional
     public AggregationResult aggregateOne(UUID rawVideoId) {
@@ -175,6 +177,36 @@ public class AggregationService {
         }
         return new AggregationMaintenanceRunResponse(
                 "unified-recalculate",
+                unifiedVideoIds.size(),
+                processed,
+                unifiedVideoIds);
+    }
+
+    @Transactional
+    public AggregationMaintenanceRunResponse enqueuePendingRawWork(int limit) {
+        List<UUID> rawVideoIds = repository.findPendingRawIdsWithoutRuntimeProgress(Math.max(1, limit));
+        for (UUID rawVideoId : rawVideoIds) {
+            workPublisher.enqueue(rawVideoId, null, "aggregation-pending-backfill");
+        }
+        return new AggregationMaintenanceRunResponse(
+                "aggregation-pending-backfill",
+                rawVideoIds.size(),
+                rawVideoIds.size(),
+                rawVideoIds);
+    }
+
+    @Transactional
+    public AggregationMaintenanceRunResponse backfillUnifiedCovers(int limit) {
+        List<UUID> unifiedVideoIds = repository.findUnifiedIdsMissingCoverFromRaw(Math.max(1, limit));
+        int processed = 0;
+        for (UUID unifiedVideoId : unifiedVideoIds) {
+            List<UUID> promoteCandidates = repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId);
+            promoteCandidates.forEach(storageCommandPublisher::enqueueCoverR2Sync);
+            publisher.publishUnifiedIndex(unifiedVideoId);
+            processed++;
+        }
+        return new AggregationMaintenanceRunResponse(
+                "aggregation-cover-backfill",
                 unifiedVideoIds.size(),
                 processed,
                 unifiedVideoIds);
