@@ -85,7 +85,7 @@ public class JdbcPortalRepository {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
-                SELECT sg.name
+                SELECT coalesce(sg.name, gc.code) as name
                   FROM unified_videos uv
                   LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                   JOIN LATERAL jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code) ON true
@@ -101,7 +101,7 @@ public class JdbcPortalRepository {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
-                SELECT sa.name
+                SELECT coalesce(sa.name, ac.code) as name
                   FROM unified_videos uv
                   LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                   JOIN LATERAL jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code) ON true
@@ -117,7 +117,7 @@ public class JdbcPortalRepository {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
-                SELECT sl.name
+                SELECT coalesce(sl.name, lc.code) as name
                   FROM unified_videos uv
                   LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                   JOIN LATERAL jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code) ON true

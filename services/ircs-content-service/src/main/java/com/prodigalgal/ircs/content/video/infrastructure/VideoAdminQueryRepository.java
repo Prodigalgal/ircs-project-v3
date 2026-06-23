@@ -82,7 +82,7 @@ class VideoAdminQueryRepository {
         try {
             RawVideoDetailBase base = jdbcTemplate.queryForObject(
                     """
-                    select rv.*, sc.id as category_id, sc.name as category_name,
+                    select rv.*, sc.id as resolved_category_id, sc.name as category_name,
                            coalesce(rv.source_category_name, rc.source_name) as source_name,
                            ds.name as data_source_name, coalesce(rv.data_source_id, rc.data_source_id) as resolved_data_source_id,
                            cast(rv.actor_names as varchar) as flat_actor_names,
