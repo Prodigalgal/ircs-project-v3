@@ -18,6 +18,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -35,19 +36,35 @@ public class RabbitManagementQueueClient {
     private volatile String lastError;
 
     @Value("${spring.rabbitmq.host:localhost}")
-    private String fallbackRabbitHost;
+    private String fallbackRabbitHost = "localhost";
 
     @Value("${spring.rabbitmq.username:guest}")
-    private String fallbackUsername;
+    private String fallbackUsername = "guest";
 
     @Value("${spring.rabbitmq.password:guest}")
-    private String fallbackPassword;
+    private String fallbackPassword = "guest";
+
+    @Value("${app.ops.rabbit-management.base-url:}")
+    private String fallbackBaseUrl = "";
+
+    @Value("${app.ops.rabbit-management.vhost:/}")
+    private String fallbackVhost = "/";
+
+    @Value("${app.ops.rabbit-management.connect-timeout:PT3S}")
+    private String fallbackConnectTimeout = "PT3S";
+
+    @Value("${app.ops.rabbit-management.request-timeout:PT5S}")
+    private String fallbackRequestTimeout = "PT5S";
 
     public Optional<RabbitManagementQueues> fetchQueues() {
         if (!enabled()) {
             lastError = "disabled";
             return Optional.empty();
         }
+        return fetchQueueSnapshots();
+    }
+
+    public Optional<RabbitManagementQueues> fetchQueueSnapshots() {
         try {
             HttpRequest request = HttpRequest.newBuilder(queueEndpoint())
                     .timeout(requestTimeout())
@@ -150,45 +167,62 @@ public class RabbitManagementQueueClient {
     }
 
     private String baseUrl() {
-        return runtimeConfig == null
-                ? ""
-                : runtimeConfig.stringValue("app.ops.rabbit-management.base-url", "");
+        return runtimeStringValue("app.ops.rabbit-management.base-url", fallbackBaseUrl);
     }
 
     private String rabbitHost() {
-        return runtimeConfig == null
-                ? fallbackRabbitHost
-                : runtimeConfig.stringValue("spring.rabbitmq.host", fallbackRabbitHost);
+        return fallbackRabbitHost;
     }
 
     private String username() {
-        return runtimeConfig == null
-                ? fallbackUsername
-                : runtimeConfig.stringValue("spring.rabbitmq.username", fallbackUsername);
+        return fallbackUsername;
     }
 
     private String password() {
-        return runtimeConfig == null
-                ? fallbackPassword
-                : runtimeConfig.stringValue("spring.rabbitmq.password", fallbackPassword);
+        return fallbackPassword;
     }
 
     private String vhost() {
-        return runtimeConfig == null
-                ? "/"
-                : runtimeConfig.stringValue("app.ops.rabbit-management.vhost", "/");
+        return runtimeStringValue("app.ops.rabbit-management.vhost", fallbackVhost);
     }
 
     private Duration connectTimeout() {
+        Duration fallback = durationValue(fallbackConnectTimeout, Duration.ofSeconds(3));
         return runtimeConfig == null
-                ? Duration.ofSeconds(3)
-                : runtimeConfig.positiveDurationValue("app.ops.rabbit-management.connect-timeout", Duration.ofSeconds(3));
+                ? fallback
+                : runtimeConfig.positiveDurationValue(
+                        "app.ops.rabbit-management.connect-timeout",
+                        fallback);
     }
 
     private Duration requestTimeout() {
+        Duration fallback = durationValue(fallbackRequestTimeout, Duration.ofSeconds(5));
         return runtimeConfig == null
-                ? Duration.ofSeconds(5)
-                : runtimeConfig.positiveDurationValue("app.ops.rabbit-management.request-timeout", Duration.ofSeconds(5));
+                ? fallback
+                : runtimeConfig.positiveDurationValue(
+                        "app.ops.rabbit-management.request-timeout",
+                        fallback);
+    }
+
+    private String runtimeStringValue(String key, String fallback) {
+        String value = runtimeConfig == null ? fallback : runtimeConfig.stringValue(key, fallback);
+        return hasUnresolvedPlaceholder(value) ? fallback : value;
+    }
+
+    private boolean hasUnresolvedPlaceholder(String value) {
+        return value != null && value.contains("${");
+    }
+
+    private Duration durationValue(String value, Duration fallback) {
+        if (!StringUtils.hasText(value) || hasUnresolvedPlaceholder(value)) {
+            return fallback;
+        }
+        try {
+            Duration parsed = DurationStyle.detectAndParse(value.trim());
+            return parsed == null || parsed.isZero() || parsed.isNegative() ? fallback : parsed;
+        } catch (RuntimeException ignored) {
+            return fallback;
+        }
     }
 
     private long longValue(JsonNode node, String field, long fallback) {

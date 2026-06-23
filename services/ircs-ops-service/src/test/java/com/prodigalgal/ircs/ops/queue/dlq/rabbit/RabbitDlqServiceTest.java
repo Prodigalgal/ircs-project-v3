@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops.queue.dlq.rabbit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
@@ -24,7 +25,7 @@ class RabbitDlqServiceTest {
 
     @Test
     void listQueuesUsesNativeRabbitDlqSnapshotsAndIncludesUnmanagedDlqs() {
-        when(queueClient.fetchQueues()).thenReturn(Optional.of(new RabbitManagementQueues(null, List.of(
+        when(queueClient.fetchQueueSnapshots()).thenReturn(Optional.of(new RabbitManagementQueues(null, List.of(
                 new RabbitManagementQueueSnapshot(QueueTopic.TASK_DETAIL.dlqName(), 7, 5, 12, 0),
                 new RabbitManagementQueueSnapshot("q.legacy.custom.dlq", 3, 2, 5, 0),
                 new RabbitManagementQueueSnapshot("q.task.detail", 99, 0, 99, 1)
@@ -43,6 +44,7 @@ class RabbitDlqServiceTest {
         assertThat(unmanaged.sourceQueueName()).isEqualTo("q.legacy.custom");
         assertThat(unmanaged.messagesTotal()).isEqualTo(5);
         assertThat(unmanaged.actionSupported()).isFalse();
+        verifyNoInteractions(rabbitAdmin);
     }
 
     @Test
@@ -50,7 +52,7 @@ class RabbitDlqServiceTest {
         Properties props = new Properties();
         props.put(RabbitAdmin.QUEUE_MESSAGE_COUNT, 9);
         props.put(RabbitAdmin.QUEUE_CONSUMER_COUNT, 0);
-        when(queueClient.fetchQueues()).thenReturn(Optional.empty());
+        when(queueClient.fetchQueueSnapshots()).thenReturn(Optional.empty());
         when(rabbitAdmin.getQueueProperties(QueueTopic.INGEST_VIDEO.dlqName())).thenReturn(props);
 
         RabbitDlqQueueResponse ingestDlq = find(service.listQueues(), QueueTopic.INGEST_VIDEO.dlqName());

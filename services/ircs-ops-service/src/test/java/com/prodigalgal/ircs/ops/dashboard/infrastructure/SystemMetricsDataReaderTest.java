@@ -43,7 +43,7 @@ class SystemMetricsDataReaderTest {
 
     @Test
     void queueStatePrefersNativeRabbitTotalWhenManagementSnapshotIsAvailable() {
-        when(rabbitManagementQueueClient.fetchQueues()).thenReturn(Optional.of(new RabbitManagementQueues(null, List.of(
+        when(rabbitManagementQueueClient.fetchQueueSnapshots()).thenReturn(Optional.of(new RabbitManagementQueues(null, List.of(
                 new RabbitManagementQueueSnapshot("q.task.detail.dlq", 7, 5, 12, 0)
         ))));
 
@@ -59,7 +59,7 @@ class SystemMetricsDataReaderTest {
         Properties props = new Properties();
         props.put(RabbitAdmin.QUEUE_MESSAGE_COUNT, 4);
         props.put(RabbitAdmin.QUEUE_CONSUMER_COUNT, 1);
-        when(rabbitManagementQueueClient.fetchQueues()).thenReturn(Optional.empty());
+        when(rabbitManagementQueueClient.fetchQueueSnapshots()).thenReturn(Optional.empty());
         when(rabbitAdmin.getQueueProperties("q.task.detail.dlq")).thenReturn(props);
 
         QueueState state = reader.queueState("q.task.detail.dlq");

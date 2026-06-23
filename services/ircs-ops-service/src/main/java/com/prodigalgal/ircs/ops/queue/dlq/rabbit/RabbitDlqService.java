@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.core.Message;
@@ -41,11 +42,25 @@ public class RabbitDlqService {
     private final RabbitManagementQueueClient queueClient;
 
     public List<RabbitDlqQueueResponse> listQueues() {
-        Map<String, RabbitManagementQueueSnapshot> brokerQueues = queueSnapshots();
+        return nativeQueueSnapshots()
+                .map(this::listNativeQueues)
+                .orElseGet(this::listKnownQueues);
+    }
+
+    private List<RabbitDlqQueueResponse> listNativeQueues(Map<String, RabbitManagementQueueSnapshot> brokerQueues) {
         Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
-        brokerQueues.keySet().stream()
+        return brokerQueues.keySet().stream()
                 .filter(RabbitDlqService::isDlqQueue)
-                .forEach(queueName -> definitions.putIfAbsent(queueName, unmanagedDefinition(queueName)));
+                .sorted()
+                .map(queueName -> queueResponse(
+                        definitions.getOrDefault(queueName, unmanagedDefinition(queueName)),
+                        brokerQueues))
+                .toList();
+    }
+
+    private List<RabbitDlqQueueResponse> listKnownQueues() {
+        Map<String, RabbitManagementQueueSnapshot> brokerQueues = Map.of();
+        Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
         return definitions.values().stream()
                 .sorted(Comparator.comparing(RabbitDlqDefinition::queueName))
                 .map(definition -> queueResponse(definition, brokerQueues))
@@ -82,7 +97,7 @@ public class RabbitDlqService {
                 action,
                 requested,
                 affected,
-                queueResponse(knownDefinition(topic), queueSnapshots()),
+                queueResponse(knownDefinition(topic), nativeQueueSnapshots().orElse(Map.of())),
                 samples);
     }
 
@@ -130,10 +145,9 @@ public class RabbitDlqService {
                 definition.actionSupported());
     }
 
-    private Map<String, RabbitManagementQueueSnapshot> queueSnapshots() {
-        return queueClient.fetchQueues()
-                .map(RabbitManagementQueues::byName)
-                .orElse(Map.of());
+    private Optional<Map<String, RabbitManagementQueueSnapshot>> nativeQueueSnapshots() {
+        return queueClient.fetchQueueSnapshots()
+                .map(RabbitManagementQueues::byName);
     }
 
     private Map<String, RabbitDlqDefinition> knownDefinitions() {

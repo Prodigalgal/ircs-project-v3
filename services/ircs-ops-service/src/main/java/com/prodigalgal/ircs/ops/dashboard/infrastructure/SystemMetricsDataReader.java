@@ -104,7 +104,7 @@ public class SystemMetricsDataReader {
         if (cached != null && cached.expiresAtMillis() > now) {
             return cached.snapshots();
         }
-        Optional<RabbitManagementQueues> queues = rabbitManagementQueueClient.fetchQueues();
+        Optional<RabbitManagementQueues> queues = rabbitManagementQueueClient.fetchQueueSnapshots();
         Map<String, RabbitManagementQueueSnapshot> snapshots = queues
                 .map(RabbitManagementQueues::byName)
                 .orElse(Collections.emptyMap());
