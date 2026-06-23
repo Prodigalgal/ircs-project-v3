@@ -15,6 +15,7 @@
 - 聚合补偿：新增 pending raw 运行队列补投递、unified cover 回灌维护入口。
 - 聚合补偿加固：线上 smoke 发现 `aggregation-cover-backfill` 在短超时内部请求内重跑逐条 pipeline 会超时，已改为 set-based 批量补齐 `unified_videos.cover_image_id`，后续 search/R2 同步继续走队列。
 - 运维入口：将两个聚合补偿动作接入 ops maintenance runner，可通过 token API 初始化维护会话。
+- 生产配置修复：`ircs-prod-config` 将 `APP_OPS_AGGREGATION_WORKER_REQUEST_TIMEOUT` 从 `PT2S` 调整为 `PT30S`，避免 ops 维护调用被生产 env 提前截断。
 - 配置治理：补齐 aggregation config listener 与 storage image download backfill 的系统默认配置及重启语义。
 - 回归测试：补齐 common、ops、storage、aggregation、config 的精准测试与模块测试。
 
@@ -55,6 +56,7 @@
 - 数据库兼容：无 DDL、无 Liquibase 变更。
 - 运行时兼容：`traffic:limit:index` 是新增 Valkey Set，不影响旧 key TTL 与旧限流语义。
 - 运维兼容：新增 storage download backfill 调度参数属于启动期配置，修改后需要重启 `ircs-storage-service`。
+- 生产配置兼容：仅放宽 ops 调 aggregation 维护接口的请求等待上限，不改变普通 dashboard stats 的 `app.ops.maintenance.aggregation.stats-request-timeout`。
 
 ## 验证结果
 
@@ -69,13 +71,18 @@
 - `rg -n "@Autowired\\b|org\\.springframework\\.beans\\.factory\\.annotation\\.Autowired" shared services --glob '!**/build/**'`：零命中。
 - `git diff --check`：通过。
 - 线上验证：
-  - `kubectl -n ircs-prod get pods` 显示 IRCS 相关服务当前均为 Running。
+  - backend commit `f80b339`、`ef9929d` 已推送并由 Gitea Actions 构建成功，生产镜像包含 `ircs-aggregation-worker:sha-ef9929d9492f`。
+  - GitOps 配置 commit `d752f21` 已推送，Argo `ircs-prod-core` 同步到 revision `d752f211a3517786b4b68abc40c16de7876412c2`，状态为 `Synced/Healthy`。
+  - `kubectl -n ircs-prod get pods` 显示 `ircs-ops-service`、`ircs-storage-service`、`ircs-aggregation-worker`、`ircs-config-service` 均为 `1/1 Running`。
+  - 生产 `ircs-ops-service` env 已确认为 `APP_OPS_AGGREGATION_WORKER_REQUEST_TIMEOUT=PT30S`。
   - `GET /api/v1/ops/traffic/status` 预热后约 0.5-1.4s，返回 19-20 个活跃限流器。
   - `GET /api/v1/dashboard/metrics`、`task-runtime`、`search-ops`、`aggregation-ops` 均返回 200。
   - `q.aggregation.config_changed` 从 `231/0` 下降到 `0/1`，确认新增 listener 已消费积压。
   - storage-service 日志已出现 `Queued cover image download backfill` 与 `Downloaded cover image`，确认封面下载回填链路在线运行。
   - `aggregation-pending-backfill` 线上维护 smoke 成功选择并投递 5 条。
-  - `aggregation-cover-backfill` 首次线上 smoke 暴露 request timeout，已通过批量轻量回填修复，待新镜像部署后复测。
+  - `aggregation-cover-backfill` 首次线上 smoke 暴露 request timeout；批量轻量回填修复与生产超时配置修复上线后，复测 `INIT_HTTP=200`、`STREAM_HTTP=200`，约 3.16s 完成，`selected=5 changed=5`。
+  - 最新线上 HTTP smoke：`/dashboard/metrics` 200/0.99s，`/dashboard/task-runtime` 200/0.96s，`/dashboard/search-ops` 200/2.86s，`/dashboard/aggregation-ops` 200/0.75s，`/ops/traffic/status` 200/0.90s。
+  - 最新只读 DB 统计：`unified_videos` 有封面 15、无封面 10059；仍有 `unified_missing_cover_from_raw=10053`，后续按维护 runner 小批次推进。
 
 ## 部署与运行态状态
 
@@ -85,6 +92,7 @@
   - `ircs-storage-service`
   - `ircs-aggregation-worker`
   - `ircs-config-service`
+- 生产配置仓库已额外滚动 `ircs-ops-service`，用于应用 `APP_OPS_AGGREGATION_WORKER_REQUEST_TIMEOUT=PT30S`。
 - 部署后建议优先验证：
   - `/api/v1/ops/traffic/status` 响应时长。
   - `/api/v1/ops/maintenance/runners` 是否包含两个新增 runner。
@@ -95,10 +103,12 @@
 
 - `traffic:limit:index` 只覆盖新版本写入后的 traffic key；刚部署后短时间内历史 key 展示可能少于旧接口，但性能风险显著降低。
 - 封面下载和聚合补偿会增加下游队列压力；默认 batch 较小，若线上积压较大，应分批观察 Rabbit/Valkey 与 storage-service 处理速度。
+- 线上仍存在约 1 万条 unified cover 可回灌候选与约 2.5 万条 cover download 候选，本次只验证小批次安全回填链路，不一次性大批量写入。
 - audit ES backlog、Rabbit PVC 容量属于运行容量问题，本次未修改部署资源。
 
 ## 建议回滚点
 
 - 回滚代码镜像即可恢复旧行为。
+- 若生产维护调用需回退等待上限，可回滚 GitOps commit `d752f21`，恢复 `APP_OPS_AGGREGATION_WORKER_REQUEST_TIMEOUT=PT2S`。
 - 若只需临时停用封面安全回填，可将 `app.storage.image.download-backfill.enabled=false` 并重启 `ircs-storage-service`。
 - 若新增 ops maintenance runner 不适合暴露，可回滚 `MaintenanceRunnerService`/`MaintenanceController` 相关提交；内部 aggregation endpoint 不会被普通外部调用直接触达。
