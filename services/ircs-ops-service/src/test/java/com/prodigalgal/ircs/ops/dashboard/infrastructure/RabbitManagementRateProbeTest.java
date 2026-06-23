@@ -11,6 +11,10 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +38,7 @@ class RabbitManagementRateProbeTest {
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(StringRedisTemplate.class, () -> redisTemplate)
                 .withBean(RuntimeConfigService.class, () -> mock(RuntimeConfigService.class))
+                .withBean(RabbitManagementQueueClient.class, () -> mock(RabbitManagementQueueClient.class))
                 .withUserConfiguration(RabbitManagementRateProbeConfiguration.class)
                 .run(context -> org.assertj.core.api.Assertions.assertThat(context)
                         .hasSingleBean(RabbitManagementRateProbe.class));
@@ -43,7 +48,11 @@ class RabbitManagementRateProbeTest {
     void recordsPositiveCounterDeltasIntoRateBuckets() throws Exception {
         when(redisTemplate.opsForHash()).thenReturn(hashOps);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOps);
-        RabbitManagementRateProbe probe = new RabbitManagementRateProbe(objectMapper, redisTemplate, null);
+        RabbitManagementQueueClient queueClient = mock(RabbitManagementQueueClient.class);
+        when(queueClient.fetchQueues()).thenReturn(Optional.of(new RabbitManagementQueues(
+                objectMapper.readTree(queueJson(1, 2, 3, 0)),
+                List.of())));
+        RabbitManagementRateProbe probe = new RabbitManagementRateProbe(redisTemplate, null, queueClient);
 
         probe.recordCounters(objectMapper.readTree(queueJson(1, 2, 3, 0)));
         probe.recordCounters(objectMapper.readTree(queueJson(5, 7, 9, 1)));

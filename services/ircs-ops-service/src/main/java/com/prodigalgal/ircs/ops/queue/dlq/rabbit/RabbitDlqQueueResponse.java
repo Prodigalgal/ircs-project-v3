@@ -8,6 +8,9 @@ public record RabbitDlqQueueResponse(
         String exchange,
         String routingKey,
         int messagesReady,
-        int consumers
+        int messagesUnacknowledged,
+        int messagesTotal,
+        int consumers,
+        boolean actionSupported
 ) {
 }

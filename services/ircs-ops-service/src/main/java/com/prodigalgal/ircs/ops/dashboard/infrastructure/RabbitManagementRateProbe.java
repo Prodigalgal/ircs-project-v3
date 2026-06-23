@@ -1,64 +1,43 @@
 package com.prodigalgal.ircs.ops.dashboard.infrastructure;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 @Slf4j
 public class RabbitManagementRateProbe {
 
-    private static final String DEFAULT_BASE_URL_PORT = "15672";
     private static final Map<String, QueueBinding> QUEUE_BINDINGS = queueBindings();
 
-    private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
     private final RuntimeConfigService runtimeConfig;
+    private final RabbitManagementQueueClient queueClient;
     private final Map<String, Long> counters = new ConcurrentHashMap<>();
-    private volatile HttpClient httpClient;
-    private volatile Duration httpClientConnectTimeout;
     private volatile Instant nextSampleAt;
     private volatile boolean lastSampleSuccessful;
     private volatile Instant lastSampleAt;
     private volatile String lastError;
 
-    @Value("${spring.rabbitmq.host:localhost}")
-    private String fallbackRabbitHost;
-
-    @Value("${spring.rabbitmq.username:guest}")
-    private String fallbackUsername;
-
-    @Value("${spring.rabbitmq.password:guest}")
-    private String fallbackPassword;
-
     RabbitManagementRateProbe(
-            ObjectMapper objectMapper,
             StringRedisTemplate redisTemplate,
-            RuntimeConfigService runtimeConfig) {
-        this.objectMapper = objectMapper;
+            RuntimeConfigService runtimeConfig,
+            RabbitManagementQueueClient queueClient) {
         this.redisTemplate = redisTemplate;
         this.runtimeConfig = runtimeConfig;
+        this.queueClient = queueClient;
     }
 
     @Scheduled(initialDelayString = "1000", fixedDelayString = "1000")
@@ -77,31 +56,14 @@ public class RabbitManagementRateProbe {
     }
 
     int sampleOnce() {
-        if (!enabled()) {
-            lastSampleSuccessful = false;
-            lastError = "disabled";
-            return 0;
-        }
         try {
-            HttpRequest request = HttpRequest.newBuilder(queueEndpoint())
-                    .timeout(requestTimeout())
-                    .header("Accept", "application/json")
-                    .header("Authorization", "Basic " + basicAuth())
-                    .GET()
-                    .build();
-            HttpResponse<String> response = client().send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("Rabbit management returned HTTP " + response.statusCode());
-            }
-            int recorded = recordCounters(objectMapper.readTree(response.body()));
+            RabbitManagementQueues queues = queueClient.fetchQueues()
+                    .orElseThrow(() -> new IllegalStateException(queueClient.lastError()));
+            int recorded = recordCounters(queues.raw());
             lastSampleAt = Instant.now();
             lastSampleSuccessful = true;
             lastError = null;
             return recorded;
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            markFailed(ex);
-            return 0;
         } catch (Exception ex) {
             markFailed(ex);
             return 0;
@@ -182,45 +144,6 @@ public class RabbitManagementRateProbe {
         redisTemplate.expire(bucketIndexKey, Duration.ofMillis(retentionMillis));
     }
 
-    private URI queueEndpoint() {
-        String baseUrl = baseUrl();
-        String root = StringUtils.hasText(baseUrl)
-                ? baseUrl.trim()
-                : "http://" + rabbitHost() + ":" + DEFAULT_BASE_URL_PORT;
-        while (root.endsWith("/")) {
-            root = root.substring(0, root.length() - 1);
-        }
-        return URI.create(root + "/api/queues/" + encodeVhost());
-    }
-
-    private String encodeVhost() {
-        String raw = StringUtils.hasText(vhost()) ? vhost().trim() : "/";
-        return URLEncoder.encode(raw, StandardCharsets.UTF_8).replace("+", "%20");
-    }
-
-    private String basicAuth() {
-        String raw = (StringUtils.hasText(username()) ? username() : "guest") + ":"
-                + (password() == null ? "" : password());
-        return Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private HttpClient client() {
-        Duration desiredConnectTimeout = connectTimeout();
-        HttpClient existing = httpClient;
-        if (existing != null && Objects.equals(httpClientConnectTimeout, desiredConnectTimeout)) {
-            return existing;
-        }
-        synchronized (this) {
-            if (httpClient == null || !Objects.equals(httpClientConnectTimeout, desiredConnectTimeout)) {
-                httpClient = HttpClient.newBuilder()
-                        .connectTimeout(desiredConnectTimeout)
-                        .build();
-                httpClientConnectTimeout = desiredConnectTimeout;
-            }
-            return httpClient;
-        }
-    }
-
     private void markFailed(Exception ex) {
         lastSampleSuccessful = false;
         lastError = ex.getClass().getSimpleName() + ": " + ex.getMessage();
@@ -229,47 +152,6 @@ public class RabbitManagementRateProbe {
 
     private static Duration positiveOr(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
-    }
-
-    private boolean enabled() {
-        return runtimeConfig == null
-                || runtimeConfig.booleanValue("app.ops.rabbit-management.enabled", true);
-    }
-
-    private String baseUrl() {
-        return runtimeConfig == null
-                ? ""
-                : runtimeConfig.stringValue("app.ops.rabbit-management.base-url", "");
-    }
-
-    private String rabbitHost() {
-        return runtimeConfig == null
-                ? fallbackRabbitHost
-                : runtimeConfig.stringValue("spring.rabbitmq.host", fallbackRabbitHost);
-    }
-
-    private String username() {
-        return runtimeConfig == null
-                ? fallbackUsername
-                : runtimeConfig.stringValue("spring.rabbitmq.username", fallbackUsername);
-    }
-
-    private String password() {
-        return runtimeConfig == null
-                ? fallbackPassword
-                : runtimeConfig.stringValue("spring.rabbitmq.password", fallbackPassword);
-    }
-
-    private String vhost() {
-        return runtimeConfig == null
-                ? "/"
-                : runtimeConfig.stringValue("app.ops.rabbit-management.vhost", "/");
-    }
-
-    private Duration connectTimeout() {
-        return runtimeConfig == null
-                ? Duration.ofSeconds(3)
-                : runtimeConfig.positiveDurationValue("app.ops.rabbit-management.connect-timeout", Duration.ofSeconds(3));
     }
 
     private Duration requestTimeout() {

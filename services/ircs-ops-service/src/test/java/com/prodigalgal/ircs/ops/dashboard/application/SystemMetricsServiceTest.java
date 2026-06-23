@@ -25,6 +25,7 @@ import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.RabbitManagementRateProbe;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SystemMetricsDataReader;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Map;
@@ -59,6 +60,8 @@ class SystemMetricsServiceTest {
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final RabbitManagementQueueClient rabbitManagementQueueClient =
+            org.mockito.Mockito.mock(RabbitManagementQueueClient.class);
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final SystemMetricsDataReader dataReader = new SystemMetricsDataReader(
             rabbitAdmin,
@@ -66,7 +69,8 @@ class SystemMetricsServiceTest {
             meterRegistry,
             pipelineValkeyQueueProvider,
             runtimeWorkQueueProvider,
-            aggregationOpsStatsClientProvider);
+            aggregationOpsStatsClientProvider,
+            rabbitManagementQueueClient);
     private final RateMetricSnapshotReader rateMetricSnapshotReader =
             new RateMetricSnapshotReader(redisTemplate, runtimeConfig);
     private final QueueBlockedReasonResolver blockedReasonResolver = new QueueBlockedReasonResolver(runtimeConfig);

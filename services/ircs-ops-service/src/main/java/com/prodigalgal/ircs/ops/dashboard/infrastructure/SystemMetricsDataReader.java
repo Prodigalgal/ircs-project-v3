@@ -4,12 +4,18 @@ import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueSnapshot;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
 import com.prodigalgal.ircs.ops.queue.domain.QueueState;
 import com.prodigalgal.ircs.ops.dashboard.dto.RedisMetricResponse;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
@@ -28,6 +34,8 @@ public class SystemMetricsDataReader {
     private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
+    private final RabbitManagementQueueClient rabbitManagementQueueClient;
+    private volatile CachedRabbitQueues cachedRabbitQueues;
 
     public void registerRabbitQueueGauges() {
         for (QueueTopic topic : QueueTopic.values()) {
@@ -68,6 +76,10 @@ public class SystemMetricsDataReader {
     }
 
     public QueueState queueState(String queueName) {
+        RabbitManagementQueueSnapshot snapshot = nativeQueueSnapshot(queueName);
+        if (snapshot != null) {
+            return new QueueState(snapshot.messagesTotal(), snapshot.consumers());
+        }
         try {
             Properties props = rabbitAdmin.getQueueProperties(queueName);
             if (props == null) {
@@ -79,6 +91,25 @@ public class SystemMetricsDataReader {
         } catch (Exception ignored) {
             return QueueState.empty();
         }
+    }
+
+    private RabbitManagementQueueSnapshot nativeQueueSnapshot(String queueName) {
+        Map<String, RabbitManagementQueueSnapshot> snapshots = nativeQueueSnapshots();
+        return snapshots.get(queueName);
+    }
+
+    private Map<String, RabbitManagementQueueSnapshot> nativeQueueSnapshots() {
+        long now = System.currentTimeMillis();
+        CachedRabbitQueues cached = cachedRabbitQueues;
+        if (cached != null && cached.expiresAtMillis() > now) {
+            return cached.snapshots();
+        }
+        Optional<RabbitManagementQueues> queues = rabbitManagementQueueClient.fetchQueues();
+        Map<String, RabbitManagementQueueSnapshot> snapshots = queues
+                .map(RabbitManagementQueues::byName)
+                .orElse(Collections.emptyMap());
+        cachedRabbitQueues = new CachedRabbitQueues(snapshots, now + Duration.ofSeconds(1).toMillis());
+        return snapshots;
     }
 
     public RedisMetricResponse redisMetric() {
@@ -211,5 +242,11 @@ public class SystemMetricsDataReader {
         } catch (NumberFormatException ignored) {
             return 0L;
         }
+    }
+
+    private record CachedRabbitQueues(
+            Map<String, RabbitManagementQueueSnapshot> snapshots,
+            long expiresAtMillis
+    ) {
     }
 }

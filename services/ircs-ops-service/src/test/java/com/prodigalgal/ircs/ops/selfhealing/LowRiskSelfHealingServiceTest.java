@@ -109,7 +109,10 @@ class LowRiskSelfHealingServiceTest {
                         "x.notification",
                         "notification.command",
                         0,
-                        0),
+                        0,
+                        0,
+                        0,
+                        true),
                 List.of());
         when(rabbitDlqService.retry("q.notification.command.dlq", 1)).thenReturn(retryResponse);
 

@@ -2,12 +2,17 @@ package com.prodigalgal.ircs.ops.queue.dlq.rabbit;
 
 import com.prodigalgal.ircs.ops.queue.domain.QueueTopicDescriptor;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueSnapshot;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.core.Message;
@@ -29,14 +34,21 @@ public class RabbitDlqService {
     private static final String HEADER_ERROR_MESSAGE = "x-ircs-error-message";
     private static final String HEADER_MANUAL_ACTION = "x-ircs-manual-dlq-action";
     private static final String HEADER_MANUAL_ACTION_AT = "x-ircs-manual-dlq-action-at";
+    private static final String OPS_CONFIG_CHANGED_QUEUE = "q.ops.config_changed";
 
     private final RabbitAdmin rabbitAdmin;
     private final RabbitTemplate rabbitTemplate;
+    private final RabbitManagementQueueClient queueClient;
 
     public List<RabbitDlqQueueResponse> listQueues() {
-        return Arrays.stream(QueueTopic.values())
-                .sorted(Comparator.comparing(QueueTopic::dlqName))
-                .map(this::queueResponse)
+        Map<String, RabbitManagementQueueSnapshot> brokerQueues = queueSnapshots();
+        Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
+        brokerQueues.keySet().stream()
+                .filter(RabbitDlqService::isDlqQueue)
+                .forEach(queueName -> definitions.putIfAbsent(queueName, unmanagedDefinition(queueName)));
+        return definitions.values().stream()
+                .sorted(Comparator.comparing(RabbitDlqDefinition::queueName))
+                .map(definition -> queueResponse(definition, brokerQueues))
                 .toList();
     }
 
@@ -70,7 +82,7 @@ public class RabbitDlqService {
                 action,
                 requested,
                 affected,
-                queueResponse(topic),
+                queueResponse(knownDefinition(topic), queueSnapshots()),
                 samples);
     }
 
@@ -91,18 +103,87 @@ public class RabbitDlqService {
         return Math.min(limit, MAX_ACTION_LIMIT);
     }
 
-    private RabbitDlqQueueResponse queueResponse(QueueTopic topic) {
-        QueueTopicDescriptor descriptor = QueueTopicDescriptor.from(topic);
-        QueueState state = queueState(topic.dlqName());
+    private RabbitDlqQueueResponse queueResponse(
+            RabbitDlqDefinition definition,
+            Map<String, RabbitManagementQueueSnapshot> brokerQueues) {
+        RabbitManagementQueueSnapshot snapshot = brokerQueues.get(definition.queueName());
+        if (snapshot == null) {
+            QueueState state = queueState(definition.queueName());
+            snapshot = new RabbitManagementQueueSnapshot(
+                    definition.queueName(),
+                    state.messageCount(),
+                    0,
+                    state.messageCount(),
+                    state.consumerCount());
+        }
         return new RabbitDlqQueueResponse(
+                definition.topic(),
+                definition.displayName(),
+                definition.queueName(),
+                definition.sourceQueueName(),
+                definition.exchange(),
+                definition.routingKey(),
+                snapshot.messagesReady(),
+                snapshot.messagesUnacknowledged(),
+                snapshot.messagesTotal(),
+                snapshot.consumers(),
+                definition.actionSupported());
+    }
+
+    private Map<String, RabbitManagementQueueSnapshot> queueSnapshots() {
+        return queueClient.fetchQueues()
+                .map(RabbitManagementQueues::byName)
+                .orElse(Map.of());
+    }
+
+    private Map<String, RabbitDlqDefinition> knownDefinitions() {
+        Map<String, RabbitDlqDefinition> definitions = new LinkedHashMap<>();
+        Arrays.stream(QueueTopic.values())
+                .map(this::knownDefinition)
+                .forEach(definition -> definitions.put(definition.queueName(), definition));
+        RabbitDlqDefinition configChangedDefinition = new RabbitDlqDefinition(
+                "OPS_CONFIG_CHANGED",
+                "系统配置变更 DLQ",
+                OPS_CONFIG_CHANGED_QUEUE + ".dlq",
+                OPS_CONFIG_CHANGED_QUEUE,
+                QueueTopic.Names.DOMAIN_EVENT_X,
+                null,
+                false);
+        definitions.put(configChangedDefinition.queueName(), configChangedDefinition);
+        return definitions;
+    }
+
+    private RabbitDlqDefinition knownDefinition(QueueTopic topic) {
+        QueueTopicDescriptor descriptor = QueueTopicDescriptor.from(topic);
+        return new RabbitDlqDefinition(
                 topic.name(),
                 descriptor.displayName() + " DLQ",
                 topic.dlqName(),
                 topic.queueName(),
                 topic.exchange(),
                 topic.routingKey(),
-                state.messageCount(),
-                state.consumerCount());
+                true);
+    }
+
+    private static RabbitDlqDefinition unmanagedDefinition(String queueName) {
+        return new RabbitDlqDefinition(
+                queueName,
+                queueName,
+                queueName,
+                sourceQueueName(queueName),
+                null,
+                null,
+                false);
+    }
+
+    private static boolean isDlqQueue(String queueName) {
+        return queueName != null && queueName.endsWith(".dlq");
+    }
+
+    private static String sourceQueueName(String queueName) {
+        return isDlqQueue(queueName)
+                ? queueName.substring(0, queueName.length() - ".dlq".length())
+                : queueName;
     }
 
     private QueueState queueState(String queueName) {
@@ -174,5 +255,16 @@ public class RabbitDlqService {
         static QueueState empty() {
             return new QueueState(0, 0);
         }
+    }
+
+    private record RabbitDlqDefinition(
+            String topic,
+            String displayName,
+            String queueName,
+            String sourceQueueName,
+            String exchange,
+            String routingKey,
+            boolean actionSupported
+    ) {
     }
 }
