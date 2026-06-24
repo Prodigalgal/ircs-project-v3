@@ -2,10 +2,6 @@ package com.prodigalgal.ircs.common.outbound;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.Authenticator;
-import java.net.InetSocketAddress;
-import java.net.PasswordAuthentication;
-import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -24,8 +20,7 @@ public class JdkOutboundStreamingTransport implements OutboundStreamingTransport
             "host",
             "upgrade");
 
-    private final Duration connectTimeout;
-    private final HttpClient fixedHttpClient;
+    private final JdkHttpClientResolver httpClientResolver;
 
     public JdkOutboundStreamingTransport() {
         this(null, null);
@@ -40,8 +35,7 @@ public class JdkOutboundStreamingTransport implements OutboundStreamingTransport
     }
 
     private JdkOutboundStreamingTransport(Duration connectTimeout, HttpClient fixedHttpClient) {
-        this.connectTimeout = connectTimeout;
-        this.fixedHttpClient = fixedHttpClient;
+        this.httpClientResolver = new JdkHttpClientResolver(connectTimeout, fixedHttpClient);
     }
 
     @Override
@@ -64,30 +58,7 @@ public class JdkOutboundStreamingTransport implements OutboundStreamingTransport
     }
 
     private HttpClient httpClient(OutboundHttpRequest request) throws OutboundHttpException {
-        if (fixedHttpClient != null) {
-            return fixedHttpClient;
-        }
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER);
-        Duration timeout = connectTimeout == null ? request.policy().timeout() : connectTimeout;
-        builder.connectTimeout(timeout);
-
-        OutboundProxy proxy = request.policy().proxy();
-        proxy.validate();
-        if (proxy.enabled()) {
-            builder.proxy(ProxySelector.of(new InetSocketAddress(proxy.host(), proxy.port())));
-            if (proxy.hasCredentials()) {
-                builder.authenticator(new Authenticator() {
-                    @Override
-                    protected PasswordAuthentication getPasswordAuthentication() {
-                        return new PasswordAuthentication(
-                                proxy.username(),
-                                (proxy.password() == null ? "" : proxy.password()).toCharArray());
-                    }
-                });
-            }
-        }
-        return builder.build();
+        return httpClientResolver.resolve(request);
     }
 
     private boolean isRestrictedHeader(String name) {

@@ -1,10 +1,6 @@
 package com.prodigalgal.ircs.common.outbound;
 
 import java.io.IOException;
-import java.net.Authenticator;
-import java.net.InetSocketAddress;
-import java.net.PasswordAuthentication;
-import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -23,8 +19,7 @@ public class JdkOutboundTransport implements OutboundTransport {
             "host",
             "upgrade");
 
-    private final Duration connectTimeout;
-    private final HttpClient fixedHttpClient;
+    private final JdkHttpClientResolver httpClientResolver;
 
     public JdkOutboundTransport() {
         this(null, null);
@@ -39,8 +34,7 @@ public class JdkOutboundTransport implements OutboundTransport {
     }
 
     private JdkOutboundTransport(Duration connectTimeout, HttpClient fixedHttpClient) {
-        this.connectTimeout = connectTimeout;
-        this.fixedHttpClient = fixedHttpClient;
+        this.httpClientResolver = new JdkHttpClientResolver(connectTimeout, fixedHttpClient);
     }
 
     @Override
@@ -63,30 +57,7 @@ public class JdkOutboundTransport implements OutboundTransport {
     }
 
     private HttpClient httpClient(OutboundHttpRequest request) throws OutboundHttpException {
-        if (fixedHttpClient != null) {
-            return fixedHttpClient;
-        }
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER);
-        Duration timeout = connectTimeout == null ? request.policy().timeout() : connectTimeout;
-        builder.connectTimeout(timeout);
-
-        OutboundProxy proxy = request.policy().proxy();
-        proxy.validate();
-        if (proxy.enabled()) {
-            builder.proxy(ProxySelector.of(new InetSocketAddress(proxy.host(), proxy.port())));
-            if (proxy.hasCredentials()) {
-                builder.authenticator(new Authenticator() {
-                    @Override
-                    protected PasswordAuthentication getPasswordAuthentication() {
-                        return new PasswordAuthentication(
-                                proxy.username(),
-                                (proxy.password() == null ? "" : proxy.password()).toCharArray());
-                    }
-                });
-            }
-        }
-        return builder.build();
+        return httpClientResolver.resolve(request);
     }
 
     private void applyHttpVersion(HttpRequest.Builder builder, String protocol) {
