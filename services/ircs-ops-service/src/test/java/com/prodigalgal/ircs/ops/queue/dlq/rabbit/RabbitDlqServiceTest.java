@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementMessageSample;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueSnapshot;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
@@ -61,6 +62,35 @@ class RabbitDlqServiceTest {
         assertThat(ingestDlq.messagesUnacknowledged()).isZero();
         assertThat(ingestDlq.messagesTotal()).isEqualTo(9);
         assertThat(ingestDlq.actionSupported()).isTrue();
+    }
+
+    @Test
+    void listQueuesIncludesNonDestructiveSamplesWhenRequested() {
+        when(queueClient.fetchQueueSnapshots()).thenReturn(Optional.of(new RabbitManagementQueues(null, List.of(
+                new RabbitManagementQueueSnapshot(QueueTopic.TASK_DETAIL.dlqName(), 2, 0, 2, 0),
+                new RabbitManagementQueueSnapshot(QueueTopic.INGEST_VIDEO.dlqName(), 0, 0, 0, 0)
+        ))));
+        when(queueClient.sampleMessages(QueueTopic.TASK_DETAIL.dlqName(), 2)).thenReturn(List.of(
+                new RabbitManagementMessageSample(
+                        "message-1",
+                        "correlation-1",
+                        3,
+                        "dlq",
+                        "java.lang.IllegalStateException",
+                        "HTTP fetch failed",
+                        701,
+                        "{\"sourceVid\":\"1538515\"}")
+        ));
+
+        RabbitDlqQueueResponse taskDetail = find(service.listQueues(2), QueueTopic.TASK_DETAIL.dlqName());
+        RabbitDlqQueueResponse ingest = find(service.listQueues(2), QueueTopic.INGEST_VIDEO.dlqName());
+
+        assertThat(taskDetail.samples()).hasSize(1);
+        RabbitDlqMessageSample sample = taskDetail.samples().get(0);
+        assertThat(sample.retryCount()).isEqualTo(3);
+        assertThat(sample.errorMessage()).isEqualTo("HTTP fetch failed");
+        assertThat(sample.bodyPreview()).contains("1538515");
+        assertThat(ingest.samples()).isEmpty();
     }
 
     private RabbitDlqQueueResponse find(List<RabbitDlqQueueResponse> responses, String queueName) {

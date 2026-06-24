@@ -28,6 +28,12 @@ import org.springframework.util.StringUtils;
 public class RabbitManagementQueueClient {
 
     private static final String DEFAULT_BASE_URL_PORT = "15672";
+    private static final int SAMPLE_BODY_PREVIEW_LIMIT = 500;
+    private static final int MAX_SAMPLE_LIMIT = 20;
+    private static final String HEADER_RETRY_COUNT = "x-ircs-retry-count";
+    private static final String HEADER_DISPOSITION = "x-ircs-disposition";
+    private static final String HEADER_ERROR_CLASS = "x-ircs-error-class";
+    private static final String HEADER_ERROR_MESSAGE = "x-ircs-error-message";
 
     private final ObjectMapper objectMapper;
     private final RuntimeConfigService runtimeConfig;
@@ -90,6 +96,39 @@ public class RabbitManagementQueueClient {
         }
     }
 
+    public List<RabbitManagementMessageSample> sampleMessages(String queueName, int limit) {
+        if (!enabled() || !StringUtils.hasText(queueName) || limit <= 0) {
+            return List.of();
+        }
+        try {
+            String body = objectMapper.writeValueAsString(new MessageSampleRequest(
+                    Math.min(limit, MAX_SAMPLE_LIMIT),
+                    "ack_requeue_true",
+                    "auto",
+                    SAMPLE_BODY_PREVIEW_LIMIT));
+            HttpRequest request = HttpRequest.newBuilder(queueMessagesEndpoint(queueName.trim()))
+                    .timeout(requestTimeout())
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Basic " + basicAuth())
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = client().send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("Rabbit management returned HTTP " + response.statusCode());
+            }
+            lastError = null;
+            return messageSamples(objectMapper.readTree(response.body()));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            markFailed(ex);
+            return List.of();
+        } catch (Exception ex) {
+            markFailed(ex);
+            return List.of();
+        }
+    }
+
     public String lastError() {
         return lastError;
     }
@@ -117,19 +156,53 @@ public class RabbitManagementQueueClient {
         return List.copyOf(snapshots);
     }
 
+    List<RabbitManagementMessageSample> messageSamples(JsonNode root) {
+        if (root == null || !root.isArray()) {
+            throw new IllegalArgumentException("Rabbit management message sample response is not an array");
+        }
+        List<RabbitManagementMessageSample> samples = new ArrayList<>();
+        for (JsonNode node : root) {
+            JsonNode properties = node.path("properties");
+            JsonNode headers = properties.path("headers");
+            samples.add(new RabbitManagementMessageSample(
+                    textValue(properties, "message_id"),
+                    textValue(properties, "correlation_id"),
+                    intHeader(headers, HEADER_RETRY_COUNT),
+                    textValue(headers, HEADER_DISPOSITION),
+                    textValue(headers, HEADER_ERROR_CLASS),
+                    textValue(headers, HEADER_ERROR_MESSAGE),
+                    safeInt(longValue(node, "payload_bytes", 0L)),
+                    preview(textValue(node, "payload"))));
+        }
+        return List.copyOf(samples);
+    }
+
     private URI queueEndpoint() {
         String baseUrl = baseUrl();
+        return URI.create(managementRoot(baseUrl) + "/api/queues/" + encodeVhost());
+    }
+
+    private URI queueMessagesEndpoint(String queueName) {
+        return URI.create(managementRoot(baseUrl()) + "/api/queues/" + encodeVhost()
+                + "/" + encodeSegment(queueName) + "/get");
+    }
+
+    private String managementRoot(String baseUrl) {
         String root = StringUtils.hasText(baseUrl)
                 ? baseUrl.trim()
                 : "http://" + rabbitHost() + ":" + DEFAULT_BASE_URL_PORT;
         while (root.endsWith("/")) {
             root = root.substring(0, root.length() - 1);
         }
-        return URI.create(root + "/api/queues/" + encodeVhost());
+        return root;
     }
 
     private String encodeVhost() {
         String raw = StringUtils.hasText(vhost()) ? vhost().trim() : "/";
+        return encodeSegment(raw);
+    }
+
+    private String encodeSegment(String raw) {
         return URLEncoder.encode(raw, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
@@ -230,10 +303,53 @@ public class RabbitManagementQueueClient {
         return value == null || value.isNull() ? fallback : value.asLong(fallback);
     }
 
+    private Integer intHeader(JsonNode headers, String field) {
+        JsonNode value = headers.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isNumber()) {
+            return value.asInt();
+        }
+        if (value.isTextual()) {
+            try {
+                return Integer.parseInt(value.asText());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String textValue(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        return value.isTextual() ? value.asText() : value.toString();
+    }
+
+    private String preview(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() <= SAMPLE_BODY_PREVIEW_LIMIT
+                ? value
+                : value.substring(0, SAMPLE_BODY_PREVIEW_LIMIT);
+    }
+
     private int safeInt(long value) {
         if (value <= 0L) {
             return 0;
         }
         return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
+    }
+
+    private record MessageSampleRequest(
+            int count,
+            String ackmode,
+            String encoding,
+            int truncate
+    ) {
     }
 }

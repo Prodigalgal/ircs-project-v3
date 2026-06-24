@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops.queue.dlq.rabbit;
 
 import com.prodigalgal.ircs.ops.queue.domain.QueueTopicDescriptor;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementMessageSample;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueSnapshot;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 public class RabbitDlqService {
 
     private static final int MAX_ACTION_LIMIT = 100;
+    private static final int MAX_SAMPLE_LIMIT = 5;
     private static final int RECEIVE_TIMEOUT_MS = 100;
     private static final int BODY_PREVIEW_LIMIT = 500;
     private static final String HEADER_RETRY_COUNT = "x-ircs-retry-count";
@@ -42,19 +44,27 @@ public class RabbitDlqService {
     private final RabbitManagementQueueClient queueClient;
 
     public List<RabbitDlqQueueResponse> listQueues() {
+        return listQueues(0);
+    }
+
+    public List<RabbitDlqQueueResponse> listQueues(int sampleLimit) {
+        int safeSampleLimit = safeSampleLimit(sampleLimit);
         return nativeQueueSnapshots()
-                .map(this::listNativeQueues)
+                .map(brokerQueues -> listNativeQueues(brokerQueues, safeSampleLimit))
                 .orElseGet(this::listKnownQueues);
     }
 
-    private List<RabbitDlqQueueResponse> listNativeQueues(Map<String, RabbitManagementQueueSnapshot> brokerQueues) {
+    private List<RabbitDlqQueueResponse> listNativeQueues(
+            Map<String, RabbitManagementQueueSnapshot> brokerQueues,
+            int sampleLimit) {
         Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
         return brokerQueues.keySet().stream()
                 .filter(RabbitDlqService::isDlqQueue)
                 .sorted()
                 .map(queueName -> queueResponse(
                         definitions.getOrDefault(queueName, unmanagedDefinition(queueName)),
-                        brokerQueues))
+                        brokerQueues,
+                        sampleLimit))
                 .toList();
     }
 
@@ -63,7 +73,7 @@ public class RabbitDlqService {
         Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
         return definitions.values().stream()
                 .sorted(Comparator.comparing(RabbitDlqDefinition::queueName))
-                .map(definition -> queueResponse(definition, brokerQueues))
+                .map(definition -> queueResponse(definition, brokerQueues, 0))
                 .toList();
     }
 
@@ -97,7 +107,7 @@ public class RabbitDlqService {
                 action,
                 requested,
                 affected,
-                queueResponse(knownDefinition(topic), nativeQueueSnapshots().orElse(Map.of())),
+                queueResponse(knownDefinition(topic), nativeQueueSnapshots().orElse(Map.of()), 0),
                 samples);
     }
 
@@ -118,9 +128,17 @@ public class RabbitDlqService {
         return Math.min(limit, MAX_ACTION_LIMIT);
     }
 
+    private int safeSampleLimit(int limit) {
+        if (limit <= 0) {
+            return 0;
+        }
+        return Math.min(limit, MAX_SAMPLE_LIMIT);
+    }
+
     private RabbitDlqQueueResponse queueResponse(
             RabbitDlqDefinition definition,
-            Map<String, RabbitManagementQueueSnapshot> brokerQueues) {
+            Map<String, RabbitManagementQueueSnapshot> brokerQueues,
+            int sampleLimit) {
         RabbitManagementQueueSnapshot snapshot = brokerQueues.get(definition.queueName());
         if (snapshot == null) {
             QueueState state = queueState(definition.queueName());
@@ -131,6 +149,11 @@ public class RabbitDlqService {
                     state.messageCount(),
                     state.consumerCount());
         }
+        List<RabbitDlqMessageSample> samples = sampleLimit <= 0 || snapshot.messagesTotal() <= 0
+                ? List.of()
+                : queueClient.sampleMessages(definition.queueName(), sampleLimit).stream()
+                        .map(this::sample)
+                        .toList();
         return new RabbitDlqQueueResponse(
                 definition.topic(),
                 definition.displayName(),
@@ -142,7 +165,8 @@ public class RabbitDlqService {
                 snapshot.messagesUnacknowledged(),
                 snapshot.messagesTotal(),
                 snapshot.consumers(),
-                definition.actionSupported());
+                definition.actionSupported(),
+                samples);
     }
 
     private Optional<Map<String, RabbitManagementQueueSnapshot>> nativeQueueSnapshots() {
@@ -231,6 +255,18 @@ public class RabbitDlqService {
                 textHeader(message, HEADER_ERROR_MESSAGE),
                 message.getBody().length,
                 bodyPreview(message));
+    }
+
+    private RabbitDlqMessageSample sample(RabbitManagementMessageSample sample) {
+        return new RabbitDlqMessageSample(
+                sample.messageId(),
+                sample.correlationId(),
+                sample.retryCount(),
+                sample.disposition(),
+                sample.errorClass(),
+                sample.errorMessage(),
+                sample.bodyBytes(),
+                sample.bodyPreview());
     }
 
     private Integer numberHeader(Message message, String name) {

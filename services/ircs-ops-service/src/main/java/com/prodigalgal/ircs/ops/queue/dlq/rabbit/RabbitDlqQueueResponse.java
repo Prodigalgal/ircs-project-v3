@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.ops.queue.dlq.rabbit;
 
+import java.util.List;
+
 public record RabbitDlqQueueResponse(
         String topic,
         String displayName,
@@ -11,6 +13,7 @@ public record RabbitDlqQueueResponse(
         int messagesUnacknowledged,
         int messagesTotal,
         int consumers,
-        boolean actionSupported
+        boolean actionSupported,
+        List<RabbitDlqMessageSample> samples
 ) {
 }

@@ -17,8 +17,9 @@ public class RabbitDlqController {
     private final RabbitDlqService rabbitDlqService;
 
     @GetMapping
-    public ResponseEntity<List<RabbitDlqQueueResponse>> listQueues() {
-        return ResponseEntity.ok(rabbitDlqService.listQueues());
+    public ResponseEntity<List<RabbitDlqQueueResponse>> listQueues(
+            @RequestParam(defaultValue = "0") int sampleLimit) {
+        return ResponseEntity.ok(rabbitDlqService.listQueues(sampleLimit));
     }
 
     @PostMapping("/retry")
