@@ -131,16 +131,19 @@ final class AggregationCandidateRepository {
             return List.of();
         }
         String title = rawVideo.title().trim();
+        String year = validOrNull(rawVideo.year());
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("title", title)
-                .addValue("year", validOrNull(rawVideo.year()))
                 .addValue("titleLike", "%" + title.toLowerCase(Locale.ROOT) + "%")
                 .addValue("titleRecallThreshold", TITLE_RECALL_THRESHOLD)
                 .addValue("limit", TITLE_RECALL_LIMIT);
+        if (year != null) {
+            params.addValue("year", year);
+        }
         return queryUnifiedCandidates(
                 """
-                where (:year is null or nullif(year, '') is null or year = :year)
-                  and (
+                where %s
+                  (
                     similarity(title, :title) >= :titleRecallThreshold
                     or similarity(coalesce(alias_title, ''), :title) >= :titleRecallThreshold
                     or lower(title) like :titleLike
@@ -151,7 +154,7 @@ final class AggregationCandidateRepository {
                     similarity(coalesce(alias_title, ''), :title)
                 ) desc, updated_at desc
                 limit :limit
-                """,
+                """.formatted(year == null ? "" : "year = :year and"),
                 params);
     }
 

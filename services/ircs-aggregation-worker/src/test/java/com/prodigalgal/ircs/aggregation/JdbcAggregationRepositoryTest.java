@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.aggregation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -89,6 +90,45 @@ class JdbcAggregationRepositoryTest {
         assertEquals("Codex Signal", paramsCaptor.getValue().getValue("title"));
         assertEquals("2026", paramsCaptor.getValue().getValue("year"));
         verify(matchingStrategy).findMatchPlan(rawVideo, List.of(candidate));
+    }
+
+    @Test
+    void titleRecallOmitsYearPredicateWhenRawYearIsBlank() {
+        RawVideoAggregationRecord rawVideo = rawVideo("Codex Signal", "", null);
+        UUID unifiedVideoId = UUID.randomUUID();
+        UnifiedVideoAggregationCandidate candidate = new UnifiedVideoAggregationCandidate(
+                unifiedVideoId,
+                "Codex Signal",
+                null,
+                null,
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy);
+
+        when(jdbcTemplate.query(
+                        any(String.class),
+                        any(MapSqlParameterSource.class),
+                        anyUnifiedCandidateRowMapper()))
+                .thenReturn(List.of(candidate));
+        when(matchingStrategy.findMatchPlan(eq(rawVideo), eq(List.of(candidate))))
+                .thenReturn(AggregationMatchPlan.rootOnly(unifiedVideoId));
+
+        Optional<UUID> result = repository.findMatchingUnifiedVideo(rawVideo);
+
+        assertEquals(Optional.of(unifiedVideoId), result);
+        verify(jdbcTemplate).query(sqlCaptor.capture(), paramsCaptor.capture(), anyUnifiedCandidateRowMapper());
+        assertFalse(sqlCaptor.getValue().contains(":year is null"));
+        assertFalse(sqlCaptor.getValue().contains("year = :year"));
+        assertTrue(sqlCaptor.getValue().contains("similarity(title, :title)"));
+        assertFalse(paramsCaptor.getValue().hasValue("year"));
     }
 
     @Test

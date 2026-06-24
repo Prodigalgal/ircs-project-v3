@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
@@ -111,7 +112,7 @@ public class SystemMetricsService {
                 dataReader.redisMetric(),
                 runtime.freeMemory(),
                 disk.getFreeSpace(),
-                false,
+                r2Healthy(context),
                 Thread.activeCount(),
                 Map.of("data", List.of()));
     }
@@ -368,6 +369,21 @@ public class SystemMetricsService {
 
     private int messageCount(QueueMetricResponse queue) {
         return queue == null ? 0 : queue.messageCount();
+    }
+
+    private boolean r2Healthy(MetricsReadContext context) {
+        RuntimeWorkQueueCounts avatar = context.runtimeWorkCounts(StorageWorkTypes.AVATAR_SYNC);
+        RuntimeWorkQueueCounts cover = context.runtimeWorkCounts(StorageWorkTypes.COVER_R2_SYNC);
+        return avatar.dlq() == 0
+                && cover.dlq() == 0
+                && (activeRuntimeBacklog(avatar) == 0
+                        || context.runtimeWorkConsumerCount(StorageWorkTypes.AVATAR_SYNC) > 0)
+                && (activeRuntimeBacklog(cover) == 0
+                        || context.runtimeWorkConsumerCount(StorageWorkTypes.COVER_R2_SYNC) > 0);
+    }
+
+    private long activeRuntimeBacklog(RuntimeWorkQueueCounts counts) {
+        return counts.pending() + counts.inflight();
     }
 
     private RateDescriptor pipelineRate(String taskType, PipelineMetricRole role) {

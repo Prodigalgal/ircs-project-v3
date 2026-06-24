@@ -17,6 +17,7 @@ import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
+import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import com.prodigalgal.ircs.ops.dashboard.dto.QueueGroupResponse;
@@ -149,6 +150,36 @@ class SystemMetricsServiceTest {
                 .filter(QueueGroupResponse::dlq)
                 .flatMap(group -> group.queues().stream())
                 .anyMatch(queue -> "RUNTIME_SEARCH_RAW_DLQ".equals(queue.key()) && queue.messageCount() == 1));
+    }
+
+    @Test
+    void r2HealthReflectsStorageRuntimeQueues() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(StorageWorkTypes.AVATAR_SYNC))
+                .thenReturn(new RuntimeWorkQueueCounts(0, 0, 0));
+        when(runtimeWorkQueue.counts(StorageWorkTypes.COVER_R2_SYNC))
+                .thenReturn(new RuntimeWorkQueueCounts(0, 0, 0));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertTrue(metrics.r2Healthy());
+    }
+
+    @Test
+    void r2HealthReportsUnhealthyWhenStorageRuntimeDlqExists() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(StorageWorkTypes.AVATAR_SYNC))
+                .thenReturn(new RuntimeWorkQueueCounts(0, 0, 0));
+        when(runtimeWorkQueue.counts(StorageWorkTypes.COVER_R2_SYNC))
+                .thenReturn(new RuntimeWorkQueueCounts(0, 0, 1));
+        when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
+
+        SystemMetricsResponse metrics = service.currentMetrics();
+
+        assertFalse(metrics.r2Healthy());
     }
 
     @Test
