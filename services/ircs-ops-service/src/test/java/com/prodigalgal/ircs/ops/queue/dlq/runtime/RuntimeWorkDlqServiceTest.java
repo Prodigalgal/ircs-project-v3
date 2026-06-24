@@ -44,6 +44,22 @@ class RuntimeWorkDlqServiceTest {
         assertThat(aggregation.samples()).hasSize(1);
     }
 
+    @Test
+    void zeroSampleLimitSkipsDlqSampleReads() {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        queue.sample = List.of(item(AggregationWorkTypes.RAW_VIDEO, "task-1"));
+        RuntimeWorkDlqService service = new RuntimeWorkDlqService(queue);
+
+        List<RuntimeWorkDlqQueueResponse> responses = service.listQueues(0);
+
+        RuntimeWorkDlqQueueResponse aggregation = responses.stream()
+                .filter(item -> AggregationWorkTypes.RAW_VIDEO.equals(item.taskType()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(aggregation.samples()).isEmpty();
+        assertThat(queue.sampleRequests).isEmpty();
+    }
+
     private static RuntimeWorkItem item(String taskType, String taskId) {
         return new RuntimeWorkItem(
                 taskType,
@@ -64,6 +80,7 @@ class RuntimeWorkDlqServiceTest {
 
     private static class FakeRuntimeWorkQueue implements RuntimeWorkQueue {
         private final List<RequeueRequest> requeueRequests = new ArrayList<>();
+        private final List<SampleRequest> sampleRequests = new ArrayList<>();
         private List<RuntimeWorkItem> sample = List.of();
 
         @Override
@@ -104,6 +121,7 @@ class RuntimeWorkDlqServiceTest {
 
         @Override
         public List<RuntimeWorkItem> sampleDlq(String taskType, int limit) {
+            sampleRequests.add(new SampleRequest(taskType, limit));
             return sample;
         }
 
@@ -125,5 +143,8 @@ class RuntimeWorkDlqServiceTest {
     }
 
     private record RequeueRequest(String taskType, int limit, int maxReplayAttempts) {
+    }
+
+    private record SampleRequest(String taskType, int limit) {
     }
 }

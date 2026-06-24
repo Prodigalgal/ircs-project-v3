@@ -63,6 +63,11 @@ public class RuntimeWorkDlqService {
 
     private RuntimeWorkDlqQueueResponse queueResponse(RuntimeWorkQueueDescriptor descriptor, int sampleLimit) {
         RuntimeWorkQueueCounts counts = workQueue.counts(descriptor.taskType());
+        List<RuntimeWorkDlqItemResponse> samples = sampleLimit <= 0
+                ? List.of()
+                : workQueue.sampleDlq(descriptor.taskType(), sampleLimit).stream()
+                        .map(this::itemResponse)
+                        .toList();
         return new RuntimeWorkDlqQueueResponse(
                 descriptor.key(),
                 descriptor.label(),
@@ -71,9 +76,7 @@ public class RuntimeWorkDlqService {
                 counts.inflight(),
                 counts.dlq(),
                 workQueue.dlqConsumerCount(descriptor.taskType()),
-                workQueue.sampleDlq(descriptor.taskType(), sampleLimit).stream()
-                        .map(this::itemResponse)
-                        .toList());
+                samples);
     }
 
     private RuntimeWorkDlqItemResponse itemResponse(RuntimeWorkItem item) {
@@ -99,7 +102,7 @@ public class RuntimeWorkDlqService {
 
     private static int safeSampleLimit(int limit) {
         if (limit <= 0) {
-            return DEFAULT_SAMPLE_LIMIT;
+            return 0;
         }
         return Math.min(limit, MAX_SAMPLE_LIMIT);
     }
