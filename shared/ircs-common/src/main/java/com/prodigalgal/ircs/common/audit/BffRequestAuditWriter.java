@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 public class BffRequestAuditWriter {
 
@@ -32,6 +33,7 @@ public class BffRequestAuditWriter {
             """;
 
     private final boolean enabled;
+    private final JdbcTemplate jdbcTemplate;
     private final String datasourceUrl;
     private final String username;
     private final String password;
@@ -47,7 +49,22 @@ public class BffRequestAuditWriter {
             String username,
             String password,
             String requestSource) {
+        this(enabled, null, datasourceUrl, username, password, requestSource);
+    }
+
+    public BffRequestAuditWriter(boolean enabled, JdbcTemplate jdbcTemplate, String requestSource) {
+        this(enabled, jdbcTemplate, null, null, null, requestSource);
+    }
+
+    private BffRequestAuditWriter(
+            boolean enabled,
+            JdbcTemplate jdbcTemplate,
+            String datasourceUrl,
+            String username,
+            String password,
+            String requestSource) {
         this.enabled = enabled;
+        this.jdbcTemplate = jdbcTemplate;
         this.datasourceUrl = normalize(datasourceUrl);
         this.username = normalize(username);
         this.password = password == null ? "" : password;
@@ -55,31 +72,58 @@ public class BffRequestAuditWriter {
     }
 
     public void record(HttpServletRequest request, int statusCode, Duration duration, String errorMessage) {
-        if (!enabled || datasourceUrl == null || request == null || excluded(request.getRequestURI())) {
+        if (!enabled || request == null || excluded(request.getRequestURI()) || (jdbcTemplate == null && datasourceUrl == null)) {
             return;
         }
-        try (Connection connection = connection();
-             PreparedStatement statement = connection.prepareStatement(INSERT_SQL)) {
-            UUID id = ID_GENERATOR.nextId();
-            AuditClass auditClass = AuditClassifiers.request(request.getRequestURI());
-            statement.setObject(1, id);
-            statement.setString(2, auditClass.name());
-            statement.setString(3, truncate(requestSource, SOURCE_LIMIT));
-            statement.setString(4, truncate(resolveUsername(request), USERNAME_LIMIT));
-            statement.setString(5, truncate(request.getMethod(), METHOD_LIMIT));
-            statement.setString(6, truncate(request.getRequestURI(), PATH_LIMIT));
-            statement.setString(7, RequestAuditSanitizer.sanitizeQueryString(request.getQueryString()));
-            statement.setInt(8, statusCode);
-            statement.setBoolean(9, statusCode >= 200 && statusCode < 400);
-            statement.setLong(10, Math.max(0L, duration == null ? 0L : duration.toMillis()));
-            statement.setString(11, truncate(resolveClientIp(request), CLIENT_IP_LIMIT));
-            statement.setString(12, request.getHeader("User-Agent"));
-            statement.setString(13, truncate(resolveTraceId(request), TRACE_ID_LIMIT));
-            statement.setString(14, truncate(errorMessage, ERROR_LIMIT));
-            statement.executeUpdate();
+        UUID id = ID_GENERATOR.nextId();
+        AuditClass auditClass = AuditClassifiers.request(request.getRequestURI());
+        Object[] args = auditArgs(request, statusCode, duration, errorMessage, id, auditClass);
+        try {
+            if (jdbcTemplate != null) {
+                jdbcTemplate.update(INSERT_SQL, args);
+            } else {
+                try (Connection connection = connection();
+                     PreparedStatement statement = connection.prepareStatement(INSERT_SQL)) {
+                    bind(statement, args);
+                    statement.executeUpdate();
+                }
+            }
             AuditReplicationWorkDispatcher.enqueueRequest(auditClass, id, log);
         } catch (SQLException ex) {
             log.warn("BFF request audit write failed: {}", ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.warn("BFF request audit write failed: {}", ex.getMessage());
+        }
+    }
+
+    private Object[] auditArgs(
+            HttpServletRequest request,
+            int statusCode,
+            Duration duration,
+            String errorMessage,
+            UUID id,
+            AuditClass auditClass) {
+        return new Object[] {
+                id,
+                auditClass.name(),
+                truncate(requestSource, SOURCE_LIMIT),
+                truncate(resolveUsername(request), USERNAME_LIMIT),
+                truncate(request.getMethod(), METHOD_LIMIT),
+                truncate(request.getRequestURI(), PATH_LIMIT),
+                RequestAuditSanitizer.sanitizeQueryString(request.getQueryString()),
+                statusCode,
+                statusCode >= 200 && statusCode < 400,
+                Math.max(0L, duration == null ? 0L : duration.toMillis()),
+                truncate(resolveClientIp(request), CLIENT_IP_LIMIT),
+                request.getHeader("User-Agent"),
+                truncate(resolveTraceId(request), TRACE_ID_LIMIT),
+                truncate(errorMessage, ERROR_LIMIT)
+        };
+    }
+
+    private static void bind(PreparedStatement statement, Object[] args) throws SQLException {
+        for (int i = 0; i < args.length; i++) {
+            statement.setObject(i + 1, args[i]);
         }
     }
 

@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.sql.DriverManager;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 class BffRequestAuditWriterTest {
@@ -66,6 +68,30 @@ class BffRequestAuditWriterTest {
     }
 
     @Test
+    void writesAuditLogThroughInjectedJdbcTemplate() throws Exception {
+        String url = "jdbc:h2:mem:audit_jdbc_template;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource(url));
+        createAuditTables(jdbcTemplate);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/metrics");
+        request.addHeader("X-Authenticated-User", "admin");
+        BffRequestAuditWriter writer = new BffRequestAuditWriter(true, jdbcTemplate, "ircs-admin-bff");
+
+        writer.record(request, 200, Duration.ofMillis(17), null);
+
+        Integer count = jdbcTemplate.queryForObject("select count(*) from request_audit_logs", Integer.class);
+        String source = jdbcTemplate.queryForObject(
+                "select request_source from request_audit_logs",
+                String.class);
+        Long duration = jdbcTemplate.queryForObject(
+                "select duration_ms from request_audit_logs",
+                Long.class);
+        assertThat(count).isEqualTo(1);
+        assertThat(source).isEqualTo("ircs-admin-bff");
+        assertThat(duration).isEqualTo(17L);
+    }
+
+    @Test
     void redactsSensitiveQueryParametersForProxyRequest() throws Exception {
         String url = "jdbc:h2:mem:audit_redacted;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
         createAuditTables(url);
@@ -111,5 +137,35 @@ class BffRequestAuditWriterTest {
                     )
                     """);
         }
+    }
+
+    private static void createAuditTables(JdbcTemplate jdbcTemplate) {
+        jdbcTemplate.execute("""
+                create table request_audit_logs (
+                    id uuid primary key,
+                    created_at timestamp not null,
+                    updated_at timestamp not null,
+                    version bigint,
+                    audit_class varchar(32) not null,
+                    request_source varchar(128),
+                    username varchar(128),
+                    method varchar(16) not null,
+                    path varchar(1024) not null,
+                    query_string text,
+                    status_code integer not null,
+                    success boolean not null,
+                    duration_ms bigint not null,
+                    client_ip varchar(128),
+                    user_agent text,
+                    trace_id varchar(128),
+                    error_message text
+                )
+                """);
+    }
+
+    private static DriverManagerDataSource dataSource(String url) {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl(url);
+        return dataSource;
     }
 }
