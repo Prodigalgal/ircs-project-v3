@@ -224,7 +224,14 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
               else
                 redis.call('HSET', taskKey,
                     'status', 'DLQ_REPLAY_EXHAUSTED',
-                    'updatedAt', ARGV[1])
+                    'updatedAt', ARGV[1],
+                    'lastError', 'DLQ_REPLAY_EXHAUSTED')
+                redis.call('ZADD', KEYS[1], ARGV[1], id)
+                redis.call('XADD', KEYS[4], 'MAXLEN', '~', ARGV[4], '*',
+                    'event', 'dlq_replay_exhausted',
+                    'taskType', ARGV[7],
+                    'taskId', id,
+                    'dlqReplayCount', replayCount)
               end
             end
             return requeued

@@ -151,6 +151,10 @@ class RedisRuntimeWorkQueueRateMetricsTest {
         assertEquals("7", execution.args()[1]);
         assertEquals("3", execution.args()[4]);
         assertEquals(AggregationWorkTypes.RAW_VIDEO, execution.args()[6]);
+        assertTrue(execution.script().contains("'status', 'DLQ_REPLAY_EXHAUSTED'"));
+        assertTrue(execution.script().contains("'lastError', 'DLQ_REPLAY_EXHAUSTED'"));
+        assertTrue(execution.script().contains("'event', 'dlq_replay_exhausted'"));
+        assertTrue(execution.script().contains("redis.call('ZADD', KEYS[1], ARGV[1], id)"));
     }
 
     private RuntimeWorkItem item(String taskType, String taskId) {
@@ -173,10 +177,14 @@ class RedisRuntimeWorkQueueRateMetricsTest {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private CapturedExecution captureExecution() {
+        ArgumentCaptor<DefaultRedisScript> scriptCaptor = ArgumentCaptor.forClass(DefaultRedisScript.class);
         ArgumentCaptor<List> keysCaptor = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<Object[]> argsCaptor = ArgumentCaptor.forClass(Object[].class);
-        verify(redisTemplate).execute(any(DefaultRedisScript.class), keysCaptor.capture(), argsCaptor.capture());
-        return new CapturedExecution(keysCaptor.getValue(), argsCaptor.getValue());
+        verify(redisTemplate).execute(scriptCaptor.capture(), keysCaptor.capture(), argsCaptor.capture());
+        return new CapturedExecution(
+                scriptCaptor.getValue().getScriptAsString(),
+                keysCaptor.getValue(),
+                argsCaptor.getValue());
     }
 
     private void assertRateArgs(
@@ -195,7 +203,7 @@ class RedisRuntimeWorkQueueRateMetricsTest {
         assertTrue(List.of(execution.args()).contains(Long.toString(Duration.ofMinutes(31).toMillis())));
     }
 
-    private record CapturedExecution(List<?> keys, Object[] args) {
+    private record CapturedExecution(String script, List<?> keys, Object[] args) {
     }
 
     @SuppressWarnings("unchecked")

@@ -295,6 +295,21 @@ class AggregationWorkQueueWorker {
     private void failRetryable(RuntimeWorkItem item, Instant startedAt, UUID rawVideoId, String reason) {
         boolean retryable = item.attempt() < Math.max(1, maxRetries);
         workQueue.fail(item, retryable, retryDelay(item.attempt()), reason);
+        if (retryable) {
+            log.info(
+                    "Aggregation work item scheduled for retry: rawVideoId={}, taskId={}, attempt={}, reason={}",
+                    rawVideoId,
+                    item.taskId(),
+                    item.attempt(),
+                    reason);
+        } else {
+            log.warn(
+                    "Aggregation work item moved to DLQ: rawVideoId={}, taskId={}, attempt={}, reason={}",
+                    rawVideoId,
+                    item.taskId(),
+                    item.attempt(),
+                    reason);
+        }
         recordAudit(WorkerJobAuditEvent.failed(
                 JOB_TYPE,
                 JOB_NAME,
