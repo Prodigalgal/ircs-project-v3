@@ -84,6 +84,34 @@
   - 最新线上 HTTP smoke：`/dashboard/metrics` 200/0.99s，`/dashboard/task-runtime` 200/0.96s，`/dashboard/search-ops` 200/2.86s，`/dashboard/aggregation-ops` 200/0.75s，`/ops/traffic/status` 200/0.90s。
   - 最新只读 DB 统计：`unified_videos` 有封面 15、无封面 10059；仍有 `unified_missing_cover_from_raw=10053`，后续按维护 runner 小批次推进。
 
+## 2026-06-24 一次性数据迁移
+
+用户确认“服务可中断”后，执行了一次生产停服数据补偿：
+
+- 临时关闭 Argo `ircs-prod-core` automated sync/self-heal，记录原策略为 `prune=true,selfHeal=true`，迁移后已恢复。
+- 将 IRCS 应用 Deployment 缩容到 0，并临时通过 DaemonSet nodeSelector 暂停 `ircs-scraper-service`，避免迁移期间继续写 raw/unified 相关数据。
+- 迁移前确认 `unified_missing_cover_from_raw=10053`，且候选中 `locked_fields` 未出现 `coverImageUrl`，不会覆盖用户锁定封面。
+- 在 `ops_backups.unified_cover_backfill_20260624` 写入备份记录，`migration_id=20260624_unified_cover_backfill_full`，共备份 10053 条：
+  - `unified_video_id`
+  - `old_cover_image_id`
+  - `new_cover_image_id`
+  - `selected_raw_video_id`
+  - `selected_cover_status`
+  - `selected_cover_storage_type`
+- 使用备份表一次性更新 `unified_videos.cover_image_id`，实际更新 10053 条。
+- 迁移后只读校验：
+  - `remaining_unified_missing_cover_from_raw=0`
+  - `unified_videos` 有封面 10068，无封面 6
+  - 备份表记录数 10053
+- 服务恢复后，分 11 批调用 `ircs-search-service` 内部 batch API，投递 `UNIFIED_VIDEO/INDEX` 搜索同步任务 10053 条，全部返回 `accepted`。
+- 调用 `/api/v1/cover-images/download-backfill?limit=5000`，一次性投递剩余封面下载候选 1284 条。
+- 恢复后验证：
+  - Argo `ircs-prod-core` 状态 `Synced/Healthy`，automated sync/self-heal 已恢复。
+  - 所有 IRCS Deployment、`ircs-scraper-service` DaemonSet、Postgres、RabbitMQ、Valkey、Elasticsearch 均为 Running。
+  - `/dashboard/task-runtime`、`/dashboard/search-ops`、`/dashboard/aggregation-ops`、`/dashboard/metrics` 均返回 200。
+  - `search.sync.unified` 队列从 9903 降到 9803，worker 每轮处理 50 条，`failed=0`，确认搜索同步在持续消费。
+  - `cover_download_candidates` 从 1284 投递后继续下降到 1054，storage 日志持续出现 `Downloaded cover image` 与 R2 同步记录。
+
 ## 部署与运行态状态
 
 - 本次变更需要重新构建并滚动以下镜像：
@@ -103,7 +131,7 @@
 
 - `traffic:limit:index` 只覆盖新版本写入后的 traffic key；刚部署后短时间内历史 key 展示可能少于旧接口，但性能风险显著降低。
 - 封面下载和聚合补偿会增加下游队列压力；默认 batch 较小，若线上积压较大，应分批观察 Rabbit/Valkey 与 storage-service 处理速度。
-- 线上仍存在约 1 万条 unified cover 可回灌候选与约 2.5 万条 cover download 候选，本次只验证小批次安全回填链路，不一次性大批量写入。
+- 2026-06-24 已一次性清零 unified cover 可回灌候选；剩余风险转为异步链路消化速度，`search.sync.unified` 与 cover download/R2 sync 仍需继续观察至积压归零。
 - audit ES backlog、Rabbit PVC 容量属于运行容量问题，本次未修改部署资源。
 
 ## 建议回滚点
