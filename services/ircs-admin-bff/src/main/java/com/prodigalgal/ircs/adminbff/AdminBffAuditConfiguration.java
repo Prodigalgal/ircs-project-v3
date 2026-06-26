@@ -14,6 +14,6 @@ class AdminBffAuditConfiguration {
             JdbcTemplate jdbcTemplate,
             @Value("${app.bff.audit.enabled:true}") boolean enabled,
             @Value("${spring.application.name:ircs-admin-bff}") String requestSource) {
-        return new BffRequestAuditWriter(enabled, jdbcTemplate, requestSource);
+        return new BffRequestAuditWriter(enabled, jdbcTemplate::update, requestSource);
     }
 }

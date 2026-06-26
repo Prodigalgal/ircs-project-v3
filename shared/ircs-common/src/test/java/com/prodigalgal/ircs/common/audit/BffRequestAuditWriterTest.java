@@ -68,14 +68,14 @@ class BffRequestAuditWriterTest {
     }
 
     @Test
-    void writesAuditLogThroughInjectedJdbcTemplate() throws Exception {
+    void writesAuditLogThroughInjectedInsertExecutor() throws Exception {
         String url = "jdbc:h2:mem:audit_jdbc_template;MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource(url));
         createAuditTables(jdbcTemplate);
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/metrics");
         request.addHeader("X-Authenticated-User", "admin");
-        BffRequestAuditWriter writer = new BffRequestAuditWriter(true, jdbcTemplate, "ircs-admin-bff");
+        BffRequestAuditWriter writer = new BffRequestAuditWriter(true, jdbcTemplate::update, "ircs-admin-bff");
 
         writer.record(request, 200, Duration.ofMillis(17), null);
 

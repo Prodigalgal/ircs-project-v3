@@ -12,7 +12,6 @@ import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 public class BffRequestAuditWriter {
 
@@ -33,7 +32,7 @@ public class BffRequestAuditWriter {
             """;
 
     private final boolean enabled;
-    private final JdbcTemplate jdbcTemplate;
+    private final AuditInsertExecutor insertExecutor;
     private final String datasourceUrl;
     private final String username;
     private final String password;
@@ -52,19 +51,19 @@ public class BffRequestAuditWriter {
         this(enabled, null, datasourceUrl, username, password, requestSource);
     }
 
-    public BffRequestAuditWriter(boolean enabled, JdbcTemplate jdbcTemplate, String requestSource) {
-        this(enabled, jdbcTemplate, null, null, null, requestSource);
+    public BffRequestAuditWriter(boolean enabled, AuditInsertExecutor insertExecutor, String requestSource) {
+        this(enabled, insertExecutor, null, null, null, requestSource);
     }
 
     private BffRequestAuditWriter(
             boolean enabled,
-            JdbcTemplate jdbcTemplate,
+            AuditInsertExecutor insertExecutor,
             String datasourceUrl,
             String username,
             String password,
             String requestSource) {
         this.enabled = enabled;
-        this.jdbcTemplate = jdbcTemplate;
+        this.insertExecutor = insertExecutor;
         this.datasourceUrl = normalize(datasourceUrl);
         this.username = normalize(username);
         this.password = password == null ? "" : password;
@@ -72,15 +71,15 @@ public class BffRequestAuditWriter {
     }
 
     public void record(HttpServletRequest request, int statusCode, Duration duration, String errorMessage) {
-        if (!enabled || request == null || excluded(request.getRequestURI()) || (jdbcTemplate == null && datasourceUrl == null)) {
+        if (!enabled || request == null || excluded(request.getRequestURI()) || (insertExecutor == null && datasourceUrl == null)) {
             return;
         }
         UUID id = ID_GENERATOR.nextId();
         AuditClass auditClass = AuditClassifiers.request(request.getRequestURI());
         Object[] args = auditArgs(request, statusCode, duration, errorMessage, id, auditClass);
         try {
-            if (jdbcTemplate != null) {
-                jdbcTemplate.update(INSERT_SQL, args);
+            if (insertExecutor != null) {
+                insertExecutor.insert(INSERT_SQL, args);
             } else {
                 try (Connection connection = connection();
                      PreparedStatement statement = connection.prepareStatement(INSERT_SQL)) {
@@ -197,5 +196,11 @@ public class BffRequestAuditWriter {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    @FunctionalInterface
+    public interface AuditInsertExecutor {
+
+        void insert(String sql, Object[] args);
     }
 }
