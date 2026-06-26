@@ -97,6 +97,9 @@ class SystemConfigDefaultsTest {
         assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
+        assertEquals("3", defaults.staticDefaultValue("app.ops.rabbit-dlq.sampled-queue-limit").orElseThrow());
+        assertEquals("PT3S", defaults.staticDefaultValue("app.ops.rabbit-dlq.queue-snapshot-cache-ttl").orElseThrow());
+        assertEquals("PT5S", defaults.staticDefaultValue("app.ops.rabbit-dlq.sample-cache-ttl").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.log-retention.enabled").orElseThrow());
         assertEquals("P30D", defaults.staticDefaultValue("app.log-retention.default-retention").orElseThrow());
         assertEquals("P30D", defaults.staticDefaultValue("app.log-retention.target.audit-es.retention").orElseThrow());
@@ -178,11 +181,13 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata logRetentionHot = defaults.metadata("app.log-retention.target.audit-es.retention");
         SystemConfigDefaults.ConfigMetadata logRetentionScheduleRestart = defaults.metadata("app.log-retention.fixed-delay-ms");
         SystemConfigDefaults.ConfigMetadata notificationWebhookHot = defaults.metadata("app.notification.webhook.enabled");
+        SystemConfigDefaults.ConfigMetadata rabbitDlqCacheHot = defaults.metadata("app.ops.rabbit-dlq.sample-cache-ttl");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, logRetentionHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, notificationWebhookHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, rabbitDlqCacheHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
         assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
@@ -345,6 +350,9 @@ class SystemConfigDefaultsTest {
             "app.ops.rabbit-management.request-timeout",
             "app.ops.rabbit-management.initial-delay-ms",
             "app.ops.rabbit-management.fixed-delay-ms",
+            "app.ops.rabbit-dlq.sampled-queue-limit",
+            "app.ops.rabbit-dlq.queue-snapshot-cache-ttl",
+            "app.ops.rabbit-dlq.sample-cache-ttl",
             "app.ops.service-restart.enabled",
             "app.ops.service-restart.kubernetes-api-base-url",
             "app.ops.service-restart.namespace",
