@@ -210,10 +210,6 @@ public class JdbcPortalRepository {
             String sort) {
         Map<String, Object> params = new HashMap<>();
         String where = exploreWhere(params, principal, keyword, type, genre, area, year, language);
-        Long total = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
-                params,
-                Long.class);
 
         params.put("limit", size);
         params.put("offset", (long) page * size);
@@ -221,7 +217,10 @@ public class JdbcPortalRepository {
                 CARD_SELECT + where + orderBy(sort) + " LIMIT :limit OFFSET :offset",
                 params,
                 cardMapper()));
-        return PageResponse.of(content, total == null ? 0 : total, page, size);
+        long total = exploreRequiresExactTotal(principal, keyword, type, genre, area, year, language)
+                ? exactExploreTotal(where, params)
+                : estimatedTotal(page, size, content.size());
+        return PageResponse.of(content, total, page, size);
     }
 
     public Optional<PortalMovieDetailResponse> findMovieDetail(IrcsRequestPrincipal principal, UUID id) {
@@ -366,6 +365,46 @@ public class JdbcPortalRepository {
                 """);
         appendScopeFilters(where, params, principal);
         return where.toString();
+    }
+
+    private boolean exploreRequiresExactTotal(
+            IrcsRequestPrincipal principal,
+            String keyword,
+            String type,
+            String genre,
+            String area,
+            String year,
+            String language) {
+        IrcsRequestPrincipal effective = principal == null ? IrcsRequestPrincipal.publicPrincipal() : principal;
+        return StringUtils.hasText(keyword)
+                || normalizedFilter(type)
+                || normalizedFilter(genre)
+                || normalizedFilter(area)
+                || normalizedFilter(year)
+                || normalizedFilter(language)
+                || !effective.hasUnrestrictedVisibility()
+                || !effective.hasUnrestrictedCategories()
+                || !effective.hasUnrestrictedGenres()
+                || !effective.hasUnrestrictedTags();
+    }
+
+    private boolean normalizedFilter(String value) {
+        return StringUtils.hasText(value)
+                && !"all".equalsIgnoreCase(value.trim())
+                && !"全部".equals(value.trim());
+    }
+
+    private long exactExploreTotal(String where, Map<String, Object> params) {
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
+                params,
+                Long.class);
+        return total == null ? 0 : total;
+    }
+
+    private long estimatedTotal(int page, int size, int contentSize) {
+        long floor = (long) Math.max(page, 0) * Math.max(size, 1) + contentSize;
+        return contentSize >= Math.max(size, 1) ? floor + 1 : floor;
     }
 
     private void appendScopeFilters(StringBuilder where, Map<String, Object> params, IrcsRequestPrincipal principal) {

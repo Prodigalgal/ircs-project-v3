@@ -21,6 +21,15 @@ class PortalMetadataSqlPolicyTest {
         assertThat(source).doesNotContain("SELECT sl.name\n");
     }
 
+    @Test
+    void unfilteredExploreUsesEstimatedTotalBeforeExactCountFallback() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("exploreRequiresExactTotal");
+        assertThat(source).contains("estimatedTotal(page, size, content.size())");
+        assertThat(source).contains("exactExploreTotal(where, params)");
+    }
+
     private static Path sourceFile() {
         Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path relative = Path.of("services/ircs-portal-service/src/main/java/com/prodigalgal/ircs/portal/JdbcPortalRepository.java");

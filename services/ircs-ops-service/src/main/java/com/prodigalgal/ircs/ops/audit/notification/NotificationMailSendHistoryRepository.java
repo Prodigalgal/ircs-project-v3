@@ -89,7 +89,6 @@ public class NotificationMailSendHistoryRepository {
         }
 
         String where = predicates.isEmpty() ? "" : " where " + String.join(" and ", predicates);
-        long total = count("select count(*) from notification_mail_send_history" + where, params);
         String sql = """
                 select id, created_at, updated_at, version, audit_class, correlation_id, recipient, subject,
                        template_code, delivery_mode, status, credential_id, failure_code, failure_message
@@ -99,33 +98,42 @@ public class NotificationMailSendHistoryRepository {
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<NotificationMailSendHistoryResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
+        long total = predicates.isEmpty()
+                ? estimatedTotal(pageable, content.size())
+                : count("select count(*) from notification_mail_send_history" + where, params);
         return new PageImpl<>(content, pageable, total);
     }
 
     public NotificationMailSendHistorySummaryResponse summarize(Instant since) {
         MapSqlParameterSource params = new MapSqlParameterSource("since", Timestamp.from(since));
-        return new NotificationMailSendHistorySummaryResponse(
-                count("select count(*) from notification_mail_send_history where created_at >= :since", params),
-                count("""
-                        select count(*) from notification_mail_send_history
-                         where created_at >= :since and lower(status) = 'skipped'
-                        """, params),
-                count("""
-                        select count(*) from notification_mail_send_history
-                         where created_at >= :since and lower(status) = 'sent'
-                        """, params),
-                count("""
-                        select count(*) from notification_mail_send_history
-                         where created_at >= :since and lower(status) = 'failed'
-                        """, params),
-                SKIPPED_SEMANTICS,
-                SENT_SEMANTICS,
-                FAILED_SEMANTICS);
+        return jdbcTemplate.queryForObject(
+                """
+                select count(*) as total_count,
+                       count(*) filter (where lower(status) = 'skipped') as skipped_count,
+                       count(*) filter (where lower(status) = 'sent') as sent_count,
+                       count(*) filter (where lower(status) = 'failed') as failed_count
+                  from notification_mail_send_history
+                 where created_at >= :since
+                """,
+                params,
+                (rs, rowNum) -> new NotificationMailSendHistorySummaryResponse(
+                        rs.getLong("total_count"),
+                        rs.getLong("skipped_count"),
+                        rs.getLong("sent_count"),
+                        rs.getLong("failed_count"),
+                        SKIPPED_SEMANTICS,
+                        SENT_SEMANTICS,
+                        FAILED_SEMANTICS));
     }
 
     private long count(String sql, MapSqlParameterSource params) {
         Long value = jdbcTemplate.queryForObject(sql, params, Long.class);
         return value == null ? 0L : value;
+    }
+
+    private long estimatedTotal(Pageable pageable, int contentSize) {
+        long floor = pageable.getOffset() + contentSize;
+        return contentSize >= pageable.getPageSize() ? floor + 1 : floor;
     }
 
     private static NotificationMailSendHistoryResponse mapRow(ResultSet rs, int rowNum) throws SQLException {

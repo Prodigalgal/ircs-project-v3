@@ -68,6 +68,31 @@ class NotificationMailSendHistoryRepositoryTest {
         assertTrue(summary.sentSemantics().contains("不代表真实 SMTP 最终投递成功"));
     }
 
+    @Test
+    void estimatesUnfilteredListTotal() {
+        Fixture fixture = fixture("estimated_total");
+        Instant base = Instant.parse("2026-06-08T10:00:00Z");
+        insert(fixture.jdbcTemplate(), base, "mail-001", "codex@example.invalid", "mail/activation",
+                "sink", "sent", null, null);
+        insert(fixture.jdbcTemplate(), base.plusSeconds(30), "mail-002", "ops@example.invalid", "mail/reset",
+                "fake", "failed", "java.lang.IllegalStateException", "redacted");
+        insert(fixture.jdbcTemplate(), base.plusSeconds(60), "mail-003", "admin@example.invalid", "mail/reset",
+                "sink", "skipped", "mail_disabled", null);
+
+        Page<NotificationMailSendHistoryResponse> page = fixture.repository().findAll(
+                PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "createdAt")),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        assertEquals(2, page.getContent().size());
+        assertEquals(3, page.getTotalElements());
+    }
+
     private record Fixture(NotificationMailSendHistoryRepository repository, JdbcTemplate jdbcTemplate) {
     }
 

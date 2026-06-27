@@ -197,21 +197,25 @@ public class OpsAlertRepository {
 
     public Page<AlertEvent> findEvents(Pageable pageable, AlertEventFilter filter) {
         QueryParts parts = eventWhere(filter);
-        long total = count("select count(*) from ops_alert_events" + parts.where(), parts.params());
         String sql = """
                 select id, created_at, observed_at, source, event_type, severity, resource_type,
                        resource_name, fingerprint, summary, details_json
-                  from ops_alert_events
+                   from ops_alert_events
                 """ + parts.where() + JdbcPageSorts.orderBy(pageable, EVENT_SORT_COLUMNS, DEFAULT_EVENT_ORDER)
                 + " limit :limit offset :offset";
         parts.params().addValue("limit", pageable.getPageSize());
         parts.params().addValue("offset", pageable.getOffset());
-        return new PageImpl<>(jdbcTemplate.query(sql, parts.params(), EVENT_MAPPER), pageable, total);
+        List<AlertEvent> content = jdbcTemplate.query(sql, parts.params(), EVENT_MAPPER);
+        long total = totalElements(
+                parts,
+                pageable,
+                content.size(),
+                "select count(*) from ops_alert_events" + parts.where());
+        return new PageImpl<>(content, pageable, total);
     }
 
     public Page<Incident> findIncidents(Pageable pageable, IncidentFilter filter) {
         QueryParts parts = incidentWhere(filter);
-        long total = count("select count(*) from ops_incidents" + parts.where(), parts.params());
         String sql = """
                 select id, created_at, updated_at, version, fingerprint, status, severity, title, source,
                        resource_type, resource_name, first_seen_at, last_seen_at, recovered_at,
@@ -221,21 +225,32 @@ public class OpsAlertRepository {
                 + " limit :limit offset :offset";
         parts.params().addValue("limit", pageable.getPageSize());
         parts.params().addValue("offset", pageable.getOffset());
-        return new PageImpl<>(jdbcTemplate.query(sql, parts.params(), INCIDENT_MAPPER), pageable, total);
+        List<Incident> content = jdbcTemplate.query(sql, parts.params(), INCIDENT_MAPPER);
+        long total = totalElements(
+                parts,
+                pageable,
+                content.size(),
+                "select count(*) from ops_incidents" + parts.where());
+        return new PageImpl<>(content, pageable, total);
     }
 
     public Page<HealingAction> findHealingActions(Pageable pageable, HealingActionFilter filter) {
         QueryParts parts = healingActionWhere(filter);
-        long total = count("select count(*) from ops_healing_actions" + parts.where(), parts.params());
         String sql = """
                 select id, incident_id, created_at, updated_at, policy_key, playbook_key, dry_run, status,
                        request_payload, result_payload, started_at, finished_at
-                  from ops_healing_actions
+                   from ops_healing_actions
                 """ + parts.where() + JdbcPageSorts.orderBy(pageable, ACTION_SORT_COLUMNS, DEFAULT_ACTION_ORDER)
                 + " limit :limit offset :offset";
         parts.params().addValue("limit", pageable.getPageSize());
         parts.params().addValue("offset", pageable.getOffset());
-        return new PageImpl<>(jdbcTemplate.query(sql, parts.params(), ACTION_MAPPER), pageable, total);
+        List<HealingAction> content = jdbcTemplate.query(sql, parts.params(), ACTION_MAPPER);
+        long total = totalElements(
+                parts,
+                pageable,
+                content.size(),
+                "select count(*) from ops_healing_actions" + parts.where());
+        return new PageImpl<>(content, pageable, total);
     }
 
     private QueryParts eventWhere(AlertEventFilter filter) {
@@ -330,6 +345,14 @@ public class OpsAlertRepository {
     private long count(String sql, MapSqlParameterSource params) {
         Long value = jdbcTemplate.queryForObject(sql, params, Long.class);
         return value == null ? 0L : value;
+    }
+
+    private long totalElements(QueryParts parts, Pageable pageable, int contentSize, String countSql) {
+        if (parts.filtered()) {
+            return count(countSql, parts.params());
+        }
+        long floor = pageable.getOffset() + contentSize;
+        return contentSize >= pageable.getPageSize() ? floor + 1 : floor;
     }
 
     private static MapSqlParameterSource eventParams(AlertEvent event) {
@@ -464,6 +487,10 @@ public class OpsAlertRepository {
 
         static QueryParts empty() {
             return new QueryParts("", new MapSqlParameterSource());
+        }
+
+        boolean filtered() {
+            return !where.isBlank();
         }
 
         static QueryParts of(List<String> predicates, MapSqlParameterSource params) {
