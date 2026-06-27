@@ -18,6 +18,25 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).doesNotContain("select rv.*, sc.id as category_id");
     }
 
+    @Test
+    void defaultListPaginationUsesCheapTotalsWithExactFallback() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("pg_stat_user_tables");
+        assertThat(source).contains("exactCount(exactCountSql, params)");
+        assertThat(source).contains("totalElements(\"raw_videos\"");
+        assertThat(source).contains("totalElements(\"unified_videos\"");
+    }
+
+    @Test
+    void unifiedListLoadsSourceCountsInBatch() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("withSourceCounts(page)");
+        assertThat(source).contains("where unified_video_id in (:ids)");
+        assertThat(source).doesNotContain("where rvu.unified_video_id = uv.id\n                       ) as source_count");
+    }
+
     private static Path sourceFile() {
         Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path relative = Path.of(

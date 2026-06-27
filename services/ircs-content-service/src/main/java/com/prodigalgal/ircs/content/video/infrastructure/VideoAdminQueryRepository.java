@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -70,12 +71,12 @@ class VideoAdminQueryRepository {
                 .addValue("offset", safe.getOffset());
         String where = rawWhere(params, title, categoryId, enrichmentStatus, normalizationStatus, year, area,
                 minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
-        Long total = jdbcTemplate.queryForObject(rawCountSql(where), params, Long.class);
         List<RawVideoCardResponse> content = jdbcTemplate.query(
                 rawCardSql(where) + orderBy(safe, "rv"),
                 params,
                 this::mapRawCard);
-        return new PageImpl<>(content, safe, total == null ? 0 : total);
+        long total = totalElements("raw_videos", rawCountSql(where), params, where, safe, content.size());
+        return new PageImpl<>(content, safe, total);
     }
 
     Optional<RawVideoDetailResponse> findRawDetail(UUID id) {
@@ -219,12 +220,13 @@ class VideoAdminQueryRepository {
                 hasDoubanId,
                 hasTmdbId,
                 contentVisibility);
-        Long total = jdbcTemplate.queryForObject(unifiedCountSql(where), params, Long.class);
-        List<UnifiedVideoCardResponse> content = jdbcTemplate.query(
+        List<UnifiedVideoCardResponse> page = jdbcTemplate.query(
                 unifiedCardSql(where) + orderBy(safe, "uv"),
                 params,
                 this::mapUnifiedCard);
-        return new PageImpl<>(content, safe, total == null ? 0 : total);
+        List<UnifiedVideoCardResponse> content = withSourceCounts(page);
+        long total = totalElements("unified_videos", unifiedCountSql(where), params, where, safe, content.size());
+        return new PageImpl<>(content, safe, total);
     }
 
     Optional<UnifiedVideoDetailResponse> findUnifiedDetail(UUID id) {
@@ -497,12 +499,7 @@ class VideoAdminQueryRepository {
                            select string_agg(coalesce(sa.name, ac.code), ', ' order by coalesce(sa.name, ac.code))
                            from jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
                            left join standard_areas sa on sa.code = ac.code
-                       ) as area,
-                       (
-                           select count(*)
-                           from raw_video_unified_video rvu
-                           where rvu.unified_video_id = uv.id
-                       ) as source_count
+                       ) as area
                 from unified_videos uv
                 left join standard_category sc on sc.slug = uv.category_code
                 left join cover_images ci on uv.cover_image_id = ci.id
@@ -584,7 +581,7 @@ class VideoAdminQueryRepository {
                 rs.getString("subtitle"),
                 rs.getString("content_visibility"),
                 instant(rs, "last_trend_at"),
-                rs.getInt("source_count"),
+                0,
                 StringUtils.hasText(rs.getString("imdb_id")),
                 StringUtils.hasText(rs.getString("douban_id")),
                 StringUtils.hasText(rs.getString("tmdb_id")),
@@ -592,6 +589,52 @@ class VideoAdminQueryRepository {
                 instant(rs, "updated_at"),
                 rs.getString("category_code"),
                 readJsonStringSet(rs.getString("area_codes")));
+    }
+
+    private List<UnifiedVideoCardResponse> withSourceCounts(List<UnifiedVideoCardResponse> page) {
+        if (page.isEmpty()) {
+            return page;
+        }
+        List<UUID> ids = page.stream().map(UnifiedVideoCardResponse::id).toList();
+        Map<UUID, Integer> counts = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                """
+                select unified_video_id, cast(count(*) as integer) as source_count
+                  from raw_video_unified_video
+                 where unified_video_id in (:ids)
+                 group by unified_video_id
+                """,
+                new MapSqlParameterSource("ids", ids),
+                (org.springframework.jdbc.core.RowCallbackHandler)
+                        rs -> counts.put(rs.getObject("unified_video_id", UUID.class), rs.getInt("source_count")));
+        return page.stream()
+                .map(video -> withSourceCount(video, counts.getOrDefault(video.id(), 0)))
+                .toList();
+    }
+
+    private UnifiedVideoCardResponse withSourceCount(UnifiedVideoCardResponse video, int sourceCount) {
+        return new UnifiedVideoCardResponse(
+                video.id(),
+                video.title(),
+                video.aliasTitle(),
+                video.coverImageUrl(),
+                video.year(),
+                video.area(),
+                video.score(),
+                video.categoryName(),
+                video.remarks(),
+                video.season(),
+                video.subtitle(),
+                video.contentVisibility(),
+                video.lastTrendAt(),
+                sourceCount,
+                video.hasImdb(),
+                video.hasDouban(),
+                video.hasTmdb(),
+                video.createdAt(),
+                video.updatedAt(),
+                video.categoryCode(),
+                video.areaCodes());
     }
 
     private RawVideoDetailBase mapRawDetailBase(ResultSet rs, int rowNum) throws SQLException {
@@ -760,6 +803,37 @@ class VideoAdminQueryRepository {
         int page = Math.max(0, pageable.getPageNumber());
         int size = Math.min(Math.max(1, pageable.getPageSize()), MAX_PAGE_SIZE);
         return PageRequest.of(page, size, pageable.getSort());
+    }
+
+    private long totalElements(
+            String tableName,
+            String exactCountSql,
+            MapSqlParameterSource params,
+            String where,
+            Pageable pageable,
+            int contentSize) {
+        long observed = pageable.getOffset() + contentSize;
+        if (StringUtils.hasText(where)) {
+            return Math.max(observed, exactCount(exactCountSql, params));
+        }
+        try {
+            Long approximate = jdbcTemplate.queryForObject(
+                    """
+                    select coalesce(max(n_live_tup), 0)
+                      from pg_stat_user_tables
+                     where relname = :tableName
+                    """,
+                    new MapSqlParameterSource("tableName", tableName),
+                    Long.class);
+            return Math.max(observed, approximate == null ? 0 : approximate);
+        } catch (DataAccessException ignored) {
+            return Math.max(observed, exactCount(exactCountSql, params));
+        }
+    }
+
+    private long exactCount(String sql, MapSqlParameterSource params) {
+        Long total = jdbcTemplate.queryForObject(sql, params, Long.class);
+        return total == null ? 0 : total;
     }
 
     private Set<String> readStringSet(String json) {

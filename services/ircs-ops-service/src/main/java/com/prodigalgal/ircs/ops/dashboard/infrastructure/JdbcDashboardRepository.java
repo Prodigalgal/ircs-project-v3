@@ -23,20 +23,59 @@ public class JdbcDashboardRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
     public DashboardStatsResponse loadStats() {
-        return new DashboardStatsResponse(
-                count("raw_videos"),
-                0,
-                count("unified_videos"),
-                0,
-                count("collection_tasks"),
-                countRawByStatus("normalization_status", "PENDING"),
-                countRawByStatus("enrichment_status", "PENDING"),
-                countRawByStatus("normalization_status", "FAILED"),
-                countMissingRawId("douban_id"),
-                countMissingRawId("tmdb_id"),
-                countCoverByStatus("FAILED"),
-                countCoverByStatus("DEAD_LINK")
-        );
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT coalesce(raw_stats.raw_count, 0) AS raw_count,
+                       coalesce(unified_stats.unified_count, 0) AS unified_count,
+                       coalesce(task_stats.task_count, 0) AS task_count,
+                       coalesce(raw_stats.pending_normalization, 0) AS pending_normalization,
+                       coalesce(raw_stats.pending_enrichment, 0) AS pending_enrichment,
+                       coalesce(raw_stats.failed_normalization, 0) AS failed_normalization,
+                       coalesce(raw_stats.missing_douban, 0) AS missing_douban,
+                       coalesce(raw_stats.missing_tmdb, 0) AS missing_tmdb,
+                       coalesce(cover_stats.failed_cover, 0) AS failed_cover,
+                       coalesce(cover_stats.dead_link_cover, 0) AS dead_link_cover
+                  FROM (
+                        SELECT count(*) AS raw_count,
+                               count(*) FILTER (WHERE normalization_status = 'PENDING') AS pending_normalization,
+                               count(*) FILTER (WHERE enrichment_status = 'PENDING') AS pending_enrichment,
+                               count(*) FILTER (WHERE normalization_status = 'FAILED') AS failed_normalization,
+                               count(*) FILTER (
+                                   WHERE nullif(trim(coalesce(douban_id, '')), '') IS NULL
+                               ) AS missing_douban,
+                               count(*) FILTER (
+                                   WHERE nullif(trim(coalesce(tmdb_id, '')), '') IS NULL
+                               ) AS missing_tmdb
+                          FROM raw_videos
+                  ) raw_stats
+                  CROSS JOIN (
+                        SELECT count(*) AS unified_count
+                          FROM unified_videos
+                  ) unified_stats
+                  CROSS JOIN (
+                        SELECT count(*) AS task_count
+                          FROM collection_tasks
+                  ) task_stats
+                  CROSS JOIN (
+                        SELECT count(*) FILTER (WHERE status = 'FAILED') AS failed_cover,
+                               count(*) FILTER (WHERE status = 'DEAD_LINK') AS dead_link_cover
+                          FROM cover_images
+                  ) cover_stats
+                """,
+                Map.of(),
+                (rs, rowNum) -> new DashboardStatsResponse(
+                        rs.getLong("raw_count"),
+                        0,
+                        rs.getLong("unified_count"),
+                        0,
+                        rs.getLong("task_count"),
+                        rs.getLong("pending_normalization"),
+                        rs.getLong("pending_enrichment"),
+                        rs.getLong("failed_normalization"),
+                        rs.getLong("missing_douban"),
+                        rs.getLong("missing_tmdb"),
+                        rs.getLong("failed_cover"),
+                        rs.getLong("dead_link_cover")));
     }
 
     public List<ChartDataPoint> weeklyTrend(int days) {
@@ -198,35 +237,6 @@ public class JdbcDashboardRepository {
                 """,
                 Map.of(),
                 sourceQualityMapper());
-    }
-
-    private long count(String table) {
-        Long value = jdbcTemplate.getJdbcTemplate()
-                .queryForObject("SELECT count(*) FROM " + table, Long.class);
-        return value == null ? 0 : value;
-    }
-
-    private long countRawByStatus(String column, String status) {
-        Long value = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM raw_videos WHERE " + column + " = :status",
-                Map.of("status", status),
-                Long.class);
-        return value == null ? 0 : value;
-    }
-
-    private long countMissingRawId(String column) {
-        Long value = jdbcTemplate.getJdbcTemplate()
-                .queryForObject("SELECT count(*) FROM raw_videos WHERE nullif(trim(coalesce(" + column + ", '')), '') IS NULL",
-                        Long.class);
-        return value == null ? 0 : value;
-    }
-
-    private long countCoverByStatus(String status) {
-        Long value = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM cover_images WHERE status = :status",
-                Map.of("status", status),
-                Long.class);
-        return value == null ? 0 : value;
     }
 
     private RowMapper<ChartDataPoint> chartMapper() {
