@@ -73,7 +73,6 @@ class JdbcCatalogRepositoryTest {
                 "动作片",
                 "电影");
         UUID shortDramaId = realRepository.seedStandardCategory("短剧", "short-drama").id();
-        UUID otherId = realRepository.seedStandardCategory("其他", "other").id();
         realJdbc.update(
                 "update raw_category set category_id = ? where data_source_id = ? and source_code = ?",
                 shortDramaId,
@@ -100,7 +99,7 @@ class JdbcCatalogRepositoryTest {
                 null);
         assertThat(unknownCategory.inserted()).isTrue();
         assertThat(realJdbc.queryForObject("select category_id from raw_category where source_code = '99'", UUID.class))
-                .isEqualTo(otherId);
+                .isNull();
     }
 
     private void createSeedSchema(JdbcTemplate jdbc) {

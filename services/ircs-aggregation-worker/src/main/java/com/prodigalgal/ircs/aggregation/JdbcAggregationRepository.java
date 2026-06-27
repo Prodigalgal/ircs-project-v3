@@ -92,7 +92,7 @@ public class JdbcAggregationRepository {
                     """
                     select id, title, alias_title, description, year, score, published_at,
                            total_episodes, duration, remarks, subtitle, season,
-                           category_name,
+                           category_name, category_code,
                            douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                            normalization_status, enrichment_status, aggregation_status
                     from (
@@ -126,7 +126,7 @@ public class JdbcAggregationRepository {
                 """
                 select id, title, alias_title, description, year, score, published_at,
                        total_episodes, duration, remarks, subtitle, season,
-                       category_name,
+                       category_name, category_code,
                        douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                        normalization_status, enrichment_status, aggregation_status
                 from (
@@ -298,12 +298,13 @@ public class JdbcAggregationRepository {
                     title, alias_title, description, year, score, published_at,
                     total_episodes, duration, remarks, subtitle, season,
                     douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
-                    locked_fields, metadata_status
+                    category_id, category_code, locked_fields, metadata_status
                 ) values (
                     :id, now(), now(), 0,
                     :title, :aliasTitle, :description, :year, :score, :publishedAt,
                     :totalEpisodes, :duration, :remarks, :subtitle, :season,
                     :doubanId, :tmdbId, :imdbId, :rottenTomatoesId,
+                    (select id from standard_category where slug = :categoryCode limit 1), :categoryCode,
                     '[]'::jsonb, 'SYNCED'
                 )
                 """,
@@ -330,6 +331,11 @@ public class JdbcAggregationRepository {
                     tmdb_id = coalesce(nullif(tmdb_id, ''), :tmdbId),
                     imdb_id = coalesce(nullif(imdb_id, ''), :imdbId),
                     rotten_tomatoes_id = coalesce(nullif(rotten_tomatoes_id, ''), :rottenTomatoesId),
+                    category_id = coalesce(
+                            category_id,
+                            (select id from standard_category where slug = :categoryCode limit 1)
+                    ),
+                    category_code = coalesce(nullif(category_code, ''), :categoryCode),
                     metadata_status = 'SYNCED',
                     updated_at = now()
                 where id = :id
@@ -1366,6 +1372,7 @@ public class JdbcAggregationRepository {
                 rs.getString("subtitle"),
                 (Integer) rs.getObject("season"),
                 rs.getString("category_name"),
+                rs.getString("category_code"),
                 rs.getString("douban_id"),
                 rs.getString("tmdb_id"),
                 rs.getString("imdb_id"),
@@ -1397,6 +1404,7 @@ public class JdbcAggregationRepository {
                 .addValue("remarks", trimToLength(rawVideo.remarks(), 255))
                 .addValue("subtitle", trimToLength(rawVideo.subtitle(), 255))
                 .addValue("season", rawVideo.season())
+                .addValue("categoryCode", trimToLength(rawVideo.categoryCode(), 100))
                 .addValue("doubanId", trimToLength(validOrNull(rawVideo.doubanId()), 20))
                 .addValue("tmdbId", trimToLength(validOrNull(rawVideo.tmdbId()), 20))
                 .addValue("imdbId", trimToLength(validOrNull(rawVideo.imdbId()), 20))

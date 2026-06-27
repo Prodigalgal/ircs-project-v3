@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -87,25 +88,29 @@ class LlmCleaningRepositoryTest {
     @Test
     void categoryNoiseDoesNotOverwriteAlreadyMappedRows() {
         UUID rawId = UUID.randomUUID();
-        when(jdbcTemplate.update(
-                        argThat(sql -> sql != null
-                                && sql.contains("update raw_category")
-                                && sql.contains("category_id is null")
-                                && sql.contains("where id = :rawId")),
-                        any(MapSqlParameterSource.class)))
-                .thenReturn(0);
-        when(jdbcTemplate.queryForObject(
-                        argThat(sql -> sql != null
-                                && sql.contains("from standard_category")
-                                && sql.contains("lower(name) = lower(:fallback)")),
-                        any(MapSqlParameterSource.class),
-                        eq(Boolean.class)))
-                .thenReturn(true);
         LlmCleaningRepository repository = new LlmCleaningRepository(jdbcTemplate);
 
         boolean changed = repository.applyNoise(LlmCleaningKind.CATEGORY, rawId);
 
         assertThat(changed).isFalse();
-        verify(jdbcTemplate).queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(Boolean.class));
+        verify(jdbcTemplate, never()).update(any(String.class), any(MapSqlParameterSource.class));
+        verify(jdbcTemplate, never()).queryForObject(any(String.class), any(MapSqlParameterSource.class), eq(Boolean.class));
+    }
+
+    @Test
+    void categoryStandardsOnlyExposeSixStableTopCategories() {
+        when(jdbcTemplate.query(
+                        argThat(sql -> sql != null
+                                && sql.contains("from standard_category")
+                                && sql.contains("short-drama")
+                                && sql.contains("documentary")
+                                && !sql.contains("other")
+                                && !sql.contains("sports")),
+                        eq(Map.of()),
+                        any(RowMapper.class)))
+                .thenReturn(List.of());
+        LlmCleaningRepository repository = new LlmCleaningRepository(jdbcTemplate);
+
+        assertThat(repository.findStandards(LlmCleaningKind.CATEGORY)).isEmpty();
     }
 }

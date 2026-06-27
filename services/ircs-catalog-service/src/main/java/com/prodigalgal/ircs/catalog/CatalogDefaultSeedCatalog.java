@@ -29,9 +29,7 @@ class CatalogDefaultSeedCatalog {
                 new CategorySeed("综艺", "variety"),
                 new CategorySeed("动漫", "anime"),
                 new CategorySeed("短剧", "short-drama"),
-                new CategorySeed("纪录片", "documentary"),
-                new CategorySeed("体育", "sports"),
-                new CategorySeed("其他", "other"));
+                new CategorySeed("纪录片", "documentary"));
     }
 
     List<GenreSeed> genres() {

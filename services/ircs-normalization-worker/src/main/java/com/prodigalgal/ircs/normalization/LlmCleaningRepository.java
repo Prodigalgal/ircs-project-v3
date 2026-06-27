@@ -56,48 +56,6 @@ class LlmCleaningRepository {
 
     boolean applyNoise(LlmCleaningKind kind, UUID rawId) {
         requireCategory(kind);
-        return mapCategoryNoiseToFallback(rawId);
-    }
-
-    private boolean mapCategoryNoiseToFallback(UUID rawId) {
-        int updated = jdbcTemplate.update(
-                """
-                update raw_category
-                set category_id = (
-                        select id
-                        from standard_category
-                        where lower(name) = lower(:fallback)
-                        order by name
-                        limit 1
-                    ),
-                    updated_at = now()
-                where id = :rawId
-                  and category_id is null
-                  and exists (
-                        select 1
-                        from standard_category
-                        where lower(name) = lower(:fallback)
-                    )
-                """,
-                new MapSqlParameterSource()
-                        .addValue("rawId", rawId)
-                        .addValue("fallback", "其他"));
-        if (updated > 0) {
-            return true;
-        }
-        Boolean fallbackExists = jdbcTemplate.queryForObject(
-                """
-                select exists (
-                    select 1
-                    from standard_category
-                    where lower(name) = lower(:fallback)
-                )
-                """,
-                new MapSqlParameterSource("fallback", "其他"),
-                Boolean.class);
-        if (!Boolean.TRUE.equals(fallbackExists)) {
-            throw new LlmCleaningException.ProviderError("Missing fallback category: other");
-        }
         return false;
     }
 
@@ -119,7 +77,13 @@ class LlmCleaningRepository {
     private String standardSql(LlmCleaningKind kind) {
         requireCategory(kind);
         return switch (kind) {
-            case CATEGORY -> "select id, name from standard_category where name is not null order by name";
+            case CATEGORY -> """
+                    select id, name
+                    from standard_category
+                    where slug in ('movie', 'series', 'short-drama', 'anime', 'variety', 'documentary')
+                      and name is not null
+                    order by name
+                    """;
             default -> throw unsupportedKind(kind);
         };
     }

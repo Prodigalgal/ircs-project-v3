@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.portal;
 
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,7 +46,7 @@ public class PortalQueryService {
 
     private PortalMetadataResponse getMetadataUncached(IrcsRequestPrincipal principal) {
         return new PortalMetadataResponse(
-                safeList(portalRepository.findActiveCategories(principal)),
+                supportedCategories(safeList(portalRepository.findActiveCategories(principal))),
                 safeList(portalRepository.findActiveGenres(principal)),
                 safeList(portalRepository.findActiveAreas(principal)),
                 safeList(portalRepository.findActiveLanguages(principal)),
@@ -62,7 +63,7 @@ public class PortalQueryService {
         List<PortalMovieCard> trending = safeList(portalRepository.findTrending(principal, MOVIE_TREND_SIZE));
         List<PortalCategorySection> sections = new ArrayList<>();
 
-        for (CategoryItem category : orderedCategories(safeList(portalRepository.findActiveCategories(principal)))) {
+        for (CategoryItem category : orderedCategories(supportedCategories(safeList(portalRepository.findActiveCategories(principal))))) {
             List<PortalMovieCard> movies = portalRepository.findCategorySection(principal, category.slug(), MOVIE_RAIL_SIZE);
             if (movies != null && !movies.isEmpty()) {
                 sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), movies));
@@ -127,6 +128,16 @@ public class PortalQueryService {
         }
         ordered.addAll(bySlug.values());
         return ordered;
+    }
+
+    private List<CategoryItem> supportedCategories(List<CategoryItem> categories) {
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        return categories.stream()
+                .filter(category -> category != null
+                        && StandardContentCategoryClassifier.isAllowedCode(category.slug()))
+                .toList();
     }
 
     private String sectionTitle(CategoryItem category) {

@@ -26,7 +26,7 @@ class PortalQueryServiceTest {
 
     @Test
     void metadataReturnsEmptyListsForMissingData() {
-        when(portalRepository.findActiveCategories(principal)).thenReturn(null);
+        when(portalRepository.findActiveCategories(principal)).thenReturn(List.of(new CategoryItem("体育", "sports")));
         when(portalRepository.findActiveGenres(principal)).thenReturn(List.of());
         when(portalRepository.findActiveAreas(principal)).thenReturn(null);
         when(portalRepository.findActiveLanguages(principal)).thenReturn(List.of("国语"));
@@ -104,7 +104,7 @@ class PortalQueryServiceTest {
     }
 
     @Test
-    void homeOrdersActiveCategoriesWithoutDroppingNewSlugs() {
+    void homeOrdersActiveCategoriesAndDropsUnsupportedLegacySlugs() {
         PortalMovieCard card = sampleCard();
         when(portalRepository.findSpotlight(principal, 20)).thenReturn(List.of(card));
         when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
@@ -114,15 +114,14 @@ class PortalQueryServiceTest {
                 new CategoryItem("实验影像", "experimental")));
         when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of(card));
         when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
-        when(portalRepository.findCategorySection(principal, "experimental", 20)).thenReturn(List.of(card));
 
         PortalHomeResponse home = service.getHome(principal);
 
         assertEquals(List.of(card), home.spotlight());
         assertEquals(List.of(card), home.trending());
-        assertEquals(List.of("short-drama", "documentary", "experimental"),
+        assertEquals(List.of("short-drama", "documentary"),
                 home.sections().stream().map(PortalCategorySection::id).toList());
-        assertEquals("实验影像", home.sections().get(2).title());
+        verify(portalRepository, times(0)).findCategorySection(principal, "experimental", 20);
     }
 
     @Test

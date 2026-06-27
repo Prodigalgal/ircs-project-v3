@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.normalization;
 
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -81,8 +82,15 @@ class RawRelationAliasPolicy {
             Map.entry("记录片", List.of("纪录")),
             Map.entry("纪录片", List.of("纪录")),
             Map.entry("微短剧", List.of("短剧")),
+            Map.entry("爽剧", List.of("短剧")),
             Map.entry("动漫", List.of("动画")),
             Map.entry("动画片", List.of("动画")),
+            Map.entry("国产动漫", List.of("动画")),
+            Map.entry("日本动漫", List.of("动画")),
+            Map.entry("日韩动漫", List.of("动画")),
+            Map.entry("大陆综艺", List.of("综艺")),
+            Map.entry("港台综艺", List.of("综艺")),
+            Map.entry("日韩综艺", List.of("综艺")),
             Map.entry("卡通", List.of("动画")),
             Map.entry("二次元", List.of("动画")),
             Map.entry("武打", List.of("动作")),
@@ -116,6 +124,13 @@ class RawRelationAliasPolicy {
             }
         }
         return expanded;
+    }
+
+    Set<String> sourceCategoryGenreValues(String value) {
+        if (!StringUtils.hasText(value) || StandardContentCategoryClassifier.isTopCategoryName(value)) {
+            return Set.of();
+        }
+        return expandGenres(Set.of(value.trim()));
     }
 
     Set<String> expandAreas(Set<String> values) {

@@ -106,6 +106,7 @@ class RawVideoNormalizationRepositoryTest {
                 argThat(sql -> sql.contains("insert into raw_category")
                         && sql.contains("category_id")
                         && sql.contains("standard_category")
+                        && sql.contains("lower(slug) = lower(:inferredCategoryCode)")
                         && sql.contains("coalesce(raw_category.category_id, excluded.category_id)")),
                 any(MapSqlParameterSource.class),
                 any(RowMapper.class));

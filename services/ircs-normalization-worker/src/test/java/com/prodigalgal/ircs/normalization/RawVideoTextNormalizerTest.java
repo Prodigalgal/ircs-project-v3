@@ -66,6 +66,38 @@ class RawVideoTextNormalizerTest {
     }
 
     @Test
+    void cleansDescriptionHtmlToPlainText() throws Exception {
+        RawVideoRecord record = record("[]", "Title", null, null);
+        JsonNode metadata = objectMapper.readTree("""
+                {
+                  "description": "<p>第一段&nbsp;<strong>重点</strong></p><script>alert(1)</script><br/>第二段&#65281;"
+                }
+                """);
+
+        RawVideoPatch patch = normalizer.normalize(record, metadata);
+
+        assertEquals("第一段 重点 第二段！", patch.description());
+    }
+
+    @Test
+    void sourceCategoryFeedsSixTopCategoryAndGenreCleaningSeparately() throws Exception {
+        UUID dataSourceId = UUID.randomUUID();
+        RawVideoRecord record = record("[]", "Title", null, dataSourceId);
+        JsonNode metadata = objectMapper.readTree("""
+                {
+                  "rawTypeId": "11",
+                  "rawTypeName": "剧情片"
+                }
+                """);
+
+        RawVideoPatch patch = normalizer.normalize(record, metadata);
+
+        assertEquals("11", patch.rawCategorySourceCode());
+        assertEquals("剧情片", patch.rawCategorySourceName());
+        assertEquals(Set.of("剧情片", "剧情"), patch.rawGenreValues());
+    }
+
+    @Test
     void standardizesFullWidthAndTraditionalText() throws Exception {
         RawVideoRecord record = record("[]", "Title", null, null);
         JsonNode metadata = objectMapper.readTree("""

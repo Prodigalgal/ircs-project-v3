@@ -14,6 +14,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.parser.Parser;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -130,7 +133,7 @@ public class RawVideoTextNormalizer {
                     subtitle);
         }
         if (!locked.contains("description")) {
-            description = trimToLength(firstText(metadata, description, "description", "desc", "plot"), 4096);
+            description = cleanDescription(firstText(metadata, description, "description", "desc", "plot"));
         }
         if (!locked.contains("area")) {
             area = trimToLength(firstText(metadata, area, "area", "region"), 50);
@@ -175,6 +178,15 @@ public class RawVideoTextNormalizer {
         Set<String> rawGenreValues = locked.contains("genres")
                 ? Set.of()
                 : rawRelationAliasPolicy.expandGenres(relationValues(metadata, "genreNames", "genres", "genre"));
+        if (!locked.contains("genres") && StringUtils.hasText(rawCategorySourceName)) {
+            Set<String> sourceCategoryGenreValues =
+                    rawRelationAliasPolicy.sourceCategoryGenreValues(rawCategorySourceName);
+            if (!sourceCategoryGenreValues.isEmpty()) {
+                LinkedHashSet<String> mergedGenreValues = new LinkedHashSet<>(rawGenreValues);
+                mergedGenreValues.addAll(sourceCategoryGenreValues);
+                rawGenreValues = mergedGenreValues;
+            }
+        }
         Set<String> rawLanguageValues = locked.contains("language")
                 ? Set.of()
                 : rawRelationAliasPolicy.expandLanguages(relationValues(metadata, "language", "lang"));
@@ -637,6 +649,17 @@ public class RawVideoTextNormalizer {
             subtitle = cleanTitleEdges(subtitle);
         }
         return StringUtils.hasText(subtitle) ? subtitle : null;
+    }
+
+    private String cleanDescription(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        Document document = Jsoup.parseBodyFragment(Parser.unescapeEntities(standardize(value), false));
+        document.select("script, style, noscript").remove();
+        String description = document.text();
+        description = SPACE_PATTERN.matcher(description).replaceAll(" ").trim();
+        return StringUtils.hasText(description) ? trimToLength(description, 4096) : null;
     }
 
     private String normalizeTitleSymbols(String input) {

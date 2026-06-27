@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collection;
@@ -208,6 +209,9 @@ public class RawVideoNormalizationRepository {
         }
         String safeSourceCode = trimToLength(sourceCode, 100);
         String safeSourceName = StringUtils.hasText(sourceName) ? trimToLength(sourceName, 255) : null;
+        String inferredCategoryCode = StandardContentCategoryClassifier
+                .inferCode(safeSourceCode, safeSourceName)
+                .orElse(null);
         DataSourceCategoryBinding binding = jdbcTemplate.queryForObject(
                 """
                 insert into raw_category (
@@ -224,9 +228,8 @@ public class RawVideoNormalizationRepository {
                     (
                         select id
                         from standard_category
-                        where lower(name) = lower(coalesce(:sourceName, :sourceCode))
-                           or lower(slug) = lower(:sourceCode)
-                        order by name
+                        where :inferredCategoryCode is not null
+                          and lower(slug) = lower(:inferredCategoryCode)
                         limit 1
                     )
                 )
@@ -245,7 +248,8 @@ public class RawVideoNormalizationRepository {
                         .addValue("id", IrcsUuidGenerators.nextId())
                         .addValue("dataSourceId", dataSourceId)
                         .addValue("sourceCode", safeSourceCode)
-                        .addValue("sourceName", safeSourceName),
+                        .addValue("sourceName", safeSourceName)
+                        .addValue("inferredCategoryCode", inferredCategoryCode),
                 (rs, rowNum) -> new DataSourceCategoryBinding(
                         rs.getObject("id", UUID.class),
                         rs.getString("category_code")));

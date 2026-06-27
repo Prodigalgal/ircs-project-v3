@@ -721,9 +721,6 @@ public class JdbcCatalogRepository {
         if (StringUtils.hasText(inferredCategoryName)) {
             inferredCategoryId = findIdByText("standard_category", "name", inferredCategoryName).orElse(null);
         }
-        if (inferredCategoryId == null) {
-            inferredCategoryId = findIdByText("standard_category", "name", "其他").orElse(null);
-        }
         Optional<RawCategorySeedRow> existing = queryOptional(
                 """
                 select id, source_name, category_id
