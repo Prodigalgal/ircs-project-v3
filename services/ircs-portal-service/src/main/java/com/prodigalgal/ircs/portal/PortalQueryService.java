@@ -3,7 +3,9 @@ package com.prodigalgal.ircs.portal;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -14,13 +16,20 @@ public class PortalQueryService {
 
     private static final int MOVIE_RAIL_SIZE = 20;
     private static final int MOVIE_TREND_SIZE = 50;
-    private static final List<String> CORE_CATEGORIES = List.of("电影", "电视剧");
-    private static final List<SectionSpec> SECTION_SPECS = List.of(
-            new SectionSpec("movies", "电影精选", "电影"),
-            new SectionSpec("series", "热门剧集", "电视剧"),
-            new SectionSpec("short-drama", "爽剧/微短剧", "短剧"),
-            new SectionSpec("anime", "动漫番剧", "动漫"),
-            new SectionSpec("variety", "综艺合集", "综艺"));
+    private static final List<String> CATEGORY_DISPLAY_ORDER = List.of(
+            "movie",
+            "series",
+            "short-drama",
+            "anime",
+            "variety",
+            "documentary");
+    private static final Map<String, String> SECTION_TITLES = Map.of(
+            "movie", "电影精选",
+            "series", "热门剧集",
+            "short-drama", "爽剧/微短剧",
+            "anime", "动漫番剧",
+            "variety", "综艺合集",
+            "documentary", "纪录片场");
 
     private final JdbcPortalRepository portalRepository;
     private final PortalReadModelCache readModelCache;
@@ -49,14 +58,14 @@ public class PortalQueryService {
     }
 
     private PortalHomeResponse getHomeUncached(IrcsRequestPrincipal principal) {
-        List<PortalMovieCard> spotlight = safeList(portalRepository.findSpotlight(principal, CORE_CATEGORIES, MOVIE_RAIL_SIZE));
-        List<PortalMovieCard> trending = safeList(portalRepository.findTrending(principal, CORE_CATEGORIES, MOVIE_TREND_SIZE));
+        List<PortalMovieCard> spotlight = safeList(portalRepository.findSpotlight(principal, MOVIE_RAIL_SIZE));
+        List<PortalMovieCard> trending = safeList(portalRepository.findTrending(principal, MOVIE_TREND_SIZE));
         List<PortalCategorySection> sections = new ArrayList<>();
 
-        for (SectionSpec spec : SECTION_SPECS) {
-            List<PortalMovieCard> movies = portalRepository.findCategorySection(principal, spec.categoryName(), MOVIE_RAIL_SIZE);
+        for (CategoryItem category : orderedCategories(safeList(portalRepository.findActiveCategories(principal)))) {
+            List<PortalMovieCard> movies = portalRepository.findCategorySection(principal, category.slug(), MOVIE_RAIL_SIZE);
             if (movies != null && !movies.isEmpty()) {
-                sections.add(new PortalCategorySection(spec.id(), spec.title(), movies));
+                sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), movies));
             }
         }
 
@@ -98,6 +107,30 @@ public class PortalQueryService {
         return values == null || values.isEmpty() ? Collections.emptyList() : values;
     }
 
-    private record SectionSpec(String id, String title, String categoryName) {
+    private List<CategoryItem> orderedCategories(List<CategoryItem> categories) {
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        Map<String, CategoryItem> bySlug = new LinkedHashMap<>();
+        for (CategoryItem category : categories) {
+            if (category != null && category.slug() != null && !category.slug().isBlank()) {
+                bySlug.putIfAbsent(category.slug(), category);
+            }
+        }
+
+        List<CategoryItem> ordered = new ArrayList<>();
+        for (String slug : CATEGORY_DISPLAY_ORDER) {
+            CategoryItem category = bySlug.remove(slug);
+            if (category != null) {
+                ordered.add(category);
+            }
+        }
+        ordered.addAll(bySlug.values());
+        return ordered;
+    }
+
+    private String sectionTitle(CategoryItem category) {
+        String title = SECTION_TITLES.get(category.slug());
+        return title == null || title.isBlank() ? category.name() : title;
     }
 }

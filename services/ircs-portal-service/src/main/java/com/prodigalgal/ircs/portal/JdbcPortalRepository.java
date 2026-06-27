@@ -39,7 +39,7 @@ public class JdbcPortalRepository {
                    uv.subtitle,
                    uv.score,
                    uv.year AS release_year,
-                   sc.name AS category_name,
+                   coalesce(sc.name, '未分类') AS category_name,
                    CASE
                        WHEN uv.description IS NULL THEN NULL
                        WHEN length(uv.description) > 150 THEN substring(uv.description FROM 1 FOR 150)
@@ -145,11 +145,10 @@ public class JdbcPortalRepository {
                 """, params, (rs, rowNum) -> rs.getString(1));
     }
 
-    public List<PortalMovieCard> findSpotlight(IrcsRequestPrincipal principal, List<String> categoryNames, int limit) {
+    public List<PortalMovieCard> findSpotlight(IrcsRequestPrincipal principal, int limit) {
         Map<String, Object> params = new HashMap<>();
-        params.put("categoryNames", categoryNames);
         params.put("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE sc.name IN (:categoryNames)");
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return enrichCards(jdbcTemplate.query(
                 CARD_SELECT + where + """
@@ -162,11 +161,10 @@ public class JdbcPortalRepository {
                 cardMapper()));
     }
 
-    public List<PortalMovieCard> findTrending(IrcsRequestPrincipal principal, List<String> categoryNames, int limit) {
+    public List<PortalMovieCard> findTrending(IrcsRequestPrincipal principal, int limit) {
         Map<String, Object> params = new HashMap<>();
-        params.put("categoryNames", categoryNames);
         params.put("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE sc.name IN (:categoryNames)");
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return enrichCards(jdbcTemplate.query(
                 CARD_SELECT + where + """
@@ -180,11 +178,11 @@ public class JdbcPortalRepository {
                 cardMapper()));
     }
 
-    public List<PortalMovieCard> findCategorySection(IrcsRequestPrincipal principal, String categoryName, int limit) {
+    public List<PortalMovieCard> findCategorySection(IrcsRequestPrincipal principal, String categoryKey, int limit) {
         Map<String, Object> params = new HashMap<>();
-        params.put("categoryName", categoryName);
+        params.put("categoryKey", categoryKey);
         params.put("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE sc.name = :categoryName");
+        StringBuilder where = new StringBuilder(" WHERE (sc.slug = :categoryKey OR sc.name = :categoryKey)");
         appendScopeFilters(where, params, principal);
         return enrichCards(jdbcTemplate.query(
                 CARD_SELECT + where + """

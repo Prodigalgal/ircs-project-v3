@@ -84,23 +84,45 @@ class PortalQueryServiceTest {
     @Test
     void homeReturnsArraysAndOnlyNonEmptySections() {
         PortalMovieCard card = sampleCard();
-        when(portalRepository.findSpotlight(principal, List.of("电影", "电视剧"), 20)).thenReturn(null);
-        when(portalRepository.findTrending(principal, List.of("电影", "电视剧"), 50)).thenReturn(List.of(card));
-        when(portalRepository.findCategorySection(principal, "电影", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "电视剧", 20)).thenReturn(List.of(card));
-        when(portalRepository.findCategorySection(principal, "短剧", 20)).thenReturn(null);
-        when(portalRepository.findCategorySection(principal, "动漫", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "综艺", 20)).thenReturn(List.of());
+        when(portalRepository.findSpotlight(principal, 20)).thenReturn(null);
+        when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
+        when(portalRepository.findActiveCategories(principal)).thenReturn(List.of(
+                new CategoryItem("短剧", "short-drama"),
+                new CategoryItem("纪录片", "documentary")));
+        when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of());
+        when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
 
         PortalHomeResponse home = service.getHome(principal);
 
         assertTrue(home.spotlight().isEmpty());
         assertEquals(List.of(card), home.trending());
         assertEquals(1, home.sections().size());
-        assertEquals("series", home.sections().getFirst().id());
-        assertEquals("热门剧集", home.sections().getFirst().title());
+        assertEquals("documentary", home.sections().getFirst().id());
+        assertEquals("纪录片场", home.sections().getFirst().title());
         assertEquals(List.of(card), home.sections().getFirst().movies());
-        verify(portalRepository).findCategorySection(principal, "电视剧", 20);
+        verify(portalRepository).findCategorySection(principal, "documentary", 20);
+    }
+
+    @Test
+    void homeOrdersActiveCategoriesWithoutDroppingNewSlugs() {
+        PortalMovieCard card = sampleCard();
+        when(portalRepository.findSpotlight(principal, 20)).thenReturn(List.of(card));
+        when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
+        when(portalRepository.findActiveCategories(principal)).thenReturn(List.of(
+                new CategoryItem("纪录片", "documentary"),
+                new CategoryItem("短剧", "short-drama"),
+                new CategoryItem("实验影像", "experimental")));
+        when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of(card));
+        when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
+        when(portalRepository.findCategorySection(principal, "experimental", 20)).thenReturn(List.of(card));
+
+        PortalHomeResponse home = service.getHome(principal);
+
+        assertEquals(List.of(card), home.spotlight());
+        assertEquals(List.of(card), home.trending());
+        assertEquals(List.of("short-drama", "documentary", "experimental"),
+                home.sections().stream().map(PortalCategorySection::id).toList());
+        assertEquals("实验影像", home.sections().get(2).title());
     }
 
     @Test
