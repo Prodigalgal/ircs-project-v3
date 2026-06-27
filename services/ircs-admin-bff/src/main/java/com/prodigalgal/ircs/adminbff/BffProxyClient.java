@@ -286,16 +286,30 @@ class BffProxyClient {
                 response.addHeader(name, value);
             }
         });
-        copyBody(upstream.body(), response.getOutputStream());
+        copyBody(upstream.body(), response.getOutputStream(), isStreamingResponse(upstream.headers()));
     }
 
-    private void copyBody(InputStream input, OutputStream output) throws IOException {
-        byte[] buffer = new byte[8192];
+    private void copyBody(InputStream input, OutputStream output, boolean flushChunks) throws IOException {
+        byte[] buffer = new byte[65536];
         int read;
         while ((read = input.read(buffer)) != -1) {
             output.write(buffer, 0, read);
+            if (flushChunks) {
+                output.flush();
+            }
+        }
+        if (!flushChunks) {
             output.flush();
         }
+    }
+
+    private static boolean isStreamingResponse(Map<String, List<String>> headers) {
+        return headers.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && entry.getKey().equalsIgnoreCase("Content-Type"))
+                .flatMap(entry -> entry.getValue().stream())
+                .filter(value -> value != null)
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .anyMatch(value -> value.contains("text/event-stream"));
     }
 
     private static OutboundStreamingHttpClient outboundClient(

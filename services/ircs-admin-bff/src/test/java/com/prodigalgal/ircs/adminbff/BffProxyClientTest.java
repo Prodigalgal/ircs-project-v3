@@ -14,6 +14,9 @@ import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
+import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -237,6 +240,37 @@ class BffProxyClientTest {
     }
 
     @Test
+    void flushesBufferedJsonResponseOnlyAfterBodyCopyCompletes() throws Exception {
+        String body = "x".repeat(140_000);
+        transport.response = response(200, Map.of("Content-Type", List.of("application/json")), body);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+        FlushCountingResponse response = new FlushCountingResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/raw-videos", "http://content-service", "/api/v1/raw-videos")));
+
+        proxyClient.proxy(request, response, routes);
+
+        assertThat(response.flushCount()).isOne();
+        assertThat(response.bodyAsString()).isEqualTo(body);
+    }
+
+    @Test
+    void keepsChunkFlushForEventStreamResponses() throws Exception {
+        String body = "data: " + "x".repeat(140_000) + "\n\n";
+        transport.response = response(200, Map.of("Content-Type", List.of("text/event-stream")), body);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
+        request.addHeader("Accept", "text/event-stream");
+        FlushCountingResponse response = new FlushCountingResponse();
+        BffRouteTable routes = new BffRouteTable(List.of(
+                new BffRoute("/api/v1/dashboard", "http://ops-service", "/api/v1/dashboard")));
+
+        proxyClient.proxy(request, response, routes);
+
+        assertThat(response.flushCount()).isGreaterThan(1);
+        assertThat(response.bodyAsString()).isEqualTo(body);
+    }
+
+    @Test
     void preservesBusinessQueryTokenOnRegularRequests() throws Exception {
         transport.response = response(200, Map.of("X-Upstream", List.of("content")), "ok");
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
@@ -311,6 +345,55 @@ class BffProxyClientTest {
         public OutboundStreamingHttpResponse send(OutboundHttpRequest request) throws IOException {
             requests.add(request);
             return response;
+        }
+    }
+
+    private static final class FlushCountingResponse extends MockHttpServletResponse {
+
+        private final FlushCountingOutputStream outputStream = new FlushCountingOutputStream();
+
+        @Override
+        public ServletOutputStream getOutputStream() {
+            return outputStream;
+        }
+
+        int flushCount() {
+            return outputStream.flushCount;
+        }
+
+        String bodyAsString() {
+            return outputStream.body.toString(StandardCharsets.UTF_8);
+        }
+    }
+
+    private static final class FlushCountingOutputStream extends ServletOutputStream {
+
+        private final ByteArrayOutputStream body = new ByteArrayOutputStream();
+        private int flushCount;
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setWriteListener(WriteListener writeListener) {
+            // Tests write synchronously.
+        }
+
+        @Override
+        public void write(int value) {
+            body.write(value);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) {
+            body.write(bytes, offset, length);
+        }
+
+        @Override
+        public void flush() {
+            flushCount++;
         }
     }
 }
