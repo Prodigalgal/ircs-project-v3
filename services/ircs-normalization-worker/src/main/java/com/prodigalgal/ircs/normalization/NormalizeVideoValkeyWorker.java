@@ -6,10 +6,15 @@ import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
 import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTask;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +31,8 @@ public class NormalizeVideoValkeyWorker {
     private final String workerId;
     private final int batchSize;
     private final Duration visibilityTimeout;
+    private final ExecutorService taskExecutor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual().name("normalize-video-task-", 0).factory());
 
     NormalizeVideoValkeyWorker(
             PipelineValkeyQueue pipelineQueue,
@@ -72,8 +79,26 @@ public class NormalizeVideoValkeyWorker {
                 workerId,
                 batchSize,
                 visibilityTimeout);
-        tasks.forEach(this::process);
+        processBatch(tasks);
         return tasks.size();
+    }
+
+    private void processBatch(List<PipelineValkeyTask> tasks) {
+        if (tasks.isEmpty()) {
+            return;
+        }
+        List<CompletableFuture<Void>> futures = tasks.stream()
+                .map(task -> CompletableFuture.runAsync(() -> process(task), taskExecutor))
+                .toList();
+        futures.forEach(this::joinTask);
+    }
+
+    private void joinTask(CompletableFuture<Void> future) {
+        try {
+            future.join();
+        } catch (CompletionException ex) {
+            log.warn("Normalization Valkey task future completed exceptionally: {}", ex.getMessage());
+        }
     }
 
     private void heartbeat() {
@@ -148,5 +173,10 @@ public class NormalizeVideoValkeyWorker {
 
     private static Duration positive(Duration value, Duration fallback) {
         return value == null || value.isZero() || value.isNegative() ? fallback : value;
+    }
+
+    @PreDestroy
+    void shutdown() {
+        taskExecutor.shutdownNow();
     }
 }
