@@ -7,6 +7,7 @@ public record NormalizationMaintenanceRunResponse(
         String taskName,
         long rawVideoCount,
         long changedRows,
+        long enqueuedRows,
         List<UUID> sampleRawVideoIds
 ) {
     public NormalizationMaintenanceRunResponse {

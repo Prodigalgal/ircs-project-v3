@@ -4,7 +4,6 @@ import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifi
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +30,13 @@ public class PortalQueryService {
             "anime", "动漫番剧",
             "variety", "综艺合集",
             "documentary", "纪录片场");
+    private static final Map<String, String> CATEGORY_NAMES = Map.of(
+            "movie", "电影",
+            "series", "剧集",
+            "short-drama", "短剧",
+            "anime", "动漫",
+            "variety", "综艺",
+            "documentary", "纪录片");
 
     private final JdbcPortalRepository portalRepository;
     private final PortalReadModelCache readModelCache;
@@ -46,7 +52,7 @@ public class PortalQueryService {
 
     private PortalMetadataResponse getMetadataUncached(IrcsRequestPrincipal principal) {
         return new PortalMetadataResponse(
-                supportedCategories(safeList(portalRepository.findActiveCategories(principal))),
+                stableCategories(),
                 safeList(portalRepository.findActiveGenres(principal)),
                 safeList(portalRepository.findActiveAreas(principal)),
                 safeList(portalRepository.findActiveLanguages(principal)),
@@ -63,7 +69,7 @@ public class PortalQueryService {
         List<PortalMovieCard> trending = safeList(portalRepository.findTrending(principal, MOVIE_TREND_SIZE));
         List<PortalCategorySection> sections = new ArrayList<>();
 
-        for (CategoryItem category : orderedCategories(supportedCategories(safeList(portalRepository.findActiveCategories(principal))))) {
+        for (CategoryItem category : stableCategories()) {
             List<PortalMovieCard> movies = portalRepository.findCategorySection(principal, category.slug(), MOVIE_RAIL_SIZE);
             if (movies != null && !movies.isEmpty()) {
                 sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), movies));
@@ -108,35 +114,10 @@ public class PortalQueryService {
         return values == null || values.isEmpty() ? Collections.emptyList() : values;
     }
 
-    private List<CategoryItem> orderedCategories(List<CategoryItem> categories) {
-        if (categories.isEmpty()) {
-            return List.of();
-        }
-        Map<String, CategoryItem> bySlug = new LinkedHashMap<>();
-        for (CategoryItem category : categories) {
-            if (category != null && category.slug() != null && !category.slug().isBlank()) {
-                bySlug.putIfAbsent(category.slug(), category);
-            }
-        }
-
-        List<CategoryItem> ordered = new ArrayList<>();
-        for (String slug : CATEGORY_DISPLAY_ORDER) {
-            CategoryItem category = bySlug.remove(slug);
-            if (category != null) {
-                ordered.add(category);
-            }
-        }
-        ordered.addAll(bySlug.values());
-        return ordered;
-    }
-
-    private List<CategoryItem> supportedCategories(List<CategoryItem> categories) {
-        if (categories.isEmpty()) {
-            return List.of();
-        }
-        return categories.stream()
-                .filter(category -> category != null
-                        && StandardContentCategoryClassifier.isAllowedCode(category.slug()))
+    private List<CategoryItem> stableCategories() {
+        return CATEGORY_DISPLAY_ORDER.stream()
+                .filter(StandardContentCategoryClassifier::isAllowedCode)
+                .map(slug -> new CategoryItem(CATEGORY_NAMES.getOrDefault(slug, slug), slug))
                 .toList();
     }
 

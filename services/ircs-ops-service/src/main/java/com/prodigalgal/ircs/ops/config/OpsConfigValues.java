@@ -13,6 +13,7 @@ import org.springframework.util.StringUtils;
 public class OpsConfigValues {
 
     static final String REINDEX_DEV_LIMIT_KEY = "app.ops.maintenance.reindex.dev-limit";
+    static final String REINDEX_BATCH_SIZE_KEY = "app.maintenance.search.reindex-batch-size";
     static final String SCHEDULER_ENABLED_KEY = "app.ops.maintenance.scheduler.enabled";
     static final String SCHEDULER_DRY_RUN_KEY = "app.ops.maintenance.scheduler.dry-run";
     static final String SCHEDULER_EXECUTE_ENABLED_KEY = "app.ops.maintenance.scheduler.execute-enabled";
@@ -29,6 +30,7 @@ public class OpsConfigValues {
     static final String SEARCH_OWNER_SCOPES_KEY = "app.ops.maintenance.search.scopes";
     static final String NORMALIZATION_OWNER_BASE_URL_KEY = "app.ops.maintenance.normalization.owner-base-url";
     static final String NORMALIZATION_DEV_LIMIT_KEY = "app.ops.maintenance.normalization.dev-limit";
+    static final String NORMALIZATION_BATCH_SIZE_KEY = "app.maintenance.sanitize.batch-size";
     static final String NORMALIZATION_OWNER_REQUEST_TIMEOUT_KEY = "app.ops.maintenance.normalization.request-timeout";
     static final String NORMALIZATION_LLM_OWNER_REQUEST_TIMEOUT_KEY =
             "app.ops.maintenance.normalization.llm-request-timeout";
@@ -50,8 +52,12 @@ public class OpsConfigValues {
     static final String SCRAPER_OWNER_SCOPES_KEY = "app.ops.maintenance.scraper.scopes";
     public static final int DEFAULT_REINDEX_DEV_LIMIT = 5;
     public static final int MAX_REINDEX_DEV_LIMIT = 100;
+    public static final int DEFAULT_REINDEX_BATCH_SIZE = 500;
+    public static final int MAX_REINDEX_BATCH_SIZE = 1000;
     public static final int DEFAULT_NORMALIZATION_DEV_LIMIT = 5;
     public static final int MAX_NORMALIZATION_DEV_LIMIT = 100;
+    public static final int DEFAULT_NORMALIZATION_BATCH_SIZE = 1000;
+    public static final int MAX_NORMALIZATION_BATCH_SIZE = 2000;
     public static final int DEFAULT_AGGREGATION_DEV_LIMIT = 5;
     public static final int MAX_AGGREGATION_DEV_LIMIT = 100;
     private static final Duration DEFAULT_SEARCH_OWNER_REQUEST_TIMEOUT = Duration.ofSeconds(10);
@@ -88,6 +94,16 @@ public class OpsConfigValues {
                 REINDEX_DEV_LIMIT_KEY,
                 "OPS_MAINTENANCE_REINDEX_DEV_LIMIT",
                 "APP_OPS_MAINTENANCE_REINDEX_DEV_LIMIT");
+    }
+
+    public int reindexBatchSize() {
+        return intValue(
+                DEFAULT_REINDEX_BATCH_SIZE,
+                1,
+                MAX_REINDEX_BATCH_SIZE,
+                REINDEX_BATCH_SIZE_KEY,
+                "APP_MAINTENANCE_SEARCH_REINDEX_BATCH_SIZE",
+                "APP_OPS_MAINTENANCE_REINDEX_BATCH_SIZE");
     }
 
     public int aggregationMaintenanceDevLimit() {
@@ -212,6 +228,16 @@ public class OpsConfigValues {
                 MAX_NORMALIZATION_DEV_LIMIT,
                 NORMALIZATION_DEV_LIMIT_KEY,
                 "APP_OPS_MAINTENANCE_NORMALIZATION_DEV_LIMIT");
+    }
+
+    public int normalizationMaintenanceBatchSize() {
+        return intValue(
+                DEFAULT_NORMALIZATION_BATCH_SIZE,
+                1,
+                MAX_NORMALIZATION_BATCH_SIZE,
+                NORMALIZATION_BATCH_SIZE_KEY,
+                "APP_MAINTENANCE_SANITIZE_BATCH_SIZE",
+                "APP_OPS_MAINTENANCE_NORMALIZATION_BATCH_SIZE");
     }
 
     public String normalizationOwnerServiceId() {

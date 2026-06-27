@@ -173,9 +173,36 @@ public class RawVideoNormalizationRepository {
                 """
                 update raw_videos
                    set normalization_status = 'PENDING',
+                       normalization_retry_count = 0,
+                       next_normalization_retry_time = null,
                        updated_at = now()
                 """,
                 new MapSqlParameterSource());
+    }
+
+    public List<RawVideoQueueItem> findNormalizationQueueItems(UUID afterId, int limit) {
+        String sql = afterId == null
+                ? """
+                select id, data_hash
+                  from raw_videos
+                 order by id asc
+                 limit :limit
+                """
+                : """
+                select id, data_hash
+                  from raw_videos
+                 where id > :afterId
+                 order by id asc
+                 limit :limit
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("afterId", afterId)
+                        .addValue("limit", Math.max(1, limit)),
+                (rs, rowNum) -> new RawVideoQueueItem(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("data_hash")));
     }
 
     private MapSqlParameterSource params(UUID id, RawVideoPatch patch) {
@@ -235,7 +262,15 @@ public class RawVideoNormalizationRepository {
                 )
                 on conflict (data_source_id, source_code) do update set
                     source_name = coalesce(excluded.source_name, raw_category.source_name),
-                    category_id = coalesce(raw_category.category_id, excluded.category_id),
+                    category_id = case
+                        when :inferredCategoryCode is not null then excluded.category_id
+                        when raw_category.category_id in (
+                            select id
+                              from standard_category
+                             where lower(slug) not in ('movie', 'series', 'short-drama', 'anime', 'variety', 'documentary')
+                        ) then null
+                        else raw_category.category_id
+                    end,
                     updated_at = excluded.updated_at
                 returning id,
                           (
@@ -353,7 +388,13 @@ public class RawVideoNormalizationRepository {
                        area_codes = case when :hasAreaCodes then cast(:areaCodes as jsonb) else area_codes end,
                        language_codes = case when :hasLanguageCodes then cast(:languageCodes as jsonb) else language_codes end,
                        genre_codes = case when :hasGenreCodes then cast(:genreCodes as jsonb) else genre_codes end,
-                       category_code = coalesce(:categoryCode, category_code),
+                       category_code = case
+                           when :categoryCode is not null then :categoryCode
+                           when lower(coalesce(category_code, '')) not in (
+                               'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
+                           ) then null
+                           else category_code
+                       end,
                        source_category_code = coalesce(:sourceCategoryCode, source_category_code),
                        source_category_name = coalesce(:sourceCategoryName, source_category_name),
                        normalization_snapshot = cast(:normalizationSnapshot as jsonb),
@@ -428,6 +469,9 @@ public class RawVideoNormalizationRepository {
     }
 
     public record MarkReadyResult() {
+    }
+
+    public record RawVideoQueueItem(UUID id, String dataHash) {
     }
 
     private record CategoryBinding(String categoryCode) {

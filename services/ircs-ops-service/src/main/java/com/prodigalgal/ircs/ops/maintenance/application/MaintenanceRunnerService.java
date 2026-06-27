@@ -41,6 +41,16 @@ public class MaintenanceRunnerService {
             "ircs-search-service",
             "POST /internal/v1/search/sync-tasks/batch",
             "search:sync");
+    static final MaintenanceOwnerStep SEARCH_REINDEX_ALL_OWNER_STEP = new MaintenanceOwnerStep(
+            "enqueue-all-unified-index",
+            "ircs-search-service",
+            "POST /internal/v1/search/sync-tasks/batch",
+            "search:sync");
+    static final MaintenanceOwnerStep RAW_SEARCH_REINDEX_ALL_OWNER_STEP = new MaintenanceOwnerStep(
+            "enqueue-all-raw-index",
+            "ircs-search-service",
+            "POST /internal/v1/search/sync-tasks/batch",
+            "search:sync");
     static final MaintenanceOwnerStep UNIFIED_RECALCULATE_OWNER_STEP = new MaintenanceOwnerStep(
             "recalculate-dirty-unified",
             "ircs-aggregation-worker",
@@ -100,6 +110,24 @@ public class MaintenanceRunnerService {
                     MaintenanceReindexCommand.MAX_DEV_LIMIT,
                     "",
                     List.of(RAW_SEARCH_REINDEX_OWNER_STEP)),
+            metadata(
+                    MaintenanceReindexCommand.TASK_UNIFIED_REINDEX_ALL,
+                    MaintenanceRiskLevel.HIGH,
+                    true,
+                    true,
+                    MaintenanceReindexCommand.DEFAULT_BATCH_SIZE,
+                    MaintenanceReindexCommand.MAX_BATCH_SIZE,
+                    "",
+                    List.of(SEARCH_REINDEX_ALL_OWNER_STEP)),
+            metadata(
+                    MaintenanceReindexCommand.TASK_RAW_REINDEX_ALL,
+                    MaintenanceRiskLevel.HIGH,
+                    true,
+                    true,
+                    MaintenanceReindexCommand.DEFAULT_BATCH_SIZE,
+                    MaintenanceReindexCommand.MAX_BATCH_SIZE,
+                    "",
+                    List.of(RAW_SEARCH_REINDEX_ALL_OWNER_STEP)),
             metadata(
                     TASK_SANITIZE,
                     MaintenanceRiskLevel.HIGH,
@@ -202,6 +230,12 @@ public class MaintenanceRunnerService {
         }
         if (MaintenanceReindexCommand.TASK_RAW_REINDEX.equals(metadata.taskName())) {
             return execute(metadata, correlationId, startedAt, () -> reindexCommand.enqueueRawIndex(correlationId));
+        }
+        if (MaintenanceReindexCommand.TASK_UNIFIED_REINDEX_ALL.equals(metadata.taskName())) {
+            return execute(metadata, correlationId, startedAt, () -> reindexCommand.enqueueAllUnifiedIndex(correlationId));
+        }
+        if (MaintenanceReindexCommand.TASK_RAW_REINDEX_ALL.equals(metadata.taskName())) {
+            return execute(metadata, correlationId, startedAt, () -> reindexCommand.enqueueAllRawIndex(correlationId));
         }
         if (TASK_SANITIZE.equals(metadata.taskName())) {
             return execute(metadata, correlationId, startedAt, () -> normalizationClient.resetAllNormalization(correlationId));

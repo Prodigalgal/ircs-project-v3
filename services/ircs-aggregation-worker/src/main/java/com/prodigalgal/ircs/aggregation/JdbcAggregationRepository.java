@@ -331,11 +331,26 @@ public class JdbcAggregationRepository {
                     tmdb_id = coalesce(nullif(tmdb_id, ''), :tmdbId),
                     imdb_id = coalesce(nullif(imdb_id, ''), :imdbId),
                     rotten_tomatoes_id = coalesce(nullif(rotten_tomatoes_id, ''), :rottenTomatoesId),
-                    category_id = coalesce(
-                            category_id,
-                            (select id from standard_category where slug = :categoryCode limit 1)
-                    ),
-                    category_code = coalesce(nullif(category_code, ''), :categoryCode),
+                    category_id = case
+                        when :categoryCode is not null and (
+                            category_code is null
+                            or nullif(trim(category_code), '') is null
+                            or lower(category_code) not in (
+                                'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
+                            )
+                        ) then (select id from standard_category where slug = :categoryCode limit 1)
+                        else category_id
+                    end,
+                    category_code = case
+                        when :categoryCode is not null and (
+                            category_code is null
+                            or nullif(trim(category_code), '') is null
+                            or lower(category_code) not in (
+                                'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
+                            )
+                        ) then :categoryCode
+                        else category_code
+                    end,
                     metadata_status = 'SYNCED',
                     updated_at = now()
                 where id = :id
@@ -1318,7 +1333,16 @@ public class JdbcAggregationRepository {
                        area_codes = cast(:areaCodes as jsonb),
                        language_codes = cast(:languageCodes as jsonb),
                        genre_codes = cast(:genreCodes as jsonb),
-                       category_code = coalesce(nullif(category_code, ''), nullif(:categoryCode, '')),
+                       category_code = case
+                           when nullif(:categoryCode, '') is not null and (
+                               category_code is null
+                               or nullif(trim(category_code), '') is null
+                               or lower(category_code) not in (
+                                   'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
+                               )
+                           ) then :categoryCode
+                           else category_code
+                       end,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1
                  where id = :rootId

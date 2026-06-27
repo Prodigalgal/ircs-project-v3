@@ -44,9 +44,10 @@ class NormalizationMaintenanceClientTest {
     void postsResetAllNormalizationToNormalizationOwnerWithServiceIdentity() {
         UUID sampleId = UUID.randomUUID();
         when(configValues.normalizationMaintenanceDevLimit()).thenReturn(7);
+        when(configValues.normalizationMaintenanceBatchSize()).thenReturn(300);
         FakeTransport transport = new FakeTransport();
         transport.enqueue(response(202, """
-                {"taskName":"sanitize","rawVideoCount":12,"changedRows":9,"sampleRawVideoIds":["%s"]}
+                {"taskName":"sanitize","rawVideoCount":12,"changedRows":9,"enqueuedRows":11,"sampleRawVideoIds":["%s"]}
                 """.formatted(sampleId)));
         NormalizationMaintenanceClient client = client(transport);
 
@@ -54,13 +55,13 @@ class NormalizationMaintenanceClientTest {
 
         assertThat(result.taskName()).isEqualTo("sanitize");
         assertThat(result.selectedCount()).isEqualTo(12);
-        assertThat(result.publishedCount()).isEqualTo(9);
+        assertThat(result.publishedCount()).isEqualTo(11);
         assertThat(result.entityIds()).containsExactly(sampleId);
 
         OutboundHttpRequest sent = transport.requests.getFirst();
         assertThat(sent.method()).isEqualTo("POST");
         assertThat(sent.uri().toString())
-                .isEqualTo("http://normalization-worker:8080/internal/v1/normalization/maintenance/raw-videos/reset-normalization?sampleLimit=7");
+                .isEqualTo("http://normalization-worker:8080/internal/v1/normalization/maintenance/raw-videos/reset-normalization?sampleLimit=7&enqueue=true&batchSize=300");
         assertThat(sent.policy().type().name()).isEqualTo("INTERNAL_SERVICE");
         assertThat(sent.policy().timeout()).isEqualTo(Duration.ofSeconds(3));
         assertThat(sent.policy().circuitBreakerKey()).isEqualTo("ops-normalization-maintenance");
@@ -77,6 +78,7 @@ class NormalizationMaintenanceClientTest {
     @Test
     void non2xxResponseIsMappedToMaintenanceFailure() {
         when(configValues.normalizationMaintenanceDevLimit()).thenReturn(7);
+        when(configValues.normalizationMaintenanceBatchSize()).thenReturn(300);
         FakeTransport transport = new FakeTransport();
         transport.enqueue(response(503, "unavailable"));
         transport.enqueue(response(503, "still unavailable"));

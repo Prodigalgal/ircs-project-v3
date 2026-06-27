@@ -18,6 +18,8 @@ class OpsConfigValuesTest {
         OpsConfigValues values = values(new MockEnvironment());
 
         assertEquals(5, values.reindexDevLimit());
+        assertEquals(500, values.reindexBatchSize());
+        assertEquals(1000, values.normalizationMaintenanceBatchSize());
     }
 
     @Test
@@ -57,6 +59,18 @@ class OpsConfigValuesTest {
         OpsConfigValues values = values(new MockEnvironment());
 
         assertEquals(5, values.reindexDevLimit());
+    }
+
+    @Test
+    void batchSizesReadRuntimeValuesAndClampAtMax() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("APP_MAINTENANCE_SEARCH_REINDEX_BATCH_SIZE", "9999")
+                .withProperty("APP_MAINTENANCE_SANITIZE_BATCH_SIZE", "750");
+
+        OpsConfigValues values = values(environment);
+
+        assertEquals(1000, values.reindexBatchSize());
+        assertEquals(750, values.normalizationMaintenanceBatchSize());
     }
 
     @Test
@@ -124,6 +138,7 @@ class OpsConfigValuesTest {
     void normalizationOwnerConfigReadsRuntimeValues() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("APP_OPS_MAINTENANCE_NORMALIZATION_DEV_LIMIT", "8")
+                .withProperty("APP_MAINTENANCE_SANITIZE_BATCH_SIZE", "250")
                 .withProperty("APP_OPS_NORMALIZATION_WORKER_BASE_URL", "http://normalization-worker:8080")
                 .withProperty("APP_OPS_NORMALIZATION_WORKER_REQUEST_TIMEOUT", "750ms")
                 .withProperty("APP_OPS_NORMALIZATION_LLM_REQUEST_TIMEOUT", "5m")
@@ -134,6 +149,7 @@ class OpsConfigValuesTest {
         OpsConfigValues values = values(environment);
 
         assertEquals(8, values.normalizationMaintenanceDevLimit());
+        assertEquals(250, values.normalizationMaintenanceBatchSize());
         assertEquals("http://normalization-worker:8080", values.normalizationOwnerBaseUrl());
         assertEquals(Duration.ofMillis(750), values.normalizationOwnerRequestTimeout());
         assertEquals(Duration.ofMinutes(5), values.normalizationLlmOwnerRequestTimeout());

@@ -121,6 +121,16 @@ public class MaintenanceController {
         return session("search-reindex-unified");
     }
 
+    @PostMapping("/search/reindex-raw-all/init")
+    public ResponseEntity<Map<String, String>> initRawReindexAll() {
+        return session("search-reindex-raw-all");
+    }
+
+    @PostMapping("/search/reindex-unified-all/init")
+    public ResponseEntity<Map<String, String>> initUnifiedReindexAll() {
+        return session("search-reindex-unified-all");
+    }
+
     @PostMapping("/trend/sync")
     public ResponseEntity<Void> triggerTrendSync() {
         maintenanceSessionService.initSession("trend-sync");

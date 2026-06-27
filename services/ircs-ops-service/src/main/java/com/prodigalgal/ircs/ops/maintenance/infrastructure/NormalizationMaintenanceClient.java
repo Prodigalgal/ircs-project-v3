@@ -52,7 +52,7 @@ class NormalizationMaintenanceClient implements MaintenanceNormalizationClient {
             return new MaintenanceRunResult(
                     "sanitize",
                     safeInt(body.rawVideoCount()),
-                    safeInt(body.changedRows()),
+                    safeInt(body.enqueuedRows() > 0 ? body.enqueuedRows() : body.changedRows()),
                     ids(body.sampleRawVideoIds()));
         } catch (OutboundCircuitOpenException ex) {
             throw new IllegalStateException("normalization-worker maintenance failed: outbound circuit open", ex);
@@ -95,7 +95,9 @@ class NormalizationMaintenanceClient implements MaintenanceNormalizationClient {
         String baseUrl = configValues.normalizationOwnerBaseUrl();
         String normalizedBase = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         return URI.create(normalizedBase + RESET_NORMALIZATION_PATH
-                + "?sampleLimit=" + configValues.normalizationMaintenanceDevLimit());
+                + "?sampleLimit=" + configValues.normalizationMaintenanceDevLimit()
+                + "&enqueue=true"
+                + "&batchSize=" + configValues.normalizationMaintenanceBatchSize());
     }
 
     private int safeInt(long value) {

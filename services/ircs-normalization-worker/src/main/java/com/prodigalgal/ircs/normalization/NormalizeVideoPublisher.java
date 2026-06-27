@@ -19,4 +19,8 @@ public class NormalizeVideoPublisher {
     public void publish(PipelineCommand command) {
         pipelineQueue.submitAfterCommit(command);
     }
+
+    public void publishNow(UUID rawVideoId, String pipelineVersion) {
+        pipelineQueue.submit(PipelineCommand.normalize(rawVideoId, pipelineVersion));
+    }
 }

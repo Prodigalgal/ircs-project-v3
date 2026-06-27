@@ -65,6 +65,19 @@ class MaintenanceControllerTest {
     }
 
     @Test
+    void fullSearchReindexInitRoutesReturnSessionIds() {
+        UUID rawId = UUID.randomUUID();
+        UUID unifiedId = UUID.randomUUID();
+        when(maintenanceSessionService.initSession("search-reindex-raw-all"))
+                .thenReturn(new MaintenanceSessionInfo(rawId, "search-reindex-raw-all", 100L, false));
+        when(maintenanceSessionService.initSession("search-reindex-unified-all"))
+                .thenReturn(new MaintenanceSessionInfo(unifiedId, "search-reindex-unified-all", 100L, false));
+
+        assertEquals(rawId.toString(), controller.initRawReindexAll().getBody().get("sessionId"));
+        assertEquals(unifiedId.toString(), controller.initUnifiedReindexAll().getBody().get("sessionId"));
+    }
+
+    @Test
     void runnersExposeRegistryMetadata() {
         MaintenanceRunnerMetadata metadata = new MaintenanceRunnerMetadata(
                 "search-reindex-unified",

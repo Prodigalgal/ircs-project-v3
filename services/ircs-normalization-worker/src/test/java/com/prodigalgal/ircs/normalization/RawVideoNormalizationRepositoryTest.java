@@ -81,7 +81,7 @@ class RawVideoNormalizationRepositoryTest {
     }
 
     @Test
-    void markReadyUpsertsRawCategoryAndBindsRawVideoWithoutClearingStandardCategory() {
+    void markReadyUpsertsRawCategoryAndLetsInferredCategoryOverrideLegacyCategory() {
         UUID rawVideoId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
         UUID rawCategoryId = UUID.randomUUID();
@@ -107,7 +107,7 @@ class RawVideoNormalizationRepositoryTest {
                         && sql.contains("category_id")
                         && sql.contains("standard_category")
                         && sql.contains("lower(slug) = lower(:inferredCategoryCode)")
-                        && sql.contains("coalesce(raw_category.category_id, excluded.category_id)")),
+                        && sql.contains("when :inferredCategoryCode is not null then excluded.category_id")),
                 any(MapSqlParameterSource.class),
                 any(RowMapper.class));
         verify(jdbcTemplate).update(contains("data_source_category_id"), any(MapSqlParameterSource.class));
@@ -130,13 +130,13 @@ class RawVideoNormalizationRepositoryTest {
     }
 
     @Test
-    void resetAllNormalizationPendingKeepsV1StatusOnlySemantics() {
+    void resetAllNormalizationPendingClearsRetryStateForHistoricalRemap() {
         when(jdbcTemplate.update(
                         argThat(sql -> sql.contains("update raw_videos")
                                 && sql.contains("normalization_status = 'PENDING'")
                                 && sql.contains("updated_at = now()")
-                                && !sql.contains("next_normalization_retry_time")
-                                && !sql.contains("normalization_retry_count")),
+                                && sql.contains("next_normalization_retry_time = null")
+                                && sql.contains("normalization_retry_count = 0")),
                         any(MapSqlParameterSource.class)))
                 .thenReturn(12);
 

@@ -24,21 +24,23 @@ class NormalizationMaintenanceInternalControllerTest {
     @Test
     void resetsRawNormalizationThroughInternalEndpoint() {
         UUID rawVideoId = UUID.randomUUID();
-        when(normalizationService.resetAllNormalizationPending(7))
+        when(normalizationService.resetAllNormalizationPending(7, false, 500))
                 .thenReturn(new NormalizationMaintenanceRunResponse(
                         "sanitize",
                         12,
                         9,
+                        0,
                         List.of(rawVideoId)));
 
-        var response = controller.resetNormalization(7, null, null, null);
+        var response = controller.resetNormalization(7, false, 500, null, null, null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody().taskName()).isEqualTo("sanitize");
         assertThat(response.getBody().rawVideoCount()).isEqualTo(12);
         assertThat(response.getBody().changedRows()).isEqualTo(9);
+        assertThat(response.getBody().enqueuedRows()).isZero();
         assertThat(response.getBody().sampleRawVideoIds()).containsExactly(rawVideoId);
-        verify(normalizationService).resetAllNormalizationPending(7);
+        verify(normalizationService).resetAllNormalizationPending(7, false, 500);
     }
 
     @Test
@@ -51,6 +53,8 @@ class NormalizationMaintenanceInternalControllerTest {
                 ResponseStatusException.class,
                 () -> controller.resetNormalization(
                         5,
+                        false,
+                        500,
                         "ops-service",
                         "wrong-token",
                         "normalization:maintenance"));

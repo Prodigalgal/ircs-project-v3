@@ -32,6 +32,7 @@ class MaintenanceReindexCommandTest {
     @BeforeEach
     void setUp() {
         when(configValues.reindexDevLimit()).thenReturn(5);
+        when(configValues.reindexBatchSize()).thenReturn(2);
     }
 
     @Test
@@ -158,5 +159,60 @@ class MaintenanceReindexCommandTest {
         verify(jdbcTemplate).query(anyString(), paramsCaptor.capture(), any(RowMapper.class));
         MapSqlParameterSource params = (MapSqlParameterSource) paramsCaptor.getValue();
         assertEquals(7, params.getValue("limit"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void enqueueAllUnifiedIndexPublishesByCursorBatches() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        when(jdbcTemplate.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(List.of(first, second))
+                .thenReturn(List.of(third));
+        when(searchSyncClient.enqueueIndex(
+                org.mockito.Mockito.anyList(),
+                org.mockito.Mockito.eq(SearchEntityType.UNIFIED_VIDEO),
+                org.mockito.Mockito.eq("corr-all")))
+                .thenReturn(2)
+                .thenReturn(1);
+
+        MaintenanceReindexCommand command = new MaintenanceReindexCommand(
+                jdbcTemplate, searchSyncClient, configValues);
+
+        MaintenanceRunResult result = command.enqueueAllUnifiedIndex("corr-all");
+
+        assertEquals("search-reindex-unified-all", result.taskName());
+        assertEquals(3, result.selectedCount());
+        assertEquals(3, result.publishedCount());
+        assertEquals(List.of(first, second, third), result.entityIds());
+        verify(searchSyncClient).enqueueIndex(
+                List.of(first, second),
+                SearchEntityType.UNIFIED_VIDEO,
+                "corr-all");
+        verify(searchSyncClient).enqueueIndex(
+                List.of(third),
+                SearchEntityType.UNIFIED_VIDEO,
+                "corr-all");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void enqueueAllRawIndexSkipsPublishWhenNoRowsExist() {
+        when(jdbcTemplate.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
+                .thenReturn(List.of());
+
+        MaintenanceReindexCommand command = new MaintenanceReindexCommand(
+                jdbcTemplate, searchSyncClient, configValues);
+
+        MaintenanceRunResult result = command.enqueueAllRawIndex("corr-empty");
+
+        assertEquals("search-reindex-raw-all", result.taskName());
+        assertEquals(0, result.selectedCount());
+        assertEquals(0, result.publishedCount());
+        verify(searchSyncClient, never()).enqueueIndex(
+                org.mockito.Mockito.anyList(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.anyString());
     }
 }

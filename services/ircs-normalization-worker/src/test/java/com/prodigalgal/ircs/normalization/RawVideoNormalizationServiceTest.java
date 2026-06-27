@@ -37,6 +37,9 @@ class RawVideoNormalizationServiceTest {
     private AggregationWorkPublisher aggregationWorkPublisher;
 
     @Mock
+    private NormalizeVideoPublisher normalizeVideoPublisher;
+
+    @Mock
     private NormalizationConfigValues configValues;
 
     private RawVideoNormalizationService service;
@@ -53,6 +56,7 @@ class RawVideoNormalizationServiceTest {
                 searchSyncPublisher,
                 metadataEnrichPublisher,
                 aggregationWorkPublisher,
+                normalizeVideoPublisher,
                 objectMapper,
                 configValues);
     }
@@ -250,9 +254,30 @@ class RawVideoNormalizationServiceTest {
         assertEquals("sanitize", result.taskName());
         assertEquals(12L, result.rawVideoCount());
         assertEquals(9L, result.changedRows());
+        assertEquals(0L, result.enqueuedRows());
         assertEquals(List.of(first, second), result.sampleRawVideoIds());
         verify(repository).sampleRawVideoIds(3);
         verify(repository).countRawVideos();
         verify(repository).resetAllNormalizationPending();
+    }
+
+    @Test
+    void resetAllNormalizationPendingCanEnqueueAllRawVideosByCursor() {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        when(repository.sampleRawVideoIds(1)).thenReturn(List.of(first));
+        when(repository.countRawVideos()).thenReturn(2L);
+        when(repository.resetAllNormalizationPending()).thenReturn(2);
+        when(repository.findNormalizationQueueItems(null, 1))
+                .thenReturn(List.of(new RawVideoNormalizationRepository.RawVideoQueueItem(first, "hash-1")));
+        when(repository.findNormalizationQueueItems(first, 1))
+                .thenReturn(List.of(new RawVideoNormalizationRepository.RawVideoQueueItem(second, "hash-2")));
+        when(repository.findNormalizationQueueItems(second, 1)).thenReturn(List.of());
+
+        NormalizationMaintenanceRunResponse result = service.resetAllNormalizationPending(1, true, 1);
+
+        assertEquals(2L, result.enqueuedRows());
+        verify(normalizeVideoPublisher).publishNow(first, "hash-1");
+        verify(normalizeVideoPublisher).publishNow(second, "hash-2");
     }
 }

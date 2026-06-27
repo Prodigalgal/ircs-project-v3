@@ -34,7 +34,8 @@ class PortalQueryServiceTest {
 
         PortalMetadataResponse metadata = service.getMetadata(principal);
 
-        assertTrue(metadata.categories().isEmpty());
+        assertEquals(List.of("movie", "series", "short-drama", "anime", "variety", "documentary"),
+                metadata.categories().stream().map(CategoryItem::slug).toList());
         assertTrue(metadata.genres().isEmpty());
         assertTrue(metadata.areas().isEmpty());
         assertEquals(List.of("国语"), metadata.languages());
@@ -44,7 +45,6 @@ class PortalQueryServiceTest {
     @Test
     void anonymousMetadataUsesReadModelCache() {
         PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
-        when(portalRepository.findActiveCategories(principal)).thenReturn(List.of(new CategoryItem("movies", "电影")));
         when(portalRepository.findActiveGenres(principal)).thenReturn(List.of("剧情"));
         when(portalRepository.findActiveAreas(principal)).thenReturn(List.of("中国大陆"));
         when(portalRepository.findActiveLanguages(principal)).thenReturn(List.of("国语"));
@@ -54,7 +54,6 @@ class PortalQueryServiceTest {
         PortalMetadataResponse second = cachedService.getMetadata(principal);
 
         assertEquals(first, second);
-        verify(portalRepository, times(1)).findActiveCategories(principal);
         verify(portalRepository, times(1)).findActiveGenres(principal);
         verify(portalRepository, times(1)).findActiveAreas(principal);
         verify(portalRepository, times(1)).findActiveLanguages(principal);
@@ -65,7 +64,6 @@ class PortalQueryServiceTest {
     void authenticatedMetadataBypassesPublicReadModelCache() {
         PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
         IrcsRequestPrincipal member = memberPrincipal();
-        when(portalRepository.findActiveCategories(member)).thenReturn(List.of(new CategoryItem("movies", "电影")));
         when(portalRepository.findActiveGenres(member)).thenReturn(List.of("剧情"));
         when(portalRepository.findActiveAreas(member)).thenReturn(List.of("中国大陆"));
         when(portalRepository.findActiveLanguages(member)).thenReturn(List.of("国语"));
@@ -74,7 +72,6 @@ class PortalQueryServiceTest {
         cachedService.getMetadata(member);
         cachedService.getMetadata(member);
 
-        verify(portalRepository, times(2)).findActiveCategories(member);
         verify(portalRepository, times(2)).findActiveGenres(member);
         verify(portalRepository, times(2)).findActiveAreas(member);
         verify(portalRepository, times(2)).findActiveLanguages(member);
@@ -86,10 +83,11 @@ class PortalQueryServiceTest {
         PortalMovieCard card = sampleCard();
         when(portalRepository.findSpotlight(principal, 20)).thenReturn(null);
         when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
-        when(portalRepository.findActiveCategories(principal)).thenReturn(List.of(
-                new CategoryItem("短剧", "short-drama"),
-                new CategoryItem("纪录片", "documentary")));
+        when(portalRepository.findCategorySection(principal, "movie", 20)).thenReturn(List.of());
+        when(portalRepository.findCategorySection(principal, "series", 20)).thenReturn(List.of());
         when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of());
+        when(portalRepository.findCategorySection(principal, "anime", 20)).thenReturn(List.of());
+        when(portalRepository.findCategorySection(principal, "variety", 20)).thenReturn(List.of());
         when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
 
         PortalHomeResponse home = service.getHome(principal);
@@ -108,11 +106,11 @@ class PortalQueryServiceTest {
         PortalMovieCard card = sampleCard();
         when(portalRepository.findSpotlight(principal, 20)).thenReturn(List.of(card));
         when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
-        when(portalRepository.findActiveCategories(principal)).thenReturn(List.of(
-                new CategoryItem("纪录片", "documentary"),
-                new CategoryItem("短剧", "short-drama"),
-                new CategoryItem("实验影像", "experimental")));
+        when(portalRepository.findCategorySection(principal, "movie", 20)).thenReturn(List.of());
+        when(portalRepository.findCategorySection(principal, "series", 20)).thenReturn(List.of());
         when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of(card));
+        when(portalRepository.findCategorySection(principal, "anime", 20)).thenReturn(List.of());
+        when(portalRepository.findCategorySection(principal, "variety", 20)).thenReturn(List.of());
         when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
 
         PortalHomeResponse home = service.getHome(principal);

@@ -24,6 +24,7 @@ public class RawVideoNormalizationService {
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final MetadataEnrichPublisher metadataEnrichPublisher;
     private final AggregationWorkPublisher aggregationWorkPublisher;
+    private final NormalizeVideoPublisher normalizeVideoPublisher;
     private final ObjectMapper objectMapper;
     private final NormalizationConfigValues configValues;
 
@@ -96,17 +97,43 @@ public class RawVideoNormalizationService {
         return Math.max(1, configValues.backoffBaseSeconds()) * multiplier;
     }
 
-    @Transactional
     public NormalizationMaintenanceRunResponse resetAllNormalizationPending(int sampleLimit) {
+        return resetAllNormalizationPending(sampleLimit, false, 500);
+    }
+
+    public NormalizationMaintenanceRunResponse resetAllNormalizationPending(int sampleLimit, boolean enqueue, int batchSize) {
         int safeLimit = Math.max(1, sampleLimit);
         List<UUID> sampleRawVideoIds = repository.sampleRawVideoIds(safeLimit);
         long rawVideoCount = repository.countRawVideos();
         int changedRows = repository.resetAllNormalizationPending();
+        long enqueuedRows = enqueue ? enqueueAllNormalization(batchSize) : 0L;
         return new NormalizationMaintenanceRunResponse(
                 "sanitize",
                 rawVideoCount,
                 changedRows,
+                enqueuedRows,
                 sampleRawVideoIds);
+    }
+
+    private long enqueueAllNormalization(int batchSize) {
+        int safeBatchSize = Math.max(1, batchSize);
+        long enqueuedRows = 0L;
+        UUID cursor = null;
+        while (true) {
+            List<RawVideoNormalizationRepository.RawVideoQueueItem> items =
+                    repository.findNormalizationQueueItems(cursor, safeBatchSize);
+            if (items.isEmpty()) {
+                return enqueuedRows;
+            }
+            for (RawVideoNormalizationRepository.RawVideoQueueItem item : items) {
+                normalizeVideoPublisher.publishNow(item.id(), item.dataHash());
+            }
+            enqueuedRows += items.size();
+            cursor = items.getLast().id();
+            if (items.size() < safeBatchSize) {
+                return enqueuedRows;
+            }
+        }
     }
 
     public record NormalizationResult(UUID rawVideoId, String status, String reason) {

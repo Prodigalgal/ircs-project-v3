@@ -55,6 +55,22 @@ class MaintenanceRunnerServiceTest {
         assertEquals(MaintenanceReindexCommand.MAX_DEV_LIMIT, raw.maxLimit());
         assertEquals(List.of(MaintenanceRunnerService.RAW_SEARCH_REINDEX_OWNER_STEP), raw.ownerSteps());
 
+        MaintenanceRunnerMetadata unifiedAll = find(registry, "search-reindex-unified-all");
+        assertEquals(MaintenanceRiskLevel.HIGH, unifiedAll.riskLevel());
+        assertTrue(unifiedAll.devAllowed());
+        assertTrue(unifiedAll.supportsDryRun());
+        assertEquals(MaintenanceReindexCommand.DEFAULT_BATCH_SIZE, unifiedAll.defaultLimit());
+        assertEquals(MaintenanceReindexCommand.MAX_BATCH_SIZE, unifiedAll.maxLimit());
+        assertEquals(List.of(MaintenanceRunnerService.SEARCH_REINDEX_ALL_OWNER_STEP), unifiedAll.ownerSteps());
+
+        MaintenanceRunnerMetadata rawAll = find(registry, "search-reindex-raw-all");
+        assertEquals(MaintenanceRiskLevel.HIGH, rawAll.riskLevel());
+        assertTrue(rawAll.devAllowed());
+        assertTrue(rawAll.supportsDryRun());
+        assertEquals(MaintenanceReindexCommand.DEFAULT_BATCH_SIZE, rawAll.defaultLimit());
+        assertEquals(MaintenanceReindexCommand.MAX_BATCH_SIZE, rawAll.maxLimit());
+        assertEquals(List.of(MaintenanceRunnerService.RAW_SEARCH_REINDEX_ALL_OWNER_STEP), rawAll.ownerSteps());
+
         MaintenanceRunnerMetadata unifiedRecalculate = find(registry, "unified-recalculate");
         assertEquals(MaintenanceRiskLevel.HIGH, unifiedRecalculate.riskLevel());
         assertTrue(unifiedRecalculate.devAllowed());
@@ -153,6 +169,30 @@ class MaintenanceRunnerServiceTest {
         assertEquals("search-reindex-raw", event.jobName());
         assertEquals("succeeded", event.status());
         assertEquals("corr-raw", event.correlationId());
+        assertNotNull(event.duration());
+    }
+
+    @Test
+    void searchReindexUnifiedAllRunsAndWritesSucceededAuditEvidence() {
+        MaintenanceRunResult result = new MaintenanceRunResult(
+                "search-reindex-unified-all",
+                200,
+                200,
+                List.of(java.util.UUID.randomUUID()));
+        when(reindexCommand.enqueueAllUnifiedIndex("corr-all")).thenReturn(result);
+
+        MaintenanceRunnerExecution execution = runnerService.run("search-reindex-unified-all", "corr-all");
+
+        assertFalse(execution.refused());
+        assertEquals(result, execution.result());
+        assertEquals("search-reindex-unified-all", execution.metadata().taskName());
+        verify(reindexCommand).enqueueAllUnifiedIndex("corr-all");
+
+        WorkerJobAuditEvent event = captureAuditEvent();
+        assertEquals(MaintenanceRunnerService.JOB_TYPE_MAINTENANCE_RUNNER, event.jobType());
+        assertEquals("search-reindex-unified-all", event.jobName());
+        assertEquals("succeeded", event.status());
+        assertEquals("corr-all", event.correlationId());
         assertNotNull(event.duration());
     }
 
