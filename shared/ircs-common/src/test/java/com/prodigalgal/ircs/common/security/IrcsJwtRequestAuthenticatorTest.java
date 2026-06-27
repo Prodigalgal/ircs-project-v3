@@ -45,7 +45,7 @@ class IrcsJwtRequestAuthenticatorTest {
                 .claim(IrcsAuthClaims.ROLE, IrcsPermissions.ROLE_ADMIN)
                 .claim(IrcsAuthClaims.PERMISSIONS, IrcsPermissions.defaultPermissions(IrcsPermissions.ROLE_ADMIN))
                 .claim(IrcsAuthClaims.SCOPES, IrcsPermissions.defaultScopes(IrcsPermissions.ROLE_ADMIN))
-                .claim(IrcsAuthClaims.DATA_CATEGORIES, IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ADMIN))
+                .claim(IrcsAuthClaims.DATA_CATEGORIES, IrcsPermissions.defaultCategoryScope(IrcsPermissions.ROLE_ADMIN))
                 .claim(IrcsAuthClaims.DATA_GENRES, IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ADMIN))
                 .claim(IrcsAuthClaims.DATA_TAGS, IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ADMIN))
                 .claim(IrcsAuthClaims.CONTENT_VISIBILITY, IrcsPermissions.defaultContentVisibility(IrcsPermissions.ROLE_ADMIN))

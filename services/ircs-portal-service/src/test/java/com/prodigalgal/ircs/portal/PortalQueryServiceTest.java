@@ -34,7 +34,18 @@ class PortalQueryServiceTest {
 
         PortalMetadataResponse metadata = service.getMetadata(principal);
 
-        assertEquals(List.of("movie", "series", "short-drama", "anime", "variety", "documentary"),
+        assertEquals(List.of(
+                        "movie",
+                        "series",
+                        "short-drama",
+                        "anime",
+                        "variety",
+                        "documentary",
+                        "sports",
+                        "news",
+                        "education",
+                        "music",
+                        "other"),
                 metadata.categories().stream().map(CategoryItem::slug).toList());
         assertTrue(metadata.genres().isEmpty());
         assertTrue(metadata.areas().isEmpty());
@@ -79,7 +90,7 @@ class PortalQueryServiceTest {
     }
 
     @Test
-    void homeReturnsArraysAndOnlyNonEmptySections() {
+    void homeReturnsArraysAndAuthorizedCategorySections() {
         PortalMovieCard card = sampleCard();
         when(portalRepository.findSpotlight(principal, 20)).thenReturn(null);
         when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
@@ -94,10 +105,12 @@ class PortalQueryServiceTest {
 
         assertTrue(home.spotlight().isEmpty());
         assertEquals(List.of(card), home.trending());
-        assertEquals(1, home.sections().size());
-        assertEquals("documentary", home.sections().getFirst().id());
-        assertEquals("纪录片场", home.sections().getFirst().title());
-        assertEquals(List.of(card), home.sections().getFirst().movies());
+        assertEquals(11, home.sections().size());
+        assertEquals("movie", home.sections().getFirst().id());
+        assertEquals(List.of(), home.sections().getFirst().movies());
+        assertEquals("documentary", home.sections().get(5).id());
+        assertEquals("纪录片场", home.sections().get(5).title());
+        assertEquals(List.of(card), home.sections().get(5).movies());
         verify(portalRepository).findCategorySection(principal, "documentary", 20);
     }
 
@@ -117,9 +130,34 @@ class PortalQueryServiceTest {
 
         assertEquals(List.of(card), home.spotlight());
         assertEquals(List.of(card), home.trending());
-        assertEquals(List.of("short-drama", "documentary"),
+        assertEquals(List.of(
+                        "movie",
+                        "series",
+                        "short-drama",
+                        "anime",
+                        "variety",
+                        "documentary",
+                        "sports",
+                        "news",
+                        "education",
+                        "music",
+                        "other"),
                 home.sections().stream().map(PortalCategorySection::id).toList());
         verify(portalRepository, times(0)).findCategorySection(principal, "experimental", 20);
+    }
+
+    @Test
+    void adultCategoryIsVisibleOnlyWhenPrincipalAllowsIt() {
+        IrcsRequestPrincipal adultPrincipal = adultPrincipal();
+        when(portalRepository.findActiveGenres(adultPrincipal)).thenReturn(List.of());
+        when(portalRepository.findActiveAreas(adultPrincipal)).thenReturn(List.of());
+        when(portalRepository.findActiveLanguages(adultPrincipal)).thenReturn(List.of());
+        when(portalRepository.findActiveYears(adultPrincipal)).thenReturn(List.of());
+
+        PortalMetadataResponse metadata = service.getMetadata(adultPrincipal);
+
+        assertEquals(12, metadata.categories().size());
+        assertEquals("adult", metadata.categories().get(10).slug());
     }
 
     @Test
@@ -228,7 +266,19 @@ class PortalQueryServiceTest {
                 IrcsPermissions.ROLE_MEMBER,
                 IrcsPermissions.defaultPermissions(IrcsPermissions.ROLE_MEMBER),
                 IrcsPermissions.defaultScopes(IrcsPermissions.ROLE_MEMBER),
+                IrcsPermissions.defaultCategoryScope(IrcsPermissions.ROLE_MEMBER),
                 Set.of(IrcsPermissions.ALL),
+                Set.of(IrcsPermissions.ALL),
+                IrcsPermissions.defaultContentVisibility(IrcsPermissions.ROLE_MEMBER));
+    }
+
+    private IrcsRequestPrincipal adultPrincipal() {
+        return new IrcsRequestPrincipal(
+                "member-adult",
+                IrcsPermissions.ROLE_MEMBER,
+                IrcsPermissions.defaultPermissions(IrcsPermissions.ROLE_MEMBER),
+                IrcsPermissions.defaultScopes(IrcsPermissions.ROLE_MEMBER),
+                IrcsPermissions.memberCategoryScope(true),
                 Set.of(IrcsPermissions.ALL),
                 Set.of(IrcsPermissions.ALL),
                 IrcsPermissions.defaultContentVisibility(IrcsPermissions.ROLE_MEMBER));

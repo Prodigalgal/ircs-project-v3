@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -23,13 +24,9 @@ class CatalogDefaultSeedCatalog {
     private static final Map<String, String> CODE_TO_REGION = buildCodeToRegion();
 
     List<CategorySeed> categories() {
-        return List.of(
-                new CategorySeed("电影", "movie"),
-                new CategorySeed("电视剧", "series"),
-                new CategorySeed("综艺", "variety"),
-                new CategorySeed("动漫", "anime"),
-                new CategorySeed("短剧", "short-drama"),
-                new CategorySeed("纪录片", "documentary"));
+        return StandardContentCategoryClassifier.stableCategories().stream()
+                .map(category -> new CategorySeed(category.name(), category.code()))
+                .toList();
     }
 
     List<GenreSeed> genres() {

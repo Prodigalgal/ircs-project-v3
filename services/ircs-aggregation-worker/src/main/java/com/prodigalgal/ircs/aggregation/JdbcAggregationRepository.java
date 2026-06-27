@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 
 import java.sql.Date;
 import java.sql.ResultSet;
@@ -32,6 +33,7 @@ import org.springframework.util.StringUtils;
 public class JdbcAggregationRepository {
 
     private static final Pattern LOCKED_FIELD_PATTERN = Pattern.compile("\"([^\"]+)\"");
+    private static final List<String> ALLOWED_CATEGORY_CODES = StandardContentCategoryClassifier.stableCategoryCodes();
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final AggregationCandidateRepository candidateRepository;
@@ -335,9 +337,7 @@ public class JdbcAggregationRepository {
                         when :categoryCode is not null and (
                             category_code is null
                             or nullif(trim(category_code), '') is null
-                            or lower(category_code) not in (
-                                'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
-                            )
+                            or lower(category_code) not in (:allowedCategoryCodes)
                         ) then (select id from standard_category where slug = :categoryCode limit 1)
                         else category_id
                     end,
@@ -345,9 +345,7 @@ public class JdbcAggregationRepository {
                         when :categoryCode is not null and (
                             category_code is null
                             or nullif(trim(category_code), '') is null
-                            or lower(category_code) not in (
-                                'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
-                            )
+                            or lower(category_code) not in (:allowedCategoryCodes)
                         ) then :categoryCode
                         else category_code
                     end,
@@ -1337,9 +1335,7 @@ public class JdbcAggregationRepository {
                            when nullif(:categoryCode, '') is not null and (
                                category_code is null
                                or nullif(trim(category_code), '') is null
-                               or lower(category_code) not in (
-                                   'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
-                               )
+                               or lower(category_code) not in (:allowedCategoryCodes)
                            ) then :categoryCode
                            else category_code
                        end,
@@ -1364,7 +1360,8 @@ public class JdbcAggregationRepository {
                         .addValue("genreCodes", JsonStringArrays.write(
                                 objectMapper,
                                 collectFlatValues(rows, RawFlatMetadataRow::genreCodes)))
-                        .addValue("categoryCode", firstCategoryCode(rows)));
+                        .addValue("categoryCode", firstCategoryCode(rows))
+                        .addValue("allowedCategoryCodes", ALLOWED_CATEGORY_CODES));
     }
 
     private String firstCategoryCode(List<RawFlatMetadataRow> rows) {
@@ -1429,6 +1426,7 @@ public class JdbcAggregationRepository {
                 .addValue("subtitle", trimToLength(rawVideo.subtitle(), 255))
                 .addValue("season", rawVideo.season())
                 .addValue("categoryCode", trimToLength(rawVideo.categoryCode(), 100))
+                .addValue("allowedCategoryCodes", ALLOWED_CATEGORY_CODES)
                 .addValue("doubanId", trimToLength(validOrNull(rawVideo.doubanId()), 20))
                 .addValue("tmdbId", trimToLength(validOrNull(rawVideo.tmdbId()), 20))
                 .addValue("imdbId", trimToLength(validOrNull(rawVideo.imdbId()), 20))

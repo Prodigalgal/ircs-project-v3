@@ -55,17 +55,18 @@ class CatalogRemoteCategorySyncServiceTest {
                 .containsExactly("1", "2");
         assertThat(repository.synced)
                 .extracting(SyncedCategory::inferredCategoryName)
-                .containsExactly("电影", "电视剧");
+                .containsExactly("电影", "剧集");
     }
 
     @Test
-    void categoryPolicyKeepsRemoteCategoriesWithinSixStableTopCategories() {
+    void categoryPolicyMapsRemoteCategoriesIntoTwelveStableTopCategories() {
         CatalogCategoryMappingPolicy policy = new CatalogCategoryMappingPolicy();
 
         assertThat(policy.inferCategoryName("剧情片")).isEqualTo("电影");
         assertThat(policy.inferCategoryName("大陆综艺")).isEqualTo("综艺");
-        assertThat(policy.inferCategoryName("体育赛事")).isNull();
-        assertThat(policy.inferCategoryName("其他片源")).isNull();
+        assertThat(policy.inferCategoryName("体育赛事")).isEqualTo("体育赛事");
+        assertThat(policy.inferCategoryName("网红头条")).isEqualTo("成人");
+        assertThat(policy.inferCategoryName("其他片源")).isEqualTo("其他");
     }
 
     private static final class FakeRepository extends JdbcCatalogRepository {

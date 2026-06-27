@@ -48,6 +48,7 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
         List<MemberRecord> content = jdbcTemplate.query(
                 """
                 select id, created_at, updated_at, version, email, password_hash, nickname, avatar_url, role, status,
+                       coalesce(adult_content_allowed, false) as adult_content_allowed,
                        experience, points, last_check_in_date, check_in_streak
                   from members
                 """
@@ -213,6 +214,7 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
                 rs.getString("avatar_url"),
                 rs.getString("role"),
                 MemberStatus.valueOf(rs.getString("status")),
+                rs.getBoolean("adult_content_allowed"),
                 rs.getInt("experience"),
                 rs.getInt("points"),
                 toLocalDate(rs.getDate("last_check_in_date")),

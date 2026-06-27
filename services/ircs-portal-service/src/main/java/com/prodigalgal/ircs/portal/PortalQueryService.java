@@ -16,27 +16,19 @@ public class PortalQueryService {
 
     private static final int MOVIE_RAIL_SIZE = 20;
     private static final int MOVIE_TREND_SIZE = 50;
-    private static final List<String> CATEGORY_DISPLAY_ORDER = List.of(
-            "movie",
-            "series",
-            "short-drama",
-            "anime",
-            "variety",
-            "documentary");
-    private static final Map<String, String> SECTION_TITLES = Map.of(
-            "movie", "电影精选",
-            "series", "热门剧集",
-            "short-drama", "爽剧/微短剧",
-            "anime", "动漫番剧",
-            "variety", "综艺合集",
-            "documentary", "纪录片场");
-    private static final Map<String, String> CATEGORY_NAMES = Map.of(
-            "movie", "电影",
-            "series", "剧集",
-            "short-drama", "短剧",
-            "anime", "动漫",
-            "variety", "综艺",
-            "documentary", "纪录片");
+    private static final Map<String, String> SECTION_TITLES = Map.ofEntries(
+            Map.entry("movie", "电影精选"),
+            Map.entry("series", "热门剧集"),
+            Map.entry("short-drama", "爽剧/微短剧"),
+            Map.entry("anime", "动漫番剧"),
+            Map.entry("variety", "综艺合集"),
+            Map.entry("documentary", "纪录片场"),
+            Map.entry("sports", "体育赛事"),
+            Map.entry("news", "新闻资讯"),
+            Map.entry("education", "教育知识"),
+            Map.entry("music", "音乐现场"),
+            Map.entry("adult", "成人专区"),
+            Map.entry("other", "其他内容"));
 
     private final JdbcPortalRepository portalRepository;
     private final PortalReadModelCache readModelCache;
@@ -52,7 +44,7 @@ public class PortalQueryService {
 
     private PortalMetadataResponse getMetadataUncached(IrcsRequestPrincipal principal) {
         return new PortalMetadataResponse(
-                stableCategories(),
+                stableCategories(principal),
                 safeList(portalRepository.findActiveGenres(principal)),
                 safeList(portalRepository.findActiveAreas(principal)),
                 safeList(portalRepository.findActiveLanguages(principal)),
@@ -69,11 +61,9 @@ public class PortalQueryService {
         List<PortalMovieCard> trending = safeList(portalRepository.findTrending(principal, MOVIE_TREND_SIZE));
         List<PortalCategorySection> sections = new ArrayList<>();
 
-        for (CategoryItem category : stableCategories()) {
+        for (CategoryItem category : stableCategories(principal)) {
             List<PortalMovieCard> movies = portalRepository.findCategorySection(principal, category.slug(), MOVIE_RAIL_SIZE);
-            if (movies != null && !movies.isEmpty()) {
-                sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), movies));
-            }
+            sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), safeList(movies)));
         }
 
         return new PortalHomeResponse(spotlight, trending, sections);
@@ -114,10 +104,12 @@ public class PortalQueryService {
         return values == null || values.isEmpty() ? Collections.emptyList() : values;
     }
 
-    private List<CategoryItem> stableCategories() {
-        return CATEGORY_DISPLAY_ORDER.stream()
-                .filter(StandardContentCategoryClassifier::isAllowedCode)
-                .map(slug -> new CategoryItem(CATEGORY_NAMES.getOrDefault(slug, slug), slug))
+    private List<CategoryItem> stableCategories(IrcsRequestPrincipal principal) {
+        IrcsRequestPrincipal effective = principal == null ? IrcsRequestPrincipal.publicPrincipal() : principal;
+        return StandardContentCategoryClassifier.stableCategories().stream()
+                .map(category -> new CategoryItem(category.name(), category.code()))
+                .filter(category -> StandardContentCategoryClassifier.isAllowedCode(category.slug()))
+                .filter(category -> effective.allowsCategory(category.slug(), category.name()))
                 .toList();
     }
 

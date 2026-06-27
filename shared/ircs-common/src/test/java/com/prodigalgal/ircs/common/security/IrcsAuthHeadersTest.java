@@ -81,6 +81,8 @@ class IrcsAuthHeadersTest {
         assertThat(principal.isAnonymous()).isTrue();
         assertThat(principal.hasPermission(IrcsPermissions.PORTAL_READ)).isTrue();
         assertThat(principal.hasPermission(IrcsPermissions.PORTAL_PROFILE_WRITE)).isFalse();
+        assertThat(principal.allowsCategory("movie")).isTrue();
+        assertThat(principal.allowsCategory("adult")).isFalse();
         assertThat(principal.allowsContentVisibility(IrcsPermissions.VISIBILITY_PUBLIC)).isTrue();
         assertThat(principal.allowsContentVisibility(IrcsPermissions.VISIBILITY_MEMBER)).isFalse();
     }

@@ -19,6 +19,7 @@ public record MemberRecord(
         String avatarUrl,
         String role,
         MemberStatus status,
+        boolean adultContentAllowed,
         int experience,
         int points,
         LocalDate lastCheckInDate,
@@ -37,6 +38,7 @@ public record MemberRecord(
                 "https://i.pravatar.cc/300?u=" + email,
                 "MEMBER",
                 status,
+                false,
                 0,
                 0,
                 null,
@@ -97,10 +99,30 @@ public record MemberRecord(
                 nextAvatarUrl == null ? avatarUrl : nextAvatarUrl,
                 nextRole == null ? role : nextRole,
                 statusSafe(nextStatus),
+                adultContentAllowed,
                 nextExperience,
                 nextPoints,
                 lastCheckInDate,
                 nextCheckInStreak);
+    }
+
+    public MemberRecord withAdultContentAllowed(boolean nextAdultContentAllowed) {
+        return new MemberRecord(
+                id,
+                createdAt,
+                Instant.now(),
+                version,
+                email,
+                passwordHash,
+                nickname,
+                avatarUrl,
+                role,
+                status,
+                nextAdultContentAllowed,
+                experience,
+                points,
+                lastCheckInDate,
+                checkInStreak);
     }
 
     public CheckInMutation checkIn(LocalDate today) {
@@ -143,6 +165,7 @@ public record MemberRecord(
                 nextAvatarUrl,
                 role,
                 nextStatus,
+                adultContentAllowed,
                 nextExperience,
                 nextPoints,
                 nextLastCheckInDate,

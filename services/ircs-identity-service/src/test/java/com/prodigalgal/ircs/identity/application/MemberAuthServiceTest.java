@@ -90,9 +90,27 @@ class MemberAuthServiceTest {
         assertEquals(memberId.toString(), claims.getSubject());
         assertTrue(claimSet(claims, IrcsAuthClaims.PERMISSIONS).contains(IrcsPermissions.PORTAL_READ));
         assertTrue(claimSet(claims, IrcsAuthClaims.SCOPES).contains(IrcsPermissions.SCOPE_PORTAL_READ));
+        assertTrue(claimSet(claims, IrcsAuthClaims.DATA_CATEGORIES).contains("movie"));
+        assertTrue(!claimSet(claims, IrcsAuthClaims.DATA_CATEGORIES).contains("adult"));
         assertTrue(claimSet(claims, IrcsAuthClaims.CONTENT_VISIBILITY).contains(IrcsPermissions.VISIBILITY_MEMBER));
         verify(poWService).verifyIfPresent(new PoWVerification("challenge-id", "nonce"));
         verify(statusCacheService).updateStatus(memberId, MemberStatus.ACTIVE);
+    }
+
+    @Test
+    void loginIncludesAdultCategoryWhenMemberIsAllowed() {
+        UUID memberId = UUID.randomUUID();
+        MemberRecord member = member(memberId, MemberStatus.ACTIVE).withAdultContentAllowed(true);
+        when(memberRepository.findByEmail("codex@example.com")).thenReturn(Optional.of(member));
+
+        MemberTokenResponse response = authService.login(new MemberLoginRequest(
+                "codex@example.com",
+                "Pass123",
+                new PoWVerification("challenge-id", "nonce")));
+
+        Claims claims = parseClaims(response.token());
+
+        assertTrue(claimSet(claims, IrcsAuthClaims.DATA_CATEGORIES).contains("adult"));
     }
 
     @Test
@@ -121,6 +139,7 @@ class MemberAuthServiceTest {
                 "https://i.pravatar.cc/300?u=codex@example.com",
                 "MEMBER",
                 status,
+                false,
                 0,
                 0,
                 null,

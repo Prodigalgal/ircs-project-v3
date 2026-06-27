@@ -131,3 +131,7 @@ databaseChangeLog:
       file: db/changelog/2026/07/flatten-content-metadata-code-model.sql
   - include:
       file: db/changelog/2026/07/remove-legacy-content-metadata-relations.sql
+  - include:
+      file: db/changelog/2026/07/extend-standard-content-categories.sql
+  - include:
+      file: db/changelog/2026/07/add-member-adult-content-scope.sql

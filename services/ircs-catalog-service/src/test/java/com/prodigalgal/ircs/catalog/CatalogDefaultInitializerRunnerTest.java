@@ -29,7 +29,11 @@ class CatalogDefaultInitializerRunnerTest {
         runner.run(new DefaultApplicationArguments());
 
         verify(repository).seedStandardCategory("电影", "movie");
+        verify(repository).seedStandardCategory("剧集", "series");
         verify(repository).seedStandardCategory("纪录片", "documentary");
+        verify(repository).seedStandardCategory("体育赛事", "sports");
+        verify(repository).seedStandardCategory("成人", "adult");
+        verify(repository).seedStandardCategory("其他", "other");
         verify(repository).seedStandardGenre("剧情");
         verify(repository).seedStandardGenre("国产剧");
         verify(repository).seedStandardArea("CN", "中国", "Asia");

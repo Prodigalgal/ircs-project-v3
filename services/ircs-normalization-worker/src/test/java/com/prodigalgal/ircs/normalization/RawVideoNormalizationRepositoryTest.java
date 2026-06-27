@@ -106,8 +106,11 @@ class RawVideoNormalizationRepositoryTest {
                 argThat(sql -> sql.contains("insert into raw_category")
                         && sql.contains("category_id")
                         && sql.contains("standard_category")
-                        && sql.contains("lower(slug) = lower(:inferredCategoryCode)")
-                        && sql.contains("when :inferredCategoryCode is not null then excluded.category_id")),
+                        && sql.contains("coalesce(")
+                        && sql.contains("cast(:fallbackCategoryCode as text)")
+                        && sql.contains("when cast(:inferredCategoryCode as text) is not null then excluded.category_id")
+                        && sql.contains("when raw_category.category_id is null then excluded.category_id")
+                        && sql.contains("not in (:allowedCategoryCodes)")),
                 any(MapSqlParameterSource.class),
                 any(RowMapper.class));
         verify(jdbcTemplate).update(contains("data_source_category_id"), any(MapSqlParameterSource.class));

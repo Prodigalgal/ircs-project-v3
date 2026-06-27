@@ -98,15 +98,26 @@ class LlmCleaningRepositoryTest {
     }
 
     @Test
-    void categoryStandardsOnlyExposeSixStableTopCategories() {
+    void categoryStandardsOnlyExposeTwelveStableTopCategories() {
         when(jdbcTemplate.query(
                         argThat(sql -> sql != null
                                 && sql.contains("from standard_category")
-                                && sql.contains("short-drama")
-                                && sql.contains("documentary")
-                                && !sql.contains("other")
-                                && !sql.contains("sports")),
-                        eq(Map.of()),
+                                && sql.contains("slug in (:allowedCategoryCodes)")),
+                        org.mockito.ArgumentMatchers.<Map<String, ?>>argThat(params -> params != null
+                                && params.containsKey("allowedCategoryCodes")
+                                && ((List<?>) params.get("allowedCategoryCodes")).containsAll(List.of(
+                                        "movie",
+                                        "series",
+                                        "short-drama",
+                                        "anime",
+                                        "variety",
+                                        "documentary",
+                                        "sports",
+                                        "news",
+                                        "education",
+                                        "music",
+                                        "adult",
+                                        "other"))),
                         any(RowMapper.class)))
                 .thenReturn(List.of());
         LlmCleaningRepository repository = new LlmCleaningRepository(jdbcTemplate);

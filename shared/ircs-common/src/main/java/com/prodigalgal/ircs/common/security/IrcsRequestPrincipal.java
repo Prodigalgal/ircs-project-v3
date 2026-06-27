@@ -110,7 +110,7 @@ public record IrcsRequestPrincipal(
                 IrcsPermissions.ROLE_ANONYMOUS,
                 IrcsPermissions.defaultPermissions(IrcsPermissions.ROLE_ANONYMOUS),
                 IrcsPermissions.defaultScopes(IrcsPermissions.ROLE_ANONYMOUS),
-                IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ANONYMOUS),
+                IrcsPermissions.defaultCategoryScope(IrcsPermissions.ROLE_ANONYMOUS),
                 IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ANONYMOUS),
                 IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ANONYMOUS),
                 IrcsPermissions.defaultContentVisibility(IrcsPermissions.ROLE_ANONYMOUS));

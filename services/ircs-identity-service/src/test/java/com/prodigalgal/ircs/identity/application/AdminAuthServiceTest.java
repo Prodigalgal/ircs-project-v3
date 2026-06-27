@@ -65,6 +65,7 @@ class AdminAuthServiceTest {
         assertEquals(IrcsPermissions.ROLE_ADMIN, claims.get(IrcsAuthClaims.ROLE, String.class));
         assertTrue(claimSet(claims, IrcsAuthClaims.PERMISSIONS).contains(IrcsPermissions.ALL));
         assertTrue(claimSet(claims, IrcsAuthClaims.SCOPES).contains(IrcsPermissions.SCOPE_ADMIN_ALL));
+        assertTrue(claimSet(claims, IrcsAuthClaims.DATA_CATEGORIES).contains(IrcsPermissions.ALL));
         assertTrue(claimSet(claims, IrcsAuthClaims.CONTENT_VISIBILITY).contains(IrcsPermissions.ALL));
         verify(poWService).verifyIfPresent(new PoWVerification("challenge-id", "nonce"));
     }

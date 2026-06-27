@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.normalization;
 
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,7 +33,7 @@ class LlmCleaningRepository {
     List<LlmCleaningStandard> findStandards(LlmCleaningKind kind) {
         return jdbcTemplate.query(
                 standardSql(kind),
-                Map.of(),
+                standardParams(kind),
                 (rs, rowNum) -> new LlmCleaningStandard(
                         rs.getObject("id", UUID.class),
                         rs.getString("name")));
@@ -80,7 +81,7 @@ class LlmCleaningRepository {
             case CATEGORY -> """
                     select id, name
                     from standard_category
-                    where slug in ('movie', 'series', 'short-drama', 'anime', 'variety', 'documentary')
+                    where slug in (:allowedCategoryCodes)
                       and name is not null
                     order by name
                     """;
@@ -108,6 +109,11 @@ class LlmCleaningRepository {
         if (kind != LlmCleaningKind.CATEGORY) {
             throw unsupportedKind(kind);
         }
+    }
+
+    private Map<String, List<String>> standardParams(LlmCleaningKind kind) {
+        requireCategory(kind);
+        return Map.of("allowedCategoryCodes", StandardContentCategoryClassifier.stableCategoryCodes());
     }
 
     private IllegalArgumentException unsupportedKind(LlmCleaningKind kind) {

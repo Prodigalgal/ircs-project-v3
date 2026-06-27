@@ -216,7 +216,7 @@ class AdminApiTokenService {
                 IrcsPermissions.ROLE_ADMIN,
                 Set.of(IrcsPermissions.ALL),
                 IrcsPermissions.defaultScopes(IrcsPermissions.ROLE_ADMIN),
-                IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ADMIN),
+                IrcsPermissions.defaultCategoryScope(IrcsPermissions.ROLE_ADMIN),
                 IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ADMIN),
                 IrcsPermissions.defaultDataScope(IrcsPermissions.ROLE_ADMIN),
                 IrcsPermissions.defaultContentVisibility(IrcsPermissions.ROLE_ADMIN));

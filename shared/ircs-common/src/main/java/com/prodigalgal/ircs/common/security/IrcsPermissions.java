@@ -1,7 +1,9 @@
 package com.prodigalgal.ircs.common.security;
 
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class IrcsPermissions {
 
@@ -88,6 +90,23 @@ public final class IrcsPermissions {
 
     public static Set<String> defaultDataScope(String role) {
         return Set.of(ALL);
+    }
+
+    public static Set<String> defaultCategoryScope(String role) {
+        String normalizedRole = normalizeRole(role);
+        if (ROLE_ADMIN.equals(normalizedRole)) {
+            return Set.of(ALL);
+        }
+        return StandardContentCategoryClassifier.stableCategoryCodes().stream()
+                .filter(code -> !StandardContentCategoryClassifier.ADULT.equals(code))
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    public static Set<String> memberCategoryScope(boolean adultContentAllowed) {
+        return adultContentAllowed
+                ? StandardContentCategoryClassifier.stableCategoryCodes().stream()
+                        .collect(Collectors.toUnmodifiableSet())
+                : defaultCategoryScope(ROLE_MEMBER);
     }
 
     public static Set<String> defaultContentVisibility(String role) {

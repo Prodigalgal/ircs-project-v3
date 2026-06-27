@@ -30,6 +30,7 @@ public class RawVideoNormalizationRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
     private final ObjectMapper objectMapper;
+    private final List<String> allowedCategoryCodes = StandardContentCategoryClassifier.stableCategoryCodes();
 
     public RawVideoNormalizationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
@@ -239,6 +240,7 @@ public class RawVideoNormalizationRepository {
         String inferredCategoryCode = StandardContentCategoryClassifier
                 .inferCode(safeSourceCode, safeSourceName)
                 .orElse(null);
+        String fallbackCategoryCode = StandardContentCategoryClassifier.OTHER;
         DataSourceCategoryBinding binding = jdbcTemplate.queryForObject(
                 """
                 insert into raw_category (
@@ -255,20 +257,23 @@ public class RawVideoNormalizationRepository {
                     (
                         select id
                         from standard_category
-                        where :inferredCategoryCode is not null
-                          and lower(slug) = lower(:inferredCategoryCode)
+                        where lower(slug) = lower(coalesce(
+                            cast(:inferredCategoryCode as text),
+                            cast(:fallbackCategoryCode as text)
+                        ))
                         limit 1
                     )
                 )
                 on conflict (data_source_id, source_code) do update set
                     source_name = coalesce(excluded.source_name, raw_category.source_name),
                     category_id = case
-                        when :inferredCategoryCode is not null then excluded.category_id
+                        when cast(:inferredCategoryCode as text) is not null then excluded.category_id
+                        when raw_category.category_id is null then excluded.category_id
                         when raw_category.category_id in (
                             select id
                               from standard_category
-                             where lower(slug) not in ('movie', 'series', 'short-drama', 'anime', 'variety', 'documentary')
-                        ) then null
+                             where lower(slug) not in (:allowedCategoryCodes)
+                        ) then excluded.category_id
                         else raw_category.category_id
                     end,
                     updated_at = excluded.updated_at
@@ -284,7 +289,9 @@ public class RawVideoNormalizationRepository {
                         .addValue("dataSourceId", dataSourceId)
                         .addValue("sourceCode", safeSourceCode)
                         .addValue("sourceName", safeSourceName)
-                        .addValue("inferredCategoryCode", inferredCategoryCode),
+                        .addValue("inferredCategoryCode", inferredCategoryCode)
+                        .addValue("fallbackCategoryCode", fallbackCategoryCode)
+                        .addValue("allowedCategoryCodes", allowedCategoryCodes),
                 (rs, rowNum) -> new DataSourceCategoryBinding(
                         rs.getObject("id", UUID.class),
                         rs.getString("category_code")));
@@ -390,9 +397,7 @@ public class RawVideoNormalizationRepository {
                        genre_codes = case when :hasGenreCodes then cast(:genreCodes as jsonb) else genre_codes end,
                        category_code = case
                            when :categoryCode is not null then :categoryCode
-                           when lower(coalesce(category_code, '')) not in (
-                               'movie', 'series', 'short-drama', 'anime', 'variety', 'documentary'
-                           ) then null
+                           when lower(coalesce(category_code, '')) not in (:allowedCategoryCodes) then null
                            else category_code
                        end,
                        source_category_code = coalesce(:sourceCategoryCode, source_category_code),
@@ -414,6 +419,7 @@ public class RawVideoNormalizationRepository {
                         .addValue("hasGenreCodes", !genreCodes.isEmpty())
                         .addValue("genreCodes", jsonArray(genreCodes))
                         .addValue("categoryCode", categoryCode)
+                        .addValue("allowedCategoryCodes", allowedCategoryCodes)
                         .addValue("sourceCategoryCode", trimNullable(patch.rawCategorySourceCode(), 100))
                         .addValue("sourceCategoryName", trimNullable(patch.rawCategorySourceName(), 255))
                         .addValue("normalizationSnapshot", normalizationSnapshot(patch)));

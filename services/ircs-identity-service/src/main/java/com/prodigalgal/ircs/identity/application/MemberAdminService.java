@@ -90,6 +90,9 @@ public class MemberAdminService {
                 request == null || request.experience() == null ? member.experience() : request.experience(),
                 request == null || request.points() == null ? member.points() : request.points(),
                 request == null || request.checkInStreak() == null ? member.checkInStreak() : request.checkInStreak());
+        if (request != null && request.adultContentAllowed() != null) {
+            updated = updated.withAdultContentAllowed(request.adultContentAllowed());
+        }
         memberRepository.update(updated);
         if (member.status() != updated.status()) {
             statusCacheService.updateStatus(memberId, updated.status());

@@ -18,6 +18,7 @@ import com.prodigalgal.ircs.identity.domain.MemberStatus;
 import com.prodigalgal.ircs.identity.dto.HistoryRecordResponse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -81,6 +82,7 @@ class MemberAdminServiceTest {
                 "Next123",
                 "ADMIN",
                 MemberStatus.BANNED,
+                true,
                 300,
                 80,
                 7));
@@ -93,6 +95,7 @@ class MemberAdminServiceTest {
         assertEquals("Next Nick", saved.nickname());
         assertEquals("ADMIN", saved.role());
         assertEquals(MemberStatus.BANNED, saved.status());
+        assertTrue(saved.adultContentAllowed());
         assertEquals(300, saved.experience());
         assertEquals(80, saved.points());
         assertEquals(7, saved.checkInStreak());
@@ -106,7 +109,7 @@ class MemberAdminServiceTest {
         when(memberAdminRepository.existsByEmailExcludingId("other@example.com", memberId)).thenReturn(true);
 
         ApiException ex = assertThrows(ApiException.class, () -> service.updateMember(memberId,
-                new MemberAdminUpdateRequest("other@example.com", null, null, null, null, null, null, null, null)));
+                new MemberAdminUpdateRequest("other@example.com", null, null, null, null, null, null, null, null, null)));
 
         assertEquals("email.exists", ex.errorKey());
         verify(memberRepository, never()).update(any(MemberRecord.class));
@@ -174,6 +177,7 @@ class MemberAdminServiceTest {
                 "https://img.example/avatar.png",
                 "MEMBER",
                 status,
+                false,
                 400,
                 20,
                 null,

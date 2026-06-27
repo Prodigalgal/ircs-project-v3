@@ -63,9 +63,9 @@ public class JdbcMemberRepository implements MemberRepository {
                 """
                 insert into members (
                     id, created_at, updated_at, version, email, password_hash, nickname, avatar_url, role, status,
-                    experience, points, last_check_in_date, check_in_streak
+                    adult_content_allowed, experience, points, last_check_in_date, check_in_streak
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 member.id(),
                 timestamp(member.createdAt()),
@@ -77,6 +77,7 @@ public class JdbcMemberRepository implements MemberRepository {
                 member.avatarUrl(),
                 member.role(),
                 member.status().name(),
+                member.adultContentAllowed(),
                 member.experience(),
                 member.points(),
                 date(member.lastCheckInDate()),
@@ -97,6 +98,7 @@ public class JdbcMemberRepository implements MemberRepository {
                        avatar_url = ?,
                        role = ?,
                        status = ?,
+                       adult_content_allowed = ?,
                        experience = ?,
                        points = ?,
                        last_check_in_date = ?,
@@ -110,6 +112,7 @@ public class JdbcMemberRepository implements MemberRepository {
                 member.avatarUrl(),
                 member.role(),
                 member.status().name(),
+                member.adultContentAllowed(),
                 member.experience(),
                 member.points(),
                 date(member.lastCheckInDate()),
@@ -121,6 +124,7 @@ public class JdbcMemberRepository implements MemberRepository {
     private String selectSql() {
         return """
         select id, created_at, updated_at, version, email, password_hash, nickname, avatar_url, role, status,
+               coalesce(adult_content_allowed, false) as adult_content_allowed,
                experience, points, last_check_in_date, check_in_streak
           from members
         """;
@@ -138,6 +142,7 @@ public class JdbcMemberRepository implements MemberRepository {
                 rs.getString("avatar_url"),
                 rs.getString("role"),
                 MemberStatus.valueOf(rs.getString("status")),
+                rs.getBoolean("adult_content_allowed"),
                 rs.getInt("experience"),
                 rs.getInt("points"),
                 localDate(rs.getDate("last_check_in_date")),

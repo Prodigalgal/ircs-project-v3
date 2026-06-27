@@ -783,9 +783,48 @@ public class JdbcCatalogRepository {
     }
 
     public SeedResult seedStandardCategory(String name, String slug) {
-        Optional<UUID> existing = findIdByText("standard_category", "name", name);
+        Optional<CategorySeedRow> existing = queryOptional(
+                """
+                select id,
+                       name,
+                       slug,
+                       lower(slug) = lower(:slug) as slug_match
+                  from standard_category
+                 where lower(name) = lower(:name)
+                    or lower(slug) = lower(:slug)
+                 order by case when lower(slug) = lower(:slug) then 0 else 1 end
+                 limit 1
+                """,
+                new MapSqlParameterSource()
+                        .addValue("name", name)
+                        .addValue("slug", slug),
+                (rs, rowNum) -> new CategorySeedRow(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("name"),
+                        rs.getString("slug"),
+                        rs.getBoolean("slug_match")));
         if (existing.isPresent()) {
-            return SeedResult.unchanged(existing.get());
+            CategorySeedRow row = existing.get();
+            if (!row.slugMatched()) {
+                return SeedResult.unchanged(row.id());
+            }
+            if (!name.equals(row.name()) || !slug.equals(row.slug())) {
+                namedParameterJdbcTemplate.update(
+                        """
+                        update standard_category
+                           set name = :name,
+                               slug = :slug,
+                               updated_at = :updatedAt
+                         where id = :id
+                        """,
+                        new MapSqlParameterSource()
+                                .addValue("id", row.id())
+                                .addValue("name", name)
+                                .addValue("slug", slug)
+                                .addValue("updatedAt", Timestamp.from(Instant.now())));
+                return SeedResult.updated(row.id());
+            }
+            return SeedResult.unchanged(row.id());
         }
         UUID id = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
@@ -801,6 +840,8 @@ public class JdbcCatalogRepository {
                         .addValue("slug", slug));
         return SeedResult.inserted(id);
     }
+
+    private record CategorySeedRow(UUID id, String name, String slug, boolean slugMatched) {}
 
     public SeedResult seedStandardGenre(String name) {
         Optional<UUID> existing = findIdByText("standard_genre", "name", name);
