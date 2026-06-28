@@ -78,6 +78,8 @@ databaseChangeLog:
   - include:
       file: db/changelog/2026/07/enhance-magnet-auto-search.sql
   - include:
+      file: db/changelog/2026/07/add-requested-magnet-providers.sql
+  - include:
       file: db/changelog/2026/07/add-request-audit-logs.sql
   - include:
       file: db/changelog/2026/07/add-request-audit-source.sql

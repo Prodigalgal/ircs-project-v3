@@ -82,7 +82,16 @@ class GenericMagnetCandidateParser {
             MagnetExternalIdQuery query,
             String requestUrl,
             JsonNode node) {
-        String magnetUri = firstText(node, "magnet", "magnet_uri", "magnetUri", "magnetLink", "download", "downloadUrl");
+        String magnetUri = firstText(
+                node,
+                "magnet",
+                "magnet_url",
+                "magnetUrl",
+                "magnet_uri",
+                "magnetUri",
+                "magnetLink",
+                "download",
+                "downloadUrl");
         String rawHash = firstText(node, "info_hash", "infoHash", "hash", "torrent_hash", "btih");
         Optional<String> infoHash = MagnetUriUtils.normalizeInfoHash(firstNonBlank(magnetUri, rawHash));
         if (infoHash.isEmpty()) {
@@ -90,7 +99,7 @@ class GenericMagnetCandidateParser {
         }
         String title = firstNonBlank(
                 magnetDisplayName(magnetUri),
-                firstText(node, "name", "title", "filename", "file_name", "dn"),
+                firstText(node, "name", "title", "filename", "file_name", "fileName", "dn"),
                 query.value());
         String sizeLabel = firstText(node, "sizeLabel", "size_label", "size", "length");
         Long sizeBytes = longValue(node, "size_bytes", "sizeBytes", "bytes", "size");
@@ -105,9 +114,18 @@ class GenericMagnetCandidateParser {
                 title,
                 sizeBytes,
                 sizeLabel,
-                parsePublishedAt(firstText(node, "added", "date", "created_at", "createdAt", "uploaded", "publishedAt")),
+                parsePublishedAt(firstText(
+                        node,
+                        "added",
+                        "date",
+                        "created_at",
+                        "createdAt",
+                        "uploaded",
+                        "publishedAt",
+                        "date_released_unix",
+                        "dateReleasedUnix")),
                 intValue(node, "seeders", "seeds", "seed", "seed_count"),
-                intValue(node, "leechers", "leechs", "leeches", "leech", "peers"),
+                intValue(node, "leechers", "leechs", "leeches", "leech", "peers", "peer_count"),
                 resolution,
                 resolution,
                 query.type(),

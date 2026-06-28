@@ -29,7 +29,8 @@ class GatedMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
             GenericMagnetProviderSearchRunner genericRunner,
             ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.magnet.real-provider.enabled:false}") boolean realProviderEnabled,
-            @Value("${app.magnet.real-provider.allowlist:YTS_BZ,THE_PIRATE_BAY}") String realProviderAllowlist) {
+            @Value("${app.magnet.real-provider.allowlist:YTS_BZ,THE_PIRATE_BAY,EZTV,EXT_TO,THE_PIRATE_BAY_FRONTEND}")
+                    String realProviderAllowlist) {
         this.fixtureRunner = fixtureRunner;
         this.ytsBzRunner = ytsBzRunner;
         this.genericRunner = genericRunner;

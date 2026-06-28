@@ -29,7 +29,7 @@ app:
   magnet:
     real-provider:
       enabled: ${APP_MAGNET_REAL_PROVIDER_ENABLED:false}
-      allowlist: ${APP_MAGNET_REAL_PROVIDER_ALLOWLIST:YTS_BZ,THE_PIRATE_BAY}
+      allowlist: ${APP_MAGNET_REAL_PROVIDER_ALLOWLIST:YTS_BZ,THE_PIRATE_BAY,EZTV,EXT_TO,THE_PIRATE_BAY_FRONTEND}
     auto-search:
       enabled: ${APP_MAGNET_AUTO_SEARCH_ENABLED:false}
       batch-size: ${APP_MAGNET_AUTO_SEARCH_BATCH_SIZE:10}

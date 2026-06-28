@@ -120,7 +120,7 @@ class SystemConfigDefaultsTest {
         assertEquals("false",
                 defaults.staticDefaultValue("app.normalization.llm-cleaning.work-queue.worker.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.magnet.real-provider.enabled").orElseThrow());
-        assertEquals("YTS_BZ,THE_PIRATE_BAY",
+        assertEquals("YTS_BZ,THE_PIRATE_BAY,EZTV,EXT_TO,THE_PIRATE_BAY_FRONTEND",
                 defaults.staticDefaultValue("app.magnet.real-provider.allowlist").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.magnet.auto-search.enabled").orElseThrow());
         assertEquals("10", defaults.staticDefaultValue("app.magnet.auto-search.batch-size").orElseThrow());

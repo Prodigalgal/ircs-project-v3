@@ -58,6 +58,49 @@ class GenericMagnetProviderSearchRunnerTest {
     }
 
     @Test
+    void parsesEztvApiResultAndNormalizesImdbId() {
+        FakeHttpClient httpClient = FakeHttpClient.ok("""
+                {
+                  "imdb_id": "1433870",
+                  "torrents_count": 1,
+                  "limit": 1,
+                  "page": 1,
+                  "torrents": [
+                    {
+                      "hash": "4e632db543df153e6035089e17f299e5f6195418",
+                      "filename": "MasterChef.Australia.S18E40.XviD-AFG[EZTVx.to].avi",
+                      "magnet_url": "magnet:?xt=urn:btih:4e632db543df153e6035089e17f299e5f6195418&dn=MasterChef.Australia.S18E40.XviD-AFG%5BEZTVx.to%5D",
+                      "title": "MasterChef Australia S18E40 XviD-AFG EZTV",
+                      "imdb_id": "1433870",
+                      "seeds": 3,
+                      "peers": 12,
+                      "date_released_unix": 1782645614,
+                      "size_bytes": "909534582"
+                    }
+                  ]
+                }
+                """);
+        GenericMagnetProviderSearchRunner runner = runner(httpClient);
+
+        MagnetProviderSearchResult result = runner.search(
+                provider("EZTV", "https://eztvx.to"),
+                new MagnetExternalIdQuery("IMDB", "tt1433870"),
+                UUID.randomUUID());
+
+        assertEquals("https://eztvx.to/api/get-torrents?limit=50&imdb_id=1433870", result.requestUrl());
+        assertEquals(1, result.candidates().size());
+        MagnetProviderCandidate candidate = result.candidates().getFirst();
+        assertEquals("4E632DB543DF153E6035089E17F299E5F6195418", candidate.infoHash());
+        assertEquals("MasterChef.Australia.S18E40.XviD-AFG[EZTVx.to]", candidate.title());
+        assertEquals(909534582L, candidate.sizeBytes());
+        assertEquals(3, candidate.seeders());
+        assertEquals(12, candidate.leechers());
+        assertEquals(Instant.ofEpochSecond(1782645614), candidate.publishedAt());
+        assertEquals("IMDB", candidate.matchedExternalIdType());
+        assertEquals("tt1433870", candidate.matchedExternalIdValue());
+    }
+
+    @Test
     void parsesHtmlMagnetAttributesAndEmbeddedPlainText() {
         FakeHttpClient httpClient = FakeHttpClient.ok("""
                 <html>
@@ -115,6 +158,24 @@ class GenericMagnetProviderSearchRunnerTest {
         assertTrue(ex.getMessage().contains("GENERIC_MAGNET_TIMEOUT"));
     }
 
+    @Test
+    void classifiesCloudflareChallengeAsAccessRestricted() {
+        GenericMagnetProviderSearchRunner runner = runner(FakeHttpClient.response(
+                403,
+                """
+                <!DOCTYPE html>
+                <html><head><title>Just a moment...</title></head>
+                <body><script src="https://challenges.cloudflare.com/example.js"></script></body></html>
+                """));
+
+        MagnetProviderRunnerException ex = assertThrows(
+                MagnetProviderRunnerException.class,
+                () -> runner.search(provider("EXT_TO", "https://ext.to"), query, UUID.randomUUID()));
+
+        assertEquals("GENERIC_MAGNET_ACCESS_RESTRICTED", ex.failureType());
+        assertEquals(403, ex.httpStatus());
+    }
+
     private GenericMagnetProviderSearchRunner runner(FakeHttpClient httpClient) {
         return new GenericMagnetProviderSearchRunner(
                 new ObjectMapper(),
@@ -169,6 +230,10 @@ class GenericMagnetProviderSearchRunnerTest {
 
         static FakeHttpClient ok(String body) {
             return new FakeHttpClient(200, body, false);
+        }
+
+        static FakeHttpClient response(int statusCode, String body) {
+            return new FakeHttpClient(statusCode, body, false);
         }
 
         static FakeHttpClient timeout() {

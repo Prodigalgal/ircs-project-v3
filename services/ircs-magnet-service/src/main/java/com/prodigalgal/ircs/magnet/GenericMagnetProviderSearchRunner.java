@@ -22,6 +22,7 @@ import org.springframework.util.StringUtils;
 class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
 
     static final String HTTP_ERROR = "GENERIC_MAGNET_HTTP_ERROR";
+    static final String ACCESS_RESTRICTED = "GENERIC_MAGNET_ACCESS_RESTRICTED";
     private static final String PARSE_FAILURE = "GENERIC_MAGNET_PARSE_FAILURE";
     private static final String TIMEOUT = "GENERIC_MAGNET_TIMEOUT";
     private static final String UNSUPPORTED_QUERY = "GENERIC_MAGNET_UNSUPPORTED_QUERY";
@@ -51,6 +52,9 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         }
         String requestUrl = requestUrlBuilder.build(provider, query);
         GenericMagnetHttpResponse response = execute(provider, requestUrl);
+        if (isAccessRestricted(response)) {
+            throw new MagnetProviderRunnerException(ACCESS_RESTRICTED, requestUrl, response.statusCode());
+        }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new MagnetProviderRunnerException(HTTP_ERROR, requestUrl, response.statusCode());
         }
@@ -83,6 +87,20 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     private Duration timeout(MagnetProviderSummary provider) {
         int timeoutMs = provider == null || provider.timeoutMs() == null ? 10000 : provider.timeoutMs();
         return Duration.ofMillis(Math.max(1, timeoutMs));
+    }
+
+    private boolean isAccessRestricted(GenericMagnetHttpResponse response) {
+        if (response == null) {
+            return false;
+        }
+        if (response.statusCode() == 401 || response.statusCode() == 403 || response.statusCode() == 429) {
+            return true;
+        }
+        String body = response.body() == null ? "" : response.body().toLowerCase();
+        return body.contains("cf-mitigated")
+                || body.contains("challenges.cloudflare.com")
+                || body.contains("just a moment")
+                || body.contains("enable javascript and cookies to continue");
     }
 
     private static GenericMagnetHttpClient httpClient(ObjectProvider<GenericMagnetHttpClient> httpClientProvider) {
