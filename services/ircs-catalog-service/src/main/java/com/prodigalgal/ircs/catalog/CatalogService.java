@@ -57,10 +57,6 @@ public class CatalogService {
         return readModelCache.standardLanguageSummaries(catalogRepository::listStandardLanguages);
     }
 
-    public List<RawCategorySummary> listRawCategories() {
-        return catalogRepository.listRawCategories();
-    }
-
     public List<DataSourceSummary> listDataSources() {
         return catalogRepository.listDataSources();
     }
@@ -257,26 +253,6 @@ public class CatalogService {
         StandardLanguageRead result = catalogRepository.createStandardLanguage(request);
         readModelCache.evictStandardLanguages();
         return result;
-    }
-
-    public CatalogPage<RawCategoryRead> pageRawCategories(CatalogPageRequest pageRequest, RawCategoryQuery query) {
-        return catalogRepository.pageRawCategories(pageRequest, query);
-    }
-
-    public Optional<RawCategoryRead> findRawCategory(UUID id) {
-        return catalogRepository.findRawCategory(id);
-    }
-
-    @Transactional
-    public RawCategoryRead updateRawCategory(UUID id, RawCategoryAdminRequest request) {
-        validatePathId(id, request.id());
-        return catalogRepository.updateRawCategory(id, request)
-                .orElseThrow(() -> notFound("RawCategory not found"));
-    }
-
-    @Transactional
-    public void deleteRawCategory(UUID id) {
-        catalogRepository.deleteById("raw_category", id);
     }
 
     private String buildDetailUrl(LanguageTraceSource source) {

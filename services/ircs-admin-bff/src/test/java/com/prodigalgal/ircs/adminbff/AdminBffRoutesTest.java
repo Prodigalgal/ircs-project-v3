@@ -10,6 +10,7 @@ class AdminBffRoutesTest {
             "http://identity",
             "http://content",
             "http://catalog",
+            "http://aggregation",
             "http://task",
             "http://ops",
             "http://ops-alert",
@@ -47,11 +48,17 @@ class AdminBffRoutesTest {
     }
 
     @Test
-    void routesLegacyContentDictionariesToContentService() {
-        assertThat(routes.resolve("/api/v1/actors").orElseThrow().targetBaseUrl()).isEqualTo("http://content");
-        assertThat(routes.resolve("/api/v1/directors/7").orElseThrow().targetBaseUrl()).isEqualTo("http://content");
+    void routesContentSupportingResourcesToContentService() {
         assertThat(routes.resolve("/api/v1/source-domains").orElseThrow().targetBaseUrl()).isEqualTo("http://content");
         assertThat(routes.resolve("/api/v1/resolvers/test").orElseThrow().targetBaseUrl()).isEqualTo("http://content");
+    }
+
+    @Test
+    void routesAggregationActionsToAggregationWorker() {
+        ResolvedRoute route = routes.resolve("/api/v1/aggregation/unified-videos/merge").orElseThrow();
+
+        assertThat(route.targetBaseUrl()).isEqualTo("http://aggregation");
+        assertThat(route.targetPath()).isEqualTo("/api/v1/aggregation/unified-videos/merge");
     }
 
     @Test

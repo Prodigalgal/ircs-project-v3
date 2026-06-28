@@ -88,7 +88,7 @@ class MagnetQueryServiceTest {
 
         when(magnetRepository.findApprovedLinks(unifiedVideoId)).thenReturn(List.of(oldLink), List.of(freshLink));
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
-                .thenReturn(Optional.of(new MagnetUnifiedVideoSearchTarget(unifiedVideoId, "tt1234567")));
+                .thenReturn(Optional.of(searchTarget(unifiedVideoId, "tt1234567", null)));
         when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
         when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), anyList())).thenReturn(runningJob);
         when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
@@ -148,7 +148,7 @@ class MagnetQueryServiceTest {
         MagnetLinkSummary link = link(unifiedVideoId, candidate);
 
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
-                .thenReturn(Optional.of(new MagnetUnifiedVideoSearchTarget(unifiedVideoId, "tt1234567")));
+                .thenReturn(Optional.of(searchTarget(unifiedVideoId, "tt1234567", null)));
         when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
         when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), anyList())).thenReturn(runningJob);
         when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
@@ -181,17 +181,60 @@ class MagnetQueryServiceTest {
     }
 
     @Test
-    void skipsSearchWithoutImdbId() {
+    void skipsSearchWithoutExternalIdOrTitle() {
         UUID unifiedVideoId = UUID.randomUUID();
         MagnetSearchJobSummary skippedJob = searchJob(unifiedVideoId, "SKIPPED", 0, 0, List.of());
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
-                .thenReturn(Optional.of(new MagnetUnifiedVideoSearchTarget(unifiedVideoId, null)));
+                .thenReturn(Optional.of(searchTarget(unifiedVideoId, null, null)));
         when(magnetRepository.createSkippedSearchJob(eq(unifiedVideoId), any(), anyList(), eq(List.of())))
                 .thenReturn(skippedJob);
 
         assertSame(skippedJob, service.triggerUnifiedSearch(unifiedVideoId));
         verify(providerSearchRunner, never()).search(any(), any(), any());
         verify(magnetRepository, never()).createRunningSearchJob(any(), anyList());
+    }
+
+    @Test
+    void fallsBackToTitleSearchForYtsProviderWithoutExternalIds() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        MagnetProviderSummary provider = ytsProvider(UUID.randomUUID());
+        MagnetSearchJobSummary runningJob = searchJob(unifiedVideoId, "RUNNING", 0, 0, List.of());
+        MagnetSearchJobSummary finishedJob = searchJob(unifiedVideoId, "SUCCESS", 1, 1, List.of("codex_provider"));
+        MagnetProviderCandidate candidate = new MagnetProviderCandidate(
+                "abcdef1234567890abcdef1234567890abcdef12",
+                "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+                "Codex Fixture 2026",
+                1024L,
+                "1 KB",
+                Instant.parse("2026-06-07T00:00:00Z"),
+                10,
+                1,
+                "WEB",
+                "1080p",
+                "TITLE_YEAR",
+                "Codex Fixture 2026",
+                82,
+                "fixture://magnet-provider/codex_provider",
+                List.of("dev-safe"),
+                Map.of("mode", "fixture"));
+        MagnetLinkSummary link = link(unifiedVideoId, candidate);
+
+        when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
+                .thenReturn(Optional.of(searchTarget(unifiedVideoId, null, "Codex Fixture")));
+        when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
+        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), anyList())).thenReturn(runningJob);
+        when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
+                .thenReturn(new MagnetProviderSearchResult("fixture://title-search", 200, List.of(candidate)))
+                .thenReturn(new MagnetProviderSearchResult("fixture://title-search-plain", 200, List.of()));
+        when(magnetRepository.upsertLink(unifiedVideoId, provider, candidate)).thenReturn(link);
+        when(magnetRepository.finishSearchJob(runningJob.id(), List.of("codex_provider"), 1, 1, 0))
+                .thenReturn(finishedJob);
+
+        MagnetSearchJobSummary result = service.triggerUnifiedSearch(unifiedVideoId);
+
+        assertEquals("SUCCESS", result.status());
+        assertEquals(List.of(link), result.links());
+        verify(providerSearchRunner, times(2)).search(eq(provider), any(), eq(unifiedVideoId));
     }
 
     @Test
@@ -274,7 +317,7 @@ class MagnetQueryServiceTest {
                 totalCandidates,
                 acceptedCount,
                 Math.max(0, totalCandidates - acceptedCount),
-                "SKIPPED".equals(status) ? "没有可用于第一阶段搜刮的 IMDb ID" : null,
+                "SKIPPED".equals(status) ? "没有可用于搜刮的外部 ID 或标题" : null,
                 null,
                 List.of(),
                 Instant.parse("2026-06-07T00:00:00Z"),
@@ -336,5 +379,41 @@ class MagnetQueryServiceTest {
                 Duration.ofMinutes(5),
                 Duration.ofSeconds(60));
         return new MagnetQueryService(magnetRepository, providerSearchRunner, cache);
+    }
+
+    private MagnetUnifiedVideoSearchTarget searchTarget(UUID id, String imdbId, String title) {
+        return new MagnetUnifiedVideoSearchTarget(
+                id,
+                title,
+                null,
+                title == null ? null : "2026",
+                imdbId,
+                null,
+                null);
+    }
+
+    private MagnetProviderSummary ytsProvider(UUID id) {
+        MagnetProviderSummary base = provider(id);
+        return new MagnetProviderSummary(
+                base.id(),
+                base.code(),
+                base.name(),
+                "YTS_BZ",
+                base.baseUrl(),
+                base.enabled(),
+                base.priority(),
+                base.riskLevel(),
+                base.supportedExternalIds(),
+                base.minDelayMs(),
+                base.maxDelayMs(),
+                base.timeoutMs(),
+                base.resultLimit(),
+                base.autoApproveAllowed(),
+                base.contentPolicy(),
+                base.lastHealthCheckAt(),
+                base.lastHealthStatus(),
+                base.lastErrorMessage(),
+                base.createdAt(),
+                base.updatedAt());
     }
 }

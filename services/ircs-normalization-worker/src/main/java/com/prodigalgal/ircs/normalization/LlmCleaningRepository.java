@@ -43,12 +43,17 @@ class LlmCleaningRepository {
         requireCategory(kind);
         int updated = jdbcTemplate.update(
                 """
-                update %s
-                   set %s = :standardId,
+                update raw_videos
+                   set category_code = (
+                           select slug
+                             from standard_category
+                            where id = :standardId
+                            limit 1
+                       ),
                        updated_at = now()
                  where id = :rawId
-                   and %s is null
-                """.formatted(rawTable(kind), standardColumn(kind), standardColumn(kind)),
+                   and nullif(trim(coalesce(category_code, '')), '') is null
+                """,
                 new MapSqlParameterSource()
                         .addValue("rawId", rawId)
                         .addValue("standardId", standardId));
@@ -64,11 +69,11 @@ class LlmCleaningRepository {
         requireCategory(kind);
         return switch (kind) {
             case CATEGORY -> """
-                    select id, source_name as raw_value
-                    from raw_category
+                    select id, source_category_name as raw_value
+                    from raw_videos
                     where id = :rawId
-                      and category_id is null
-                      and source_name is not null
+                      and nullif(trim(coalesce(category_code, '')), '') is null
+                      and source_category_name is not null
                     limit 1
                     """;
             default -> throw unsupportedKind(kind);
@@ -85,22 +90,6 @@ class LlmCleaningRepository {
                       and name is not null
                     order by name
                     """;
-            default -> throw unsupportedKind(kind);
-        };
-    }
-
-    private String rawTable(LlmCleaningKind kind) {
-        requireCategory(kind);
-        return switch (kind) {
-            case CATEGORY -> "raw_category";
-            default -> throw unsupportedKind(kind);
-        };
-    }
-
-    private String standardColumn(LlmCleaningKind kind) {
-        requireCategory(kind);
-        return switch (kind) {
-            case CATEGORY -> "category_id";
             default -> throw unsupportedKind(kind);
         };
     }

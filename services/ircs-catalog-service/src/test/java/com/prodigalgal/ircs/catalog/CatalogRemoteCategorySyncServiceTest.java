@@ -3,8 +3,6 @@ package com.prodigalgal.ircs.catalog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +17,7 @@ class CatalogRemoteCategorySyncServiceTest {
             new CatalogCategoryMappingPolicy());
 
     @Test
-    void syncsRemoteClassArrayIntoRawCategoriesWithoutPublicNetwork() {
+    void probesRemoteClassArrayWithoutPersistingLegacyRawCategories() {
         UUID dataSourceId = UUID.randomUUID();
         repository.dataSource = new DataSourceRead(
                 dataSourceId,
@@ -50,12 +48,8 @@ class CatalogRemoteCategorySyncServiceTest {
                 .isEqualTo("https://example.test/api.php/provide/vod/?limit=20&pagesize=20&ac=list&pg=1");
         assertThat(result.checked()).isEqualTo(2);
         assertThat(result.skipped()).isEqualTo(1);
-        assertThat(repository.synced)
-                .extracting(SyncedCategory::sourceCode)
-                .containsExactly("1", "2");
-        assertThat(repository.synced)
-                .extracting(SyncedCategory::inferredCategoryName)
-                .containsExactly("电影", "剧集");
+        assertThat(result.inserted()).isZero();
+        assertThat(result.updated()).isZero();
     }
 
     @Test
@@ -72,8 +66,6 @@ class CatalogRemoteCategorySyncServiceTest {
     private static final class FakeRepository extends JdbcCatalogRepository {
 
         private DataSourceRead dataSource;
-        private final List<SyncedCategory> synced = new ArrayList<>();
-
         private FakeRepository() {
             super(null, null);
         }
@@ -85,15 +77,6 @@ class CatalogRemoteCategorySyncServiceTest {
                     : java.util.Optional.empty();
         }
 
-        @Override
-        public SeedResult syncRawCategory(
-                UUID dataSourceId,
-                String sourceCode,
-                String sourceName,
-                String inferredCategoryName) {
-            synced.add(new SyncedCategory(sourceCode, sourceName, inferredCategoryName));
-            return SeedResult.inserted(UUID.randomUUID());
-        }
     }
 
     private static final class FakeFetchClient extends CatalogFetchSampleClient {
@@ -114,6 +97,4 @@ class CatalogRemoteCategorySyncServiceTest {
             return body;
         }
     }
-
-    private record SyncedCategory(String sourceCode, String sourceName, String inferredCategoryName) {}
 }

@@ -308,8 +308,7 @@ public class RawVideoTextNormalizer {
 
     private boolean isCategoryLocked(Set<String> locked) {
         return locked.contains("category")
-                || locked.contains("dataSourceCategory")
-                || locked.contains("dataSourceCategoryId");
+                || locked.contains("dataSourceCategory");
     }
 
     private boolean isSubtitleLocked(Set<String> locked) {

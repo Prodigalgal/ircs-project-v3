@@ -12,7 +12,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.sql.ResultSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -20,7 +19,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
@@ -81,39 +79,34 @@ class RawVideoNormalizationRepositoryTest {
     }
 
     @Test
-    void markReadyUpsertsRawCategoryAndLetsInferredCategoryOverrideLegacyCategory() {
+    void markReadyWritesSourceCategoryIntoRawVideoWithoutLegacyMappingTable() {
         UUID rawVideoId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
-        UUID rawCategoryId = UUID.randomUUID();
         when(jdbcTemplate.queryForObject(
-                        contains("insert into raw_category"),
+                        argThat(sql -> sql.contains("select slug")
+                                && sql.contains("from standard_category")
+                                && sql.contains("cast(:fallbackCategoryCode as text)")),
                         any(MapSqlParameterSource.class),
-                        any(RowMapper.class)))
-                .thenAnswer(invocation -> {
-                    @SuppressWarnings("unchecked")
-                    RowMapper<Object> mapper = invocation.getArgument(2, RowMapper.class);
-                    ResultSet rs = mock(ResultSet.class);
-                    when(rs.getObject("id", UUID.class)).thenReturn(rawCategoryId);
-                    when(rs.getString("category_code")).thenReturn("movie");
-                    return mapper.mapRow(rs, 0);
-                });
+                        eq(String.class)))
+                .thenReturn("movie");
 
         RawVideoNormalizationRepository repository = RawVideoNormalizationRepository.forTest(jdbcTemplate);
 
         repository.markReady(rawVideoId, patchWithCategory(dataSourceId, "movie", "电影"));
 
         verify(jdbcTemplate).queryForObject(
-                argThat(sql -> sql.contains("insert into raw_category")
-                        && sql.contains("category_id")
+                argThat(sql -> sql.contains("select slug")
                         && sql.contains("standard_category")
-                        && sql.contains("coalesce(")
-                        && sql.contains("cast(:fallbackCategoryCode as text)")
-                        && sql.contains("when cast(:inferredCategoryCode as text) is not null then excluded.category_id")
-                        && sql.contains("when raw_category.category_id is null then excluded.category_id")
-                        && sql.contains("not in (:allowedCategoryCodes)")),
+                        && sql.contains("cast(:fallbackCategoryCode as text)")),
                 any(MapSqlParameterSource.class),
-                any(RowMapper.class));
-        verify(jdbcTemplate).update(contains("data_source_category_id"), any(MapSqlParameterSource.class));
+                eq(String.class));
+        verify(jdbcTemplate).update(
+                argThat(sql -> sql.contains("update raw_videos")
+                        && sql.contains("data_source_id = coalesce(data_source_id, :dataSourceId)")
+                        && sql.contains("source_category_code")
+                        && sql.contains("source_category_name")
+                        && sql.contains("category_code")),
+                any(MapSqlParameterSource.class));
     }
 
     @Test

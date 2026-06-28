@@ -1,7 +1,11 @@
 package com.prodigalgal.ircs.opsalert.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,9 +56,13 @@ class AlertIngestionServiceTest {
         assertThat(incidents.getTotalElements()).isEqualTo(1);
         assertThat(events.getTotalElements()).isEqualTo(2);
         assertThat(actions.getTotalElements()).isEqualTo(2);
+        verify(fixture.notificationPublisher(), times(2)).publishIncidentNotification(any(), any(), anyList());
     }
 
-    private record Fixture(AlertIngestionService service, OpsAlertRepository repository) {
+    private record Fixture(
+            AlertIngestionService service,
+            OpsAlertRepository repository,
+            OpsAlertNotificationPublisher notificationPublisher) {
     }
 
     private static Fixture fixture(String name) {
@@ -73,8 +81,12 @@ class AlertIngestionServiceTest {
         ObjectMapper objectMapper = new ObjectMapper();
         OpsAlertRepository repository = new OpsAlertRepository(new NamedParameterJdbcTemplate(dataSource));
         HealingPolicyEngine policyEngine = new HealingPolicyEngine(runtimeConfig, objectMapper);
+        OpsAlertNotificationPublisher notificationPublisher = mock(OpsAlertNotificationPublisher.class);
         Clock clock = Clock.fixed(Instant.parse("2026-06-22T10:15:30Z"), ZoneOffset.UTC);
-        return new Fixture(new AlertIngestionService(repository, policyEngine, objectMapper, clock), repository);
+        return new Fixture(
+                new AlertIngestionService(repository, policyEngine, notificationPublisher, objectMapper, clock),
+                repository,
+                notificationPublisher);
     }
 
     private static AlertEventIngestRequest request(String fingerprint) {

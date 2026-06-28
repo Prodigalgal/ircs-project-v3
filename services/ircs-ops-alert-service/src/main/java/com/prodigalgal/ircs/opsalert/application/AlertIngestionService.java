@@ -31,6 +31,7 @@ public class AlertIngestionService {
 
     private final OpsAlertRepository repository;
     private final HealingPolicyEngine healingPolicyEngine;
+    private final OpsAlertNotificationPublisher notificationPublisher;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -42,6 +43,7 @@ public class AlertIngestionService {
         List<HealingAction> actions = healingPolicyEngine.plan(event, incident).stream()
                 .map(plan -> repository.insertHealingAction(incident.id(), plan, now))
                 .toList();
+        notificationPublisher.publishIncidentNotification(event, incident, actions);
         return new AlertIngestionResponse(
                 OpsAlertMapper.toResponse(event),
                 OpsAlertMapper.toResponse(incident),

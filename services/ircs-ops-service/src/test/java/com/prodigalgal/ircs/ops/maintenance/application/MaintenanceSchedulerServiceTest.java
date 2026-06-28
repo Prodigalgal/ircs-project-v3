@@ -34,12 +34,15 @@ class MaintenanceSchedulerServiceTest {
     private final MaintenanceRunnerService runnerService = org.mockito.Mockito.mock(MaintenanceRunnerService.class);
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final FakeClusterLeaseService clusterLeaseService = new FakeClusterLeaseService();
+    private final MaintenanceNotificationPublisher notificationPublisher =
+            org.mockito.Mockito.mock(MaintenanceNotificationPublisher.class);
     private final MaintenanceSchedulerService schedulerService =
             new MaintenanceSchedulerService(
                     configValues,
                     runnerService,
                     auditWriter,
                     clusterLeaseService,
+                    notificationPublisher,
                     "ircs-ops-service",
                     "test-worker");
 
@@ -92,6 +95,7 @@ class MaintenanceSchedulerServiceTest {
         assertThat(event.correlationId()).isEqualTo(status.lastCorrelationId());
         assertThat(clusterLeaseService.acquireAttempts).isEqualTo(1);
         assertThat(clusterLeaseService.releaseAttempts).isEqualTo(1);
+        verify(notificationPublisher).publishSchedulerRun(eq(status.lastCorrelationId()), org.mockito.Mockito.anyList());
     }
 
     @Test

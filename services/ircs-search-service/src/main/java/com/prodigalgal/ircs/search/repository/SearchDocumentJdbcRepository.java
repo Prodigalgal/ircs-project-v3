@@ -57,9 +57,9 @@ public class SearchDocumentJdbcRepository {
                    cast(rv.area_codes as varchar) AS area_codes,
                    cast(rv.language_codes as varchar) AS language_codes,
                    cast(rv.genre_codes as varchar) AS genre_codes,
-                   COALESCE(ds.name, dsc_ds.name) AS data_source_name,
-                   COALESCE(ds.id, dsc_ds.id) AS data_source_id,
-                   COALESCE(rv.source_category_name, rc.source_name) AS source_category_name,
+                   ds.name AS data_source_name,
+                   ds.id AS data_source_id,
+                   COALESCE(rv.source_category_name, rv.source_category_code) AS source_category_name,
                    sc.name AS category_name,
                    sc.id AS category_id,
                    ci.storage_type AS cover_storage_type,
@@ -69,8 +69,6 @@ public class SearchDocumentJdbcRepository {
                    sd.domain_value AS cover_source_domain
               FROM raw_videos rv
               LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
-              LEFT JOIN raw_category rc ON rv.data_source_category_id = rc.id
-              LEFT JOIN data_sources dsc_ds ON rc.data_source_id = dsc_ds.id
               LEFT JOIN standard_category sc ON sc.slug = rv.category_code
               LEFT JOIN cover_images ci ON rv.cover_image_id = ci.id
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id

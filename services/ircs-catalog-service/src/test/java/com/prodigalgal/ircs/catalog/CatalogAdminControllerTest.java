@@ -133,20 +133,6 @@ class CatalogAdminControllerTest {
                 .andExpect(status().isOk());
     }
 
-    @Test
-    void routesRawCategoryWriteContract() throws Exception {
-        UUID rawCategoryId = UUID.randomUUID();
-        when(catalogService.updateRawCategory(eq(rawCategoryId), any()))
-                .thenReturn(new RawCategoryRead(rawCategoryId, "1", "Movies", null, null, null, null, null, null));
-
-        mockMvc.perform(put("/api/v1/raw-categories/{id}", rawCategoryId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"id\":\"" + rawCategoryId + "\",\"sourceName\":\"Movies\"}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(delete("/api/v1/raw-categories/{id}", rawCategoryId))
-                .andExpect(status().isNoContent());
-    }
-
     private String dataSourceBody(UUID id) {
         return """
                 {

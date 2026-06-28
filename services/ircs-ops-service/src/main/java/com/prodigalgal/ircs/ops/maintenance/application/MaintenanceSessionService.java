@@ -23,6 +23,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class MaintenanceSessionService {
 
     private final MaintenanceRunnerService maintenanceRunnerService;
+    private final MaintenanceNotificationPublisher notificationPublisher;
     private final ExecutorService streamExecutor = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("maintenance-session-", 0).factory());
     private final ConcurrentMap<UUID, MaintenanceSessionInfo> sessions = new ConcurrentHashMap<>();
@@ -70,6 +71,7 @@ public class MaintenanceSessionService {
                         + session.taskName()
                         + " reason="
                         + execution.reason()));
+                notificationPublisher.publishManualRun(session.sessionId(), session.taskName(), execution);
             } else {
                 emitter.send(MaintenanceEvent.log("执行 dev-safe maintenance runner: " + session.taskName()));
                 MaintenanceRunResult result = execution.result();
@@ -84,6 +86,7 @@ public class MaintenanceSessionService {
                             + " changed="
                             + result.publishedCount()));
                 }
+                notificationPublisher.publishManualRun(session.sessionId(), session.taskName(), execution);
             }
             markFinished(session);
             emitter.send(MaintenanceEvent.done());
@@ -130,6 +133,7 @@ public class MaintenanceSessionService {
     private void sendFailedSession(SseEmitter emitter, MaintenanceSessionInfo session, Exception exception) {
         try {
             markFinished(session);
+            notificationPublisher.publishManualFailure(session.sessionId(), session.taskName(), exception);
             emitter.send(MaintenanceEvent.error("维护任务执行失败: " + exception.getMessage()));
             emitter.send(MaintenanceEvent.done());
             emitter.complete();

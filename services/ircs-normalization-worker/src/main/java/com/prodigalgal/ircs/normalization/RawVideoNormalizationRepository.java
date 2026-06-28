@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.normalization;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
@@ -113,7 +112,7 @@ public class RawVideoNormalizationRepository {
                 where id = :id
                 """,
                 params(id, patch));
-        Optional<CategoryBinding> categoryBinding = bindRawCategory(
+        Optional<CategoryBinding> categoryBinding = applySourceCategoryHints(
                 id,
                 patch.rawCategoryDataSourceId(),
                 patch.rawCategorySourceCode(),
@@ -227,12 +226,12 @@ public class RawVideoNormalizationRepository {
                 .addValue("rottenTomatoesId", patch.rottenTomatoesId());
     }
 
-    private Optional<CategoryBinding> bindRawCategory(
+    private Optional<CategoryBinding> applySourceCategoryHints(
             UUID rawVideoId,
             UUID dataSourceId,
             String sourceCode,
             String sourceName) {
-        if (dataSourceId == null || !StringUtils.hasText(sourceCode)) {
+        if (!StringUtils.hasText(sourceCode) && !StringUtils.hasText(sourceName)) {
             return Optional.empty();
         }
         String safeSourceCode = trimToLength(sourceCode, 100);
@@ -241,94 +240,49 @@ public class RawVideoNormalizationRepository {
                 .inferCode(safeSourceCode, safeSourceName)
                 .orElse(null);
         String fallbackCategoryCode = StandardContentCategoryClassifier.OTHER;
-        DataSourceCategoryBinding binding = jdbcTemplate.queryForObject(
+        String categoryCode = jdbcTemplate.queryForObject(
                 """
-                insert into raw_category (
-                    id, created_at, updated_at, version, data_source_id, source_code, source_name, category_id
-                )
-                values (
-                    :id,
-                    now(),
-                    now(),
-                    0,
-                    :dataSourceId,
-                    :sourceCode,
-                    :sourceName,
-                    (
-                        select id
-                        from standard_category
-                        where lower(slug) = lower(coalesce(
-                            cast(:inferredCategoryCode as text),
-                            cast(:fallbackCategoryCode as text)
-                        ))
-                        limit 1
-                    )
-                )
-                on conflict (data_source_id, source_code) do update set
-                    source_name = coalesce(excluded.source_name, raw_category.source_name),
-                    category_id = case
-                        when cast(:inferredCategoryCode as text) is not null then excluded.category_id
-                        when raw_category.category_id is null then excluded.category_id
-                        when raw_category.category_id in (
-                            select id
-                              from standard_category
-                             where lower(slug) not in (:allowedCategoryCodes)
-                        ) then excluded.category_id
-                        else raw_category.category_id
-                    end,
-                    updated_at = excluded.updated_at
-                returning id,
-                          (
-                              select slug
-                              from standard_category
-                              where id = raw_category.category_id
-                          ) as category_code
+                select slug
+                  from standard_category
+                 where lower(slug) = lower(coalesce(
+                       cast(:inferredCategoryCode as text),
+                       cast(:fallbackCategoryCode as text)
+                 ))
+                 limit 1
                 """,
                 new MapSqlParameterSource()
-                        .addValue("id", IrcsUuidGenerators.nextId())
-                        .addValue("dataSourceId", dataSourceId)
-                        .addValue("sourceCode", safeSourceCode)
-                        .addValue("sourceName", safeSourceName)
                         .addValue("inferredCategoryCode", inferredCategoryCode)
-                        .addValue("fallbackCategoryCode", fallbackCategoryCode)
-                        .addValue("allowedCategoryCodes", allowedCategoryCodes),
-                (rs, rowNum) -> new DataSourceCategoryBinding(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("category_code")));
-        if (binding == null || binding.rawCategoryId() == null) {
+                        .addValue("fallbackCategoryCode", fallbackCategoryCode),
+                String.class);
+        if (!StringUtils.hasText(categoryCode)) {
             return Optional.empty();
         }
         jdbcTemplate.update(
                 """
                 update raw_videos
-                set data_source_category_id = :rawCategoryId,
+                set data_source_id = coalesce(data_source_id, :dataSourceId),
+                    source_category_code = coalesce(nullif(source_category_code, ''), :sourceCode),
+                    source_category_name = coalesce(nullif(source_category_name, ''), :sourceName),
+                    category_code = coalesce(nullif(category_code, ''), :categoryCode),
                     updated_at = now()
                 where id = :id
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", rawVideoId)
-                        .addValue("rawCategoryId", binding.rawCategoryId()));
-        return Optional.of(new CategoryBinding(binding.categoryCode()));
+                        .addValue("dataSourceId", dataSourceId)
+                        .addValue("sourceCode", safeSourceCode)
+                        .addValue("sourceName", safeSourceName)
+                        .addValue("categoryCode", categoryCode));
+        return Optional.of(new CategoryBinding(categoryCode));
     }
 
     private Optional<CategoryBinding> resolveCategoryBinding(UUID dataSourceId, String sourceCode) {
-        if (dataSourceId == null || !StringUtils.hasText(sourceCode)) {
+        if (!StringUtils.hasText(sourceCode)) {
             return Optional.empty();
         }
-        List<CategoryBinding> bindings = jdbcTemplate.query(
-                """
-                select sc.slug as category_code
-                  from raw_category rc
-                  left join standard_category sc on sc.id = rc.category_id
-                 where rc.data_source_id = :dataSourceId
-                   and rc.source_code = :sourceCode
-                 limit 1
-                """,
-                new MapSqlParameterSource()
-                        .addValue("dataSourceId", dataSourceId)
-                        .addValue("sourceCode", trimToLength(sourceCode, 100)),
-                (rs, rowNum) -> new CategoryBinding(rs.getString("category_code")));
-        return bindings == null || bindings.isEmpty() ? Optional.empty() : Optional.of(bindings.getFirst());
+        return StandardContentCategoryClassifier
+                .inferCode(sourceCode, null)
+                .map(CategoryBinding::new);
     }
 
     private Set<String> resolveStandardCodes(String kind, Collection<String> values) {
@@ -483,6 +437,4 @@ public class RawVideoNormalizationRepository {
     private record CategoryBinding(String categoryCode) {
     }
 
-    private record DataSourceCategoryBinding(UUID rawCategoryId, String categoryCode) {
-    }
 }

@@ -61,16 +61,7 @@ class CatalogRemoteCategorySyncService {
                     continue;
                 }
                 checked++;
-                JdbcCatalogRepository.SeedResult result = repository.syncRawCategory(
-                        dataSource.id(),
-                        typeId,
-                        typeName,
-                        mappingPolicy.inferCategoryName(typeName));
-                if (result.inserted()) {
-                    inserted++;
-                } else if (result.updated()) {
-                    updated++;
-                }
+                mappingPolicy.inferCategoryName(typeName);
             }
             return new CategorySyncResult(dataSource.id(), url, true, checked, inserted, updated, skipped, null);
         } catch (Exception ex) {

@@ -50,6 +50,11 @@ record MagnetSearchJobSummary(
 
 record MagnetUnifiedVideoSearchTarget(
         UUID id,
-        String imdbId
+        String title,
+        String aliasTitle,
+        String year,
+        String imdbId,
+        String tmdbId,
+        String doubanId
 ) {
 }

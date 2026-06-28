@@ -42,6 +42,7 @@ public class MaintenanceSchedulerService {
     private final MaintenanceRunnerService runnerService;
     private final WorkerJobAuditWriter auditWriter;
     private final ClusterLeaseService clusterLeaseService;
+    private final MaintenanceNotificationPublisher notificationPublisher;
     private final String workerId;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<Snapshot> lastSnapshot = new AtomicReference<>(
@@ -51,12 +52,14 @@ public class MaintenanceSchedulerService {
             MaintenanceRunnerService runnerService,
             WorkerJobAuditWriter auditWriter,
             ClusterLeaseService clusterLeaseService,
+            MaintenanceNotificationPublisher notificationPublisher,
             @Value("${spring.application.name:ircs-ops-service}") String applicationName,
             @Value("${app.worker.id:${APP_WORKER_ID:}}") String configuredWorkerId) {
         this.configValues = configValues;
         this.runnerService = runnerService;
         this.auditWriter = auditWriter;
         this.clusterLeaseService = clusterLeaseService;
+        this.notificationPublisher = notificationPublisher;
         this.workerId = WorkerInstanceIds.resolve(applicationName, configuredWorkerId);
     }
 
@@ -101,6 +104,7 @@ public class MaintenanceSchedulerService {
             for (String taskName : configValues.maintenanceSchedulerTasks()) {
                 results.add(runTask(taskName, correlationId));
             }
+            notificationPublisher.publishSchedulerRun(correlationId, results);
             snapshot = new Snapshot(correlationId, startedAt, Instant.now(), results);
             lastSnapshot.set(snapshot);
         } finally {

@@ -60,15 +60,13 @@ class AdminBffProxyController {
         if (path.startsWith("/api/v1/raw-videos")
                 || path.startsWith("/api/v1/unified-videos")
                 || path.startsWith("/api/v1/playlists")
-                || path.startsWith("/api/v1/actors")
-                || path.startsWith("/api/v1/directors")
                 || path.startsWith("/api/v1/source-domains")
-                || path.startsWith("/api/v1/resolvers")) {
+                || path.startsWith("/api/v1/resolvers")
+                || path.startsWith("/api/v1/aggregation")) {
             return isRead(method) ? IrcsPermissions.CONTENT_READ : IrcsPermissions.CONTENT_WRITE;
         }
         if (path.startsWith("/api/v1/catalog")
                 || path.startsWith("/api/v1/standard-")
-                || path.startsWith("/api/v1/raw-categories")
                 || path.startsWith("/api/v1/data-sources")) {
             return isRead(method) ? IrcsPermissions.CATALOG_READ : IrcsPermissions.CATALOG_WRITE;
         }

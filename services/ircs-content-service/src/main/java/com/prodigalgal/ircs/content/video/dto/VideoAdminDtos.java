@@ -21,9 +21,6 @@ public final class VideoAdminDtos {
     public record BatchRequest(List<UUID> ids) {
     }
 
-    public record NamedRef(UUID id, String name, Instant createdAt, Instant updatedAt) {
-    }
-
     public record StandardAreaRef(
             UUID id,
             String name,
@@ -50,10 +47,8 @@ public final class VideoAdminDtos {
             String tmdbId,
             String imdbId,
             String rottenTomatoesId,
-            UUID dataSourceCategoryId,
+            UUID dataSourceId,
             UUID categoryId,
-            Set<UUID> actorIds,
-            Set<UUID> directorIds,
             String rawLanguageStr,
             Set<String> actorNames,
             Set<String> directorNames,
@@ -84,11 +79,9 @@ public final class VideoAdminDtos {
             String imdbId,
             String rottenTomatoesId,
             Set<String> lockedFields,
-            UUID dataSourceCategoryId,
+            UUID dataSourceId,
             UUID categoryId,
             UUID unifiedVideoId,
-            Set<UUID> actorIds,
-            Set<UUID> directorIds,
             String rawLanguageStr,
             Set<String> actorNames,
             Set<String> directorNames,
@@ -154,7 +147,6 @@ public final class VideoAdminDtos {
             String rottenTomatoesId,
             UUID categoryId,
             String categoryName,
-            UUID dataSourceCategoryId,
             String sourceCategoryName,
             String dataSourceName,
             UUID dataSourceId,
@@ -166,8 +158,6 @@ public final class VideoAdminDtos {
             Instant updatedAt,
             Set<String> lockedFields,
             String rawMetadata,
-            Set<NamedRef> actors,
-            Set<NamedRef> directors,
             Set<Object> playlists,
             String categoryCode,
             String sourceCategoryCode,
@@ -184,7 +174,6 @@ public final class VideoAdminDtos {
             @Size(max = 1024) String coverImageUrl,
             String description,
             @Size(max = 20) String year,
-            Set<UUID> standardAreaIds,
             BigDecimal score,
             LocalDate publishedAt,
             @Size(max = 50) String totalEpisodes,
@@ -196,10 +185,6 @@ public final class VideoAdminDtos {
             String tmdbId,
             String imdbId,
             String rottenTomatoesId,
-            Set<String> languages,
-            Set<String> actors,
-            Set<String> directors,
-            Set<String> genres,
             Set<String> tags,
             UUID categoryId,
             String contentVisibility,
@@ -211,38 +196,6 @@ public final class VideoAdminDtos {
             Set<String> languageCodes,
             Set<String> genreCodes,
             String categoryCode) {
-        public UnifiedVideoCreateRequest(
-                String title,
-                String aliasTitle,
-                String coverImageUrl,
-                String description,
-                String year,
-                Set<UUID> standardAreaIds,
-                BigDecimal score,
-                LocalDate publishedAt,
-                String totalEpisodes,
-                String duration,
-                String remarks,
-                Integer season,
-                String subtitle,
-                String doubanId,
-                String tmdbId,
-                String imdbId,
-                String rottenTomatoesId,
-                Set<String> languages,
-                Set<String> actors,
-                Set<String> directors,
-                Set<String> genres,
-                Set<String> tags,
-                UUID categoryId,
-                String contentVisibility,
-                Set<UUID> bindVideoIds,
-                Set<String> lockedFields) {
-            this(title, aliasTitle, coverImageUrl, description, year, standardAreaIds, score, publishedAt,
-                    totalEpisodes, duration, remarks, season, subtitle, doubanId, tmdbId, imdbId,
-                    rottenTomatoesId, languages, actors, directors, genres, tags, categoryId,
-                    contentVisibility, bindVideoIds, lockedFields, null, null, null, null, null, null);
-        }
     }
 
     public record UnifiedVideoUpdateRequest(
@@ -252,7 +205,6 @@ public final class VideoAdminDtos {
             @Size(max = 1024) String coverImageUrl,
             String description,
             @Size(max = 20) String year,
-            Set<UUID> standardAreaIds,
             BigDecimal score,
             LocalDate publishedAt,
             @Size(max = 50) String totalEpisodes,
@@ -264,10 +216,6 @@ public final class VideoAdminDtos {
             String tmdbId,
             String imdbId,
             String rottenTomatoesId,
-            Set<String> languages,
-            Set<String> actors,
-            Set<String> directors,
-            Set<String> genres,
             Set<String> tags,
             UUID categoryId,
             String contentVisibility,
@@ -280,40 +228,6 @@ public final class VideoAdminDtos {
             Set<String> languageCodes,
             Set<String> genreCodes,
             String categoryCode) {
-        public UnifiedVideoUpdateRequest(
-                UUID id,
-                String title,
-                String aliasTitle,
-                String coverImageUrl,
-                String description,
-                String year,
-                Set<UUID> standardAreaIds,
-                BigDecimal score,
-                LocalDate publishedAt,
-                String totalEpisodes,
-                String duration,
-                String remarks,
-                Integer season,
-                String subtitle,
-                String doubanId,
-                String tmdbId,
-                String imdbId,
-                String rottenTomatoesId,
-                Set<String> languages,
-                Set<String> actors,
-                Set<String> directors,
-                Set<String> genres,
-                Set<String> tags,
-                UUID categoryId,
-                String contentVisibility,
-                Set<UUID> bindVideoIds,
-                Set<UUID> unbindVideoIds,
-                Set<String> lockedFields) {
-            this(id, title, aliasTitle, coverImageUrl, description, year, standardAreaIds, score,
-                    publishedAt, totalEpisodes, duration, remarks, season, subtitle, doubanId, tmdbId,
-                    imdbId, rottenTomatoesId, languages, actors, directors, genres, tags, categoryId,
-                    contentVisibility, bindVideoIds, unbindVideoIds, lockedFields, null, null, null, null, null, null);
-        }
     }
 
     public record UnifiedVideoCardResponse(

@@ -62,44 +62,6 @@ class JdbcCatalogRepositoryTest {
                 .singleElement()
                 .satisfies(row -> assertThat(row.fieldMapping()).contains("vod_name"));
 
-        JdbcCatalogRepository.SeedResult rawCategory = realRepository.syncRawCategory(
-                dataSourceSeed.id(),
-                "1",
-                "电影",
-                "电影");
-        JdbcCatalogRepository.SeedResult rawCategoryAgain = realRepository.syncRawCategory(
-                dataSourceSeed.id(),
-                "1",
-                "动作片",
-                "电影");
-        UUID shortDramaId = realRepository.seedStandardCategory("短剧", "short-drama").id();
-        realJdbc.update(
-                "update raw_category set category_id = ? where data_source_id = ? and source_code = ?",
-                shortDramaId,
-                dataSourceSeed.id(),
-                "1");
-        JdbcCatalogRepository.SeedResult rawCategoryManualMapping = realRepository.syncRawCategory(
-                dataSourceSeed.id(),
-                "1",
-                "电视剧",
-                "电视剧");
-
-        assertThat(rawCategory.inserted()).isTrue();
-        assertThat(rawCategoryAgain.updated()).isTrue();
-        assertThat(rawCategoryManualMapping.updated()).isTrue();
-        assertThat(realJdbc.queryForObject("select source_name from raw_category where source_code = '1'", String.class))
-                .isEqualTo("电视剧");
-        assertThat(realJdbc.queryForObject("select category_id from raw_category where source_code = '1'", UUID.class))
-                .isEqualTo(shortDramaId);
-
-        JdbcCatalogRepository.SeedResult unknownCategory = realRepository.syncRawCategory(
-                dataSourceSeed.id(),
-                "99",
-                "未知分类",
-                null);
-        assertThat(unknownCategory.inserted()).isTrue();
-        assertThat(realJdbc.queryForObject("select category_id from raw_category where source_code = '99'", UUID.class))
-                .isNull();
     }
 
     private void createSeedSchema(JdbcTemplate jdbc) {
@@ -168,20 +130,6 @@ class JdbcCatalogRepositoryTest {
                     detail_path varchar(1024) not null,
                     detail_params jsonb,
                     field_mapping jsonb
-                )
-                """);
-        jdbc.execute(
-                """
-                create table raw_category (
-                    id uuid primary key,
-                    created_at timestamp not null,
-                    updated_at timestamp not null,
-                    version bigint,
-                    data_source_id uuid not null,
-                    source_code varchar(100) not null,
-                    source_name varchar(255),
-                    category_id uuid,
-                    unique (data_source_id, source_code)
                 )
                 """);
     }

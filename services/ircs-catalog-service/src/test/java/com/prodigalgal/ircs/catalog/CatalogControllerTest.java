@@ -30,23 +30,6 @@ class CatalogControllerTest {
     }
 
     @Test
-    void returnsRawCategoryMappings() {
-        RawCategorySummary category = new RawCategorySummary(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                "dev-source",
-                "1",
-                "Movies",
-                UUID.randomUUID(),
-                "Movie",
-                "movie");
-        when(catalogService.listRawCategories()).thenReturn(List.of(category));
-
-        assertEquals(List.of(category), controller.listCatalogRawCategories());
-        verify(catalogService).listRawCategories();
-    }
-
-    @Test
     void returnsDataSources() {
         DataSourceSummary dataSource = new DataSourceSummary(
                 UUID.randomUUID(),
@@ -129,38 +112,6 @@ class CatalogControllerTest {
         assertEquals(ResponseEntity.ok(genre), controller.getStandardGenre(id));
         verify(catalogService).pageStandardGenres(request, "act");
         verify(catalogService).findStandardGenre(id);
-    }
-
-    @Test
-    void returnsRawCategoryPageWithV1FiltersAndDetail() {
-        UUID id = UUID.randomUUID();
-        UUID dataSourceId = UUID.randomUUID();
-        CatalogPageRequest request = CatalogPageRequest.of(2, 25, List.of("sourceName,desc"));
-        RawCategoryQuery query = new RawCategoryQuery("动漫", dataSourceId, true);
-        RawCategoryRead category = new RawCategoryRead(
-                id,
-                "1",
-                "动漫",
-                dataSourceId,
-                "dev-source",
-                null,
-                null,
-                null,
-                null);
-        CatalogPage<RawCategoryRead> page = CatalogPage.of(List.of(category), request, 51);
-        when(catalogService.pageRawCategories(request, query)).thenReturn(page);
-        when(catalogService.findRawCategory(id)).thenReturn(Optional.of(category));
-
-        assertPageEquals(page, controller.pageRawCategories(
-                2,
-                25,
-                List.of("sourceName,desc"),
-                "动漫",
-                dataSourceId,
-                true));
-        assertEquals(ResponseEntity.ok(category), controller.getRawCategory(id));
-        verify(catalogService).pageRawCategories(request, query);
-        verify(catalogService).findRawCategory(id);
     }
 
     private static <T> void assertPageEquals(CatalogPage<T> expected, PageEnvelope<T> actual) {

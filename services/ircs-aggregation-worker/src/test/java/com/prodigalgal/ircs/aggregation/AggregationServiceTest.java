@@ -551,6 +551,53 @@ class AggregationServiceTest {
     }
 
     @Test
+    void manuallyMergesUnifiedVideosAndPublishesSearchSync() {
+        UUID rootUnifiedVideoId = UUID.randomUUID();
+        UUID victimUnifiedVideoId = UUID.randomUUID();
+        UUID rawVideoId = UUID.randomUUID();
+        UUID coverImageId = UUID.randomUUID();
+        when(aggregationPipelineRuntime.run(rootUnifiedVideoId))
+                .thenReturn(pipelineExecution(rootUnifiedVideoId, List.of(coverImageId)));
+        when(repository.findRawIdsForUnified(rootUnifiedVideoId)).thenReturn(List.of(rawVideoId));
+
+        ManualUnifiedMergeResponse result =
+                service.mergeUnifiedVideos(List.of(rootUnifiedVideoId, victimUnifiedVideoId));
+
+        assertEquals("MERGED", result.status());
+        assertEquals(rootUnifiedVideoId, result.rootUnifiedVideoId());
+        assertEquals(List.of(victimUnifiedVideoId), result.victimUnifiedVideoIds());
+        assertEquals(List.of(rawVideoId), result.rawVideoIds());
+        InOrder ordered = inOrder(repository, aggregationPipelineRuntime, publisher, storageCommandPublisher);
+        ordered.verify(repository).mergeDuplicateUnifiedVideos(rootUnifiedVideoId, List.of(victimUnifiedVideoId));
+        ordered.verify(aggregationPipelineRuntime).run(rootUnifiedVideoId);
+        ordered.verify(repository).findRawIdsForUnified(rootUnifiedVideoId);
+        ordered.verify(repository).markUnifiedSynced(rootUnifiedVideoId);
+        ordered.verify(publisher).publishUnifiedIndex(rootUnifiedVideoId);
+        ordered.verify(publisher).publishRawIndex(rawVideoId);
+        ordered.verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
+        ordered.verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
+    }
+
+    @Test
+    void manualMergeMarksRootDirtyWhenPipelineFails() {
+        UUID rootUnifiedVideoId = UUID.randomUUID();
+        UUID victimUnifiedVideoId = UUID.randomUUID();
+        UUID rawVideoId = UUID.randomUUID();
+        when(aggregationPipelineRuntime.run(rootUnifiedVideoId)).thenReturn(pipelineFailure(rootUnifiedVideoId));
+        when(repository.findRawIdsForUnified(rootUnifiedVideoId)).thenReturn(List.of(rawVideoId));
+
+        ManualUnifiedMergeResponse result =
+                service.mergeUnifiedVideos(List.of(rootUnifiedVideoId, victimUnifiedVideoId));
+
+        assertEquals("PIPELINE_FAILED", result.status());
+        verify(repository).markUnifiedDirty(rootUnifiedVideoId);
+        verify(repository, never()).markUnifiedSynced(rootUnifiedVideoId);
+        verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
+        verify(publisher, never()).publishUnifiedIndex(rootUnifiedVideoId);
+        verify(publisher, never()).publishRawIndex(rawVideoId);
+    }
+
+    @Test
     void reusesExistingUnifiedVideoWhenSimilarTitleMatchesWithoutExternalIds() {
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();

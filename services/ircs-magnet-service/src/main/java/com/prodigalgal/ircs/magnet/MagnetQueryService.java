@@ -17,9 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class MagnetQueryService {
 
-    private static final String SKIPPED_NO_IMDB = "没有可用于第一阶段搜刮的 IMDb ID";
+    private static final String SKIPPED_NO_QUERY = "没有可用于搜刮的外部 ID 或标题";
     private static final String SKIPPED_NO_ENABLED_PROVIDER = "没有已启用的 magnet provider";
-    private static final String SKIPPED_NO_SUPPORTED_PROVIDER = "没有支持 IMDb ID 的 magnet provider";
+    private static final String SKIPPED_NO_SUPPORTED_PROVIDER = "没有支持当前查询类型的 magnet provider";
 
     private final JdbcMagnetRepository magnetRepository;
     private final MagnetProviderSearchRunner providerSearchRunner;
@@ -84,7 +84,7 @@ public class MagnetQueryService {
                 .orElseThrow(() -> notFound("UnifiedVideo not found"));
         List<MagnetExternalIdQuery> queries = planExternalIdQueries(target);
         if (queries.isEmpty()) {
-            return magnetRepository.createSkippedSearchJob(unifiedVideoId, SKIPPED_NO_IMDB, queries, List.of());
+            return magnetRepository.createSkippedSearchJob(unifiedVideoId, SKIPPED_NO_QUERY, queries, List.of());
         }
 
         List<MagnetProviderSummary> providers = readModelCache.listEnabledProviders(magnetRepository::listEnabledProviders);
@@ -195,20 +195,50 @@ public class MagnetQueryService {
     }
 
     private List<MagnetExternalIdQuery> planExternalIdQueries(MagnetUnifiedVideoSearchTarget target) {
-        String imdbId = trimToNull(target.imdbId());
-        if (imdbId == null) {
-            return List.of();
+        List<MagnetExternalIdQuery> queries = new ArrayList<>();
+        addQuery(queries, "IMDB", target.imdbId());
+        addQuery(queries, "TMDB", target.tmdbId());
+        addQuery(queries, "DOUBAN", target.doubanId());
+        String title = trimToNull(target.title());
+        String year = trimToNull(target.year());
+        if (title != null && year != null) {
+            addQuery(queries, "TITLE_YEAR", title + " " + year);
         }
-        return List.of(new MagnetExternalIdQuery("IMDB", imdbId));
+        addQuery(queries, "TITLE", title);
+        addQuery(queries, "TITLE", target.aliasTitle());
+        return queries;
     }
 
     private boolean supports(MagnetProviderSummary provider, MagnetExternalIdQuery query) {
         if (provider.supportedExternalIds() == null || provider.supportedExternalIds().isEmpty()) {
-            return false;
+            return true;
         }
-        return provider.supportedExternalIds().stream()
+        boolean declared = provider.supportedExternalIds().stream()
                 .filter(Objects::nonNull)
                 .anyMatch(value -> value.equalsIgnoreCase(query.type()));
+        if (declared) {
+            return true;
+        }
+        return isYtsTitleQuery(provider, query);
+    }
+
+    private void addQuery(List<MagnetExternalIdQuery> queries, String type, String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return;
+        }
+        boolean exists = queries.stream()
+                .anyMatch(query -> query.type().equalsIgnoreCase(type)
+                        && query.value().equalsIgnoreCase(normalized));
+        if (!exists) {
+            queries.add(new MagnetExternalIdQuery(type, normalized));
+        }
+    }
+
+    private boolean isYtsTitleQuery(MagnetProviderSummary provider, MagnetExternalIdQuery query) {
+        String providerType = trimToNull(provider.providerType());
+        return "YTS_BZ".equalsIgnoreCase(providerType)
+                && ("TITLE".equalsIgnoreCase(query.type()) || "TITLE_YEAR".equalsIgnoreCase(query.type()));
     }
 
     private boolean isUsableCandidate(MagnetProviderCandidate candidate) {

@@ -84,8 +84,8 @@ class VideoAdminQueryRepository {
             RawVideoDetailBase base = jdbcTemplate.queryForObject(
                     """
                     select rv.*, sc.id as resolved_category_id, sc.name as category_name,
-                           coalesce(rv.source_category_name, rc.source_name) as source_name,
-                           ds.name as data_source_name, coalesce(rv.data_source_id, rc.data_source_id) as resolved_data_source_id,
+                           rv.source_category_name as source_name,
+                           ds.name as data_source_name, rv.data_source_id as resolved_data_source_id,
                            cast(rv.actor_names as varchar) as flat_actor_names,
                            cast(rv.director_names as varchar) as flat_director_names,
                            cast(rv.area_codes as varchar) as flat_area_codes,
@@ -101,9 +101,8 @@ class VideoAdminQueryRepository {
                                limit 1
                            ) as unified_video_id
                     from raw_videos rv
-                    left join raw_category rc on rv.data_source_category_id = rc.id
                     left join standard_category sc on sc.slug = rv.category_code
-                    left join data_sources ds on coalesce(rv.data_source_id, rc.data_source_id) = ds.id
+                    left join data_sources ds on rv.data_source_id = ds.id
                     left join cover_images ci on rv.cover_image_id = ci.id
                     left join source_domains sd on ci.source_domain_id = sd.id
                     where rv.id = :id
@@ -141,7 +140,6 @@ class VideoAdminQueryRepository {
                     base.rottenTomatoesId(),
                     base.categoryId(),
                     base.categoryName(),
-                    base.dataSourceCategoryId(),
                     base.sourceCategoryName(),
                     base.dataSourceName(),
                     base.dataSourceId(),
@@ -153,8 +151,6 @@ class VideoAdminQueryRepository {
                     base.updatedAt(),
                     readStringSet(base.lockedFieldsJson()),
                     base.rawMetadata(),
-                    Set.of(),
-                    Set.of(),
                     Set.of(),
                     base.categoryCode(),
                     base.sourceCategoryCode(),
@@ -336,11 +332,11 @@ class VideoAdminQueryRepository {
             params.addValue("minScore", minScore);
         }
         if (dataSourceId != null) {
-            clauses.add("coalesce(rv.data_source_id, rc.data_source_id) = :dataSourceId");
+            clauses.add("rv.data_source_id = :dataSourceId");
             params.addValue("dataSourceId", dataSourceId);
         }
         if (StringUtils.hasText(sourceCategoryName)) {
-            clauses.add("lower(coalesce(rv.source_category_name, rc.source_name)) like lower(:sourceCategoryName)");
+            clauses.add("lower(coalesce(rv.source_category_name, rv.source_category_code)) like lower(:sourceCategoryName)");
             params.addValue("sourceCategoryName", "%" + sourceCategoryName.trim() + "%");
         }
         if (StringUtils.hasText(area)) {
@@ -392,7 +388,6 @@ class VideoAdminQueryRepository {
         return """
                 select count(*)
                 from raw_videos rv
-                left join raw_category rc on rv.data_source_category_id = rc.id
                 left join standard_category sc on sc.slug = rv.category_code
                 """ + where;
     }
@@ -405,7 +400,7 @@ class VideoAdminQueryRepository {
                        cast(rv.area_codes as varchar) as area_codes,
                        cast(rv.language_codes as varchar) as language_codes,
                        cast(rv.genre_codes as varchar) as genre_codes,
-                       coalesce(rv.source_category_name, rc.source_name) as source_name, ds.name as data_source_name,
+                       coalesce(rv.source_category_name, rv.source_category_code) as source_name, ds.name as data_source_name,
                        rv.enrichment_status, rv.normalization_status, rv.created_at, rv.updated_at,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                        ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
@@ -415,9 +410,8 @@ class VideoAdminQueryRepository {
                            left join standard_areas sa on sa.code = ac.code
                        ) as area
                 from raw_videos rv
-                left join raw_category rc on rv.data_source_category_id = rc.id
                 left join standard_category sc on sc.slug = rv.category_code
-                left join data_sources ds on coalesce(rv.data_source_id, rc.data_source_id) = ds.id
+                left join data_sources ds on rv.data_source_id = ds.id
                 left join cover_images ci on rv.cover_image_id = ci.id
                 left join source_domains sd on ci.source_domain_id = sd.id
                 """ + where;
@@ -664,7 +658,6 @@ class VideoAdminQueryRepository {
                 rs.getString("rotten_tomatoes_id"),
                 rs.getObject("resolved_category_id", UUID.class),
                 rs.getString("category_name"),
-                rs.getObject("data_source_category_id", UUID.class),
                 rs.getString("source_name"),
                 rs.getString("category_code"),
                 rs.getString("source_category_code"),
@@ -886,7 +879,6 @@ class VideoAdminQueryRepository {
             String rottenTomatoesId,
             UUID categoryId,
             String categoryName,
-            UUID dataSourceCategoryId,
             String sourceCategoryName,
             String categoryCode,
             String sourceCategoryCode,

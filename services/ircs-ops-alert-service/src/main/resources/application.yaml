@@ -38,3 +38,8 @@ app:
       enabled: ${OPS_ALERT_SELF_HEALING_ENABLED:true}
       dry-run: ${OPS_ALERT_SELF_HEALING_DRY_RUN:true}
       min-severity: ${OPS_ALERT_SELF_HEALING_MIN_SEVERITY:WARNING}
+    notification:
+      mail:
+        enabled: ${OPS_ALERT_NOTIFICATION_MAIL_ENABLED:true}
+        recipients: ${OPS_ALERT_NOTIFICATION_MAIL_RECIPIENTS:}
+        subject-prefix: ${OPS_ALERT_NOTIFICATION_MAIL_SUBJECT_PREFIX:[IRCS 运维告警]}

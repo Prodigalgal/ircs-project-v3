@@ -135,3 +135,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/extend-standard-content-categories.sql
   - include:
       file: db/changelog/2026/07/add-member-adult-content-scope.sql
+  - include:
+      file: db/changelog/2026/07/final-drop-legacy-content-metadata-tables.sql

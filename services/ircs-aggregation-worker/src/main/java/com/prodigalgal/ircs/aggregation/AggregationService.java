@@ -5,6 +5,7 @@ import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunRespo
 import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -211,6 +212,39 @@ public class AggregationService {
                 backfilled.stream()
                         .map(UnifiedCoverBackfillResult::unifiedVideoId)
                         .toList());
+    }
+
+    @Transactional
+    public ManualUnifiedMergeResponse mergeUnifiedVideos(List<UUID> unifiedVideoIds) {
+        List<UUID> orderedIds = normalizeManualMergeIds(unifiedVideoIds);
+        UUID rootUnifiedVideoId = orderedIds.getFirst();
+        List<UUID> victimUnifiedVideoIds = orderedIds.subList(1, orderedIds.size());
+
+        repository.mergeDuplicateUnifiedVideos(rootUnifiedVideoId, victimUnifiedVideoIds);
+        AggregationPipelineExecution execution = aggregationPipelineRuntime.run(rootUnifiedVideoId);
+        List<UUID> rawVideoIds = repository.findRawIdsForUnified(rootUnifiedVideoId);
+        if (execution.successful()) {
+            repository.markUnifiedSynced(rootUnifiedVideoId);
+            publisher.publishUnifiedIndex(rootUnifiedVideoId);
+            rawVideoIds.forEach(publisher::publishRawIndex);
+            victimUnifiedVideoIds.forEach(publisher::publishUnifiedDelete);
+            execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
+            return new ManualUnifiedMergeResponse(
+                    rootUnifiedVideoId,
+                    List.copyOf(victimUnifiedVideoIds),
+                    List.copyOf(rawVideoIds),
+                    "MERGED",
+                    null);
+        }
+
+        repository.markUnifiedDirty(rootUnifiedVideoId);
+        victimUnifiedVideoIds.forEach(publisher::publishUnifiedDelete);
+        return new ManualUnifiedMergeResponse(
+                rootUnifiedVideoId,
+                List.copyOf(victimUnifiedVideoIds),
+                List.copyOf(rawVideoIds),
+                "PIPELINE_FAILED",
+                execution.failures());
     }
 
     public int resetStuckProcessing(int timeoutMinutes, int limit) {
@@ -434,6 +468,19 @@ public class AggregationService {
                 .map(results::get)
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private List<UUID> normalizeManualMergeIds(List<UUID> unifiedVideoIds) {
+        if (unifiedVideoIds == null) {
+            throw new IllegalArgumentException("unifiedVideoIds must contain at least two IDs");
+        }
+        List<UUID> ids = new ArrayList<>(new LinkedHashSet<>(unifiedVideoIds.stream()
+                .filter(Objects::nonNull)
+                .toList()));
+        if (ids.size() < 2) {
+            throw new IllegalArgumentException("unifiedVideoIds must contain at least two distinct IDs");
+        }
+        return ids;
     }
 
     private record BoundClusterResult(

@@ -515,7 +515,7 @@ public class JdbcPortalRepository {
         jdbcTemplate.query(
                 """
                 SELECT rv.id AS source_id,
-                       coalesce(ds.name, rds.name, '未知来源') AS source_name,
+                       coalesce(ds.name, '未知来源') AS source_name,
                        pl.name AS playlist_name,
                        ep.id AS episode_id,
                        ep.name AS episode_name,
@@ -524,8 +524,6 @@ public class JdbcPortalRepository {
                   FROM raw_video_unified_video rvu
                   JOIN raw_videos rv ON rvu.raw_video_id = rv.id
                   LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
-                  LEFT JOIN raw_category rc ON rv.data_source_category_id = rc.id
-                  LEFT JOIN data_sources rds ON rc.data_source_id = rds.id
                   LEFT JOIN playlists pl ON pl.video_id = rv.id
                   LEFT JOIN episodes ep ON ep.playlist_id = pl.id
                   LEFT JOIN source_domains sd ON ep.source_domain_id = sd.id

@@ -19,6 +19,7 @@ class NoLegacyContentMetadataTablesTest {
             "\\braw_genres\\b",
             "\\braw_languages\\b",
             "\\braw_areas\\b",
+            "\\braw_category\\b",
             "\\bvideo_raw_[a-z_]+\\b",
             "\\bvideo_actors\\b",
             "\\bvideo_directors\\b",

@@ -101,7 +101,12 @@ class JdbcMagnetRepositoryTest {
         jdbcTemplate.execute("""
                 create table unified_videos (
                     id uuid primary key,
-                    imdb_id varchar(20)
+                    title varchar(255),
+                    alias_title varchar(255),
+                "year" varchar(20),
+                    imdb_id varchar(20),
+                    tmdb_id varchar(20),
+                    douban_id varchar(20)
                 )
                 """);
         jdbcTemplate.execute("""
@@ -203,7 +208,12 @@ class JdbcMagnetRepositoryTest {
     }
 
     private void insertUnifiedVideo(UUID id, String imdbId) {
-        jdbcTemplate.update("insert into unified_videos (id, imdb_id) values (?, ?)", id, imdbId);
+        jdbcTemplate.update(
+                "insert into unified_videos (id, title, \"year\", imdb_id) values (?, ?, ?, ?)",
+                id,
+                "Codex Fixture",
+                "2026",
+                imdbId);
     }
 
     private void insertProvider(UUID id, String code, boolean autoApproveAllowed) {

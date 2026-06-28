@@ -106,8 +106,49 @@ class YtsBzMagnetProviderSearchRunnerTest {
         assertEquals(List.of("1080p", "web", "x264"), candidate.tags());
         assertEquals("YTS_BZ", candidate.providerEvidence().get("providerType"));
         assertEquals("yts_bz", candidate.providerEvidence().get("providerCode"));
+        assertEquals("IMDB", candidate.providerEvidence().get("queryType"));
         assertEquals("tt1234567", candidate.providerEvidence().get("imdbCode"));
         assertTrue(httpClient.requested());
+    }
+
+    @Test
+    void acceptsTitleQueryAsLowerConfidenceCandidateSearch() {
+        FakeHttpClient httpClient = FakeHttpClient.ok("""
+                {
+                  "status": "ok",
+                  "data": {
+                    "movies": [
+                      {
+                        "id": 101,
+                        "imdb_code": "tt9999999",
+                        "title_long": "Codex Movie (2026)",
+                        "url": "https://example.invalid/movies/codex",
+                        "torrents": [
+                          {
+                            "hash": "abcdef1234567890abcdef1234567890abcdef12",
+                            "quality": "1080p",
+                            "type": "web"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """);
+        YtsBzMagnetProviderSearchRunner runner = runner(httpClient);
+
+        MagnetProviderSearchResult result = runner.search(
+                provider,
+                new MagnetExternalIdQuery("TITLE_YEAR", "Codex Movie 2026"),
+                UUID.randomUUID());
+
+        assertEquals(1, result.candidates().size());
+        MagnetProviderCandidate candidate = result.candidates().getFirst();
+        assertEquals("TITLE_YEAR", candidate.matchedExternalIdType());
+        assertEquals("Codex Movie 2026", candidate.matchedExternalIdValue());
+        assertEquals(82, candidate.matchScore());
+        assertEquals("TITLE_YEAR", candidate.providerEvidence().get("queryType"));
+        assertEquals("Codex Movie 2026", candidate.providerEvidence().get("queryValue"));
     }
 
     @Test

@@ -484,9 +484,8 @@ public class JdbcAuxiliaryAdminRepository {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select coalesce(rv.data_source_id, rc.data_source_id) as data_source_id
+                    select rv.data_source_id as data_source_id
                     from raw_videos rv
-                    left join raw_category rc on rv.data_source_category_id = rc.id
                     where rv.id = :id
                     """,
                     new MapSqlParameterSource("id", rawVideoId),

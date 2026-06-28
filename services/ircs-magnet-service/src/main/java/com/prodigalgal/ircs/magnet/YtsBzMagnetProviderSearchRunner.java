@@ -53,7 +53,7 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
             MagnetProviderSummary provider,
             MagnetExternalIdQuery query,
             UUID unifiedVideoId) {
-        if (query == null || !"IMDB".equalsIgnoreCase(query.type())) {
+        if (!isSupportedQuery(query)) {
             throw new MagnetProviderRunnerException(UNSUPPORTED_QUERY, null, null);
         }
 
@@ -98,7 +98,7 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         List<MagnetProviderCandidate> candidates = new ArrayList<>();
         for (JsonNode movie : movies) {
             String imdbCode = text(movie, "imdb_code");
-            if (!query.value().equalsIgnoreCase(imdbCode)) {
+            if (requiresExactImdbMatch(query) && !query.value().equalsIgnoreCase(imdbCode)) {
                 continue;
             }
             String movieTitle = firstText(movie, "title_long", "title").orElse("YTS Torrent");
@@ -142,20 +142,52 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
                 quality,
                 query.type(),
                 query.value(),
-                100,
+                matchScore(query),
                 text(movie, "url"),
                 tags,
-                providerEvidence(provider, movie, torrent)));
+                providerEvidence(provider, query, movie, torrent)));
     }
 
-    private Map<String, Object> providerEvidence(MagnetProviderSummary provider, JsonNode movie, JsonNode torrent) {
+    private Map<String, Object> providerEvidence(
+            MagnetProviderSummary provider,
+            MagnetExternalIdQuery query,
+            JsonNode movie,
+            JsonNode torrent) {
         Map<String, Object> evidence = new LinkedHashMap<>();
         evidence.put("providerType", "YTS_BZ");
         evidence.put("providerCode", provider == null ? null : provider.code());
+        evidence.put("queryType", query == null ? null : query.type());
+        evidence.put("queryValue", query == null ? null : query.value());
         evidence.put("movieId", text(movie, "id"));
         evidence.put("imdbCode", text(movie, "imdb_code"));
         evidence.put("torrentHash", text(torrent, "hash"));
         return evidence;
+    }
+
+    private boolean isSupportedQuery(MagnetExternalIdQuery query) {
+        if (query == null || query.value() == null || query.value().isBlank()) {
+            return false;
+        }
+        return "IMDB".equalsIgnoreCase(query.type())
+                || "TITLE".equalsIgnoreCase(query.type())
+                || "TITLE_YEAR".equalsIgnoreCase(query.type());
+    }
+
+    private boolean requiresExactImdbMatch(MagnetExternalIdQuery query) {
+        return query != null && "IMDB".equalsIgnoreCase(query.type());
+    }
+
+    private int matchScore(MagnetExternalIdQuery query) {
+        if (query == null) {
+            return 0;
+        }
+        if ("IMDB".equalsIgnoreCase(query.type())) {
+            return 100;
+        }
+        if ("TITLE_YEAR".equalsIgnoreCase(query.type())) {
+            return 82;
+        }
+        return 72;
     }
 
     private String buildRequestUrl(MagnetProviderSummary provider, MagnetExternalIdQuery query) {

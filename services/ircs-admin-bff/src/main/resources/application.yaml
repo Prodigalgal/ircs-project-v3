@@ -44,6 +44,7 @@ app:
       identity: ${APP_BFF_IDENTITY_BASE_URL:http://ircs-identity-service.ircs-dev.svc.cluster.local:8080}
       content: ${APP_BFF_CONTENT_BASE_URL:http://ircs-content-service.ircs-dev.svc.cluster.local:8080}
       catalog: ${APP_BFF_CATALOG_BASE_URL:http://ircs-catalog-service.ircs-dev.svc.cluster.local:8080}
+      aggregation: ${APP_BFF_AGGREGATION_BASE_URL:http://ircs-aggregation-worker.ircs-dev.svc.cluster.local:8080}
       task: ${APP_BFF_TASK_BASE_URL:http://ircs-task-service.ircs-dev.svc.cluster.local:8080}
       ops: ${APP_BFF_OPS_BASE_URL:http://ircs-ops-service.ircs-dev.svc.cluster.local:8080}
       ops-alert: ${APP_BFF_OPS_ALERT_BASE_URL:http://ircs-ops-alert-service.ircs-dev.svc.cluster.local:8080}

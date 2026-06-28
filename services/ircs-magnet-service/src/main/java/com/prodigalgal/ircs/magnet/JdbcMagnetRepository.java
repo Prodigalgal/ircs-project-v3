@@ -234,14 +234,24 @@ public class JdbcMagnetRepository {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select id,
-                           imdb_id
-                    from unified_videos
-                    where id = ?
+                    select uv.id,
+                           uv.title,
+                           uv.alias_title,
+                           uv."year" as release_year,
+                           uv.imdb_id,
+                           uv.tmdb_id,
+                           uv.douban_id
+                    from unified_videos uv
+                    where uv.id = ?
                     """,
                     (rs, rowNum) -> new MagnetUnifiedVideoSearchTarget(
                             rs.getObject("id", UUID.class),
-                            rs.getString("imdb_id")),
+                            rs.getString("title"),
+                            rs.getString("alias_title"),
+                            rs.getString("release_year"),
+                            rs.getString("imdb_id"),
+                            rs.getString("tmdb_id"),
+                            rs.getString("douban_id")),
                     unifiedVideoId));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();

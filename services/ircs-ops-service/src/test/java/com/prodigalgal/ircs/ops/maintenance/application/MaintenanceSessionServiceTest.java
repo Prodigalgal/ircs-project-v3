@@ -19,7 +19,10 @@ class MaintenanceSessionServiceTest {
 
     private final MaintenanceRunnerService runnerService =
             org.mockito.Mockito.mock(MaintenanceRunnerService.class);
-    private final MaintenanceSessionService sessionService = new MaintenanceSessionService(runnerService);
+    private final MaintenanceNotificationPublisher notificationPublisher =
+            org.mockito.Mockito.mock(MaintenanceNotificationPublisher.class);
+    private final MaintenanceSessionService sessionService =
+            new MaintenanceSessionService(runnerService, notificationPublisher);
 
     @Test
     void streamRunsSupportedMaintenanceRunner() {
@@ -37,6 +40,10 @@ class MaintenanceSessionServiceTest {
         sessionService.stream(session.sessionId());
 
         verify(runnerService, timeout(1000)).run("search-reindex-unified", session.sessionId().toString());
+        verify(notificationPublisher, timeout(1000)).publishManualRun(
+                org.mockito.Mockito.eq(session.sessionId()),
+                org.mockito.Mockito.eq("search-reindex-unified"),
+                org.mockito.Mockito.any());
         assertTrue(awaitNoActiveSession());
     }
 
@@ -51,6 +58,10 @@ class MaintenanceSessionServiceTest {
         sessionService.stream(session.sessionId());
 
         verify(runnerService, timeout(1000)).run("area-clean", session.sessionId().toString());
+        verify(notificationPublisher, timeout(1000)).publishManualRun(
+                org.mockito.Mockito.eq(session.sessionId()),
+                org.mockito.Mockito.eq("area-clean"),
+                org.mockito.Mockito.any());
         assertTrue(awaitNoActiveSession());
     }
 

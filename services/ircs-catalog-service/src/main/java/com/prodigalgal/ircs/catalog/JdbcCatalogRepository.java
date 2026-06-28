@@ -83,33 +83,6 @@ public class JdbcCatalogRepository {
                         rs.getString("native_name")));
     }
 
-    public List<RawCategorySummary> listRawCategories() {
-        return jdbcTemplate.query(
-                """
-                select rc.id,
-                       rc.data_source_id,
-                       ds.name as data_source_name,
-                       rc.source_code,
-                       rc.source_name,
-                       rc.category_id,
-                       sc.name as category_name,
-                       sc.slug as category_slug
-                from raw_category rc
-                left join data_sources ds on rc.data_source_id = ds.id
-                left join standard_category sc on rc.category_id = sc.id
-                order by ds.name nulls last, rc.source_name
-                """,
-                (rs, rowNum) -> new RawCategorySummary(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("data_source_id", UUID.class),
-                        rs.getString("data_source_name"),
-                        rs.getString("source_code"),
-                        rs.getString("source_name"),
-                        rs.getObject("category_id", UUID.class),
-                        rs.getString("category_name"),
-                        rs.getString("category_slug")));
-    }
-
     public List<DataSourceSummary> listDataSources() {
         return jdbcTemplate.query(
                 """
@@ -348,43 +321,6 @@ public class JdbcCatalogRepository {
                 order by name
                 """,
                 standardLanguageReadMapper());
-    }
-
-    public CatalogPage<RawCategoryRead> pageRawCategories(
-            CatalogPageRequest pageRequest,
-            RawCategoryQuery query) {
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        List<String> predicates = new ArrayList<>();
-        addLikePredicate(predicates, params, "rc.source_name", "sourceName", query.sourceName());
-        if (query.dataSourceId() != null) {
-            predicates.add("rc.data_source_id = :dataSourceId");
-            params.addValue("dataSourceId", query.dataSourceId());
-        }
-        addMappedPredicate(predicates, "rc.category_id", query.isUnmapped(), true);
-
-        return queryPage(
-                rawCategorySelect(),
-                rawCategoryFromWhere(predicates),
-                params,
-                pageRequest,
-                Map.of(
-                        "id", "rc.id",
-                        "sourceCode", "rc.source_code",
-                        "sourceName", "rc.source_name",
-                        "dataSourceName", "ds.name",
-                        "categoryName", "sc.name",
-                        "createdAt", "rc.created_at",
-                        "updatedAt", "rc.updated_at"),
-                "ds.name asc nulls last, rc.source_name asc nulls last, rc.id asc",
-                "rc.id asc",
-                rawCategoryReadMapper());
-    }
-
-    public Optional<RawCategoryRead> findRawCategory(UUID id) {
-        return queryOptional(
-                rawCategorySelect() + " " + rawCategoryFromWhere(List.of("rc.id = :id")),
-                new MapSqlParameterSource("id", id),
-                rawCategoryReadMapper());
     }
 
     public DataSourceRead createDataSource(DataSourceAdminRequest request) {
@@ -694,94 +630,6 @@ public class JdbcCatalogRepository {
                 .orElseThrow();
     }
 
-    public Optional<RawCategoryRead> updateRawCategory(UUID id, RawCategoryAdminRequest request) {
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("sourceName", request.sourceName())
-                .addValue("categoryId", request.categoryId())
-                .addValue("updatedAt", Timestamp.from(Instant.now()));
-        namedParameterJdbcTemplate.update(
-                """
-                update raw_category
-                set source_name = coalesce(:sourceName, source_name),
-                    category_id = :categoryId,
-                    updated_at = :updatedAt
-                where id = :id
-                """,
-                params);
-        return findRawCategory(id);
-    }
-
-    public SeedResult syncRawCategory(
-            UUID dataSourceId,
-            String sourceCode,
-            String sourceName,
-            String inferredCategoryName) {
-        UUID inferredCategoryId = null;
-        if (StringUtils.hasText(inferredCategoryName)) {
-            inferredCategoryId = findIdByText("standard_category", "name", inferredCategoryName).orElse(null);
-        }
-        Optional<RawCategorySeedRow> existing = queryOptional(
-                """
-                select id, source_name, category_id
-                from raw_category
-                where data_source_id = :dataSourceId and source_code = :sourceCode
-                limit 1
-                """,
-                new MapSqlParameterSource()
-                        .addValue("dataSourceId", dataSourceId)
-                        .addValue("sourceCode", sourceCode),
-                (rs, rowNum) -> new RawCategorySeedRow(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("source_name"),
-                        rs.getObject("category_id", UUID.class)));
-        if (existing.isPresent()) {
-            RawCategorySeedRow row = existing.get();
-            boolean nameChanged = !java.util.Objects.equals(row.sourceName(), sourceName);
-            boolean shouldFillCategory = row.categoryId() == null && inferredCategoryId != null;
-            if (!nameChanged && !shouldFillCategory) {
-                return SeedResult.unchanged(row.id());
-            }
-            namedParameterJdbcTemplate.update(
-                    """
-                    update raw_category
-                    set source_name = case when :nameChanged then :sourceName else source_name end,
-                        category_id = case
-                            when category_id is null and :inferredCategoryId is not null then :inferredCategoryId
-                            else category_id
-                        end,
-                        updated_at = :updatedAt,
-                        version = coalesce(version, 0) + 1
-                    where id = :id
-                    """,
-                    new MapSqlParameterSource()
-                            .addValue("id", row.id())
-                            .addValue("sourceName", sourceName)
-                            .addValue("nameChanged", nameChanged)
-                            .addValue("inferredCategoryId", inferredCategoryId)
-                            .addValue("updatedAt", Timestamp.from(Instant.now())));
-            return SeedResult.updated(row.id());
-        }
-
-        UUID id = IrcsUuidGenerators.nextId();
-        Timestamp now = Timestamp.from(Instant.now());
-        namedParameterJdbcTemplate.update(
-                """
-                insert into raw_category (
-                    id, created_at, updated_at, version, data_source_id, source_code, source_name, category_id
-                )
-                values (:id, :now, :now, 0, :dataSourceId, :sourceCode, :sourceName, :categoryId)
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("now", now)
-                        .addValue("dataSourceId", dataSourceId)
-                        .addValue("sourceCode", sourceCode)
-                        .addValue("sourceName", sourceName)
-                        .addValue("categoryId", inferredCategoryId));
-        return SeedResult.inserted(id);
-    }
-
     public SeedResult seedStandardCategory(String name, String slug) {
         Optional<CategorySeedRow> existing = queryOptional(
                 """
@@ -1052,43 +900,6 @@ public class JdbcCatalogRepository {
                 rs.getString("native_name"));
     }
 
-    private RowMapper<RawCategoryRead> rawCategoryReadMapper() {
-        return (rs, rowNum) -> new RawCategoryRead(
-                rs.getObject("id", UUID.class),
-                rs.getString("source_code"),
-                rs.getString("source_name"),
-                rs.getObject("data_source_id", UUID.class),
-                rs.getString("data_source_name"),
-                rs.getObject("category_id", UUID.class),
-                rs.getString("category_name"),
-                instant(rs, "created_at"),
-                instant(rs, "updated_at"));
-    }
-
-    private String rawCategorySelect() {
-        return """
-                select rc.id,
-                       rc.source_code,
-                       rc.source_name,
-                       rc.data_source_id,
-                       ds.name as data_source_name,
-                       rc.category_id,
-                       sc.name as category_name,
-                       rc.created_at,
-                       rc.updated_at
-                """;
-    }
-
-    private String rawCategoryFromWhere(List<String> predicates) {
-        return fromWhere(
-                """
-                raw_category rc
-                left join data_sources ds on rc.data_source_id = ds.id
-                left join standard_category sc on rc.category_id = sc.id
-                """,
-                predicates);
-    }
-
     private void addAssignment(
             List<String> assignments,
             MapSqlParameterSource params,
@@ -1303,8 +1114,6 @@ public class JdbcCatalogRepository {
     private record LanguageSeedRow(UUID id, String code, String englishName, String nativeName) {}
 
     private record AreaSeedRow(UUID id, String region) {}
-
-    private record RawCategorySeedRow(UUID id, String sourceName, UUID categoryId) {}
 
     private record DataSourceSeedRow(
             UUID id,

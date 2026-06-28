@@ -50,11 +50,6 @@ public class CatalogController {
         return catalogService.listStandardLanguages();
     }
 
-    @GetMapping("/catalog/raw-categories")
-    public List<RawCategorySummary> listCatalogRawCategories() {
-        return catalogService.listRawCategories();
-    }
-
     @GetMapping("/catalog/data-sources")
     public List<DataSourceSummary> listCatalogDataSources() {
         return catalogService.listDataSources();
@@ -236,39 +231,6 @@ public class CatalogController {
     @GetMapping("/data-sources/{id}")
     public ResponseEntity<DataSourceRead> getDataSource(@PathVariable UUID id) {
         return catalogService.findDataSource(id)
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    @GetMapping("/raw-categories")
-    public PageEnvelope<RawCategoryRead> pageRawCategories(
-            @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size,
-            @RequestParam(required = false) List<String> sort,
-            @RequestParam(required = false) String sourceName,
-            @RequestParam(required = false) UUID dataSourceId,
-            @RequestParam(required = false) Boolean isUnmapped) {
-        return pageEnvelope(catalogService.pageRawCategories(
-                CatalogPageRequest.of(page, size, sort),
-                new RawCategoryQuery(sourceName, dataSourceId, isUnmapped)));
-    }
-
-    @PutMapping("/raw-categories/{id}")
-    public ResponseEntity<RawCategoryRead> updateRawCategory(
-            @PathVariable UUID id,
-            @RequestBody RawCategoryAdminRequest request) {
-        return ResponseEntity.ok(catalogService.updateRawCategory(id, request));
-    }
-
-    @DeleteMapping("/raw-categories/{id}")
-    public ResponseEntity<Void> deleteRawCategory(@PathVariable UUID id) {
-        catalogService.deleteRawCategory(id);
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/raw-categories/{id}")
-    public ResponseEntity<RawCategoryRead> getRawCategory(@PathVariable UUID id) {
-        return catalogService.findRawCategory(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

@@ -64,11 +64,9 @@ class RawVideoAdminServiceTest {
                 null,        // imdbId
                 null,        // rottenTomatoesId
                 null,        // lockedFields
-                null,        // dataSourceCategoryId
+                null,        // dataSourceId
                 null,        // categoryId
                 newUnifiedId, // unifiedVideoId
-                null,        // actorIds
-                null,        // directorIds
                 null,        // rawLanguageStr
                 null,        // actorNames
                 null,        // directorNames

@@ -28,13 +28,13 @@ class LlmCleaningRepositoryTest {
     private NamedParameterJdbcTemplate jdbcTemplate;
 
     @Test
-    void findCandidateReadsExactQueuedCategoryIdWithoutDbLease() {
+    void findCandidateReadsRawVideoSourceCategoryWithoutDbLease() {
         UUID rawId = UUID.randomUUID();
         when(jdbcTemplate.query(
                         argThat(sql -> sql != null
-                                && sql.contains("from raw_category")
+                                && sql.contains("from raw_videos")
                                 && sql.contains("where id = :rawId")
-                                && sql.contains("category_id is null")
+                                && sql.contains("category_code")
                                 && !sql.contains("skip locked")
                                 && !sql.contains("llm_cleaning_claimed")),
                         any(MapSqlParameterSource.class),
@@ -48,15 +48,15 @@ class LlmCleaningRepositoryTest {
     }
 
     @Test
-    void applyMatchOnlyUpdatesUnmappedCategoryRows() {
+    void applyMatchOnlyUpdatesUnmappedRawVideoCategoryCode() {
         UUID rawId = UUID.randomUUID();
         UUID standardId = UUID.randomUUID();
         when(jdbcTemplate.update(
                         argThat(sql -> sql != null
-                                && sql.contains("update raw_category")
-                                && sql.contains("set category_id = :standardId")
+                                && sql.contains("update raw_videos")
+                                && sql.contains("select slug")
                                 && sql.contains("updated_at = now()")
-                                && sql.contains("category_id is null")
+                                && sql.contains("category_code")
                                 && !sql.contains("llm_cleaning_claimed")),
                         any(MapSqlParameterSource.class)))
                 .thenReturn(1);

@@ -1061,7 +1061,6 @@ class JdbcAggregationRepositoryTest {
                     enrichment_status varchar(50) not null,
                     normalization_status varchar(50) not null,
                     aggregation_status varchar(50) not null,
-                    data_source_category_id uuid,
                     actor_names jsonb default '[]',
                     director_names jsonb default '[]',
                     area_codes jsonb default '[]',
@@ -1261,7 +1260,6 @@ class JdbcAggregationRepositoryTest {
                     enrichment_status varchar(50) not null,
                     normalization_status varchar(50) not null,
                     aggregation_status varchar(50) not null,
-                    data_source_category_id uuid,
                     actor_names jsonb default '[]',
                     director_names jsonb default '[]',
                     area_codes jsonb default '[]',
@@ -1676,8 +1674,8 @@ class JdbcAggregationRepositoryTest {
                     id, created_at, updated_at, version, source_vid, source_hash, title, alias_title,
                     description, year, score, published_at, douban_id, tmdb_id, imdb_id,
                     rotten_tomatoes_id, total_episodes, duration, remarks, season, subtitle,
-                    enrichment_status, normalization_status, aggregation_status, data_source_category_id
-                ) values (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUCCESS', 'READY', 'BOUND', null)
+                    enrichment_status, normalization_status, aggregation_status
+                ) values (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUCCESS', 'READY', 'BOUND')
                 """,
                 rawVideoId,
                 createdAt,
@@ -1742,8 +1740,8 @@ class JdbcAggregationRepositoryTest {
         jdbc.update("""
                 insert into raw_videos (
                     id, created_at, updated_at, version, source_vid, source_hash, title, cover_image_id,
-                    enrichment_status, normalization_status, aggregation_status, data_source_category_id
-                ) values (?, ?, ?, 0, ?, ?, 'Raw', ?, 'SUCCESS', 'READY', 'BOUND', null)
+                    enrichment_status, normalization_status, aggregation_status
+                ) values (?, ?, ?, 0, ?, ?, 'Raw', ?, 'SUCCESS', 'READY', 'BOUND')
                 """,
                 rawVideoId,
                 createdAt,

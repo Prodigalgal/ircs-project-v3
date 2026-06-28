@@ -113,14 +113,3 @@ record StandardLanguageAdminRequest(
         String code,
         String englishName,
         String nativeName) {}
-
-record RawCategoryAdminRequest(
-        UUID id,
-        String sourceCode,
-        String sourceName,
-        UUID dataSourceId,
-        String dataSourceName,
-        UUID categoryId,
-        String categoryName,
-        Instant createdAt,
-        Instant updatedAt) {}
