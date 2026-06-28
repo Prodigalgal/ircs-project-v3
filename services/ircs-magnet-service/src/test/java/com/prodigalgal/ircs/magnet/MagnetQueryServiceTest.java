@@ -32,7 +32,9 @@ class MagnetQueryServiceTest {
     private final MagnetQueryService service = new MagnetQueryService(
             magnetRepository,
             providerSearchRunner,
-            MagnetReadModelCache.disabled());
+            MagnetReadModelCache.disabled(),
+            null,
+            null);
 
     @Test
     void listProvidersCachesReadModel() {
@@ -401,7 +403,7 @@ class MagnetQueryServiceTest {
                 true,
                 Duration.ofMinutes(5),
                 Duration.ofSeconds(60));
-        return new MagnetQueryService(magnetRepository, providerSearchRunner, cache);
+        return new MagnetQueryService(magnetRepository, providerSearchRunner, cache, null, null);
     }
 
     private MagnetUnifiedVideoSearchTarget searchTarget(UUID id, String imdbId, String title) {
@@ -412,7 +414,8 @@ class MagnetQueryServiceTest {
                 title == null ? null : "2026",
                 imdbId,
                 null,
-                null);
+                null,
+                "SYNCED");
     }
 
     private MagnetProviderSummary ytsProvider(UUID id) {

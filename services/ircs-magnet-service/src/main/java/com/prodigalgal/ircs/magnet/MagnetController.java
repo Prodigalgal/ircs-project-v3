@@ -4,10 +4,12 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,8 +57,41 @@ public class MagnetController {
         return ResponseEntity.ok(magnetQueryService.findApprovedLinks(id));
     }
 
+    @GetMapping("/magnets/unified/{id}/links")
+    public ResponseEntity<List<MagnetLinkSummary>> getUnifiedMagnetLinks(@PathVariable UUID id) {
+        return ResponseEntity.ok(magnetQueryService.findLinks(id));
+    }
+
+    @GetMapping("/magnets/unified/{id}/jobs")
+    public ResponseEntity<List<MagnetSearchJobSummary>> getUnifiedMagnetJobs(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "20") int limit) {
+        return ResponseEntity.ok(magnetQueryService.findSearchJobs(id, limit));
+    }
+
+    @GetMapping("/magnets/search-jobs/{id}/runs")
+    public ResponseEntity<List<MagnetProviderRunSummary>> getMagnetProviderRuns(@PathVariable UUID id) {
+        return ResponseEntity.ok(magnetQueryService.findProviderRuns(id));
+    }
+
     @PostMapping("/magnets/search/unified/{id}")
     public ResponseEntity<MagnetSearchJobSummary> searchUnifiedMagnets(@PathVariable UUID id) {
-        return ResponseEntity.ok(magnetQueryService.triggerUnifiedSearch(id));
+        return ResponseEntity.ok(magnetQueryService.enqueueUnifiedSearch(id));
+    }
+
+    @PutMapping("/magnets/unified/{id}/links/{linkId}/status")
+    public ResponseEntity<MagnetLinkSummary> updateUnifiedMagnetLinkStatus(
+            @PathVariable UUID id,
+            @PathVariable UUID linkId,
+            @RequestBody MagnetLinkStatusRequest request) {
+        return ResponseEntity.ok(magnetQueryService.updateLinkStatus(id, linkId, request));
+    }
+
+    @DeleteMapping("/magnets/unified/{id}/links/{linkId}")
+    public ResponseEntity<Void> deleteUnifiedMagnetLink(
+            @PathVariable UUID id,
+            @PathVariable UUID linkId) {
+        magnetQueryService.deleteLink(id, linkId);
+        return ResponseEntity.noContent().build();
     }
 }

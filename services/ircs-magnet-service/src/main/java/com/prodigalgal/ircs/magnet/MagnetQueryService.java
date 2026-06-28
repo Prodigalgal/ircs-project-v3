@@ -1,5 +1,8 @@
 package com.prodigalgal.ircs.magnet;
 
+import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
+import com.prodigalgal.ircs.contracts.search.SearchEntityType;
+import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -7,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,17 +24,28 @@ public class MagnetQueryService {
     private static final String SKIPPED_NO_QUERY = "没有可用于搜刮的外部 ID 或标题";
     private static final String SKIPPED_NO_ENABLED_PROVIDER = "没有已启用的 magnet provider";
     private static final String SKIPPED_NO_SUPPORTED_PROVIDER = "没有支持当前查询类型的 magnet provider";
+    private static final String SKIPPED_NOT_ENRICHED = "聚合视频富化未完成，暂不补充磁链";
+    private static final String METADATA_STATUS_SYNCED = "SYNCED";
 
     private final JdbcMagnetRepository magnetRepository;
     private final MagnetProviderSearchRunner providerSearchRunner;
     private final MagnetReadModelCache readModelCache;
+    private final MagnetWorkPublisher workPublisher;
+    private final SearchSyncWorkPublisher searchSyncWorkPublisher;
+
     public MagnetQueryService(
             JdbcMagnetRepository magnetRepository,
             MagnetProviderSearchRunner providerSearchRunner,
-            MagnetReadModelCache readModelCache) {
+            MagnetReadModelCache readModelCache,
+            ObjectProvider<MagnetWorkPublisher> workPublisherProvider,
+            ObjectProvider<SearchSyncWorkPublisher> searchSyncWorkPublisherProvider) {
         this.magnetRepository = magnetRepository;
         this.providerSearchRunner = providerSearchRunner;
         this.readModelCache = readModelCache;
+        this.workPublisher = workPublisherProvider == null ? null : workPublisherProvider.getIfAvailable();
+        this.searchSyncWorkPublisher = searchSyncWorkPublisherProvider == null
+                ? null
+                : searchSyncWorkPublisherProvider.getIfAvailable();
     }
 
     @Transactional(readOnly = true)
@@ -60,7 +75,7 @@ public class MagnetQueryService {
 
     @Transactional
     public MagnetProviderSummary updateProvider(UUID id, MagnetProviderRequest request) {
-        MagnetProviderRequest required = requireRequest(request);
+        MagnetProviderRequest required = requireProviderRequest(request);
         validatePathId(id, required.id());
         MagnetProviderRequest normalized = normalizeProviderRequest(required);
         try {
@@ -78,22 +93,107 @@ public class MagnetQueryService {
         return readModelCache.findApprovedLinks(unifiedVideoId, () -> magnetRepository.findApprovedLinks(unifiedVideoId));
     }
 
+    @Transactional(readOnly = true)
+    public List<MagnetLinkSummary> findLinks(UUID unifiedVideoId) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        return magnetRepository.findLinks(unifiedVideoId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MagnetSearchJobSummary> findSearchJobs(UUID unifiedVideoId, int limit) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        return magnetRepository.findSearchJobs(unifiedVideoId, limit);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MagnetProviderRunSummary> findProviderRuns(UUID jobId) {
+        return magnetRepository.findProviderRuns(jobId);
+    }
+
     @Transactional
     public MagnetSearchJobSummary triggerUnifiedSearch(UUID unifiedVideoId) {
-        return triggerUnifiedSearch(unifiedVideoId, "ADMIN_MANUAL");
+        return executeSearch(null, unifiedVideoId, "ADMIN_MANUAL");
     }
 
     @Transactional
     public MagnetSearchJobSummary triggerAutomaticSearch(UUID unifiedVideoId) {
-        return triggerUnifiedSearch(unifiedVideoId, "AUTO_SCHEDULED");
+        return executeSearch(null, unifiedVideoId, "AUTO_SCHEDULED");
     }
 
-    private MagnetSearchJobSummary triggerUnifiedSearch(UUID unifiedVideoId, String triggerType) {
+    @Transactional
+    public MagnetSearchJobSummary enqueueUnifiedSearch(UUID unifiedVideoId) {
+        return enqueueSearch(unifiedVideoId, "ADMIN_MANUAL");
+    }
+
+    @Transactional
+    public MagnetSearchJobSummary enqueueAutomaticSearch(UUID unifiedVideoId) {
+        return enqueueSearch(unifiedVideoId, "AUTO_SCHEDULED");
+    }
+
+    @Transactional
+    public MagnetSearchJobSummary executeQueuedSearch(UUID jobId, UUID unifiedVideoId, String triggerType) {
+        return executeSearch(jobId, unifiedVideoId, triggerType);
+    }
+
+    @Transactional
+    public void markQueuedSearchFailed(UUID jobId, String reason) {
+        magnetRepository.markSearchJobFailed(jobId, reason);
+    }
+
+    @Transactional
+    public MagnetLinkSummary updateLinkStatus(UUID unifiedVideoId, UUID linkId, MagnetLinkStatusRequest request) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        String status = normalizeLinkStatus(request == null ? null : request.status());
+        MagnetLinkSummary link = magnetRepository.updateLinkStatus(unifiedVideoId, linkId, status)
+                .orElseThrow(() -> notFound("Magnet link not found"));
+        readModelCache.evictApprovedLinks(unifiedVideoId);
+        enqueueSearchSync(unifiedVideoId);
+        return link;
+    }
+
+    @Transactional
+    public void deleteLink(UUID unifiedVideoId, UUID linkId) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        if (!magnetRepository.deleteLink(unifiedVideoId, linkId)) {
+            throw notFound("Magnet link not found");
+        }
+        readModelCache.evictApprovedLinks(unifiedVideoId);
+        enqueueSearchSync(unifiedVideoId);
+    }
+
+    private MagnetSearchJobSummary enqueueSearch(UUID unifiedVideoId, String triggerType) {
         MagnetUnifiedVideoSearchTarget target = magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId)
                 .orElseThrow(() -> notFound("UnifiedVideo not found"));
+        if (!isEnriched(target)) {
+            return magnetRepository.createSkippedSearchJob(
+                    unifiedVideoId,
+                    triggerType,
+                    SKIPPED_NOT_ENRICHED,
+                    List.of(),
+                    List.of());
+        }
         List<MagnetExternalIdQuery> queries = planExternalIdQueries(target);
         if (queries.isEmpty()) {
             return magnetRepository.createSkippedSearchJob(unifiedVideoId, triggerType, SKIPPED_NO_QUERY, queries, List.of());
+        }
+        if (workPublisher == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Magnet runtime work queue is unavailable");
+        }
+        MagnetSearchJobSummary job = magnetRepository.createPendingSearchJob(unifiedVideoId, triggerType, queries);
+        workPublisher.enqueue(job);
+        return job;
+    }
+
+    private MagnetSearchJobSummary executeSearch(UUID jobId, UUID unifiedVideoId, String triggerType) {
+        MagnetUnifiedVideoSearchTarget target = magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId)
+                .orElseThrow(() -> notFound("UnifiedVideo not found"));
+        if (!isEnriched(target)) {
+            return skipSearch(jobId, unifiedVideoId, triggerType, SKIPPED_NOT_ENRICHED, List.of(), List.of());
+        }
+
+        List<MagnetExternalIdQuery> queries = planExternalIdQueries(target);
+        if (queries.isEmpty()) {
+            return skipSearch(jobId, unifiedVideoId, triggerType, SKIPPED_NO_QUERY, queries, List.of());
         }
 
         List<MagnetProviderSummary> providers = readModelCache.listEnabledProviders(magnetRepository::listEnabledProviders);
@@ -101,12 +201,7 @@ public class MagnetQueryService {
                 .map(MagnetProviderSummary::code)
                 .toList();
         if (providers.isEmpty()) {
-            return magnetRepository.createSkippedSearchJob(
-                    unifiedVideoId,
-                    triggerType,
-                    SKIPPED_NO_ENABLED_PROVIDER,
-                    queries,
-                    providerCodes);
+            return skipSearch(jobId, unifiedVideoId, triggerType, SKIPPED_NO_ENABLED_PROVIDER, queries, providerCodes);
         }
 
         List<ProviderQuery> runPlan = providers.stream()
@@ -115,15 +210,13 @@ public class MagnetQueryService {
                         .map(query -> new ProviderQuery(provider, query)))
                 .toList();
         if (runPlan.isEmpty()) {
-            return magnetRepository.createSkippedSearchJob(
-                    unifiedVideoId,
-                    triggerType,
-                    SKIPPED_NO_SUPPORTED_PROVIDER,
-                    queries,
-                    providerCodes);
+            return skipSearch(jobId, unifiedVideoId, triggerType, SKIPPED_NO_SUPPORTED_PROVIDER, queries, providerCodes);
         }
 
-        MagnetSearchJobSummary job = magnetRepository.createRunningSearchJob(unifiedVideoId, triggerType, queries);
+        MagnetSearchJobSummary job = jobId == null
+                ? magnetRepository.createRunningSearchJob(unifiedVideoId, triggerType, queries)
+                : magnetRepository.markSearchJobRunning(jobId, queries)
+                        .orElseThrow(() -> notFound("Magnet search job not found"));
         int totalCandidates = 0;
         int acceptedCount = 0;
         int failedRuns = 0;
@@ -194,6 +287,7 @@ public class MagnetQueryService {
         }
         if (linksTouched) {
             readModelCache.evictApprovedLinks(unifiedVideoId);
+            enqueueSearchSync(unifiedVideoId);
         }
 
         return withLinks(magnetRepository.finishSearchJob(
@@ -203,6 +297,20 @@ public class MagnetQueryService {
                         acceptedCount,
                         failedRuns),
                 acceptedLinks);
+    }
+
+    private MagnetSearchJobSummary skipSearch(
+            UUID jobId,
+            UUID unifiedVideoId,
+            String triggerType,
+            String reason,
+            List<MagnetExternalIdQuery> queries,
+            List<String> providerCodes) {
+        if (jobId == null) {
+            return magnetRepository.createSkippedSearchJob(unifiedVideoId, triggerType, reason, queries, providerCodes);
+        }
+        return magnetRepository.markSearchJobSkipped(jobId, reason, queries, providerCodes)
+                .orElseThrow(() -> notFound("Magnet search job not found"));
     }
 
     private List<MagnetExternalIdQuery> planExternalIdQueries(MagnetUnifiedVideoSearchTarget target) {
@@ -261,6 +369,10 @@ public class MagnetQueryService {
                 && trimToNull(candidate.matchedExternalIdValue()) != null;
     }
 
+    private boolean isEnriched(MagnetUnifiedVideoSearchTarget target) {
+        return target != null && METADATA_STATUS_SYNCED.equalsIgnoreCase(trimToNull(target.metadataStatus()));
+    }
+
     private MagnetSearchJobSummary withLinks(MagnetSearchJobSummary summary, List<MagnetLinkSummary> links) {
         return new MagnetSearchJobSummary(
                 summary.id(),
@@ -282,7 +394,7 @@ public class MagnetQueryService {
     }
 
     private MagnetProviderRequest normalizeProviderRequest(MagnetProviderRequest request) {
-        MagnetProviderRequest required = requireRequest(request);
+        MagnetProviderRequest required = requireProviderRequest(request);
         String code = requireText(required.code(), "Provider code is required");
         String name = requireText(required.name(), "Provider name is required");
         String providerType = requireText(required.providerType(), "Provider type is required");
@@ -316,7 +428,7 @@ public class MagnetQueryService {
                 required.updatedAt());
     }
 
-    private MagnetProviderRequest requireRequest(MagnetProviderRequest request) {
+    private MagnetProviderRequest requireProviderRequest(MagnetProviderRequest request) {
         if (request == null) {
             throw badRequest("Magnet provider payload is required");
         }
@@ -332,6 +444,14 @@ public class MagnetQueryService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
+    }
+
+    private String normalizeLinkStatus(String value) {
+        String normalized = requireText(value, "Magnet link status is required").toUpperCase(java.util.Locale.ROOT);
+        return switch (normalized) {
+            case "APPROVED", "CANDIDATE", "REJECTED", "HIDDEN" -> normalized;
+            default -> throw badRequest("Unsupported magnet link status");
+        };
     }
 
     private String requireText(String value, String message) {
@@ -377,6 +497,18 @@ public class MagnetQueryService {
     private void validatePathId(UUID pathId, UUID bodyId) {
         if (bodyId != null && !Objects.equals(pathId, bodyId)) {
             throw badRequest("Invalid ID");
+        }
+    }
+
+    private void ensureUnifiedVideoExists(UUID unifiedVideoId) {
+        if (!magnetRepository.existsUnifiedVideo(unifiedVideoId)) {
+            throw notFound("UnifiedVideo not found");
+        }
+    }
+
+    private void enqueueSearchSync(UUID unifiedVideoId) {
+        if (searchSyncWorkPublisher != null && unifiedVideoId != null) {
+            searchSyncWorkPublisher.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
         }
     }
 

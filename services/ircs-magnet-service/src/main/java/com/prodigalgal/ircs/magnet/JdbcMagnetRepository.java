@@ -222,6 +222,48 @@ public class JdbcMagnetRepository {
                 unifiedVideoId);
     }
 
+    public List<MagnetLinkSummary> findLinks(UUID unifiedVideoId) {
+        return jdbcTemplate.query(
+                """
+                select id,
+                       unified_video_id,
+                       provider_code,
+                       info_hash,
+                       magnet_uri,
+                       title,
+                       size_bytes,
+                       size_label,
+                       published_at,
+                       seeders,
+                       leechers,
+                       quality,
+                       resolution,
+                       matched_external_id_type,
+                       matched_external_id_value,
+                       match_score,
+                       status,
+                       source_url,
+                       tags::text as tags,
+                       created_at,
+                       updated_at
+                from magnet_links
+                where unified_video_id = ?
+                order by case status
+                             when 'APPROVED' then 0
+                             when 'CANDIDATE' then 1
+                             when 'HIDDEN' then 2
+                             when 'REJECTED' then 3
+                             else 9
+                         end,
+                         match_score desc nulls last,
+                         seeders desc nulls last,
+                         updated_at desc nulls last,
+                         id asc
+                """,
+                linkMapper(),
+                unifiedVideoId);
+    }
+
     public boolean existsUnifiedVideo(UUID unifiedVideoId) {
         Boolean exists = jdbcTemplate.queryForObject(
                 "select exists(select 1 from unified_videos where id = ?)",
@@ -240,19 +282,21 @@ public class JdbcMagnetRepository {
                            uv."year" as release_year,
                            uv.imdb_id,
                            uv.tmdb_id,
-                           uv.douban_id
-                    from unified_videos uv
-                    where uv.id = ?
-                    """,
+                           uv.douban_id,
+                           uv.metadata_status
+                     from unified_videos uv
+                     where uv.id = ?
+                     """,
                     (rs, rowNum) -> new MagnetUnifiedVideoSearchTarget(
                             rs.getObject("id", UUID.class),
                             rs.getString("title"),
                             rs.getString("alias_title"),
-                            rs.getString("release_year"),
-                            rs.getString("imdb_id"),
-                            rs.getString("tmdb_id"),
-                            rs.getString("douban_id")),
-                    unifiedVideoId));
+                             rs.getString("release_year"),
+                             rs.getString("imdb_id"),
+                             rs.getString("tmdb_id"),
+                             rs.getString("douban_id"),
+                             rs.getString("metadata_status")),
+                     unifiedVideoId));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -294,14 +338,15 @@ public class JdbcMagnetRepository {
         return namedParameterJdbcTemplate.queryForList(
                 """
                 select uv.id
-                from unified_videos uv
-                where (
-                    length(trim(coalesce(uv.imdb_id, ''))) > 0
+                 from unified_videos uv
+                 where (
+                     length(trim(coalesce(uv.imdb_id, ''))) > 0
                     or length(trim(coalesce(uv.tmdb_id, ''))) > 0
                     or length(trim(coalesce(uv.douban_id, ''))) > 0
                     or length(trim(coalesce(uv.title, ''))) > 0
-                    or length(trim(coalesce(uv.alias_title, ''))) > 0
-                )
+                     or length(trim(coalesce(uv.alias_title, ''))) > 0
+                 )
+                  and uv.metadata_status = 'SYNCED'
                   and not exists (
                       select 1
                       from magnet_links ml
@@ -391,6 +436,85 @@ public class JdbcMagnetRepository {
         return findSearchJob(jobId).orElseThrow();
     }
 
+    public MagnetSearchJobSummary createPendingSearchJob(
+            UUID unifiedVideoId,
+            String triggerType,
+            List<MagnetExternalIdQuery> externalIdPlan) {
+        UUID jobId = IrcsUuidGenerators.nextId();
+        Timestamp now = Timestamp.from(Instant.now());
+        namedParameterJdbcTemplate.update(
+                """
+                insert into magnet_search_jobs (
+                    id,
+                    created_at,
+                    updated_at,
+                    version,
+                    unified_video_id,
+                    trigger_type,
+                    status,
+                    provider_codes,
+                    external_id_plan,
+                    started_at,
+                    finished_at,
+                    total_candidates,
+                    accepted_count,
+                    rejected_count,
+                    skipped_reason,
+                    error_message
+                )
+                values (
+                    :id,
+                    :now,
+                    :now,
+                    0,
+                    :unifiedVideoId,
+                    :triggerType,
+                    'PENDING',
+                    cast('[]' as jsonb),
+                    cast(:externalIdPlan as jsonb),
+                    null,
+                    null,
+                    0,
+                    0,
+                    0,
+                    null,
+                    null
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", jobId)
+                        .addValue("now", now)
+                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("triggerType", triggerType(triggerType))
+                        .addValue("externalIdPlan", toJson(externalIdPlanJson(externalIdPlan))));
+        return findSearchJob(jobId).orElseThrow();
+    }
+
+    public Optional<MagnetSearchJobSummary> markSearchJobRunning(
+            UUID jobId,
+            List<MagnetExternalIdQuery> externalIdPlan) {
+        Timestamp now = Timestamp.from(Instant.now());
+        int updated = namedParameterJdbcTemplate.update(
+                """
+                update magnet_search_jobs
+                set updated_at = :now,
+                    status = 'RUNNING',
+                    external_id_plan = cast(:externalIdPlan as jsonb),
+                    started_at = coalesce(started_at, :now),
+                    finished_at = null,
+                    skipped_reason = null,
+                    error_message = null,
+                    version = coalesce(version, 0) + 1
+                where id = :jobId
+                  and status in ('PENDING', 'RUNNING')
+                """,
+                new MapSqlParameterSource()
+                        .addValue("jobId", jobId)
+                        .addValue("now", now)
+                        .addValue("externalIdPlan", toJson(externalIdPlanJson(externalIdPlan))));
+        return updated == 0 ? Optional.empty() : findSearchJob(jobId);
+    }
+
     public MagnetSearchJobSummary createSkippedSearchJob(UUID unifiedVideoId) {
         return createSkippedSearchJob(unifiedVideoId, DEV_SEARCH_SKIPPED_REASON, List.of(), listEnabledProviderCodes());
     }
@@ -459,6 +583,58 @@ public class JdbcMagnetRepository {
                         .addValue("externalIdPlan", toJson(externalIdPlanJson(externalIdPlan)))
                         .addValue("skippedReason", skippedReason));
         return findSearchJob(jobId).orElseThrow();
+    }
+
+    public Optional<MagnetSearchJobSummary> markSearchJobSkipped(
+            UUID jobId,
+            String skippedReason,
+            List<MagnetExternalIdQuery> externalIdPlan,
+            List<String> providerCodes) {
+        Timestamp now = Timestamp.from(Instant.now());
+        int updated = namedParameterJdbcTemplate.update(
+                """
+                update magnet_search_jobs
+                set updated_at = :now,
+                    status = 'SKIPPED',
+                    provider_codes = cast(:providerCodes as jsonb),
+                    external_id_plan = cast(:externalIdPlan as jsonb),
+                    started_at = coalesce(started_at, :now),
+                    finished_at = :now,
+                    total_candidates = 0,
+                    accepted_count = 0,
+                    rejected_count = 0,
+                    skipped_reason = :skippedReason,
+                    error_message = null,
+                    version = coalesce(version, 0) + 1
+                where id = :jobId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("jobId", jobId)
+                        .addValue("now", now)
+                        .addValue("providerCodes", toJson(providerCodes))
+                        .addValue("externalIdPlan", toJson(externalIdPlanJson(externalIdPlan)))
+                        .addValue("skippedReason", skippedReason));
+        return updated == 0 ? Optional.empty() : findSearchJob(jobId);
+    }
+
+    public Optional<MagnetSearchJobSummary> markSearchJobFailed(UUID jobId, String errorMessage) {
+        Timestamp now = Timestamp.from(Instant.now());
+        int updated = namedParameterJdbcTemplate.update(
+                """
+                update magnet_search_jobs
+                set updated_at = :now,
+                    status = 'FAILED',
+                    started_at = coalesce(started_at, :now),
+                    finished_at = :now,
+                    error_message = :errorMessage,
+                    version = coalesce(version, 0) + 1
+                where id = :jobId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("jobId", jobId)
+                        .addValue("now", now)
+                        .addValue("errorMessage", errorMessage));
+        return updated == 0 ? Optional.empty() : findSearchJob(jobId);
     }
 
     public void createProviderRun(
@@ -633,6 +809,38 @@ public class JdbcMagnetRepository {
         return findLink(unifiedVideoId, candidate.infoHash()).orElseThrow();
     }
 
+    public Optional<MagnetLinkSummary> updateLinkStatus(UUID unifiedVideoId, UUID linkId, String status) {
+        Timestamp now = Timestamp.from(Instant.now());
+        int updated = namedParameterJdbcTemplate.update(
+                """
+                update magnet_links
+                set updated_at = :now,
+                    status = :status,
+                    version = coalesce(version, 0) + 1
+                where unified_video_id = :unifiedVideoId
+                  and id = :linkId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("now", now)
+                        .addValue("status", status)
+                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("linkId", linkId));
+        return updated == 0 ? Optional.empty() : findLinkById(unifiedVideoId, linkId);
+    }
+
+    public boolean deleteLink(UUID unifiedVideoId, UUID linkId) {
+        int updated = namedParameterJdbcTemplate.update(
+                """
+                delete from magnet_links
+                where unified_video_id = :unifiedVideoId
+                  and id = :linkId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("linkId", linkId));
+        return updated > 0;
+    }
+
     public MagnetSearchJobSummary finishSearchJob(
             UUID jobId,
             List<String> providerCodes,
@@ -673,6 +881,62 @@ public class JdbcMagnetRepository {
                         .addValue("acceptedCount", acceptedCount)
                         .addValue("rejectedCount", rejectedCount));
         return findSearchJob(jobId).orElseThrow();
+    }
+
+    public List<MagnetSearchJobSummary> findSearchJobs(UUID unifiedVideoId, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        return namedParameterJdbcTemplate.query(
+                """
+                select id,
+                       unified_video_id,
+                       trigger_type,
+                       status,
+                       provider_codes::text as provider_codes,
+                       external_id_plan::text as external_id_plan,
+                       started_at,
+                       finished_at,
+                       total_candidates,
+                       accepted_count,
+                       rejected_count,
+                       skipped_reason,
+                       error_message,
+                       created_at,
+                       updated_at
+                from magnet_search_jobs
+                where unified_video_id = :unifiedVideoId
+                order by created_at desc, id desc
+                limit :limit
+                """,
+                new MapSqlParameterSource()
+                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("limit", safeLimit),
+                searchJobMapper());
+    }
+
+    public List<MagnetProviderRunSummary> findProviderRuns(UUID jobId) {
+        return namedParameterJdbcTemplate.query(
+                """
+                select id,
+                       job_id,
+                       provider_id,
+                       provider_code,
+                       external_id_type,
+                       external_id_value,
+                       status,
+                       request_url,
+                       http_status,
+                       candidate_count,
+                       accepted_count,
+                       duration_ms,
+                       error_message,
+                       created_at,
+                       updated_at
+                from magnet_provider_runs
+                where job_id = :jobId
+                order by created_at asc, id asc
+                """,
+                new MapSqlParameterSource("jobId", jobId),
+                providerRunMapper());
     }
 
     private int countProviderRuns(UUID jobId, String status) {
@@ -822,6 +1086,43 @@ public class JdbcMagnetRepository {
         }
     }
 
+    private Optional<MagnetLinkSummary> findLinkById(UUID unifiedVideoId, UUID linkId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
+                    """
+                    select id,
+                           unified_video_id,
+                           provider_code,
+                           info_hash,
+                           magnet_uri,
+                           title,
+                           size_bytes,
+                           size_label,
+                           published_at,
+                           seeders,
+                           leechers,
+                           quality,
+                           resolution,
+                           matched_external_id_type,
+                           matched_external_id_value,
+                           match_score,
+                           status,
+                           source_url,
+                           tags::text as tags,
+                           created_at,
+                           updated_at
+                    from magnet_links
+                    where unified_video_id = ?
+                      and id = ?
+                    """,
+                    linkMapper(),
+                    unifiedVideoId,
+                    linkId));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
+    }
+
     private RowMapper<MagnetProviderSummary> providerMapper() {
         return (rs, rowNum) -> new MagnetProviderSummary(
                 rs.getObject("id", UUID.class),
@@ -887,6 +1188,25 @@ public class JdbcMagnetRepository {
                 rs.getString("skipped_reason"),
                 rs.getString("error_message"),
                 List.of(),
+                toInstant(rs.getTimestamp("created_at")),
+                toInstant(rs.getTimestamp("updated_at")));
+    }
+
+    private RowMapper<MagnetProviderRunSummary> providerRunMapper() {
+        return (rs, rowNum) -> new MagnetProviderRunSummary(
+                rs.getObject("id", UUID.class),
+                rs.getObject("job_id", UUID.class),
+                rs.getObject("provider_id", UUID.class),
+                rs.getString("provider_code"),
+                rs.getString("external_id_type"),
+                rs.getString("external_id_value"),
+                rs.getString("status"),
+                rs.getString("request_url"),
+                getInteger(rs, "http_status"),
+                getInteger(rs, "candidate_count"),
+                getInteger(rs, "accepted_count"),
+                getLong(rs, "duration_ms"),
+                rs.getString("error_message"),
                 toInstant(rs.getTimestamp("created_at")),
                 toInstant(rs.getTimestamp("updated_at")));
     }

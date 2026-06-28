@@ -125,6 +125,9 @@ class SystemConfigDefaultsTest {
         assertEquals("false", defaults.staticDefaultValue("app.magnet.auto-search.enabled").orElseThrow());
         assertEquals("10", defaults.staticDefaultValue("app.magnet.auto-search.batch-size").orElseThrow());
         assertEquals("PT12H", defaults.staticDefaultValue("app.magnet.auto-search.cooldown").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.magnet.work-queue.submission.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.magnet.work-queue.worker.enabled").orElseThrow());
+        assertEquals("5", defaults.staticDefaultValue("app.magnet.work-queue.worker.batch-size").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("member.oauth.auto-register.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.bind-existing-email.enabled").orElseThrow());
         assertEquals("true",
@@ -190,8 +193,12 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata rabbitDlqCacheHot = defaults.metadata("app.ops.rabbit-dlq.sample-cache-ttl");
         SystemConfigDefaults.ConfigMetadata magnetRealProviderHot = defaults.metadata("app.magnet.real-provider.enabled");
         SystemConfigDefaults.ConfigMetadata magnetAutoSearchHot = defaults.metadata("app.magnet.auto-search.enabled");
+        SystemConfigDefaults.ConfigMetadata magnetWorkQueueHot =
+                defaults.metadata("app.magnet.work-queue.worker.enabled");
         SystemConfigDefaults.ConfigMetadata magnetAutoSearchScheduleRestart =
                 defaults.metadata("app.magnet.auto-search.fixed-delay-ms");
+        SystemConfigDefaults.ConfigMetadata magnetWorkQueueScheduleRestart =
+                defaults.metadata("app.magnet.work-queue.worker.fixed-delay-ms");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
@@ -200,6 +207,11 @@ class SystemConfigDefaultsTest {
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, rabbitDlqCacheHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetRealProviderHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetAutoSearchHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetWorkQueueHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT,
+                defaults.metadata("app.magnet.work-queue.worker.batch-size").activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT,
+                defaults.metadata("app.magnet.work-queue.worker.visibility-seconds").activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
         assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
@@ -215,6 +227,9 @@ class SystemConfigDefaultsTest {
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
                 magnetAutoSearchScheduleRestart.activationMode());
         assertTrue(magnetAutoSearchScheduleRestart.restartServices().contains("ircs-magnet-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
+                magnetWorkQueueScheduleRestart.activationMode());
+        assertTrue(magnetWorkQueueScheduleRestart.restartServices().contains("ircs-magnet-service"));
         assertConfigListenerRequiresRestart("app.aggregation.config-listener.enabled", "ircs-aggregation-worker");
         assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
         assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
@@ -408,6 +423,16 @@ class SystemConfigDefaultsTest {
             "app.magnet.auto-search.cooldown",
             "app.magnet.auto-search.initial-delay-ms",
             "app.magnet.auto-search.fixed-delay-ms",
+            "app.magnet.work-queue.submission.enabled",
+            "app.magnet.work-queue.worker.enabled",
+            "app.magnet.work-queue.worker.batch-size",
+            "app.magnet.work-queue.worker.visibility-seconds",
+            "app.magnet.work-queue.worker.max-retries",
+            "app.magnet.work-queue.worker.max-backoff-seconds",
+            "app.magnet.work-queue.worker.initial-delay-ms",
+            "app.magnet.work-queue.worker.fixed-delay-ms",
+            "app.magnet.work-queue.worker.heartbeat-initial-delay-ms",
+            "app.magnet.work-queue.worker.heartbeat-fixed-delay-ms",
             "app.task.cluster-lock.enabled",
             "app.task.cluster-lock.ttl",
             "app.task.cluster-lock.worker-id",

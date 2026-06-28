@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.ops.queue.domain;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
+import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
@@ -17,7 +18,8 @@ public final class RuntimeWorkQueueCatalog {
             new RuntimeWorkQueueDescriptor("LLM_CLEANING", "LLM Cleaning", LlmCleaningWorkTypes.RAW_TERM, "#9333ea", "#c084fc"),
             new RuntimeWorkQueueDescriptor("STORAGE_AVATAR", "Avatar R2", StorageWorkTypes.AVATAR_SYNC, "#0891b2", "#22d3ee"),
             new RuntimeWorkQueueDescriptor("STORAGE_COVER", "Cover R2", StorageWorkTypes.COVER_R2_SYNC, "#0f766e", "#2dd4bf"),
-            new RuntimeWorkQueueDescriptor("AUDIT_ES", "Audit ES", AuditReplicationWorkTypes.ES_REPLICATION, "#4b5563", "#9ca3af"));
+            new RuntimeWorkQueueDescriptor("AUDIT_ES", "Audit ES", AuditReplicationWorkTypes.ES_REPLICATION, "#4b5563", "#9ca3af"),
+            new RuntimeWorkQueueDescriptor("MAGNET_SEARCH", "Magnet Search", MagnetWorkTypes.SEARCH, "#be123c", "#fb7185"));
 
     private RuntimeWorkQueueCatalog() {
     }

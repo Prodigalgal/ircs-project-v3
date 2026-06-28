@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.common.work;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
 import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
@@ -44,7 +45,9 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
                     flag("app.storage.r2.work-queue.worker.enabled", false))),
             Map.entry(AuditReplicationWorkTypes.ES_REPLICATION, flags(
                     flag("app.audit.es-replication.enabled", true),
-                    flag("app.search.audit-es-replication.worker.enabled", true))));
+                    flag("app.search.audit-es-replication.worker.enabled", true))),
+            Map.entry(MagnetWorkTypes.SEARCH, flags(
+                    flag("app.magnet.work-queue.submission.enabled", true))));
 
     private static final Map<String, List<ConfigFlag>> RUNTIME_CONSUMER_FLAGS = Map.ofEntries(
             Map.entry(AggregationWorkTypes.RAW_VIDEO, List.of()),
@@ -54,7 +57,9 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
             Map.entry(StorageWorkTypes.AVATAR_SYNC, runtimeSubmissionFlags(StorageWorkTypes.AVATAR_SYNC)),
             Map.entry(StorageWorkTypes.COVER_R2_SYNC, runtimeSubmissionFlags(StorageWorkTypes.COVER_R2_SYNC)),
             Map.entry(AuditReplicationWorkTypes.ES_REPLICATION,
-                    runtimeSubmissionFlags(AuditReplicationWorkTypes.ES_REPLICATION)));
+                    runtimeSubmissionFlags(AuditReplicationWorkTypes.ES_REPLICATION)),
+            Map.entry(MagnetWorkTypes.SEARCH, flags(
+                    flag("app.magnet.work-queue.worker.enabled", true))));
 
     private static final Map<String, List<ConfigFlag>> PIPELINE_SUBMISSION_FLAGS = Map.of();
 

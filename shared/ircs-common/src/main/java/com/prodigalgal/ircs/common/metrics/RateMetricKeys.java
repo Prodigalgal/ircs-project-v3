@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.common.metrics;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
+import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
@@ -100,6 +101,7 @@ public final class RateMetricKeys {
             case StorageWorkTypes.AVATAR_SYNC -> "runtime.storage_avatar";
             case StorageWorkTypes.COVER_R2_SYNC -> "runtime.storage_cover";
             case AuditReplicationWorkTypes.ES_REPLICATION -> "runtime.audit_es";
+            case MagnetWorkTypes.SEARCH -> "runtime.magnet_search";
             default -> "runtime." + normalizeMetricPart(taskType);
         };
     }

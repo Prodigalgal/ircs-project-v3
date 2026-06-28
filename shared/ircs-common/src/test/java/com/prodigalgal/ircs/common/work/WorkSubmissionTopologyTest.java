@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
+import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
@@ -32,6 +33,8 @@ class WorkSubmissionTopologyTest {
                 .containsExactly(
                         "app.audit.es-replication.enabled",
                         "app.search.audit-es-replication.worker.enabled");
+        assertThat(runtimeSubmissionKeys(MagnetWorkTypes.SEARCH))
+                .containsExactly("app.magnet.work-queue.submission.enabled");
     }
 
     @Test
@@ -48,6 +51,8 @@ class WorkSubmissionTopologyTest {
                 .containsExactly(
                         "app.ai.llm.enabled",
                         "app.normalization.llm-cleaning.work-queue.worker.enabled");
+        assertThat(runtimeConsumerKeys(MagnetWorkTypes.SEARCH))
+                .containsExactly("app.magnet.work-queue.worker.enabled");
         assertThat(pipelineConsumerKeys(PipelineTaskTypes.NORMALIZE_VIDEO)).isEmpty();
         assertThat(pipelineConsumerKeys(PipelineTaskTypes.ENRICH_METADATA)).isEmpty();
         assertThat(pipelineConsumerKeys(PipelineTaskTypes.METADATA_PROVIDER)).isEmpty();

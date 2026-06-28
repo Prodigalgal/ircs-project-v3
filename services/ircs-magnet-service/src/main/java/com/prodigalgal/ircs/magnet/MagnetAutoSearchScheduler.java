@@ -65,7 +65,7 @@ class MagnetAutoSearchScheduler {
         int triggered = 0;
         for (UUID unifiedVideoId : candidates) {
             try {
-                magnetQueryService.triggerAutomaticSearch(unifiedVideoId);
+                magnetQueryService.enqueueAutomaticSearch(unifiedVideoId);
                 triggered++;
             } catch (RuntimeException ex) {
                 log.warn("Magnet auto search failed: unifiedVideoId={}, error={}", unifiedVideoId, ex.getMessage());

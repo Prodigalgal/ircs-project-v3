@@ -153,33 +153,30 @@ class MagnetControllerTest {
                 jobId,
                 unifiedVideoId,
                 "ADMIN_MANUAL",
-                "SUCCESS",
-                List.of("yts_bz"),
+                "PENDING",
+                List.of(),
                 List.of(Map.of("type", "IMDB", "value", "tt1234567")),
-                Instant.parse("2026-06-07T00:00:00Z"),
-                Instant.parse("2026-06-07T00:00:01Z"),
-                1,
-                1,
+                null,
+                null,
+                0,
+                0,
                 0,
                 null,
                 null,
-                List.of(link),
+                List.of(),
                 Instant.parse("2026-06-07T00:00:00Z"),
                 Instant.parse("2026-06-07T00:00:01Z"));
-        when(magnetQueryService.triggerUnifiedSearch(unifiedVideoId)).thenReturn(job);
+        when(magnetQueryService.enqueueUnifiedSearch(unifiedVideoId)).thenReturn(job);
 
         mockMvc.perform(post("/api/v1/magnets/search/unified/{id}", unifiedVideoId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(jobId.toString()))
                 .andExpect(jsonPath("$.unifiedVideoId").value(unifiedVideoId.toString()))
-                .andExpect(jsonPath("$.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.providerCodes[0]").value("yts_bz"))
-                .andExpect(jsonPath("$.totalCandidates").value(1))
-                .andExpect(jsonPath("$.acceptedCount").value(1))
-                .andExpect(jsonPath("$.links[0].id").value(linkId.toString()))
-                .andExpect(jsonPath("$.links[0].status").value("APPROVED"));
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.totalCandidates").value(0))
+                .andExpect(jsonPath("$.acceptedCount").value(0));
 
-        verify(magnetQueryService).triggerUnifiedSearch(unifiedVideoId);
+        verify(magnetQueryService).enqueueUnifiedSearch(unifiedVideoId);
     }
 
     private MagnetProviderSummary provider(UUID providerId, String code) {

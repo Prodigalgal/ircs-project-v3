@@ -48,6 +48,25 @@ record MagnetSearchJobSummary(
 ) {
 }
 
+record MagnetProviderRunSummary(
+        UUID id,
+        UUID jobId,
+        UUID providerId,
+        String providerCode,
+        String externalIdType,
+        String externalIdValue,
+        String status,
+        String requestUrl,
+        Integer httpStatus,
+        Integer candidateCount,
+        Integer acceptedCount,
+        Long durationMs,
+        String errorMessage,
+        Instant createdAt,
+        Instant updatedAt
+) {
+}
+
 record MagnetUnifiedVideoSearchTarget(
         UUID id,
         String title,
@@ -55,6 +74,19 @@ record MagnetUnifiedVideoSearchTarget(
         String year,
         String imdbId,
         String tmdbId,
-        String doubanId
+        String doubanId,
+        String metadataStatus
+) {
+}
+
+record MagnetSearchWorkPayload(
+        UUID jobId,
+        UUID unifiedVideoId,
+        String triggerType
+) {
+}
+
+record MagnetLinkStatusRequest(
+        String status
 ) {
 }

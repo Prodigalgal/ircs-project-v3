@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.common.work;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
+import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
@@ -89,6 +90,22 @@ class SystemConfigWorkSubmissionGateTest {
 
         assertThat(gate.canSubmitRuntime(SearchSyncWorkTypes.RAW)).isTrue();
         assertThat(gate.canSubmitRuntime(SearchSyncWorkTypes.UNIFIED)).isTrue();
+    }
+
+    @Test
+    void magnetSearchSubmissionIsIndependentFromAutoSearchWatchdogSwitch() {
+        insert("app.magnet.auto-search.enabled", "false");
+        SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
+
+        assertThat(gate.canSubmitRuntime(MagnetWorkTypes.SEARCH)).isTrue();
+    }
+
+    @Test
+    void canDisableMagnetSearchSubmissionExplicitly() {
+        insert("app.magnet.work-queue.submission.enabled", "false");
+        SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
+
+        assertThat(gate.canSubmitRuntime(MagnetWorkTypes.SEARCH)).isFalse();
     }
 
     @Test

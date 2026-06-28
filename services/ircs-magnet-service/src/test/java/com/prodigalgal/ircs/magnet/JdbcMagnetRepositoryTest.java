@@ -197,7 +197,8 @@ class JdbcMagnetRepositoryTest {
                 "year" varchar(20),
                     imdb_id varchar(20),
                     tmdb_id varchar(20),
-                    douban_id varchar(20)
+                    douban_id varchar(20),
+                    metadata_status varchar(50) not null default 'SYNCED'
                 )
                 """);
         jdbcTemplate.execute("""

@@ -234,6 +234,16 @@ public class SystemConfigDefaults {
             cfg("app.magnet.auto-search.cooldown", "PT12H", "同一聚合视频自动补链冷却时间"),
             cfg("app.magnet.auto-search.initial-delay-ms", "60000", "磁链自动补链启动延迟(毫秒)"),
             cfg("app.magnet.auto-search.fixed-delay-ms", "300000", "磁链自动补链轮询间隔(毫秒)"),
+            cfg("app.magnet.work-queue.submission.enabled", "true", "是否允许磁链补链任务投递到运行队列"),
+            cfg("app.magnet.work-queue.worker.enabled", "true", "是否启用磁链补链运行队列 worker"),
+            cfg("app.magnet.work-queue.worker.batch-size", "5", "磁链补链 worker 每轮领取数量"),
+            cfg("app.magnet.work-queue.worker.visibility-seconds", "900", "磁链补链 worker 任务可见性超时(秒)"),
+            cfg("app.magnet.work-queue.worker.max-retries", "3", "磁链补链 worker 最大重试次数"),
+            cfg("app.magnet.work-queue.worker.max-backoff-seconds", "900", "磁链补链 worker 最大退避时间(秒)"),
+            cfg("app.magnet.work-queue.worker.initial-delay-ms", "10000", "磁链补链 worker 启动延迟(毫秒)"),
+            cfg("app.magnet.work-queue.worker.fixed-delay-ms", "1000", "磁链补链 worker 空转轮询间隔(毫秒)"),
+            cfg("app.magnet.work-queue.worker.heartbeat-initial-delay-ms", "5000", "磁链补链 worker 心跳启动延迟(毫秒)"),
+            cfg("app.magnet.work-queue.worker.heartbeat-fixed-delay-ms", "15000", "磁链补链 worker 心跳间隔(毫秒)"),
             cfg("app.task.cluster-lock.enabled", "true", "任务服务集群锁开关"),
             cfg("app.task.cluster-lock.ttl", "PT30S", "任务服务集群锁 TTL"),
             cfg("app.task.cluster-lock.worker-id", "", "任务服务集群锁 Worker 标识，留空自动生成"),
@@ -558,6 +568,10 @@ public class SystemConfigDefaults {
                 || key.startsWith("app.storage.image.download-backfill.")
                 || key.startsWith("app.magnet.auto-search.initial-delay-ms")
                 || key.startsWith("app.magnet.auto-search.fixed-delay-ms")
+                || key.startsWith("app.magnet.work-queue.worker.initial-delay-ms")
+                || key.startsWith("app.magnet.work-queue.worker.fixed-delay-ms")
+                || key.startsWith("app.magnet.work-queue.worker.heartbeat-initial-delay-ms")
+                || key.startsWith("app.magnet.work-queue.worker.heartbeat-fixed-delay-ms")
                 || key.startsWith("app.storage.base-path")
                 || key.startsWith("app.storage.public-path")
                 || key.startsWith("app.system-config.valkey-cache.")
@@ -576,6 +590,11 @@ public class SystemConfigDefaults {
                 || (key.startsWith("app.magnet.auto-search.")
                 && !key.equals("app.magnet.auto-search.initial-delay-ms")
                 && !key.equals("app.magnet.auto-search.fixed-delay-ms"))
+                || (key.startsWith("app.magnet.work-queue.")
+                && !key.startsWith("app.magnet.work-queue.worker.initial-delay-ms")
+                && !key.startsWith("app.magnet.work-queue.worker.fixed-delay-ms")
+                && !key.startsWith("app.magnet.work-queue.worker.heartbeat-initial-delay-ms")
+                && !key.startsWith("app.magnet.work-queue.worker.heartbeat-fixed-delay-ms"))
                 || key.startsWith("app.storage.image.traffic.")
                 || (key.startsWith("app.log-retention.")
                 && !key.equals("app.log-retention.initial-delay-ms")

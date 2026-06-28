@@ -33,7 +33,7 @@ class MagnetAutoSearchSchedulerTest {
         scheduler.runScheduled();
 
         verify(repository, never()).findAutoSearchCandidates(anyInt(), any(Instant.class));
-        verify(queryService, never()).triggerAutomaticSearch(any());
+        verify(queryService, never()).enqueueAutomaticSearch(any());
     }
 
     @Test
@@ -49,8 +49,8 @@ class MagnetAutoSearchSchedulerTest {
         int triggered = scheduler.runBatch();
 
         assertEquals(2, triggered);
-        verify(queryService).triggerAutomaticSearch(first);
-        verify(queryService).triggerAutomaticSearch(second);
+        verify(queryService).enqueueAutomaticSearch(first);
+        verify(queryService).enqueueAutomaticSearch(second);
     }
 
     @SuppressWarnings("unchecked")
