@@ -11,6 +11,7 @@ final class MagnetUriUtils {
 
     private static final Pattern BTIH_PATTERN = Pattern.compile("(?i)(?:xt=urn:btih:|btih:)([a-z0-9]{32,40})");
     private static final Pattern HEX_PATTERN = Pattern.compile("(?i)^[a-f0-9]{40}$");
+    private static final Pattern BASE32_PATTERN = Pattern.compile("(?i)^[a-z2-7]{32}$");
 
     private MagnetUriUtils() {
     }
@@ -24,7 +25,7 @@ final class MagnetUriUtils {
         if (matcher.find()) {
             trimmed = matcher.group(1);
         }
-        if (!HEX_PATTERN.matcher(trimmed).matches()) {
+        if (!HEX_PATTERN.matcher(trimmed).matches() && !BASE32_PATTERN.matcher(trimmed).matches()) {
             return Optional.empty();
         }
         return Optional.of(trimmed.toUpperCase(Locale.ROOT));

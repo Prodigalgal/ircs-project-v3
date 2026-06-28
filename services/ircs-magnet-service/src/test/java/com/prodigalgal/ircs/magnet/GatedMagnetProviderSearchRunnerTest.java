@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 class GatedMagnetProviderSearchRunnerTest {
 
@@ -17,6 +18,7 @@ class GatedMagnetProviderSearchRunnerTest {
     void defaultsToFixtureAndDoesNotCallRealRunner() {
         FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
         YtsBzMagnetProviderSearchRunner realRunner = org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class);
+        GenericMagnetProviderSearchRunner genericRunner = org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class);
         org.mockito.Mockito.when(fixtureRunner.search(
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
@@ -25,6 +27,8 @@ class GatedMagnetProviderSearchRunnerTest {
         GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
                 fixtureRunner,
                 realRunner,
+                genericRunner,
+                emptyRuntimeConfigProvider(),
                 false,
                 "YTS_BZ");
 
@@ -38,6 +42,10 @@ class GatedMagnetProviderSearchRunnerTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(genericRunner, org.mockito.Mockito.never()).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
         assertEquals("fixture", result.requestUrl());
     }
 
@@ -45,6 +53,7 @@ class GatedMagnetProviderSearchRunnerTest {
     void usesYtsBzRunnerOnlyWhenGateAndAllowlistMatch() {
         FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
         YtsBzMagnetProviderSearchRunner realRunner = org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class);
+        GenericMagnetProviderSearchRunner genericRunner = org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class);
         org.mockito.Mockito.when(realRunner.search(
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
@@ -53,6 +62,8 @@ class GatedMagnetProviderSearchRunnerTest {
         GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
                 fixtureRunner,
                 realRunner,
+                genericRunner,
+                emptyRuntimeConfigProvider(),
                 true,
                 "YTS_BZ");
 
@@ -66,13 +77,53 @@ class GatedMagnetProviderSearchRunnerTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(genericRunner, org.mockito.Mockito.never()).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
         assertEquals("real", result.requestUrl());
+    }
+
+    @Test
+    void usesGenericRunnerForAllowlistedNonYtsProvider() {
+        FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
+        YtsBzMagnetProviderSearchRunner realRunner = org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class);
+        GenericMagnetProviderSearchRunner genericRunner = org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class);
+        org.mockito.Mockito.when(genericRunner.search(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(result("generic"));
+        GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
+                fixtureRunner,
+                realRunner,
+                genericRunner,
+                emptyRuntimeConfigProvider(),
+                true,
+                "THE_PIRATE_BAY");
+
+        MagnetProviderSearchResult result = runner.search(genericProvider(), imdbQuery, unifiedVideoId);
+
+        org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(realRunner, org.mockito.Mockito.never()).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(genericRunner).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        assertEquals("generic", result.requestUrl());
     }
 
     @Test
     void keepsFixtureWhenAllowlistDoesNotMatch() {
         FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
         YtsBzMagnetProviderSearchRunner realRunner = org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class);
+        GenericMagnetProviderSearchRunner genericRunner = org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class);
         org.mockito.Mockito.when(fixtureRunner.search(
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
@@ -81,6 +132,8 @@ class GatedMagnetProviderSearchRunnerTest {
         GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
                 fixtureRunner,
                 realRunner,
+                genericRunner,
+                emptyRuntimeConfigProvider(),
                 true,
                 "THE_PIRATE_BAY");
 
@@ -91,6 +144,10 @@ class GatedMagnetProviderSearchRunnerTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
         org.mockito.Mockito.verify(realRunner, org.mockito.Mockito.never()).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(genericRunner, org.mockito.Mockito.never()).search(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
@@ -144,4 +201,35 @@ class GatedMagnetProviderSearchRunnerTest {
                 Instant.parse("2026-06-08T00:00:00Z"));
     }
 
+    private MagnetProviderSummary genericProvider() {
+        return new MagnetProviderSummary(
+                UUID.randomUUID(),
+                "thepiratebay",
+                "The Pirate Bay",
+                "THE_PIRATE_BAY",
+                "https://apibay.org",
+                true,
+                20,
+                "HIGH",
+                List.of("IMDB", "TITLE_YEAR", "TITLE"),
+                1000,
+                3000,
+                10000,
+                20,
+                true,
+                "仅用于测试。",
+                null,
+                null,
+                null,
+                Instant.parse("2026-06-08T00:00:00Z"),
+                Instant.parse("2026-06-08T00:00:00Z"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private ObjectProvider<com.prodigalgal.ircs.common.config.RuntimeConfigService> emptyRuntimeConfigProvider() {
+        ObjectProvider<com.prodigalgal.ircs.common.config.RuntimeConfigService> provider =
+                org.mockito.Mockito.mock(ObjectProvider.class);
+        org.mockito.Mockito.when(provider.getIfAvailable()).thenReturn(null);
+        return provider;
+    }
 }

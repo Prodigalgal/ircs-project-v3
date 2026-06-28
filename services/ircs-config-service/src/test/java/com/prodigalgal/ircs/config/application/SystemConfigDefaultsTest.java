@@ -119,6 +119,12 @@ class SystemConfigDefaultsTest {
         assertEquals("false", defaults.staticDefaultValue("app.storage.r2.work-queue.worker.enabled").orElseThrow());
         assertEquals("false",
                 defaults.staticDefaultValue("app.normalization.llm-cleaning.work-queue.worker.enabled").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.magnet.real-provider.enabled").orElseThrow());
+        assertEquals("YTS_BZ,THE_PIRATE_BAY",
+                defaults.staticDefaultValue("app.magnet.real-provider.allowlist").orElseThrow());
+        assertEquals("false", defaults.staticDefaultValue("app.magnet.auto-search.enabled").orElseThrow());
+        assertEquals("10", defaults.staticDefaultValue("app.magnet.auto-search.batch-size").orElseThrow());
+        assertEquals("PT12H", defaults.staticDefaultValue("app.magnet.auto-search.cooldown").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("member.oauth.auto-register.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.bind-existing-email.enabled").orElseThrow());
         assertEquals("true",
@@ -182,12 +188,18 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata logRetentionScheduleRestart = defaults.metadata("app.log-retention.fixed-delay-ms");
         SystemConfigDefaults.ConfigMetadata notificationWebhookHot = defaults.metadata("app.notification.webhook.enabled");
         SystemConfigDefaults.ConfigMetadata rabbitDlqCacheHot = defaults.metadata("app.ops.rabbit-dlq.sample-cache-ttl");
+        SystemConfigDefaults.ConfigMetadata magnetRealProviderHot = defaults.metadata("app.magnet.real-provider.enabled");
+        SystemConfigDefaults.ConfigMetadata magnetAutoSearchHot = defaults.metadata("app.magnet.auto-search.enabled");
+        SystemConfigDefaults.ConfigMetadata magnetAutoSearchScheduleRestart =
+                defaults.metadata("app.magnet.auto-search.fixed-delay-ms");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, logRetentionHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, notificationWebhookHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, rabbitDlqCacheHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetRealProviderHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetAutoSearchHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
         assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
@@ -200,6 +212,9 @@ class SystemConfigDefaultsTest {
         assertTrue(listenerRestart.restartServices().contains("ircs-search-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, logRetentionScheduleRestart.activationMode());
         assertTrue(logRetentionScheduleRestart.restartServices().contains("ircs-search-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
+                magnetAutoSearchScheduleRestart.activationMode());
+        assertTrue(magnetAutoSearchScheduleRestart.restartServices().contains("ircs-magnet-service"));
         assertConfigListenerRequiresRestart("app.aggregation.config-listener.enabled", "ircs-aggregation-worker");
         assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
         assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
@@ -386,6 +401,13 @@ class SystemConfigDefaultsTest {
             "app.magnet.cache.enabled",
             "app.magnet.cache.provider-ttl",
             "app.magnet.cache.approved-links-ttl",
+            "app.magnet.real-provider.enabled",
+            "app.magnet.real-provider.allowlist",
+            "app.magnet.auto-search.enabled",
+            "app.magnet.auto-search.batch-size",
+            "app.magnet.auto-search.cooldown",
+            "app.magnet.auto-search.initial-delay-ms",
+            "app.magnet.auto-search.fixed-delay-ms",
             "app.task.cluster-lock.enabled",
             "app.task.cluster-lock.ttl",
             "app.task.cluster-lock.worker-id",

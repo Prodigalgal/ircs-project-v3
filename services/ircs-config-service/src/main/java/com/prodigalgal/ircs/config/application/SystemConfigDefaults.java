@@ -225,6 +225,13 @@ public class SystemConfigDefaults {
             cfg("app.magnet.cache.enabled", "true", "是否启用磁链读模型缓存"),
             cfg("app.magnet.cache.provider-ttl", "PT5M", "磁链 Provider 缓存 TTL"),
             cfg("app.magnet.cache.approved-links-ttl", "PT60S", "已审核磁链缓存 TTL"),
+            cfg("app.magnet.real-provider.enabled", "false", "是否启用真实磁链 Provider 爬取"),
+            cfg("app.magnet.real-provider.allowlist", "YTS_BZ,THE_PIRATE_BAY", "允许调用的真实磁链 Provider 类型或编码"),
+            cfg("app.magnet.auto-search.enabled", "false", "是否启用聚合视频磁链自动补链"),
+            cfg("app.magnet.auto-search.batch-size", "10", "磁链自动补链每轮聚合视频数量"),
+            cfg("app.magnet.auto-search.cooldown", "PT12H", "同一聚合视频自动补链冷却时间"),
+            cfg("app.magnet.auto-search.initial-delay-ms", "60000", "磁链自动补链启动延迟(毫秒)"),
+            cfg("app.magnet.auto-search.fixed-delay-ms", "300000", "磁链自动补链轮询间隔(毫秒)"),
             cfg("app.task.cluster-lock.enabled", "true", "任务服务集群锁开关"),
             cfg("app.task.cluster-lock.ttl", "PT30S", "任务服务集群锁 TTL"),
             cfg("app.task.cluster-lock.worker-id", "", "任务服务集群锁 Worker 标识，留空自动生成"),
@@ -544,6 +551,8 @@ public class SystemConfigDefaults {
                 || isCacheStartupKey(key)
                 || key.startsWith("app.storage.r2.")
                 || key.startsWith("app.storage.image.download-backfill.")
+                || key.startsWith("app.magnet.auto-search.initial-delay-ms")
+                || key.startsWith("app.magnet.auto-search.fixed-delay-ms")
                 || key.startsWith("app.storage.base-path")
                 || key.startsWith("app.storage.public-path")
                 || key.startsWith("app.system-config.valkey-cache.")
@@ -558,6 +567,10 @@ public class SystemConfigDefaults {
         return key.startsWith("app.ops.service-restart.")
                 || key.startsWith("app.scraper.traffic.")
                 || key.startsWith("app.magnet.traffic.")
+                || key.startsWith("app.magnet.real-provider.")
+                || (key.startsWith("app.magnet.auto-search.")
+                && !key.equals("app.magnet.auto-search.initial-delay-ms")
+                && !key.equals("app.magnet.auto-search.fixed-delay-ms"))
                 || key.startsWith("app.storage.image.traffic.")
                 || (key.startsWith("app.log-retention.")
                 && !key.equals("app.log-retention.initial-delay-ms")

@@ -96,11 +96,45 @@ class JdbcMagnetRepositoryTest {
         assertEquals(0, countRows("magnet_links"));
     }
 
+    @Test
+    void findsAutoSearchCandidatesWithoutApprovedLinksOrRecentJobs() {
+        UUID eligible = UUID.randomUUID();
+        UUID approved = UUID.randomUUID();
+        UUID recent = UUID.randomUUID();
+        UUID running = UUID.randomUUID();
+        UUID empty = UUID.randomUUID();
+        UUID providerId = UUID.randomUUID();
+        insertUnifiedVideo(eligible, null, "Eligible Movie");
+        insertUnifiedVideo(approved, null, "Approved Movie");
+        insertUnifiedVideo(recent, null, "Recent Movie");
+        insertUnifiedVideo(running, null, "Running Movie");
+        insertUnifiedVideo(empty, null, null);
+        insertProvider(providerId, "codex_provider", true);
+        MagnetProviderSummary provider = repository.listEnabledProviders().getFirst();
+        repository.upsertLink(approved, provider, candidate("abcdef1234567890abcdef1234567890abcdef12"));
+        repository.createSkippedSearchJob(
+                recent,
+                "AUTO_SCHEDULED",
+                "recent",
+                List.of(new MagnetExternalIdQuery("TITLE", "Recent Movie")),
+                List.of(provider.code()));
+        repository.createRunningSearchJob(
+                running,
+                "AUTO_SCHEDULED",
+                List.of(new MagnetExternalIdQuery("TITLE", "Running Movie")));
+
+        List<UUID> candidates = repository.findAutoSearchCandidates(10, Instant.parse("2026-06-07T00:00:00Z"));
+
+        assertEquals(List.of(eligible), candidates);
+    }
+
     private void createSchema() {
         jdbcTemplate.execute("create domain if not exists jsonb as json");
         jdbcTemplate.execute("""
                 create table unified_videos (
                     id uuid primary key,
+                    created_at timestamp with time zone not null,
+                    updated_at timestamp with time zone not null,
                     title varchar(255),
                     alias_title varchar(255),
                 "year" varchar(20),
@@ -208,10 +242,16 @@ class JdbcMagnetRepositoryTest {
     }
 
     private void insertUnifiedVideo(UUID id, String imdbId) {
+        insertUnifiedVideo(id, imdbId, "Codex Fixture");
+    }
+
+    private void insertUnifiedVideo(UUID id, String imdbId, String title) {
         jdbcTemplate.update(
-                "insert into unified_videos (id, title, \"year\", imdb_id) values (?, ?, ?, ?)",
+                "insert into unified_videos (id, created_at, updated_at, title, \"year\", imdb_id) values (?, ?, ?, ?, ?, ?)",
                 id,
-                "Codex Fixture",
+                Instant.parse("2026-06-07T00:00:00Z"),
+                Instant.parse("2026-06-07T00:00:00Z"),
+                title,
                 "2026",
                 imdbId);
     }

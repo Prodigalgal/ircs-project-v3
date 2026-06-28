@@ -90,7 +90,7 @@ class MagnetQueryServiceTest {
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
                 .thenReturn(Optional.of(searchTarget(unifiedVideoId, "tt1234567", null)));
         when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
-        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), anyList())).thenReturn(runningJob);
+        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), eq("ADMIN_MANUAL"), anyList())).thenReturn(runningJob);
         when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
                 .thenReturn(new MagnetProviderSearchResult(
                         "fixture://magnet-provider/codex_provider?externalId=tt1234567",
@@ -150,7 +150,7 @@ class MagnetQueryServiceTest {
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
                 .thenReturn(Optional.of(searchTarget(unifiedVideoId, "tt1234567", null)));
         when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
-        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), anyList())).thenReturn(runningJob);
+        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), eq("ADMIN_MANUAL"), anyList())).thenReturn(runningJob);
         when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
                 .thenReturn(new MagnetProviderSearchResult(
                         "fixture://magnet-provider/codex_provider?externalId=tt1234567",
@@ -186,12 +186,12 @@ class MagnetQueryServiceTest {
         MagnetSearchJobSummary skippedJob = searchJob(unifiedVideoId, "SKIPPED", 0, 0, List.of());
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
                 .thenReturn(Optional.of(searchTarget(unifiedVideoId, null, null)));
-        when(magnetRepository.createSkippedSearchJob(eq(unifiedVideoId), any(), anyList(), eq(List.of())))
+        when(magnetRepository.createSkippedSearchJob(eq(unifiedVideoId), eq("ADMIN_MANUAL"), any(), anyList(), eq(List.of())))
                 .thenReturn(skippedJob);
 
         assertSame(skippedJob, service.triggerUnifiedSearch(unifiedVideoId));
         verify(providerSearchRunner, never()).search(any(), any(), any());
-        verify(magnetRepository, never()).createRunningSearchJob(any(), anyList());
+        verify(magnetRepository, never()).createRunningSearchJob(any(), any(), anyList());
     }
 
     @Test
@@ -222,7 +222,7 @@ class MagnetQueryServiceTest {
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
                 .thenReturn(Optional.of(searchTarget(unifiedVideoId, null, "Codex Fixture")));
         when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
-        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), anyList())).thenReturn(runningJob);
+        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), eq("ADMIN_MANUAL"), anyList())).thenReturn(runningJob);
         when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
                 .thenReturn(new MagnetProviderSearchResult("fixture://title-search", 200, List.of(candidate)))
                 .thenReturn(new MagnetProviderSearchResult("fixture://title-search-plain", 200, List.of()));
@@ -238,6 +238,29 @@ class MagnetQueryServiceTest {
     }
 
     @Test
+    void automaticSearchUsesAutoTriggerType() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        MagnetProviderSummary provider = provider(UUID.randomUUID());
+        MagnetSearchJobSummary runningJob = searchJob(unifiedVideoId, "RUNNING", 0, 0, List.of());
+        MagnetSearchJobSummary finishedJob = searchJob(unifiedVideoId, "SUCCESS", 0, 0, List.of("codex_provider"));
+
+        when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId))
+                .thenReturn(Optional.of(searchTarget(unifiedVideoId, "tt1234567", null)));
+        when(magnetRepository.listEnabledProviders()).thenReturn(List.of(provider));
+        when(magnetRepository.createRunningSearchJob(eq(unifiedVideoId), eq("AUTO_SCHEDULED"), anyList()))
+                .thenReturn(runningJob);
+        when(providerSearchRunner.search(eq(provider), any(), eq(unifiedVideoId)))
+                .thenReturn(new MagnetProviderSearchResult("fixture://empty", 200, List.of()));
+        when(magnetRepository.finishSearchJob(runningJob.id(), List.of("codex_provider"), 0, 0, 0))
+                .thenReturn(finishedJob);
+
+        MagnetSearchJobSummary result = service.triggerAutomaticSearch(unifiedVideoId);
+
+        assertEquals("SUCCESS", result.status());
+        verify(magnetRepository).createRunningSearchJob(eq(unifiedVideoId), eq("AUTO_SCHEDULED"), anyList());
+    }
+
+    @Test
     void rejectsSearchForMissingUnifiedVideo() {
         UUID unifiedVideoId = UUID.randomUUID();
         when(magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId)).thenReturn(Optional.empty());
@@ -247,7 +270,7 @@ class MagnetQueryServiceTest {
                 () -> service.triggerUnifiedSearch(unifiedVideoId));
 
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
-        verify(magnetRepository, never()).createRunningSearchJob(any(), anyList());
+        verify(magnetRepository, never()).createRunningSearchJob(any(), any(), anyList());
         verify(providerSearchRunner, never()).search(any(), any(), any());
     }
 

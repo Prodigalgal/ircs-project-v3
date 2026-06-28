@@ -29,7 +29,13 @@ app:
   magnet:
     real-provider:
       enabled: ${APP_MAGNET_REAL_PROVIDER_ENABLED:false}
-      allowlist: ${APP_MAGNET_REAL_PROVIDER_ALLOWLIST:YTS_BZ}
+      allowlist: ${APP_MAGNET_REAL_PROVIDER_ALLOWLIST:YTS_BZ,THE_PIRATE_BAY}
+    auto-search:
+      enabled: ${APP_MAGNET_AUTO_SEARCH_ENABLED:false}
+      batch-size: ${APP_MAGNET_AUTO_SEARCH_BATCH_SIZE:10}
+      cooldown: ${APP_MAGNET_AUTO_SEARCH_COOLDOWN:PT12H}
+      initial-delay-ms: ${APP_MAGNET_AUTO_SEARCH_INITIAL_DELAY_MS:60000}
+      fixed-delay-ms: ${APP_MAGNET_AUTO_SEARCH_FIXED_DELAY_MS:300000}
     traffic:
       enabled: ${APP_MAGNET_TRAFFIC_ENABLED:true}
       default-gap-ms: ${APP_MAGNET_TRAFFIC_DEFAULT_GAP_MS:1000}

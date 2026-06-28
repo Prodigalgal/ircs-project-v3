@@ -288,8 +288,57 @@ public class JdbcMagnetRepository {
                 providerMapper());
     }
 
+    public List<UUID> findAutoSearchCandidates(int limit, Instant searchedBefore) {
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        Timestamp cutoff = Timestamp.from(searchedBefore == null ? Instant.EPOCH : searchedBefore);
+        return namedParameterJdbcTemplate.queryForList(
+                """
+                select uv.id
+                from unified_videos uv
+                where (
+                    length(trim(coalesce(uv.imdb_id, ''))) > 0
+                    or length(trim(coalesce(uv.tmdb_id, ''))) > 0
+                    or length(trim(coalesce(uv.douban_id, ''))) > 0
+                    or length(trim(coalesce(uv.title, ''))) > 0
+                    or length(trim(coalesce(uv.alias_title, ''))) > 0
+                )
+                  and not exists (
+                      select 1
+                      from magnet_links ml
+                      where ml.unified_video_id = uv.id
+                        and ml.status = 'APPROVED'
+                  )
+                  and not exists (
+                      select 1
+                      from magnet_search_jobs running
+                      where running.unified_video_id = uv.id
+                        and running.status = 'RUNNING'
+                  )
+                  and not exists (
+                      select 1
+                      from magnet_search_jobs recent
+                      where recent.unified_video_id = uv.id
+                        and recent.created_at >= :cutoff
+                  )
+                order by coalesce(uv.updated_at, uv.created_at) desc nulls last,
+                         uv.id asc
+                limit :limit
+                """,
+                new MapSqlParameterSource()
+                        .addValue("cutoff", cutoff)
+                        .addValue("limit", safeLimit),
+                UUID.class);
+    }
+
     public MagnetSearchJobSummary createRunningSearchJob(
             UUID unifiedVideoId,
+            List<MagnetExternalIdQuery> externalIdPlan) {
+        return createRunningSearchJob(unifiedVideoId, "ADMIN_MANUAL", externalIdPlan);
+    }
+
+    public MagnetSearchJobSummary createRunningSearchJob(
+            UUID unifiedVideoId,
+            String triggerType,
             List<MagnetExternalIdQuery> externalIdPlan) {
         UUID jobId = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
@@ -319,7 +368,7 @@ public class JdbcMagnetRepository {
                     :now,
                     0,
                     :unifiedVideoId,
-                    'ADMIN_MANUAL',
+                    :triggerType,
                     'RUNNING',
                     cast(:providerCodes as jsonb),
                     cast(:externalIdPlan as jsonb),
@@ -336,6 +385,7 @@ public class JdbcMagnetRepository {
                         .addValue("id", jobId)
                         .addValue("now", now)
                         .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("triggerType", triggerType(triggerType))
                         .addValue("providerCodes", toJson(List.of()))
                         .addValue("externalIdPlan", toJson(externalIdPlanJson(externalIdPlan))));
         return findSearchJob(jobId).orElseThrow();
@@ -347,6 +397,15 @@ public class JdbcMagnetRepository {
 
     public MagnetSearchJobSummary createSkippedSearchJob(
             UUID unifiedVideoId,
+            String skippedReason,
+            List<MagnetExternalIdQuery> externalIdPlan,
+            List<String> providerCodes) {
+        return createSkippedSearchJob(unifiedVideoId, "ADMIN_MANUAL", skippedReason, externalIdPlan, providerCodes);
+    }
+
+    public MagnetSearchJobSummary createSkippedSearchJob(
+            UUID unifiedVideoId,
+            String triggerType,
             String skippedReason,
             List<MagnetExternalIdQuery> externalIdPlan,
             List<String> providerCodes) {
@@ -378,7 +437,7 @@ public class JdbcMagnetRepository {
                     :now,
                     0,
                     :unifiedVideoId,
-                    'ADMIN_MANUAL',
+                    :triggerType,
                     'SKIPPED',
                     cast(:providerCodes as jsonb),
                     cast(:externalIdPlan as jsonb),
@@ -395,6 +454,7 @@ public class JdbcMagnetRepository {
                         .addValue("id", jobId)
                         .addValue("now", now)
                         .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("triggerType", triggerType(triggerType))
                         .addValue("providerCodes", toJson(providerCodes))
                         .addValue("externalIdPlan", toJson(externalIdPlanJson(externalIdPlan)))
                         .addValue("skippedReason", skippedReason));
@@ -885,5 +945,9 @@ public class JdbcMagnetRepository {
 
     private Timestamp toTimestamp(Instant instant) {
         return instant == null ? null : Timestamp.from(instant);
+    }
+
+    private String triggerType(String value) {
+        return value == null || value.isBlank() ? "ADMIN_MANUAL" : value.trim();
     }
 }

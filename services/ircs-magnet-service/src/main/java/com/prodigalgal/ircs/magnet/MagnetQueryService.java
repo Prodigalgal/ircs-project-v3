@@ -80,11 +80,20 @@ public class MagnetQueryService {
 
     @Transactional
     public MagnetSearchJobSummary triggerUnifiedSearch(UUID unifiedVideoId) {
+        return triggerUnifiedSearch(unifiedVideoId, "ADMIN_MANUAL");
+    }
+
+    @Transactional
+    public MagnetSearchJobSummary triggerAutomaticSearch(UUID unifiedVideoId) {
+        return triggerUnifiedSearch(unifiedVideoId, "AUTO_SCHEDULED");
+    }
+
+    private MagnetSearchJobSummary triggerUnifiedSearch(UUID unifiedVideoId, String triggerType) {
         MagnetUnifiedVideoSearchTarget target = magnetRepository.findUnifiedVideoSearchTarget(unifiedVideoId)
                 .orElseThrow(() -> notFound("UnifiedVideo not found"));
         List<MagnetExternalIdQuery> queries = planExternalIdQueries(target);
         if (queries.isEmpty()) {
-            return magnetRepository.createSkippedSearchJob(unifiedVideoId, SKIPPED_NO_QUERY, queries, List.of());
+            return magnetRepository.createSkippedSearchJob(unifiedVideoId, triggerType, SKIPPED_NO_QUERY, queries, List.of());
         }
 
         List<MagnetProviderSummary> providers = readModelCache.listEnabledProviders(magnetRepository::listEnabledProviders);
@@ -94,6 +103,7 @@ public class MagnetQueryService {
         if (providers.isEmpty()) {
             return magnetRepository.createSkippedSearchJob(
                     unifiedVideoId,
+                    triggerType,
                     SKIPPED_NO_ENABLED_PROVIDER,
                     queries,
                     providerCodes);
@@ -107,12 +117,13 @@ public class MagnetQueryService {
         if (runPlan.isEmpty()) {
             return magnetRepository.createSkippedSearchJob(
                     unifiedVideoId,
+                    triggerType,
                     SKIPPED_NO_SUPPORTED_PROVIDER,
                     queries,
                     providerCodes);
         }
 
-        MagnetSearchJobSummary job = magnetRepository.createRunningSearchJob(unifiedVideoId, queries);
+        MagnetSearchJobSummary job = magnetRepository.createRunningSearchJob(unifiedVideoId, triggerType, queries);
         int totalCandidates = 0;
         int acceptedCount = 0;
         int failedRuns = 0;
