@@ -41,6 +41,7 @@ class MagnetProviderTrafficLimiterTest {
                 true,
                 EGRESS_IP,
                 1000,
+                "",
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10));
 
@@ -51,6 +52,29 @@ class MagnetProviderTrafficLimiterTest {
         assertThat(lockManager.lastTimeSliceRequest.gap()).isEqualTo(Duration.ofMillis(1500));
         assertThat(lockManager.lastTimeSliceRequest.maxWait()).isEqualTo(Duration.ofMinutes(2));
         assertThat(lockManager.lastTimeSliceRequest.ttl()).isEqualTo(Duration.ofMinutes(10));
+    }
+
+    @Test
+    void providerGapConfigOverridesProviderMinDelay() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
+                providerKey(),
+                Duration.ZERO,
+                Instant.parse("2026-06-11T00:00:00Z"),
+                Instant.parse("2026-06-11T00:00:05Z")));
+        MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
+                lockManager,
+                null,
+                true,
+                EGRESS_IP,
+                1000,
+                "YTS-BZ=5000",
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+
+        limiter.acquireProviderSlot(provider(1500));
+
+        assertThat(lockManager.lastTimeSliceRequest).isNotNull();
+        assertThat(lockManager.lastTimeSliceRequest.gap()).isEqualTo(Duration.ofSeconds(5));
     }
 
     @Test
@@ -66,6 +90,7 @@ class MagnetProviderTrafficLimiterTest {
                 true,
                 EGRESS_IP,
                 1000,
+                "",
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10));
         FakeHttpClient httpClient = new FakeHttpClient();
@@ -95,6 +120,7 @@ class MagnetProviderTrafficLimiterTest {
                 true,
                 "2001:db8::10",
                 1000,
+                "",
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10));
 

@@ -38,6 +38,7 @@ app:
       fixed-delay-ms: ${APP_MAGNET_AUTO_SEARCH_FIXED_DELAY_MS:300000}
     traffic:
       enabled: ${APP_MAGNET_TRAFFIC_ENABLED:true}
-      default-gap-ms: ${APP_MAGNET_TRAFFIC_DEFAULT_GAP_MS:1000}
+      default-gap-ms: ${APP_MAGNET_TRAFFIC_DEFAULT_GAP_MS:3000}
+      provider-gap-ms: ${APP_MAGNET_TRAFFIC_PROVIDER_GAP_MS:}
       max-wait: ${APP_MAGNET_TRAFFIC_MAX_WAIT:PT2M}
       ttl: ${APP_MAGNET_TRAFFIC_TTL:PT10M}

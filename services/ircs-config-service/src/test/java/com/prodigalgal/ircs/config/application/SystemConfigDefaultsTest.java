@@ -561,6 +561,7 @@ class SystemConfigDefaultsTest {
             "app.magnet.traffic.enabled",
             "app.magnet.traffic.egress-id",
             "app.magnet.traffic.default-gap-ms",
+            "app.magnet.traffic.provider-gap-ms",
             "app.magnet.traffic.max-wait",
             "app.magnet.traffic.ttl",
             "app.storage.image.traffic.enabled",

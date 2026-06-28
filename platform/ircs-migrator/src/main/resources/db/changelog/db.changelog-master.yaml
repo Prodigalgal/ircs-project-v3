@@ -80,6 +80,8 @@ databaseChangeLog:
   - include:
       file: db/changelog/2026/07/add-requested-magnet-providers.sql
   - include:
+      file: db/changelog/2026/07/configure-magnet-provider-traffic-limits.sql
+  - include:
       file: db/changelog/2026/07/add-request-audit-logs.sql
   - include:
       file: db/changelog/2026/07/add-request-audit-source.sql
