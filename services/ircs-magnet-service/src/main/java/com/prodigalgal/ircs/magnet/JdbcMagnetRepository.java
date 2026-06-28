@@ -640,9 +640,10 @@ public class JdbcMagnetRepository {
             int acceptedCount,
             int failedRuns) {
         int rejectedCount = Math.max(0, totalCandidates - acceptedCount);
+        int successfulRuns = countProviderRuns(jobId, "SUCCESS");
         String status;
-        if (acceptedCount > 0) {
-            status = failedRuns > 0 ? "PARTIAL_SUCCESS" : "SUCCESS";
+        if (failedRuns > 0 && successfulRuns > 0) {
+            status = "PARTIAL_SUCCESS";
         } else if (failedRuns > 0) {
             status = "FAILED";
         } else {
@@ -672,6 +673,21 @@ public class JdbcMagnetRepository {
                         .addValue("acceptedCount", acceptedCount)
                         .addValue("rejectedCount", rejectedCount));
         return findSearchJob(jobId).orElseThrow();
+    }
+
+    private int countProviderRuns(UUID jobId, String status) {
+        Integer count = namedParameterJdbcTemplate.queryForObject(
+                """
+                select count(*)
+                from magnet_provider_runs
+                where job_id = :jobId
+                  and status = :status
+                """,
+                new MapSqlParameterSource()
+                        .addValue("jobId", jobId)
+                        .addValue("status", status),
+                Integer.class);
+        return count == null ? 0 : count;
     }
 
     private MapSqlParameterSource linkParams(

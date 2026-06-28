@@ -79,6 +79,63 @@ class JdbcMagnetRepositoryTest {
     }
 
     @Test
+    void marksJobPartialSuccessWhenAtLeastOneProviderRunSucceeds() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        UUID successProviderId = UUID.randomUUID();
+        UUID failedProviderId = UUID.randomUUID();
+        insertUnifiedVideo(unifiedVideoId, "tt1234567");
+        insertProvider(successProviderId, "yts_bz", true);
+        insertProvider(failedProviderId, "thepiratebay", true);
+        List<MagnetExternalIdQuery> plan = List.of(new MagnetExternalIdQuery("IMDB", "tt1234567"));
+        MagnetSearchJobSummary runningJob = repository.createRunningSearchJob(unifiedVideoId, "AUTO_SCHEDULED", plan);
+        List<MagnetProviderSummary> providers = repository.listEnabledProviders();
+        MagnetProviderSummary successProvider = providers.stream()
+                .filter(provider -> provider.code().equals("yts_bz"))
+                .findFirst()
+                .orElseThrow();
+        MagnetProviderSummary failedProvider = providers.stream()
+                .filter(provider -> provider.code().equals("thepiratebay"))
+                .findFirst()
+                .orElseThrow();
+
+        repository.createProviderRun(
+                runningJob.id(),
+                successProvider,
+                plan.getFirst(),
+                "SUCCESS",
+                "https://movies-api.accel.li/api/v2/list_movies.json?query_term=tt1234567",
+                200,
+                0,
+                0,
+                20,
+                null);
+        repository.createProviderRun(
+                runningJob.id(),
+                failedProvider,
+                plan.getFirst(),
+                "FAILED",
+                "https://apibay.org/q.php?q=tt1234567",
+                null,
+                0,
+                0,
+                10000,
+                "GENERIC_MAGNET_TIMEOUT");
+
+        MagnetSearchJobSummary finishedJob = repository.finishSearchJob(
+                runningJob.id(),
+                List.of("yts_bz", "thepiratebay"),
+                0,
+                0,
+                1);
+
+        assertEquals("PARTIAL_SUCCESS", finishedJob.status());
+        assertEquals(0, finishedJob.totalCandidates());
+        assertEquals(0, finishedJob.acceptedCount());
+        assertEquals(0, finishedJob.rejectedCount());
+        assertEquals(2, countRows("magnet_provider_runs"));
+    }
+
+    @Test
     void createsSkippedJobWithoutProviderRunOrLink() {
         UUID unifiedVideoId = UUID.randomUUID();
         insertUnifiedVideo(unifiedVideoId, null);
