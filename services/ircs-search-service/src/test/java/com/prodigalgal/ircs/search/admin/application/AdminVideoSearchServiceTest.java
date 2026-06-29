@@ -51,31 +51,7 @@ class AdminVideoSearchServiceTest {
                 .thenReturn(searchHits);
 
         AdminVideoSearchService service = new AdminVideoSearchService(elasticsearchOperations);
-        AdminVideoSearchResult result = service.searchRawIds(new AdminVideoSearchRequest(
-                0,
-                20,
-                "updatedAt",
-                "DESC",
-                null,
-                null,
-                null,
-                null,
-                "PENDING",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null));
+        AdminVideoSearchResult result = service.searchRawIds(rawRequest("PENDING", "AGGREGATED"));
 
         assertEquals(List.of(id), result.ids());
         assertEquals(10L, result.total());
@@ -88,6 +64,8 @@ class AdminVideoSearchServiceTest {
         assertTrue(query.getQuery().isBool());
         assertEquals("normalizationStatus", query.getQuery().bool().filter().getFirst().term().field());
         assertEquals("PENDING", query.getQuery().bool().filter().getFirst().term().value().stringValue());
+        assertEquals("aggregationStatus", query.getQuery().bool().filter().get(1).term().field());
+        assertEquals("AGGREGATED", query.getQuery().bool().filter().get(1).term().value().stringValue());
     }
 
     @Test
@@ -98,7 +76,60 @@ class AdminVideoSearchServiceTest {
                 .thenReturn(unifiedSearchHits);
 
         AdminVideoSearchService service = new AdminVideoSearchService(elasticsearchOperations);
-        service.searchUnifiedIds(new AdminVideoSearchRequest(
+        service.searchUnifiedIds(unifiedRequest("SYNCED", "CN"));
+
+        ArgumentCaptor<NativeQuery> queryCaptor = ArgumentCaptor.forClass(NativeQuery.class);
+        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(UnifiedVideoSearchDocument.class));
+        List<Query> filters = queryCaptor.getValue().getQuery().bool().filter();
+        Query statusFilter = filters.stream()
+                .filter(Query::isTerm)
+                .filter(filter -> "metadataStatus".equals(filter.term().field()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("metadataStatus", statusFilter.term().field());
+        assertEquals("SYNCED", statusFilter.term().value().stringValue());
+        Query areaFilter = filters.stream()
+                .filter(Query::isBool)
+                .filter(filter -> filter.bool().should().stream()
+                        .anyMatch(should -> should.isTerm() && "areaCodes".equals(should.term().field())))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(areaFilter.isBool());
+        assertEquals("1", areaFilter.bool().minimumShouldMatch());
+        assertEquals("areas", areaFilter.bool().should().get(0).term().field());
+        assertEquals("areaCodes", areaFilter.bool().should().get(1).term().field());
+    }
+
+    private AdminVideoSearchRequest rawRequest(String normalizationStatus, String aggregationStatus) {
+        return new AdminVideoSearchRequest(
+                0,
+                20,
+                "updatedAt",
+                "DESC",
+                null,
+                null,
+                null,
+                null,
+                normalizationStatus,
+                aggregationStatus,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private AdminVideoSearchRequest unifiedRequest(String metadataStatus, String area) {
+        return new AdminVideoSearchRequest(
                 0,
                 20,
                 "updatedAt",
@@ -109,12 +140,9 @@ class AdminVideoSearchServiceTest {
                 null,
                 null,
                 null,
+                metadataStatus,
                 null,
-                null,
-                "CN",
-                null,
-                null,
-                null,
+                area,
                 null,
                 null,
                 null,
@@ -122,14 +150,9 @@ class AdminVideoSearchServiceTest {
                 null,
                 null,
                 null,
-                null));
-
-        ArgumentCaptor<NativeQuery> queryCaptor = ArgumentCaptor.forClass(NativeQuery.class);
-        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(UnifiedVideoSearchDocument.class));
-        Query areaFilter = queryCaptor.getValue().getQuery().bool().filter().getFirst();
-        assertTrue(areaFilter.isBool());
-        assertEquals("1", areaFilter.bool().minimumShouldMatch());
-        assertEquals("areas", areaFilter.bool().should().get(0).term().field());
-        assertEquals("areaCodes", areaFilter.bool().should().get(1).term().field());
+                null,
+                null,
+                null,
+                null);
     }
 }

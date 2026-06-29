@@ -460,17 +460,18 @@ class VideoAdminQueryRepository {
         if (!rawSearchSupported(title, area, sourceCategoryName, genre, language)) {
             return Optional.empty();
         }
-        if (StringUtils.hasText(aggregationStatus)) {
-            return Optional.empty();
-        }
         if (!hasRawExactSearchCriteria(
                 categoryId,
                 enrichmentStatus,
                 normalizationStatus,
+                aggregationStatus,
                 year,
+                area,
                 minScore,
                 isMissingSlug,
-                dataSourceId)) {
+                dataSourceId,
+                genre,
+                language)) {
             return Optional.empty();
         }
         AdminVideoSearchRequest request = new AdminVideoSearchRequest(
@@ -483,10 +484,10 @@ class VideoAdminQueryRepository {
                 null,
                 enrichmentStatus,
                 normalizationStatus,
+                aggregationStatus,
                 null,
                 year,
-                null,
-                null,
+                trimToNull(area),
                 minScore,
                 isMissingSlug,
                 null,
@@ -494,12 +495,12 @@ class VideoAdminQueryRepository {
                 null,
                 dataSourceId,
                 null,
-                null,
-                null,
+                trimToNull(genre),
+                trimToNull(language),
                 null,
                 null);
         return adminVideoSearchClient.searchRawIds(request)
-                .filter(result -> !result.ids().isEmpty() || StringUtils.hasText(where))
+                .filter(result -> !result.ids().isEmpty())
                 .map(result -> new PageImpl<>(
                         findRawCardsByIds(result.ids()),
                         pageable,
@@ -513,24 +514,32 @@ class VideoAdminQueryRepository {
             String genre,
             String language) {
         return !StringUtils.hasText(title)
-                && !StringUtils.hasText(area)
+                && exactCodeFilter(area)
                 && !StringUtils.hasText(sourceCategoryName)
-                && !StringUtils.hasText(genre)
-                && !StringUtils.hasText(language);
+                && exactCodeFilter(genre)
+                && exactCodeFilter(language);
     }
 
     private boolean hasRawExactSearchCriteria(
             UUID categoryId,
             String enrichmentStatus,
             String normalizationStatus,
+            String aggregationStatus,
             String year,
+            String area,
             BigDecimal minScore,
             Boolean isMissingSlug,
-            UUID dataSourceId) {
+            UUID dataSourceId,
+            String genre,
+            String language) {
         return categoryId != null
                 || StringUtils.hasText(enrichmentStatus)
                 || StringUtils.hasText(normalizationStatus)
+                || StringUtils.hasText(aggregationStatus)
                 || StringUtils.hasText(year)
+                || StringUtils.hasText(area)
+                || StringUtils.hasText(genre)
+                || StringUtils.hasText(language)
                 || minScore != null
                 || isMissingSlug != null
                 || dataSourceId != null;
@@ -696,23 +705,27 @@ class VideoAdminQueryRepository {
         if (!unifiedSearchSupported(title, area, genre, language, actor, director)) {
             return Optional.empty();
         }
-        if (StringUtils.hasText(metadataStatus)) {
-            return Optional.empty();
-        }
         if (StringUtils.hasText(year) && !isNumericYear(year)) {
             return Optional.empty();
         }
         if (!hasUnifiedExactSearchCriteria(
                 categoryId,
                 year,
+                area,
                 minScore,
                 hasDoubanId,
                 hasTmdbId,
-                contentVisibility)) {
+                contentVisibility,
+                metadataStatus,
+                genre,
+                language)) {
             return Optional.empty();
         }
         String normalizedVisibility = StringUtils.hasText(contentVisibility)
                 ? normalizeContentVisibility(contentVisibility)
+                : null;
+        String normalizedMetadataStatus = StringUtils.hasText(metadataStatus)
+                ? metadataStatus.trim().toUpperCase(java.util.Locale.ROOT)
                 : null;
         AdminVideoSearchRequest request = new AdminVideoSearchRequest(
                 pageable.getPageNumber(),
@@ -725,9 +738,9 @@ class VideoAdminQueryRepository {
                 null,
                 null,
                 null,
-                null,
+                normalizedMetadataStatus,
                 year,
-                null,
+                trimToNull(area),
                 minScore,
                 null,
                 hasDoubanId,
@@ -735,12 +748,12 @@ class VideoAdminQueryRepository {
                 normalizedVisibility,
                 null,
                 null,
-                null,
-                null,
+                trimToNull(genre),
+                trimToNull(language),
                 null,
                 null);
         return adminVideoSearchClient.searchUnifiedIds(request)
-                .filter(result -> !result.ids().isEmpty() || StringUtils.hasText(where))
+                .filter(result -> !result.ids().isEmpty())
                 .map(result -> new PageImpl<>(
                         withSourceCounts(findUnifiedCardsByIds(result.ids())),
                         pageable,
@@ -755,9 +768,9 @@ class VideoAdminQueryRepository {
             String actor,
             String director) {
         return !StringUtils.hasText(title)
-                && !StringUtils.hasText(area)
-                && !StringUtils.hasText(genre)
-                && !StringUtils.hasText(language)
+                && exactCodeFilter(area)
+                && exactCodeFilter(genre)
+                && exactCodeFilter(language)
                 && !StringUtils.hasText(actor)
                 && !StringUtils.hasText(director);
     }
@@ -765,20 +778,36 @@ class VideoAdminQueryRepository {
     private boolean hasUnifiedExactSearchCriteria(
             UUID categoryId,
             String year,
+            String area,
             BigDecimal minScore,
             Boolean hasDoubanId,
             Boolean hasTmdbId,
-            String contentVisibility) {
+            String contentVisibility,
+            String metadataStatus,
+            String genre,
+            String language) {
         return categoryId != null
                 || StringUtils.hasText(year)
+                || StringUtils.hasText(area)
                 || minScore != null
                 || hasDoubanId != null
                 || hasTmdbId != null
-                || StringUtils.hasText(contentVisibility);
+                || StringUtils.hasText(contentVisibility)
+                || StringUtils.hasText(metadataStatus)
+                || StringUtils.hasText(genre)
+                || StringUtils.hasText(language);
     }
 
     private boolean isNumericYear(String year) {
         return year != null && year.trim().matches("\\d+");
+    }
+
+    private boolean exactCodeFilter(String value) {
+        return !StringUtils.hasText(value) || value.trim().matches("[A-Za-z0-9_.:-]{1,64}");
+    }
+
+    private String trimToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private String unifiedCountSql(String where) {

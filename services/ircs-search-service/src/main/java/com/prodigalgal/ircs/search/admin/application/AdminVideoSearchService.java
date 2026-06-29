@@ -72,7 +72,7 @@ public class AdminVideoSearchService {
         addTerm(bool, "enrichmentStatus", request.enrichmentStatus());
         addTerm(bool, "normalizationStatus", request.normalizationStatus());
         addTerm(bool, "aggregationStatus", request.aggregationStatus());
-        addTerm(bool, "year", parseYear(request.year()));
+        addTerm(bool, "year", parseRawYear(request.year()));
         addTerm(bool, "dataSourceId", request.dataSourceId());
         addText(bool, request.sourceCategoryName(), List.of("sourceCategoryName"));
         addTerm(bool, "rawAreas", request.area());
@@ -97,7 +97,7 @@ public class AdminVideoSearchService {
                 "description"));
         addTerm(bool, "categoryId", request.categoryId());
         addTerm(bool, "categorySlug", request.categoryCode());
-        addTerm(bool, "year", request.year());
+        addTerm(bool, "year", parseUnifiedYear(request.year()));
         addAnyTerm(bool, request.area(), List.of("areas", "areaCodes"));
         addAnyTerm(bool, request.genre(), List.of("genres", "genreCodes"));
         addAnyTerm(bool, request.language(), List.of("languages", "languageCodes"));
@@ -175,7 +175,14 @@ public class AdminVideoSearchService {
         bool.filter(Query.of(q -> q.range(r -> r.number(n -> n.field("score").gte(minScore.doubleValue())))));
     }
 
-    private Integer parseYear(String year) {
+    private String parseRawYear(String year) {
+        if (!StringUtils.hasText(year)) {
+            return null;
+        }
+        return year.trim();
+    }
+
+    private Integer parseUnifiedYear(String year) {
         if (!StringUtils.hasText(year)) {
             return null;
         }

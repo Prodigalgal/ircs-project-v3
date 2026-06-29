@@ -53,8 +53,10 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).contains("adminVideoSearchClient.searchUnifiedIds(request)");
         assertThat(source).contains("findRawCardsByIds(result.ids())");
         assertThat(source).contains("withSourceCounts(findUnifiedCardsByIds(result.ids()))");
-        assertThat(source).contains("if (StringUtils.hasText(aggregationStatus))");
-        assertThat(source).contains("if (StringUtils.hasText(metadataStatus))");
+        assertThat(source).contains("aggregationStatus,");
+        assertThat(source).contains("normalizedMetadataStatus");
+        assertThat(source).doesNotContain("if (StringUtils.hasText(aggregationStatus)) {\n            return Optional.empty();");
+        assertThat(source).doesNotContain("if (StringUtils.hasText(metadataStatus)) {\n            return Optional.empty();");
     }
 
     private static Path sourceFile() {
