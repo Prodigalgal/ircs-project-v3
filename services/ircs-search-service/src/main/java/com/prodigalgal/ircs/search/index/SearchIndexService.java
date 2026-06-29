@@ -118,6 +118,8 @@ public class SearchIndexService {
         if (!indexOperations.exists()) {
             indexOperations.createWithMapping();
             log.info("Created Elasticsearch index for {}", documentType.getSimpleName());
+        } else {
+            indexOperations.putMapping();
         }
         ensuredIndexes.add(documentType);
     }

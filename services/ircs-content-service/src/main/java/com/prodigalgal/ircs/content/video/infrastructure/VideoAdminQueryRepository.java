@@ -1,19 +1,20 @@
 package com.prodigalgal.ircs.content.video.infrastructure;
 
-
-import com.prodigalgal.ircs.content.video.api.ContentApiException;
 import static com.prodigalgal.ircs.content.video.domain.VideoAdminText.normalizeContentVisibility;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.content.config.ContentCoverImageUrlResolver;
-import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository.RawVideoSnapshot;
+import com.prodigalgal.ircs.content.video.api.ContentApiException;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoDetailResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.StandardAreaRef;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoCardResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoDetailResponse;
+import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository.RawVideoSnapshot;
+import com.prodigalgal.ircs.contracts.search.AdminVideoSearchRequest;
+import com.prodigalgal.ircs.contracts.search.AdminVideoSearchResult;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -50,6 +51,7 @@ class VideoAdminQueryRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final ContentCoverImageUrlResolver coverImageUrlResolver;
+    private final AdminVideoSearchClient adminVideoSearchClient;
 
     Page<RawVideoCardResponse> findRawVideos(
             Pageable pageable,
@@ -72,6 +74,25 @@ class VideoAdminQueryRepository {
                 .addValue("offset", safe.getOffset());
         String where = rawWhere(params, title, categoryId, enrichmentStatus, normalizationStatus, aggregationStatus, year, area,
                 minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
+        Optional<Page<RawVideoCardResponse>> searchPage = rawSearchPage(
+                safe,
+                where,
+                title,
+                categoryId,
+                enrichmentStatus,
+                normalizationStatus,
+                aggregationStatus,
+                year,
+                area,
+                minScore,
+                isMissingSlug,
+                dataSourceId,
+                sourceCategoryName,
+                genre,
+                language);
+        if (searchPage.isPresent()) {
+            return searchPage.get();
+        }
         List<RawVideoCardResponse> content = jdbcTemplate.query(
                 rawCardSql(where) + orderBy(safe, "rv"),
                 params,
@@ -227,6 +248,25 @@ class VideoAdminQueryRepository {
                 language,
                 actor,
                 director);
+        Optional<Page<UnifiedVideoCardResponse>> searchPage = unifiedSearchPage(
+                safe,
+                where,
+                title,
+                categoryId,
+                year,
+                area,
+                minScore,
+                hasDoubanId,
+                hasTmdbId,
+                contentVisibility,
+                metadataStatus,
+                genre,
+                language,
+                actor,
+                director);
+        if (searchPage.isPresent()) {
+            return searchPage.get();
+        }
         List<UnifiedVideoCardResponse> page = jdbcTemplate.query(
                 unifiedCardSql(where) + orderBy(safe, "uv"),
                 params,
@@ -401,6 +441,101 @@ class VideoAdminQueryRepository {
         return clauses.isEmpty() ? "" : " where " + String.join(" and ", clauses);
     }
 
+    private Optional<Page<RawVideoCardResponse>> rawSearchPage(
+            Pageable pageable,
+            String where,
+            String title,
+            UUID categoryId,
+            String enrichmentStatus,
+            String normalizationStatus,
+            String aggregationStatus,
+            String year,
+            String area,
+            BigDecimal minScore,
+            Boolean isMissingSlug,
+            UUID dataSourceId,
+            String sourceCategoryName,
+            String genre,
+            String language) {
+        if (!rawSearchSupported(title, area, sourceCategoryName, genre, language)) {
+            return Optional.empty();
+        }
+        if (StringUtils.hasText(aggregationStatus)) {
+            return Optional.empty();
+        }
+        if (!hasRawExactSearchCriteria(
+                categoryId,
+                enrichmentStatus,
+                normalizationStatus,
+                year,
+                minScore,
+                isMissingSlug,
+                dataSourceId)) {
+            return Optional.empty();
+        }
+        AdminVideoSearchRequest request = new AdminVideoSearchRequest(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                primarySort(pageable),
+                primaryDirection(pageable),
+                null,
+                categoryId,
+                null,
+                enrichmentStatus,
+                normalizationStatus,
+                null,
+                year,
+                null,
+                null,
+                minScore,
+                isMissingSlug,
+                null,
+                null,
+                null,
+                dataSourceId,
+                null,
+                null,
+                null,
+                null,
+                null);
+        return adminVideoSearchClient.searchRawIds(request)
+                .filter(result -> !result.ids().isEmpty() || StringUtils.hasText(where))
+                .map(result -> new PageImpl<>(
+                        findRawCardsByIds(result.ids()),
+                        pageable,
+                        Math.max(pageable.getOffset() + result.ids().size(), result.total())));
+    }
+
+    private boolean rawSearchSupported(
+            String title,
+            String area,
+            String sourceCategoryName,
+            String genre,
+            String language) {
+        return !StringUtils.hasText(title)
+                && !StringUtils.hasText(area)
+                && !StringUtils.hasText(sourceCategoryName)
+                && !StringUtils.hasText(genre)
+                && !StringUtils.hasText(language);
+    }
+
+    private boolean hasRawExactSearchCriteria(
+            UUID categoryId,
+            String enrichmentStatus,
+            String normalizationStatus,
+            String year,
+            BigDecimal minScore,
+            Boolean isMissingSlug,
+            UUID dataSourceId) {
+        return categoryId != null
+                || StringUtils.hasText(enrichmentStatus)
+                || StringUtils.hasText(normalizationStatus)
+                || StringUtils.hasText(year)
+                || minScore != null
+                || isMissingSlug != null
+                || dataSourceId != null;
+    }
+
     private String rawCountSql(String where) {
         return """
                 select count(*)
@@ -542,6 +677,110 @@ class VideoAdminQueryRepository {
         return clauses.isEmpty() ? "" : " where " + String.join(" and ", clauses);
     }
 
+    private Optional<Page<UnifiedVideoCardResponse>> unifiedSearchPage(
+            Pageable pageable,
+            String where,
+            String title,
+            UUID categoryId,
+            String year,
+            String area,
+            BigDecimal minScore,
+            Boolean hasDoubanId,
+            Boolean hasTmdbId,
+            String contentVisibility,
+            String metadataStatus,
+            String genre,
+            String language,
+            String actor,
+            String director) {
+        if (!unifiedSearchSupported(title, area, genre, language, actor, director)) {
+            return Optional.empty();
+        }
+        if (StringUtils.hasText(metadataStatus)) {
+            return Optional.empty();
+        }
+        if (StringUtils.hasText(year) && !isNumericYear(year)) {
+            return Optional.empty();
+        }
+        if (!hasUnifiedExactSearchCriteria(
+                categoryId,
+                year,
+                minScore,
+                hasDoubanId,
+                hasTmdbId,
+                contentVisibility)) {
+            return Optional.empty();
+        }
+        String normalizedVisibility = StringUtils.hasText(contentVisibility)
+                ? normalizeContentVisibility(contentVisibility)
+                : null;
+        AdminVideoSearchRequest request = new AdminVideoSearchRequest(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                primarySort(pageable),
+                primaryDirection(pageable),
+                null,
+                categoryId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                year,
+                null,
+                minScore,
+                null,
+                hasDoubanId,
+                hasTmdbId,
+                normalizedVisibility,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        return adminVideoSearchClient.searchUnifiedIds(request)
+                .filter(result -> !result.ids().isEmpty() || StringUtils.hasText(where))
+                .map(result -> new PageImpl<>(
+                        withSourceCounts(findUnifiedCardsByIds(result.ids())),
+                        pageable,
+                        Math.max(pageable.getOffset() + result.ids().size(), result.total())));
+    }
+
+    private boolean unifiedSearchSupported(
+            String title,
+            String area,
+            String genre,
+            String language,
+            String actor,
+            String director) {
+        return !StringUtils.hasText(title)
+                && !StringUtils.hasText(area)
+                && !StringUtils.hasText(genre)
+                && !StringUtils.hasText(language)
+                && !StringUtils.hasText(actor)
+                && !StringUtils.hasText(director);
+    }
+
+    private boolean hasUnifiedExactSearchCriteria(
+            UUID categoryId,
+            String year,
+            BigDecimal minScore,
+            Boolean hasDoubanId,
+            Boolean hasTmdbId,
+            String contentVisibility) {
+        return categoryId != null
+                || StringUtils.hasText(year)
+                || minScore != null
+                || hasDoubanId != null
+                || hasTmdbId != null
+                || StringUtils.hasText(contentVisibility);
+    }
+
+    private boolean isNumericYear(String year) {
+        return year != null && year.trim().matches("\\d+");
+    }
+
     private String unifiedCountSql(String where) {
         return """
                 select count(*)
@@ -569,6 +808,41 @@ class VideoAdminQueryRepository {
                 """ + where;
     }
 
+    private List<RawVideoCardResponse> findRawCardsByIds(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<RawVideoCardResponse> rows = jdbcTemplate.query(
+                rawCardSql(" where rv.id in (:ids)"),
+                new MapSqlParameterSource("ids", ids),
+                this::mapRawCard);
+        return orderByIds(rows, ids, RawVideoCardResponse::id);
+    }
+
+    private List<UnifiedVideoCardResponse> findUnifiedCardsByIds(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<UnifiedVideoCardResponse> rows = jdbcTemplate.query(
+                unifiedCardSql(" where uv.id in (:ids)"),
+                new MapSqlParameterSource("ids", ids),
+                this::mapUnifiedCard);
+        return orderByIds(rows, ids, UnifiedVideoCardResponse::id);
+    }
+
+    private <T> List<T> orderByIds(List<T> rows, List<UUID> ids, java.util.function.Function<T, UUID> idExtractor) {
+        Map<UUID, T> byId = new LinkedHashMap<>();
+        rows.forEach(row -> byId.put(idExtractor.apply(row), row));
+        List<T> ordered = new ArrayList<>();
+        ids.forEach(id -> {
+            T row = byId.get(id);
+            if (row != null) {
+                ordered.add(row);
+            }
+        });
+        return ordered;
+    }
+
     private String orderBy(Pageable pageable, String alias) {
         if (pageable.getSort().isUnsorted()) {
             return " order by " + alias + ".updated_at desc limit :limit offset :offset";
@@ -582,6 +856,20 @@ class VideoAdminQueryRepository {
             return " order by " + alias + ".updated_at desc limit :limit offset :offset";
         }
         return " order by " + String.join(", ", orders) + " limit :limit offset :offset";
+    }
+
+    private String primarySort(Pageable pageable) {
+        return pageable.getSort().stream()
+                .findFirst()
+                .map(org.springframework.data.domain.Sort.Order::getProperty)
+                .orElse("updatedAt");
+    }
+
+    private String primaryDirection(Pageable pageable) {
+        return pageable.getSort().stream()
+                .findFirst()
+                .map(order -> order.getDirection().name())
+                .orElse("DESC");
     }
 
     private String toColumn(String property) {

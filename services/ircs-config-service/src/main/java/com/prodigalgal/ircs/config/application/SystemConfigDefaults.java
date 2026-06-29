@@ -138,6 +138,7 @@ public class SystemConfigDefaults {
             cfg("app.ops.config-listener.enabled", "true", "是否启用运维服务配置变更事件监听"),
             cfg("app.aggregation.config-listener.enabled", "true", "是否启用聚合 Worker 配置变更事件监听"),
             cfg("app.content.config-listener.enabled", "true", "是否启用内容服务配置变更事件监听"),
+            cfg("app.content.admin-video-search.es-enabled", "true", "是否启用内容管理列表 ES ID 发现加速"),
             cfg("app.identity.config-listener.enabled", "true", "是否启用认证服务配置变更事件监听"),
             cfg("app.interaction.config-listener.enabled", "true", "是否启用互动服务配置变更事件监听"),
             cfg("app.metadata.config-listener.enabled", "true", "是否启用元数据 Worker 配置变更事件监听"),

@@ -97,7 +97,13 @@ public class UnifiedVideoSearchDocument {
     private String contentVisibility;
 
     @Field(type = FieldType.Keyword)
+    private String metadataStatus;
+
+    @Field(type = FieldType.Keyword)
     private List<String> genres;
+
+    @Field(type = FieldType.Keyword)
+    private List<String> genreCodes;
 
     @Field(type = FieldType.Keyword)
     private List<String> tags;
@@ -106,7 +112,13 @@ public class UnifiedVideoSearchDocument {
     private List<String> areas;
 
     @Field(type = FieldType.Keyword)
+    private List<String> areaCodes;
+
+    @Field(type = FieldType.Keyword)
     private List<String> languages;
+
+    @Field(type = FieldType.Keyword)
+    private List<String> languageCodes;
 
     @MultiField(
             mainField = @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart"),

@@ -45,6 +45,18 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).contains("uv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
     }
 
+    @Test
+    void filteredListsUseSearchIdsAndHydrateCurrentPageFromDatabase() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("adminVideoSearchClient.searchRawIds(request)");
+        assertThat(source).contains("adminVideoSearchClient.searchUnifiedIds(request)");
+        assertThat(source).contains("findRawCardsByIds(result.ids())");
+        assertThat(source).contains("withSourceCounts(findUnifiedCardsByIds(result.ids()))");
+        assertThat(source).contains("if (StringUtils.hasText(aggregationStatus))");
+        assertThat(source).contains("if (StringUtils.hasText(metadataStatus))");
+    }
+
     private static Path sourceFile() {
         Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path relative = Path.of(

@@ -59,9 +59,12 @@ public class SearchDocumentJdbcRepository {
                    cast(rv.genre_codes as varchar) AS genre_codes,
                    ds.name AS data_source_name,
                    ds.id AS data_source_id,
+                   rv.category_code,
+                   rv.source_category_code,
                    COALESCE(rv.source_category_name, rv.source_category_code) AS source_category_name,
                    sc.name AS category_name,
                    sc.id AS category_id,
+                   rv.aggregation_status,
                    ci.storage_type AS cover_storage_type,
                    ci.status AS cover_status,
                    ci.original_url AS cover_original_url,
@@ -104,6 +107,7 @@ public class SearchDocumentJdbcRepository {
                    sc.name AS category_name,
                    sc.id AS category_id,
                    uv.content_visibility,
+                   uv.metadata_status,
                    ci.storage_type AS cover_storage_type,
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
@@ -290,7 +294,9 @@ public class SearchDocumentJdbcRepository {
             doc.setDataSourceId(getUuid(rs, "data_source_id"));
             doc.setCategoryName(rs.getString("category_name"));
             doc.setCategoryId(getUuid(rs, "category_id"));
+            doc.setCategoryCode(rs.getString("category_code"));
             doc.setSourceCategoryName(rs.getString("source_category_name"));
+            doc.setSourceCategoryCode(rs.getString("source_category_code"));
             String rawLanguageCsv = rs.getString("raw_language_str");
             doc.setRawGenres(readJsonStringList(rs, "genre_codes"));
             doc.setRawAreas(readJsonStringList(rs, "area_codes"));
@@ -301,6 +307,7 @@ public class SearchDocumentJdbcRepository {
             doc.setDirectors(readJsonStringList(rs, "director_names"));
             doc.setEnrichmentStatus(rs.getString("enrichment_status"));
             doc.setNormalizationStatus(rs.getString("normalization_status"));
+            doc.setAggregationStatus(rs.getString("aggregation_status"));
             doc.setHasDoubanId(StringUtils.hasText(rs.getString("douban_id")));
             doc.setHasTmdbId(StringUtils.hasText(rs.getString("tmdb_id")));
             doc.setMissingSlug(!doc.isHasDoubanId() && !doc.isHasTmdbId());
@@ -352,12 +359,19 @@ public class SearchDocumentJdbcRepository {
             doc.setCategorySlug(rs.getString("category_slug"));
             doc.setCategoryName(rs.getString("category_name"));
             doc.setCategoryId(getUuid(rs, "category_id"));
-            doc.setGenres(readJsonStringList(rs, "genre_codes"));
-            doc.setAreas(readJsonStringList(rs, "area_codes"));
-            doc.setLanguages(readJsonStringList(rs, "language_codes"));
+            List<String> genreCodes = readJsonStringList(rs, "genre_codes");
+            List<String> areaCodes = readJsonStringList(rs, "area_codes");
+            List<String> languageCodes = readJsonStringList(rs, "language_codes");
+            doc.setGenres(genreCodes);
+            doc.setGenreCodes(genreCodes);
+            doc.setAreas(areaCodes);
+            doc.setAreaCodes(areaCodes);
+            doc.setLanguages(languageCodes);
+            doc.setLanguageCodes(languageCodes);
             doc.setActors(readJsonStringList(rs, "actor_names"));
             doc.setDirectors(readJsonStringList(rs, "director_names"));
             doc.setContentVisibility(rs.getString("content_visibility"));
+            doc.setMetadataStatus(rs.getString("metadata_status"));
             doc.setHasDouban(StringUtils.hasText(rs.getString("douban_id")));
             doc.setHasTmdb(StringUtils.hasText(rs.getString("tmdb_id")));
             doc.setHasImdb(StringUtils.hasText(rs.getString("imdb_id")));

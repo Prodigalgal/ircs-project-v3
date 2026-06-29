@@ -86,7 +86,13 @@ public class RawVideoSearchDocument {
     private UUID categoryId;
 
     @Field(type = FieldType.Keyword)
+    private String categoryCode;
+
+    @Field(type = FieldType.Keyword)
     private String sourceCategoryName;
+
+    @Field(type = FieldType.Keyword)
+    private String sourceCategoryCode;
 
     @Field(type = FieldType.Keyword)
     private List<String> rawGenres;
@@ -112,6 +118,9 @@ public class RawVideoSearchDocument {
 
     @Field(type = FieldType.Keyword)
     private String normalizationStatus;
+
+    @Field(type = FieldType.Keyword)
+    private String aggregationStatus;
 
     @Field(type = FieldType.Boolean)
     private boolean hasDoubanId;

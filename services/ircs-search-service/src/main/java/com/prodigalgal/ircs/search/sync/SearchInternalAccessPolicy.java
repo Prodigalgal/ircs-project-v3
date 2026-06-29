@@ -8,7 +8,7 @@ import org.springframework.util.StringUtils;
 
 @Component
 @RequiredArgsConstructor
-class SearchInternalAccessPolicy {
+public class SearchInternalAccessPolicy {
 
     @Value("${app.search.internal-access.require-token:false}")
     private boolean requireToken;
@@ -19,7 +19,7 @@ class SearchInternalAccessPolicy {
     @Value("${app.search.internal-access.required-scope:search:sync}")
     private String requiredScope;
 
-    void assertAccess(String serviceId, String serviceToken, String serviceScopes) {
+    public void assertAccess(String serviceId, String serviceToken, String serviceScopes) {
         if (!requireToken && !StringUtils.hasText(configuredToken)) {
             return;
         }

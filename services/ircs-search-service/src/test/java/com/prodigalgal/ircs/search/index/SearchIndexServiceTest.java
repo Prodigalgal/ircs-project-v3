@@ -44,6 +44,7 @@ class SearchIndexServiceTest {
         service.saveUnified(document);
 
         verify(elasticsearchOperations).save(document);
+        verify(indexOperations).putMapping();
         verify(readModelCache).evictPortalPublicReadModel();
     }
 

@@ -221,6 +221,8 @@ class SystemConfigDefaultsTest {
         SystemConfigDefaults.ConfigMetadata magnetAutoSearchHot = defaults.metadata("app.magnet.auto-search.enabled");
         SystemConfigDefaults.ConfigMetadata magnetWorkQueueHot =
                 defaults.metadata("app.magnet.work-queue.worker.enabled");
+        SystemConfigDefaults.ConfigMetadata adminVideoSearchHot =
+                defaults.metadata("app.content.admin-video-search.es-enabled");
         SystemConfigDefaults.ConfigMetadata magnetAutoSearchScheduleRestart =
                 defaults.metadata("app.magnet.auto-search.fixed-delay-ms");
         SystemConfigDefaults.ConfigMetadata magnetWorkQueueScheduleRestart =
@@ -236,6 +238,7 @@ class SystemConfigDefaultsTest {
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetRealProviderHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetAutoSearchHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetWorkQueueHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, adminVideoSearchHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT,
                 defaults.metadata("app.magnet.work-queue.worker.batch-size").activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT,
@@ -377,6 +380,7 @@ class SystemConfigDefaultsTest {
             "app.ops.config-listener.enabled",
             "app.aggregation.config-listener.enabled",
             "app.content.config-listener.enabled",
+            "app.content.admin-video-search.es-enabled",
             "app.identity.config-listener.enabled",
             "app.interaction.config-listener.enabled",
             "app.metadata.config-listener.enabled",
