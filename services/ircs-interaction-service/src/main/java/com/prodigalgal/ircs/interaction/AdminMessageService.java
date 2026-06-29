@@ -20,11 +20,17 @@ public class AdminMessageService {
     private final JdbcAdminMessageRepository repository;
 
     @Transactional(readOnly = true)
-    public PageResponse<UserMessageResponse> findAll(String keyword, String status, int page, int size) {
+    public PageResponse<UserMessageResponse> findAll(
+            String keyword,
+            String status,
+            Boolean publicMessage,
+            int page,
+            int size) {
         return repository.findMessages(
                 PageBounds.of(page, size, 20, 100),
                 normalizeKeyword(keyword),
-                normalizeStatus(status));
+                normalizeStatus(status),
+                Optional.ofNullable(publicMessage));
     }
 
     @Transactional

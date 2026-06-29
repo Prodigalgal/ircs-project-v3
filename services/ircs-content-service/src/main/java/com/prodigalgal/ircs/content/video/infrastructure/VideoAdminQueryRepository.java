@@ -57,6 +57,7 @@ class VideoAdminQueryRepository {
             UUID categoryId,
             String enrichmentStatus,
             String normalizationStatus,
+            String aggregationStatus,
             String year,
             String area,
             BigDecimal minScore,
@@ -69,7 +70,7 @@ class VideoAdminQueryRepository {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("limit", safe.getPageSize())
                 .addValue("offset", safe.getOffset());
-        String where = rawWhere(params, title, categoryId, enrichmentStatus, normalizationStatus, year, area,
+        String where = rawWhere(params, title, categoryId, enrichmentStatus, normalizationStatus, aggregationStatus, year, area,
                 minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
         List<RawVideoCardResponse> content = jdbcTemplate.query(
                 rawCardSql(where) + orderBy(safe, "rv"),
@@ -201,7 +202,12 @@ class VideoAdminQueryRepository {
             BigDecimal minScore,
             Boolean hasDoubanId,
             Boolean hasTmdbId,
-            String contentVisibility) {
+            String contentVisibility,
+            String metadataStatus,
+            String genre,
+            String language,
+            String actor,
+            String director) {
         Pageable safe = sanitize(pageable);
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("limit", safe.getPageSize())
@@ -215,7 +221,12 @@ class VideoAdminQueryRepository {
                 minScore,
                 hasDoubanId,
                 hasTmdbId,
-                contentVisibility);
+                contentVisibility,
+                metadataStatus,
+                genre,
+                language,
+                actor,
+                director);
         List<UnifiedVideoCardResponse> page = jdbcTemplate.query(
                 unifiedCardSql(where) + orderBy(safe, "uv"),
                 params,
@@ -299,6 +310,7 @@ class VideoAdminQueryRepository {
             UUID categoryId,
             String enrichmentStatus,
             String normalizationStatus,
+            String aggregationStatus,
             String year,
             String area,
             BigDecimal minScore,
@@ -323,6 +335,10 @@ class VideoAdminQueryRepository {
         if (StringUtils.hasText(normalizationStatus)) {
             clauses.add("rv.normalization_status = :normalizationStatus");
             params.addValue("normalizationStatus", normalizationStatus);
+        }
+        if (StringUtils.hasText(aggregationStatus)) {
+            clauses.add("rv.aggregation_status = :aggregationStatus");
+            params.addValue("aggregationStatus", aggregationStatus);
         }
         if (StringUtils.hasText(year)) {
             clauses.add("rv.year = :year");
@@ -402,7 +418,7 @@ class VideoAdminQueryRepository {
                        cast(rv.language_codes as varchar) as language_codes,
                        cast(rv.genre_codes as varchar) as genre_codes,
                        coalesce(rv.source_category_name, rv.source_category_code) as source_name, ds.name as data_source_name,
-                       rv.enrichment_status, rv.normalization_status, rv.created_at, rv.updated_at,
+                       rv.enrichment_status, rv.normalization_status, rv.aggregation_status, rv.created_at, rv.updated_at,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                        ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
                        (
@@ -427,7 +443,12 @@ class VideoAdminQueryRepository {
             BigDecimal minScore,
             Boolean hasDoubanId,
             Boolean hasTmdbId,
-            String contentVisibility) {
+            String contentVisibility,
+            String metadataStatus,
+            String genre,
+            String language,
+            String actor,
+            String director) {
         List<String> clauses = new ArrayList<>();
         if (StringUtils.hasText(title)) {
             clauses.add("lower(uv.title) like lower(:title)");
@@ -470,6 +491,54 @@ class VideoAdminQueryRepository {
         if (StringUtils.hasText(contentVisibility)) {
             clauses.add("uv.content_visibility = :contentVisibility");
             params.addValue("contentVisibility", normalizeContentVisibility(contentVisibility));
+        }
+        if (StringUtils.hasText(metadataStatus)) {
+            clauses.add("uv.metadata_status = :metadataStatus");
+            params.addValue("metadataStatus", metadataStatus.trim().toUpperCase(java.util.Locale.ROOT));
+        }
+        if (StringUtils.hasText(genre)) {
+            clauses.add("""
+                    exists (
+                        select 1
+                          from jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code)
+                          left join standard_genre sg on sg.code = gc.code
+                         where lower(gc.code) like lower(:genre)
+                            or lower(coalesce(sg.name, '')) like lower(:genre)
+                    )
+                    """);
+            params.addValue("genre", "%" + genre.trim() + "%");
+        }
+        if (StringUtils.hasText(language)) {
+            clauses.add("""
+                    exists (
+                        select 1
+                          from jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code)
+                          left join standard_languages sl on sl.code = lc.code
+                         where lower(lc.code) like lower(:language)
+                            or lower(coalesce(sl.name, '')) like lower(:language)
+                    )
+                    """);
+            params.addValue("language", "%" + language.trim() + "%");
+        }
+        if (StringUtils.hasText(actor)) {
+            clauses.add("""
+                    exists (
+                        select 1
+                          from jsonb_array_elements_text(coalesce(uv.actor_names, '[]'::jsonb)) a(name)
+                         where lower(a.name) like lower(:actor)
+                    )
+                    """);
+            params.addValue("actor", "%" + actor.trim() + "%");
+        }
+        if (StringUtils.hasText(director)) {
+            clauses.add("""
+                    exists (
+                        select 1
+                          from jsonb_array_elements_text(coalesce(uv.director_names, '[]'::jsonb)) d(name)
+                         where lower(d.name) like lower(:director)
+                    )
+                    """);
+            params.addValue("director", "%" + director.trim() + "%");
         }
         return clauses.isEmpty() ? "" : " where " + String.join(" and ", clauses);
     }
@@ -548,6 +617,7 @@ class VideoAdminQueryRepository {
                 rs.getString("data_source_name"),
                 rs.getString("enrichment_status"),
                 rs.getString("normalization_status"),
+                rs.getString("aggregation_status"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"),
                 rs.getString("category_code"),

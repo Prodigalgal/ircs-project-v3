@@ -29,8 +29,9 @@ public class DlqController {
     public ResponseEntity<PageEnvelope<FailedMessageResponse>> getAll(
             @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String queueName) {
-        return ResponseEntity.ok(PageEnvelope.from(dlqQueryService.findAll(pageable, status, queueName)));
+            @RequestParam(required = false) String queueName,
+            @RequestParam(required = false) String keyword) {
+        return ResponseEntity.ok(PageEnvelope.from(dlqQueryService.findAll(pageable, status, queueName, keyword)));
     }
 
     @PostMapping("/{id}/retry")

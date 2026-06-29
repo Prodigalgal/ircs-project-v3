@@ -47,7 +47,12 @@ public class UnifiedVideoController {
             @RequestParam(required = false) BigDecimal minScore,
             @RequestParam(required = false) Boolean hasDoubanId,
             @RequestParam(required = false) Boolean hasTmdbId,
-            @RequestParam(required = false) String contentVisibility) {
+            @RequestParam(required = false) String contentVisibility,
+            @RequestParam(required = false) String metadataStatus,
+            @RequestParam(required = false) String genre,
+            @RequestParam(required = false) String language,
+            @RequestParam(required = false) String actor,
+            @RequestParam(required = false) String director) {
         return ResponseEntity.ok(PageEnvelope.from(service.findAll(
                 pageable,
                 title,
@@ -57,7 +62,12 @@ public class UnifiedVideoController {
                 minScore,
                 hasDoubanId,
                 hasTmdbId,
-                contentVisibility)));
+                contentVisibility,
+                metadataStatus,
+                genre,
+                language,
+                actor,
+                director)));
     }
 
     @GetMapping("/{id}")

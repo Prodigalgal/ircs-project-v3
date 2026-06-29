@@ -37,8 +37,19 @@ public class MemberAdminController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false, defaultValue = "createdAt,desc") String sort,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) MemberStatus status) {
-        return ResponseEntity.ok(pageEnvelope(memberAdminService.findAll(keyword, status, page, size, sort)));
+            @RequestParam(required = false) MemberStatus status,
+            @RequestParam(required = false) Boolean adultContentAllowed,
+            @RequestParam(required = false) Integer minPoints,
+            @RequestParam(required = false) Integer maxPoints) {
+        return ResponseEntity.ok(pageEnvelope(memberAdminService.findAll(
+                keyword,
+                status,
+                adultContentAllowed,
+                minPoints,
+                maxPoints,
+                page,
+                size,
+                sort)));
     }
 
     @GetMapping("/{id}/favorites")

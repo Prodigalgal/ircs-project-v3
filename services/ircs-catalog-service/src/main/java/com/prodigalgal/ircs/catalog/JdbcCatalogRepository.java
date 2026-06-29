@@ -214,10 +214,12 @@ public class JdbcCatalogRepository {
 
     public CatalogPage<StandardCategoryRead> pageStandardCategories(
             CatalogPageRequest pageRequest,
-            String name) {
+            String name,
+            String slug) {
         MapSqlParameterSource params = new MapSqlParameterSource();
         List<String> predicates = new ArrayList<>();
         addLikePredicate(predicates, params, "name", "name", name);
+        addLikePredicate(predicates, params, "slug", "slug", slug);
         return queryPage(
                 """
                 select id, name, slug, created_at, updated_at
@@ -257,10 +259,14 @@ public class JdbcCatalogRepository {
                 standardGenreReadMapper());
     }
 
-    public CatalogPage<StandardGenreRead> pageStandardGenres(CatalogPageRequest pageRequest, String name) {
+    public CatalogPage<StandardGenreRead> pageStandardGenres(
+            CatalogPageRequest pageRequest,
+            String name,
+            String code) {
         MapSqlParameterSource params = new MapSqlParameterSource();
         List<String> predicates = new ArrayList<>();
         addLikePredicate(predicates, params, "name", "name", name);
+        addLikePredicate(predicates, params, "code", "code", code);
         return queryPage(
                 "select id, name, code",
                 fromWhere("standard_genre", predicates),

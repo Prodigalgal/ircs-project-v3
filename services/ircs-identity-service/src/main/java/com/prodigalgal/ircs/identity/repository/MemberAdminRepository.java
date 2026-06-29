@@ -14,7 +14,14 @@ import java.util.UUID;
 
 public interface MemberAdminRepository {
 
-    PageResponse<MemberRecord> findMembers(String keyword, MemberStatus status, PageBounds bounds, String sort);
+    PageResponse<MemberRecord> findMembers(
+            String keyword,
+            MemberStatus status,
+            Boolean adultContentAllowed,
+            Integer minPoints,
+            Integer maxPoints,
+            PageBounds bounds,
+            String sort);
 
     boolean existsByEmailExcludingId(String email, UUID excludedId);
 

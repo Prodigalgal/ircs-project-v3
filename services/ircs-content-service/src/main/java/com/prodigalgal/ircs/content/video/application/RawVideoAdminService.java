@@ -40,6 +40,7 @@ public class RawVideoAdminService {
             UUID categoryId,
             String enrichmentStatus,
             String normalizationStatus,
+            String aggregationStatus,
             String year,
             String area,
             BigDecimal minScore,
@@ -49,7 +50,7 @@ public class RawVideoAdminService {
             String genre,
             String language) {
         return repository.findRawVideos(pageable, title, categoryId, enrichmentStatus, normalizationStatus,
-                year, area, minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
+                aggregationStatus, year, area, minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
     }
 
     public Optional<RawVideoDetailResponse> findOne(UUID id) {

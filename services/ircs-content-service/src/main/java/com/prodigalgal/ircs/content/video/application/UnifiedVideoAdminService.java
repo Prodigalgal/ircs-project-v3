@@ -42,7 +42,12 @@ public class UnifiedVideoAdminService {
             BigDecimal minScore,
             Boolean hasDoubanId,
             Boolean hasTmdbId,
-            String contentVisibility) {
+            String contentVisibility,
+            String metadataStatus,
+            String genre,
+            String language,
+            String actor,
+            String director) {
         return repository.findUnifiedVideos(
                 pageable,
                 title,
@@ -52,7 +57,12 @@ public class UnifiedVideoAdminService {
                 minScore,
                 hasDoubanId,
                 hasTmdbId,
-                contentVisibility);
+                contentVisibility,
+                metadataStatus,
+                genre,
+                language,
+                actor,
+                director);
     }
 
     public Optional<UnifiedVideoDetailResponse> findOne(UUID id) {

@@ -111,6 +111,7 @@ public final class VideoAdminDtos {
             String dataSourceName,
             String enrichmentStatus,
             String normalizationStatus,
+            String aggregationStatus,
             Instant createdAt,
             Instant updatedAt,
             String categoryCode,

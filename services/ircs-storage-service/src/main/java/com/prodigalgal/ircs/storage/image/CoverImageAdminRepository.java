@@ -53,12 +53,15 @@ public class CoverImageAdminRepository {
             Pageable pageable,
             CoverImageStatus status,
             CoverImageStorageType storageType,
-            String url) {
+            String url,
+            String sourceDomain,
+            Long minFileSize,
+            Long maxFileSize) {
         Pageable safe = sanitize(pageable);
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("limit", safe.getPageSize())
                 .addValue("offset", safe.getOffset());
-        String where = where(params, status, storageType, url);
+        String where = where(params, status, storageType, url, sourceDomain, minFileSize, maxFileSize);
         Long total = jdbcTemplate.queryForObject(
                 "select count(*) from cover_images ci left join source_domains sd on ci.source_domain_id = sd.id " + where,
                 params,
@@ -321,7 +324,10 @@ public class CoverImageAdminRepository {
             MapSqlParameterSource params,
             CoverImageStatus status,
             CoverImageStorageType storageType,
-            String url) {
+            String url,
+            String sourceDomain,
+            Long minFileSize,
+            Long maxFileSize) {
         List<String> predicates = new ArrayList<>();
         if (status != null) {
             predicates.add("ci.status = :status");
@@ -334,6 +340,18 @@ public class CoverImageAdminRepository {
         if (StringUtils.hasText(url)) {
             predicates.add("lower(ci.original_url) like :url");
             params.addValue("url", "%" + url.toLowerCase() + "%");
+        }
+        if (StringUtils.hasText(sourceDomain)) {
+            predicates.add("lower(coalesce(sd.domain_value, '')) like :sourceDomain");
+            params.addValue("sourceDomain", "%" + sourceDomain.toLowerCase() + "%");
+        }
+        if (minFileSize != null) {
+            predicates.add("coalesce(ci.file_size, 0) >= :minFileSize");
+            params.addValue("minFileSize", Math.max(0, minFileSize));
+        }
+        if (maxFileSize != null) {
+            predicates.add("coalesce(ci.file_size, 0) <= :maxFileSize");
+            params.addValue("maxFileSize", Math.max(0, maxFileSize));
         }
         return predicates.isEmpty() ? "" : "where " + String.join(" and ", predicates);
     }

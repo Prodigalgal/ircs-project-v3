@@ -21,8 +21,9 @@ public class JdbcAdminMessageRepository {
     public PageResponse<UserMessageResponse> findMessages(
             PageBounds bounds,
             Optional<String> keyword,
-            Optional<String> status) {
-        QueryParts query = buildWhere(keyword, status);
+            Optional<String> status,
+            Optional<Boolean> publicMessage) {
+        QueryParts query = buildWhere(keyword, status, publicMessage);
         long total = count("select count(*) from user_messages um join members m on m.id = um.member_id" + query.where(),
                 query.params());
         List<Object> params = new ArrayList<>(query.params());
@@ -118,7 +119,7 @@ public class JdbcAdminMessageRepository {
         return jdbcTemplate.update("delete from user_messages where id = ?", messageId);
     }
 
-    private QueryParts buildWhere(Optional<String> keyword, Optional<String> status) {
+    private QueryParts buildWhere(Optional<String> keyword, Optional<String> status, Optional<Boolean> publicMessage) {
         List<String> conditions = new ArrayList<>();
         List<Object> params = new ArrayList<>();
         keyword.ifPresent(value -> {
@@ -136,6 +137,10 @@ public class JdbcAdminMessageRepository {
         });
         status.ifPresent(value -> {
             conditions.add("um.status = ?");
+            params.add(value);
+        });
+        publicMessage.ifPresent(value -> {
+            conditions.add("um.is_public = ?");
             params.add(value);
         });
         if (conditions.isEmpty()) {

@@ -32,8 +32,18 @@ public class CoverImageController {
             @PageableDefault(size = 20) Pageable pageable,
             @RequestParam(required = false) CoverImageStatus status,
             @RequestParam(required = false) CoverImageStorageType storageType,
-            @RequestParam(required = false) String url) {
-        return ResponseEntity.ok(PageEnvelope.from(service.findAll(pageable, status, storageType, url)));
+            @RequestParam(required = false) String url,
+            @RequestParam(required = false) String sourceDomain,
+            @RequestParam(required = false) Long minFileSize,
+            @RequestParam(required = false) Long maxFileSize) {
+        return ResponseEntity.ok(PageEnvelope.from(service.findAll(
+                pageable,
+                status,
+                storageType,
+                url,
+                sourceDomain,
+                minFileSize,
+                maxFileSize)));
     }
 
     @GetMapping("/{id}")

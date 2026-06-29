@@ -90,12 +90,12 @@ class CatalogControllerTest {
         CatalogPageRequest request = CatalogPageRequest.of(1, 10, List.of("name", "desc"));
         StandardCategoryRead category = new StandardCategoryRead(id, "Movie", "movie", null, null);
         CatalogPage<StandardCategoryRead> page = CatalogPage.of(List.of(category), request, 11);
-        when(catalogService.pageStandardCategories(request, "mov")).thenReturn(page);
+        when(catalogService.pageStandardCategories(request, "mov", "movie")).thenReturn(page);
         when(catalogService.findStandardCategory(id)).thenReturn(Optional.of(category));
 
-        assertPageEquals(page, controller.pageStandardCategories(1, 10, List.of("name", "desc"), "mov"));
+        assertPageEquals(page, controller.pageStandardCategories(1, 10, List.of("name", "desc"), "mov", "movie"));
         assertEquals(ResponseEntity.ok(category), controller.getStandardCategory(id));
-        verify(catalogService).pageStandardCategories(request, "mov");
+        verify(catalogService).pageStandardCategories(request, "mov", "movie");
         verify(catalogService).findStandardCategory(id);
     }
 
@@ -105,12 +105,12 @@ class CatalogControllerTest {
         CatalogPageRequest request = CatalogPageRequest.of(0, 20, List.of("name,asc"));
         StandardGenreRead genre = new StandardGenreRead(id, "Action");
         CatalogPage<StandardGenreRead> page = CatalogPage.of(List.of(genre), request, 1);
-        when(catalogService.pageStandardGenres(request, "act")).thenReturn(page);
+        when(catalogService.pageStandardGenres(request, "act", "action")).thenReturn(page);
         when(catalogService.findStandardGenre(id)).thenReturn(Optional.of(genre));
 
-        assertPageEquals(page, controller.pageStandardGenres(0, 20, List.of("name,asc"), "act"));
+        assertPageEquals(page, controller.pageStandardGenres(0, 20, List.of("name,asc"), "act", "action"));
         assertEquals(ResponseEntity.ok(genre), controller.getStandardGenre(id));
-        verify(catalogService).pageStandardGenres(request, "act");
+        verify(catalogService).pageStandardGenres(request, "act", "action");
         verify(catalogService).findStandardGenre(id);
     }
 

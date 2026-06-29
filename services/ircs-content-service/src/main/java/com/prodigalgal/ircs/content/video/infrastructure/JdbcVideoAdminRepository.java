@@ -67,6 +67,7 @@ public class JdbcVideoAdminRepository {
             UUID categoryId,
             String enrichmentStatus,
             String normalizationStatus,
+            String aggregationStatus,
             String year,
             String area,
             BigDecimal minScore,
@@ -81,6 +82,7 @@ public class JdbcVideoAdminRepository {
                 categoryId,
                 enrichmentStatus,
                 normalizationStatus,
+                aggregationStatus,
                 year,
                 area,
                 minScore,
@@ -294,7 +296,12 @@ public class JdbcVideoAdminRepository {
             BigDecimal minScore,
             Boolean hasDoubanId,
             Boolean hasTmdbId,
-            String contentVisibility) {
+            String contentVisibility,
+            String metadataStatus,
+            String genre,
+            String language,
+            String actor,
+            String director) {
         return queryRepository.findUnifiedVideos(
                 pageable,
                 title,
@@ -304,7 +311,12 @@ public class JdbcVideoAdminRepository {
                 minScore,
                 hasDoubanId,
                 hasTmdbId,
-                contentVisibility);
+                contentVisibility,
+                metadataStatus,
+                genre,
+                language,
+                actor,
+                director);
     }
 
     public Optional<UnifiedVideoDetailResponse> findUnifiedDetail(UUID id) {

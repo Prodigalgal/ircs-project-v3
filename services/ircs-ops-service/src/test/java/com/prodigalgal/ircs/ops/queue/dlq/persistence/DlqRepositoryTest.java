@@ -15,9 +15,8 @@ class DlqRepositoryTest {
     @Test
     void rejectsUnsupportedStatusBeforeSqlExecution() {
         assertThrows(IllegalArgumentException.class,
-                () -> repository.findAll(PageRequest.of(0, 10), "BROKEN", null));
+                () -> repository.findAll(PageRequest.of(0, 10), "BROKEN", null, null));
 
         verifyNoInteractions(jdbcTemplate);
     }
 }
-

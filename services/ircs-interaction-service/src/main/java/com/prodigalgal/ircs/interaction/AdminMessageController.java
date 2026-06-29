@@ -25,10 +25,11 @@ public class AdminMessageController {
     public PageEnvelope<UserMessageResponse> getAll(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false, name = "public") Boolean publicMessage,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
-        return pageEnvelope(service.findAll(keyword, status, page, size));
+        return pageEnvelope(service.findAll(keyword, status, publicMessage, page, size));
     }
 
     @PostMapping("/{id}/reply")

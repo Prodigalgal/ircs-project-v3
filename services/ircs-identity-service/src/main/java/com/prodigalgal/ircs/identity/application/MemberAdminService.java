@@ -42,11 +42,21 @@ public class MemberAdminService {
     public PageResponse<MemberAdminResponse> findAll(
             String keyword,
             MemberStatus status,
+            Boolean adultContentAllowed,
+            Integer minPoints,
+            Integer maxPoints,
             int page,
             int size,
             String sort) {
         PageBounds bounds = PageBounds.of(page, size, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-        PageResponse<MemberRecord> records = memberAdminRepository.findMembers(keyword, status, bounds, sort);
+        PageResponse<MemberRecord> records = memberAdminRepository.findMembers(
+                keyword,
+                status,
+                adultContentAllowed,
+                minPoints,
+                maxPoints,
+                bounds,
+                sort);
         return PageResponse.of(records.content().stream().map(mapper::toAdmin).toList(), records.totalElements(), bounds);
     }
 

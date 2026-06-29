@@ -54,17 +54,18 @@ class MemberAdminServiceTest {
     void findAllKeepsV1PageShapeAndMemberFields() {
         PageBounds bounds = new PageBounds(1, 5);
         MemberRecord member = member(UUID.randomUUID(), MemberStatus.ACTIVE);
-        when(memberAdminRepository.findMembers(" codex ", MemberStatus.ACTIVE, bounds, "email,asc"))
+        when(memberAdminRepository.findMembers(" codex ", MemberStatus.ACTIVE, true, 10, 100, bounds, "email,asc"))
                 .thenReturn(PageResponse.of(List.of(member), 9, bounds));
 
         PageResponse<MemberAdminResponse> response =
-                service.findAll(" codex ", MemberStatus.ACTIVE, 1, 5, "email,asc");
+                service.findAll(" codex ", MemberStatus.ACTIVE, true, 10, 100, 1, 5, "email,asc");
 
         assertEquals(9, response.totalElements());
         assertEquals(2, response.totalPages());
         assertEquals(member.id(), response.content().get(0).id());
         assertEquals(member.email(), response.content().get(0).email());
         assertEquals(member.level(), response.content().get(0).level());
+        verify(memberAdminRepository).findMembers(" codex ", MemberStatus.ACTIVE, true, 10, 100, bounds, "email,asc");
     }
 
     @Test

@@ -137,8 +137,11 @@ public class CatalogService {
         return readModelCache.standardCategoryReads(catalogRepository::listStandardCategoryReads);
     }
 
-    public CatalogPage<StandardCategoryRead> pageStandardCategories(CatalogPageRequest pageRequest, String name) {
-        return catalogRepository.pageStandardCategories(pageRequest, name);
+    public CatalogPage<StandardCategoryRead> pageStandardCategories(
+            CatalogPageRequest pageRequest,
+            String name,
+            String slug) {
+        return catalogRepository.pageStandardCategories(pageRequest, name, slug);
     }
 
     public Optional<StandardCategoryRead> findStandardCategory(UUID id) {
@@ -186,8 +189,11 @@ public class CatalogService {
         return readModelCache.standardGenreReads(catalogRepository::listStandardGenreReads);
     }
 
-    public CatalogPage<StandardGenreRead> pageStandardGenres(CatalogPageRequest pageRequest, String name) {
-        return catalogRepository.pageStandardGenres(pageRequest, name);
+    public CatalogPage<StandardGenreRead> pageStandardGenres(
+            CatalogPageRequest pageRequest,
+            String name,
+            String code) {
+        return catalogRepository.pageStandardGenres(pageRequest, name, code);
     }
 
     public Optional<StandardGenreRead> findStandardGenre(UUID id) {

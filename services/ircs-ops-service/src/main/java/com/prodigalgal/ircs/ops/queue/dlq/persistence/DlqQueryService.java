@@ -17,8 +17,8 @@ public class DlqQueryService {
     private final DlqRepository repository;
     private final RabbitTemplate rabbitTemplate;
 
-    public Page<FailedMessageResponse> findAll(Pageable pageable, String status, String queueName) {
-        return repository.findAll(pageable, status, queueName);
+    public Page<FailedMessageResponse> findAll(Pageable pageable, String status, String queueName, String keyword) {
+        return repository.findAll(pageable, status, queueName, keyword);
     }
 
     @Transactional

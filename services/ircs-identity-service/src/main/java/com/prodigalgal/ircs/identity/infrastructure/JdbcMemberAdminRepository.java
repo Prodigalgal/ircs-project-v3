@@ -38,8 +38,15 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
     private final CoverImageUrlResolver coverImageUrlResolver;
 
     @Override
-    public PageResponse<MemberRecord> findMembers(String keyword, MemberStatus status, PageBounds bounds, String sort) {
-        QueryParts query = memberQuery(keyword, status);
+    public PageResponse<MemberRecord> findMembers(
+            String keyword,
+            MemberStatus status,
+            Boolean adultContentAllowed,
+            Integer minPoints,
+            Integer maxPoints,
+            PageBounds bounds,
+            String sort) {
+        QueryParts query = memberQuery(keyword, status, adultContentAllowed, minPoints, maxPoints);
         long total = count("select count(*) from members" + query.where(), query.args());
 
         List<Object> args = new ArrayList<>(query.args());
@@ -156,7 +163,12 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
         return jdbcTemplate.update("delete from members where id = ?", memberId);
     }
 
-    private QueryParts memberQuery(String keyword, MemberStatus status) {
+    private QueryParts memberQuery(
+            String keyword,
+            MemberStatus status,
+            Boolean adultContentAllowed,
+            Integer minPoints,
+            Integer maxPoints) {
         List<String> predicates = new ArrayList<>();
         List<Object> args = new ArrayList<>();
         if (StringUtils.hasText(keyword)) {
@@ -168,6 +180,18 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
         if (status != null) {
             predicates.add("status = ?");
             args.add(status.name());
+        }
+        if (adultContentAllowed != null) {
+            predicates.add("coalesce(adult_content_allowed, false) = ?");
+            args.add(adultContentAllowed);
+        }
+        if (minPoints != null) {
+            predicates.add("points >= ?");
+            args.add(Math.max(0, minPoints));
+        }
+        if (maxPoints != null) {
+            predicates.add("points <= ?");
+            args.add(Math.max(0, maxPoints));
         }
         String where = predicates.isEmpty() ? "" : " where " + String.join(" and ", predicates);
         return new QueryParts(where, args);

@@ -96,8 +96,9 @@ public class CatalogController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
-            @RequestParam(required = false) String name) {
-        return pageEnvelope(catalogService.pageStandardCategories(CatalogPageRequest.of(page, size, sort), name));
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String slug) {
+        return pageEnvelope(catalogService.pageStandardCategories(CatalogPageRequest.of(page, size, sort), name, slug));
     }
 
     @GetMapping("/standard-categories/{id}")
@@ -138,8 +139,9 @@ public class CatalogController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<String> sort,
-            @RequestParam(required = false) String name) {
-        return pageEnvelope(catalogService.pageStandardGenres(CatalogPageRequest.of(page, size, sort), name));
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String code) {
+        return pageEnvelope(catalogService.pageStandardGenres(CatalogPageRequest.of(page, size, sort), name, code));
     }
 
     @GetMapping("/standard-genres/{id}")

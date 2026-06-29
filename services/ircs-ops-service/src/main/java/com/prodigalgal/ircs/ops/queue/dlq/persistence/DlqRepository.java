@@ -41,7 +41,7 @@ public class DlqRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
-    public Page<FailedMessageResponse> findAll(Pageable pageable, String status, String queueName) {
+    public Page<FailedMessageResponse> findAll(Pageable pageable, String status, String queueName, String keyword) {
         MapSqlParameterSource params = new MapSqlParameterSource();
         List<String> predicates = new ArrayList<>();
         if (StringUtils.hasText(status)) {
@@ -55,6 +55,18 @@ public class DlqRepository {
         if (StringUtils.hasText(queueName)) {
             predicates.add("queue_name like :queueName");
             params.addValue("queueName", "%" + queueName + "%");
+        }
+        if (StringUtils.hasText(keyword)) {
+            predicates.add("""
+                    (
+                        queue_name like :keyword
+                        or routing_key like :keyword
+                        or exchange like :keyword
+                        or payload like :keyword
+                        or exception_stack like :keyword
+                    )
+                    """);
+            params.addValue("keyword", "%" + keyword.trim() + "%");
         }
 
         boolean filtered = !predicates.isEmpty();

@@ -24,13 +24,13 @@ class AdminMessageControllerTest {
                 List.of(message("PENDING", false)),
                 61,
                 bounds);
-        when(service.findAll("关键字", "PENDING", 2, 30)).thenReturn(expected);
+        when(service.findAll("关键字", "PENDING", true, 2, 30)).thenReturn(expected);
 
         PageEnvelope<UserMessageResponse> response =
-                controller.getAll("关键字", "PENDING", 2, 30, "createdAt,desc");
+                controller.getAll("关键字", "PENDING", true, 2, 30, "createdAt,desc");
 
         assertPageEquals(expected, response);
-        verify(service).findAll("关键字", "PENDING", 2, 30);
+        verify(service).findAll("关键字", "PENDING", true, 2, 30);
     }
 
     @Test

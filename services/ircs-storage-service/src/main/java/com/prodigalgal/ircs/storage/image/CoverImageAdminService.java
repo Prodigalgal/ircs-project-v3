@@ -40,8 +40,11 @@ public class CoverImageAdminService {
             Pageable pageable,
             CoverImageStatus status,
             CoverImageStorageType storageType,
-            String url) {
-        return repository.findAll(pageable, status, storageType, url);
+            String url,
+            String sourceDomain,
+            Long minFileSize,
+            Long maxFileSize) {
+        return repository.findAll(pageable, status, storageType, url, sourceDomain, minFileSize, maxFileSize);
     }
 
     public Optional<CoverImageResponse> findOne(UUID id) {

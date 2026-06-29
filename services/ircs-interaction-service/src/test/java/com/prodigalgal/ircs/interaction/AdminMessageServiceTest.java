@@ -26,20 +26,20 @@ class AdminMessageServiceTest {
     void findsMessagesWithNormalizedBoundsKeywordAndStatus() {
         PageBounds bounds = PageBounds.of(1, 999, 20, 100);
         PageResponse<UserMessageResponse> expected = PageResponse.of(List.of(message("PENDING", false)), 101, bounds);
-        when(repository.findMessages(eq(bounds), eq(Optional.of("用户")), eq(Optional.of("REPLIED"))))
+        when(repository.findMessages(eq(bounds), eq(Optional.of("用户")), eq(Optional.of("REPLIED")), eq(Optional.of(true))))
                 .thenReturn(expected);
 
-        PageResponse<UserMessageResponse> response = service.findAll(" 用户 ", "replied", 1, 999);
+        PageResponse<UserMessageResponse> response = service.findAll(" 用户 ", "replied", true, 1, 999);
 
         assertSame(expected, response);
-        verify(repository).findMessages(bounds, Optional.of("用户"), Optional.of("REPLIED"));
+        verify(repository).findMessages(bounds, Optional.of("用户"), Optional.of("REPLIED"), Optional.of(true));
     }
 
     @Test
     void rejectsInvalidStatusBeforeRepositoryQuery() {
         ApiException exception = assertThrows(
                 ApiException.class,
-                () -> service.findAll(null, "UNKNOWN", 0, 20));
+                () -> service.findAll(null, "UNKNOWN", null, 0, 20));
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.status());
         assertEquals("留言状态无效", exception.getMessage());

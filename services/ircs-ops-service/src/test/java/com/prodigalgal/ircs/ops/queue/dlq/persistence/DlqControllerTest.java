@@ -22,14 +22,14 @@ class DlqControllerTest {
     void returnsFilteredDlqPage() {
         Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<FailedMessageResponse> page = new PageImpl<>(List.of(), pageable, 0);
-        when(service.findAll(pageable, "PENDING", "q.storage")).thenReturn(page);
+        when(service.findAll(pageable, "PENDING", "q.storage", "timeout")).thenReturn(page);
 
-        var response = controller.getAll(pageable, "PENDING", "q.storage").getBody();
+        var response = controller.getAll(pageable, "PENDING", "q.storage", "timeout").getBody();
         assertEquals(page.getContent(), response.content());
         assertEquals(page.getTotalElements(), response.page().totalElements());
         assertEquals(page.getSize(), response.page().size());
         assertEquals(page.getNumber(), response.page().number());
-        verify(service).findAll(pageable, "PENDING", "q.storage");
+        verify(service).findAll(pageable, "PENDING", "q.storage", "timeout");
     }
 
     @Test
