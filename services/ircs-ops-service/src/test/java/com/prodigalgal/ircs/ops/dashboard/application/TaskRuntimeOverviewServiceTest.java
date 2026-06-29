@@ -10,7 +10,10 @@ import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.contracts.task.TaskRuntimeHotKeys;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewItemResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -30,15 +33,19 @@ class TaskRuntimeOverviewServiceTest {
     private final ZSetOperations<String, String> zsets = org.mockito.Mockito.mock(ZSetOperations.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final Clock clock = Clock.fixed(Instant.parse("2026-06-13T00:00:10Z"), ZoneOffset.UTC);
     private final TaskRuntimeOverviewService service = new TaskRuntimeOverviewService(
             redisTemplate,
             objectMapper,
-            runtimeConfig);
+            runtimeConfig,
+            clock);
 
     @Test
     void summarizesActiveMasterRuntimeFromHotSnapshotAndState() throws Exception {
         when(runtimeConfig.boundedIntValue("app.ops.task-runtime.overview.max-limit", 200, 1, 1000))
                 .thenReturn(10);
+        when(runtimeConfig.positiveDurationValue("app.ops.task-runtime.overview.cache-ttl", Duration.ofSeconds(5)))
+                .thenReturn(Duration.ofSeconds(5));
         UUID masterTaskId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-13T00:00:00Z");
@@ -108,6 +115,8 @@ class TaskRuntimeOverviewServiceTest {
     void returnsEmptyOverviewWhenHotStoreIsUnavailable() {
         when(runtimeConfig.boundedIntValue("app.ops.task-runtime.overview.max-limit", 200, 1, 1000))
                 .thenReturn(10);
+        when(runtimeConfig.positiveDurationValue("app.ops.task-runtime.overview.cache-ttl", Duration.ofSeconds(5)))
+                .thenReturn(Duration.ofSeconds(5));
         when(redisTemplate.opsForSet()).thenThrow(new IllegalStateException("hot store unavailable"));
 
         TaskRuntimeOverviewResponse overview = service.currentOverview(0);

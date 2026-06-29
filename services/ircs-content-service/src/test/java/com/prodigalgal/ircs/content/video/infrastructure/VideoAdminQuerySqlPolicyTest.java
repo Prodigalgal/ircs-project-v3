@@ -37,6 +37,14 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).doesNotContain("where rvu.unified_video_id = uv.id\n                       ) as source_count");
     }
 
+    @Test
+    void categoryFiltersUseCodeSubqueryInsteadOfForcingCountJoins() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("rv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
+        assertThat(source).contains("uv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
+    }
+
     private static Path sourceFile() {
         Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path relative = Path.of(

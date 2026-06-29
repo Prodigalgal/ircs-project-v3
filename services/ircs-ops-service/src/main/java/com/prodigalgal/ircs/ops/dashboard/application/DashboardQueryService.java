@@ -81,6 +81,7 @@ public class DashboardQueryService {
         statsCache.clear();
         analysisCache.clear();
         sourceQualityCache.clear();
+        taskRuntimeOverviewService.clearCache();
         systemMetricsService.refreshRateMetrics();
     }
 

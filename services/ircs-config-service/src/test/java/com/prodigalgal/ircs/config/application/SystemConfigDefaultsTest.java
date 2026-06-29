@@ -98,6 +98,8 @@ class SystemConfigDefaultsTest {
         assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
+        assertEquals("PT5S", defaults.staticDefaultValue("app.ops.task-runtime.overview.cache-ttl").orElseThrow());
+        assertEquals("PT5S", defaults.staticDefaultValue("app.ops.runtime-dlq.cache-ttl").orElseThrow());
         assertEquals("3", defaults.staticDefaultValue("app.ops.rabbit-dlq.sampled-queue-limit").orElseThrow());
         assertEquals("PT3S", defaults.staticDefaultValue("app.ops.rabbit-dlq.queue-snapshot-cache-ttl").orElseThrow());
         assertEquals("PT5S", defaults.staticDefaultValue("app.ops.rabbit-dlq.sample-cache-ttl").orElseThrow());
@@ -202,6 +204,9 @@ class SystemConfigDefaultsTest {
     @Test
     void classifiesHotAndRestartRequiredConfigs() {
         SystemConfigDefaults.ConfigMetadata hot = defaults.metadata("app.ops.metrics.cache-ttl");
+        SystemConfigDefaults.ConfigMetadata taskRuntimeCacheHot =
+                defaults.metadata("app.ops.task-runtime.overview.cache-ttl");
+        SystemConfigDefaults.ConfigMetadata runtimeDlqCacheHot = defaults.metadata("app.ops.runtime-dlq.cache-ttl");
         SystemConfigDefaults.ConfigMetadata serviceRestartHot = defaults.metadata("app.ops.service-restart.kubernetes-api-base-url");
         SystemConfigDefaults.ConfigMetadata cacheRestart = defaults.metadata("app.portal.cache.metadata-ttl");
         SystemConfigDefaults.ConfigMetadata taskRestart = defaults.metadata("app.task.queue.enabled");
@@ -222,6 +227,8 @@ class SystemConfigDefaultsTest {
                 defaults.metadata("app.magnet.work-queue.worker.fixed-delay-ms");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, taskRuntimeCacheHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, runtimeDlqCacheHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, serviceRestartHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, logRetentionHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, notificationWebhookHot.activationMode());
@@ -392,6 +399,8 @@ class SystemConfigDefaultsTest {
             "app.ops.metrics.ewma-alpha",
             "app.aggregation.work-queue.worker.processing-stall-threshold",
             "app.ops.task-runtime.overview.max-limit",
+            "app.ops.task-runtime.overview.cache-ttl",
+            "app.ops.runtime-dlq.cache-ttl",
             "app.ops.request-audit.summary-sample-limit",
             "app.ops.worker-job-audit.summary-sample-limit",
             "app.ops.rabbit-management.enabled",

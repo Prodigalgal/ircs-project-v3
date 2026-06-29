@@ -160,6 +160,8 @@ public class SystemConfigDefaults {
             cfg("app.ops.metrics.ewma-alpha", "0.25", "运维速率 EWMA 平滑系数"),
             cfg("app.aggregation.work-queue.worker.processing-stall-threshold", "PT10M", "聚合运行队列处理中卡住判定阈值"),
             cfg("app.ops.task-runtime.overview.max-limit", "200", "运行任务概览最大返回数量"),
+            cfg("app.ops.task-runtime.overview.cache-ttl", "PT5S", "运行任务概览本地缓存 TTL"),
+            cfg("app.ops.runtime-dlq.cache-ttl", "PT5S", "运行队列 DLQ 概览本地缓存 TTL"),
             cfg("app.ops.request-audit.summary-sample-limit", "50000", "请求审计摘要最大采样行数"),
             cfg("app.ops.worker-job-audit.summary-sample-limit", "50000", "Worker 审计摘要最大采样行数"),
             cfg("app.ops.rabbit-management.enabled", "true", "是否启用 RabbitMQ 管理 API 速率采样"),

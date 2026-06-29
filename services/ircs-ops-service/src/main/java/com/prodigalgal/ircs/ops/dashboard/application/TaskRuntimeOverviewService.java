@@ -6,15 +6,24 @@ import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.contracts.task.TaskRuntimeHotKeys;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewItemResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
+import jakarta.annotation.PreDestroy;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -23,29 +32,65 @@ class TaskRuntimeOverviewService {
 
     private static final int DEFAULT_LIMIT = 50;
     private static final int DEFAULT_MAX_LIMIT = 200;
+    private static final Duration DEFAULT_CACHE_TTL = Duration.ofSeconds(5);
+    private static final String CACHE_TTL_CONFIG_KEY = "app.ops.task-runtime.overview.cache-ttl";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final RuntimeConfigService runtimeConfig;
+    private final Clock clock;
+    private final ExecutorService itemLoadExecutor;
+    private final Map<Integer, CachedOverview> overviewCache = new ConcurrentHashMap<>();
     private final int fallbackMaxLimit;
 
     TaskRuntimeOverviewService(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
-            RuntimeConfigService runtimeConfig
+            RuntimeConfigService runtimeConfig,
+            Clock clock
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.runtimeConfig = runtimeConfig;
+        this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.itemLoadExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory("ops-task-runtime-read-"));
         this.fallbackMaxLimit = DEFAULT_MAX_LIMIT;
     }
 
     TaskRuntimeOverviewResponse currentOverview(int limit) {
         int safeLimit = sanitizeLimit(limit);
+        Duration ttl = cacheTtl();
+        if (!cacheEnabled(ttl)) {
+            return loadOverview(safeLimit);
+        }
+        Instant now = Instant.now(clock);
+        CachedOverview current = overviewCache.get(safeLimit);
+        if (current != null && current.isFresh(now)) {
+            return current.response();
+        }
+        synchronized (overviewCache) {
+            current = overviewCache.get(safeLimit);
+            if (current != null && current.isFresh(now)) {
+                return current.response();
+            }
+            TaskRuntimeOverviewResponse loaded = loadOverview(safeLimit);
+            overviewCache.put(safeLimit, new CachedOverview(loaded, now.plus(ttl)));
+            return loaded;
+        }
+    }
+
+    void clearCache() {
+        overviewCache.clear();
+    }
+
+    @PreDestroy
+    void shutdown() {
+        itemLoadExecutor.shutdownNow();
+    }
+
+    private TaskRuntimeOverviewResponse loadOverview(int safeLimit) {
         List<UUID> activeIds = activeMasterIds();
-        List<TaskRuntimeOverviewItemResponse> items = activeIds.stream()
-                .limit(safeLimit)
-                .map(this::item)
+        List<TaskRuntimeOverviewItemResponse> items = loadItems(activeIds, safeLimit).stream()
                 .sorted(Comparator
                         .comparingInt((TaskRuntimeOverviewItemResponse item) -> attentionRank(item.attentionLevel()))
                         .thenComparing(
@@ -55,7 +100,7 @@ class TaskRuntimeOverviewService {
                 .toList();
 
         return new TaskRuntimeOverviewResponse(
-                Instant.now(),
+                Instant.now(clock),
                 safeLimit,
                 activeIds.size(),
                 items.size(),
@@ -72,6 +117,28 @@ class TaskRuntimeOverviewService {
                 countsBy(items, TaskRuntimeOverviewItemResponse::status),
                 countsBy(items, TaskRuntimeOverviewItemResponse::attentionLevel),
                 items);
+    }
+
+    private List<TaskRuntimeOverviewItemResponse> loadItems(List<UUID> activeIds, int safeLimit) {
+        List<CompletableFuture<TaskRuntimeOverviewItemResponse>> futures = activeIds.stream()
+                .limit(safeLimit)
+                .map(masterTaskId -> CompletableFuture.supplyAsync(() -> safeItem(masterTaskId), itemLoadExecutor))
+                .toList();
+        List<TaskRuntimeOverviewItemResponse> items = new ArrayList<>(futures.size());
+        for (CompletableFuture<TaskRuntimeOverviewItemResponse> future : futures) {
+            items.add(future.join());
+        }
+        return items.stream()
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private TaskRuntimeOverviewItemResponse safeItem(UUID masterTaskId) {
+        try {
+            return item(masterTaskId);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private TaskRuntimeOverviewItemResponse item(UUID masterTaskId) {
@@ -197,6 +264,14 @@ class TaskRuntimeOverviewService {
                         1000);
     }
 
+    private Duration cacheTtl() {
+        if (runtimeConfig == null) {
+            return DEFAULT_CACHE_TTL;
+        }
+        Duration configured = runtimeConfig.positiveDurationValue(CACHE_TTL_CONFIG_KEY, DEFAULT_CACHE_TTL);
+        return configured == null ? DEFAULT_CACHE_TTL : configured;
+    }
+
     private long longValue(Map<String, String> values, String key, long fallback) {
         String value = values.get(key);
         if (value == null || value.isBlank()) {
@@ -277,5 +352,20 @@ class TaskRuntimeOverviewService {
             return Integer.MAX_VALUE;
         }
         return Math.max(0, (int) value);
+    }
+
+    private static boolean cacheEnabled(Duration ttl) {
+        return ttl != null && !ttl.isZero() && !ttl.isNegative();
+    }
+
+    private static ThreadFactory virtualThreadFactory(String prefix) {
+        return Thread.ofVirtual().name(prefix, 0).factory();
+    }
+
+    private record CachedOverview(TaskRuntimeOverviewResponse response, Instant expiresAt) {
+
+        boolean isFresh(Instant now) {
+            return now.isBefore(expiresAt);
+        }
     }
 }

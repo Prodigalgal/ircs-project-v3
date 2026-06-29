@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
@@ -11,8 +12,10 @@ import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import java.lang.reflect.Field;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -24,7 +27,10 @@ class RuntimeWorkDlqReplayWorkerTest {
     @Test
     void replaysOnlyOneRuntimeDlqMessagePerRunAndHeartbeatsUnifiedConsumer() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        RuntimeWorkDlqService service = new RuntimeWorkDlqService(queue);
+        RuntimeWorkDlqService service = new RuntimeWorkDlqService(
+                queue,
+                org.mockito.Mockito.mock(RuntimeConfigService.class),
+                Clock.fixed(Instant.parse("2026-06-20T00:00:00Z"), ZoneOffset.UTC));
         FakeClusterLeaseService leaseService = new FakeClusterLeaseService();
         RuntimeWorkDlqReplayWorker worker = new RuntimeWorkDlqReplayWorker(service, provider(leaseService));
         set(worker, "enabled", true);

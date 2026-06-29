@@ -321,11 +321,11 @@ class VideoAdminQueryRepository {
             String language) {
         List<String> clauses = new ArrayList<>();
         if (StringUtils.hasText(title)) {
-            clauses.add("lower(rv.title) like lower(:title)");
+            clauses.add("rv.title ilike :title");
             params.addValue("title", "%" + title.trim() + "%");
         }
         if (categoryId != null) {
-            clauses.add("sc.id = :categoryId");
+            clauses.add("rv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
             params.addValue("categoryId", categoryId);
         }
         if (StringUtils.hasText(enrichmentStatus)) {
@@ -353,7 +353,7 @@ class VideoAdminQueryRepository {
             params.addValue("dataSourceId", dataSourceId);
         }
         if (StringUtils.hasText(sourceCategoryName)) {
-            clauses.add("lower(coalesce(rv.source_category_name, rv.source_category_code)) like lower(:sourceCategoryName)");
+            clauses.add("coalesce(rv.source_category_name, rv.source_category_code) ilike :sourceCategoryName");
             params.addValue("sourceCategoryName", "%" + sourceCategoryName.trim() + "%");
         }
         if (StringUtils.hasText(area)) {
@@ -405,7 +405,6 @@ class VideoAdminQueryRepository {
         return """
                 select count(*)
                 from raw_videos rv
-                left join standard_category sc on sc.slug = rv.category_code
                 """ + where;
     }
 
@@ -451,11 +450,11 @@ class VideoAdminQueryRepository {
             String director) {
         List<String> clauses = new ArrayList<>();
         if (StringUtils.hasText(title)) {
-            clauses.add("lower(uv.title) like lower(:title)");
+            clauses.add("uv.title ilike :title");
             params.addValue("title", "%" + title.trim() + "%");
         }
         if (categoryId != null) {
-            clauses.add("sc.id = :categoryId");
+            clauses.add("uv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
             params.addValue("categoryId", categoryId);
         }
         if (StringUtils.hasText(year)) {
@@ -547,7 +546,6 @@ class VideoAdminQueryRepository {
         return """
                 select count(*)
                 from unified_videos uv
-                left join standard_category sc on sc.slug = uv.category_code
                 """ + where;
     }
 
