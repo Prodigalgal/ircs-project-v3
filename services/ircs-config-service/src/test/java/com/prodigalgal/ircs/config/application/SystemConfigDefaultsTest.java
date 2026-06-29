@@ -84,6 +84,7 @@ class SystemConfigDefaultsTest {
         assertEquals("true", defaults.staticDefaultValue("app.storage.image.download.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.storage.r2.enabled").orElseThrow());
         assertEquals("60000", defaults.staticDefaultValue("app.mail.rate-limit.max-wait-ms").orElseThrow());
+        assertEquals("", defaults.staticDefaultValue("app.scraper.traffic.egress-id").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.ai.llm.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.maintenance.playlist-repair.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.metadata.tmdb.proxy.enabled").orElseThrow());
@@ -111,6 +112,7 @@ class SystemConfigDefaultsTest {
         assertEquals("true", defaults.staticDefaultValue("app.ops.config-listener.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.aggregation.config-listener.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.storage.image.download-backfill.enabled").orElseThrow());
+        assertEquals("", defaults.staticDefaultValue("app.storage.image.traffic.egress-id").orElseThrow());
         assertEquals("25", defaults.staticDefaultValue("app.storage.image.download-backfill.batch-size").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
@@ -120,6 +122,7 @@ class SystemConfigDefaultsTest {
         assertEquals("false",
                 defaults.staticDefaultValue("app.normalization.llm-cleaning.work-queue.worker.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.magnet.real-provider.enabled").orElseThrow());
+        assertEquals("", defaults.staticDefaultValue("app.magnet.traffic.egress-id").orElseThrow());
         assertEquals("YTS_BZ,THE_PIRATE_BAY,EZTV,EXT_TO,THE_PIRATE_BAY_FRONTEND",
                 defaults.staticDefaultValue("app.magnet.real-provider.allowlist").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.magnet.auto-search.enabled").orElseThrow());
@@ -176,6 +179,24 @@ class SystemConfigDefaultsTest {
 
         assertTrue(imageDownload.upgradeLegacyFalse());
         assertFalse(proxy.upgradeLegacyFalse());
+    }
+
+    @Test
+    void upgradesLegacyUnknownTrafficEgressDefaults() {
+        assertLegacyUnknownUpgrade("app.scraper.traffic.egress-id");
+        assertLegacyUnknownUpgrade("app.magnet.traffic.egress-id");
+        assertLegacyUnknownUpgrade("app.storage.image.traffic.egress-id");
+    }
+
+    private void assertLegacyUnknownUpgrade(String key) {
+        SystemConfigDefaults.ResolvedDefault resolved = defaults.all().stream()
+                .filter(config -> config.key().equals(key))
+                .findFirst()
+                .map(defaults::resolve)
+                .orElseThrow();
+
+        assertEquals("", resolved.value());
+        assertEquals("unknown", resolved.upgradeLegacyValue());
     }
 
     @Test

@@ -130,6 +130,40 @@ class MagnetProviderTrafficLimiterTest {
                 .isEqualTo("traffic:limit:Provider:Ip:2001_db8__10:" + PROVIDER_ID);
     }
 
+    @Test
+    void runtimeUnknownEgressIdentityFallsBackToDeploymentIdentity() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
+                providerKey(),
+                Duration.ZERO,
+                Instant.parse("2026-06-11T00:00:00Z"),
+                Instant.parse("2026-06-11T00:00:01Z")));
+        MagnetTrafficConfigValues configValues = org.mockito.Mockito.mock(MagnetTrafficConfigValues.class);
+        org.mockito.Mockito.when(configValues.enabled(org.mockito.Mockito.anyBoolean()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(configValues.egressIdentity(org.mockito.Mockito.anyString())).thenReturn("unknown");
+        org.mockito.Mockito.when(configValues.defaultGap(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(configValues.providerGap(org.mockito.Mockito.any(), org.mockito.Mockito.anyString()))
+                .thenReturn(null);
+        org.mockito.Mockito.when(configValues.limiterMaxWait(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        org.mockito.Mockito.when(configValues.ttl(org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        MagnetProviderTrafficLimiter limiter = new MagnetProviderTrafficLimiter(
+                lockManager,
+                configValues,
+                true,
+                EGRESS_IP,
+                1000,
+                "",
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+
+        limiter.acquireProviderSlot(provider(1500));
+
+        assertThat(lockManager.lastTimeSliceRequest.key()).isEqualTo(providerKey());
+    }
+
     private MagnetProviderSummary provider(Integer minDelayMs) {
         return new MagnetProviderSummary(
                 PROVIDER_ID,

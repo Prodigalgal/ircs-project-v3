@@ -100,7 +100,7 @@ class MagnetProviderTrafficLimiter {
         String value = configValues == null
                 ? egressIdentityByDeployment
                 : configValues.egressIdentity(egressIdentityByDeployment);
-        return EgressIdentities.sanitize(value);
+        return EgressIdentities.resolve(value, egressIdentityByDeployment);
     }
 
     private Duration defaultGap() {

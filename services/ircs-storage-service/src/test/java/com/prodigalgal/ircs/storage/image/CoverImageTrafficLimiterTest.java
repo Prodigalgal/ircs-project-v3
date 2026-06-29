@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.prodigalgal.ircs.common.lease.ClusterLease;
+import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.lock.DistributedLockBusinessType;
 import com.prodigalgal.ircs.common.lock.DistributedLockManager;
 import com.prodigalgal.ircs.common.lock.DistributedLockProfile;
@@ -18,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 class CoverImageTrafficLimiterTest {
 
@@ -73,6 +75,51 @@ class CoverImageTrafficLimiterTest {
         assertThatThrownBy(() -> limiter.acquire(URI.create("https://images.example.test/cover.png")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Image download traffic limit saturated");
+    }
+
+    @Test
+    void runtimeUnknownEgressIdentityFallsBackToDeploymentIdentity() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
+        RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+        org.mockito.Mockito.when(runtimeConfig.booleanValue(
+                        org.mockito.Mockito.eq("app.storage.image.traffic.enabled"),
+                        org.mockito.Mockito.anyBoolean()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        org.mockito.Mockito.when(runtimeConfig.stringValue(
+                        org.mockito.Mockito.eq("app.storage.image.traffic.egress-id"),
+                        org.mockito.Mockito.anyString()))
+                .thenReturn("unknown");
+        org.mockito.Mockito.when(runtimeConfig.longValue(
+                        org.mockito.Mockito.anyString(),
+                        org.mockito.Mockito.anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        org.mockito.Mockito.when(runtimeConfig.durationValue(
+                        org.mockito.Mockito.anyString(),
+                        org.mockito.Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        CoverImageTrafficLimiter limiter = new CoverImageTrafficLimiter(
+                lockManager,
+                runtimeConfigProvider(runtimeConfig),
+                true,
+                "203.0.113.10",
+                500,
+                1500,
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+
+        limiter.acquire(URI.create("https://images.example.test/cover.png"));
+
+        assertThat(lockManager.timeSliceRequests.getFirst().key())
+                .isEqualTo("traffic:limit:Global:ImageDownload:Ip:203.0.113.10");
+        assertThat(lockManager.timeSliceRequests.get(1).key())
+                .isEqualTo("traffic:limit:Domain:Ip:203.0.113.10:images.example.test");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<RuntimeConfigService> runtimeConfigProvider(RuntimeConfigService runtimeConfig) {
+        ObjectProvider<RuntimeConfigService> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        org.mockito.Mockito.when(provider.getIfAvailable()).thenReturn(runtimeConfig);
+        return provider;
     }
 
     private static class FakeDistributedLockManager implements DistributedLockManager {

@@ -152,6 +152,25 @@ class ScraperTrafficLimiterTest {
                 .isEqualTo("traffic:limit:DataSource:Ip:2001_db8__10:" + SOURCE_ID);
     }
 
+    @Test
+    void runtimeUnknownEgressIdentityFallsBackToDeploymentIdentity() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
+        ScraperTrafficConfigValues trafficConfig = trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2));
+        org.mockito.Mockito.when(trafficConfig.egressIdentity(org.mockito.Mockito.anyString())).thenReturn("unknown");
+        ScraperTrafficLimiter limiter = limiter(
+                lockManager,
+                trafficConfig,
+                true,
+                EGRESS_IP,
+                1000,
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+
+        limiter.acquireDataSourceSlot(source(), config(1000));
+
+        assertThat(lockManager.timeSliceRequests.getFirst().key()).isEqualTo(sourceKey());
+    }
+
     private DataSourceRecord source() {
         return new DataSourceRecord(
                 SOURCE_ID,

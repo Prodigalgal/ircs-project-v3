@@ -5,13 +5,13 @@ import com.prodigalgal.ircs.common.lock.DistributedLockManager;
 import com.prodigalgal.ircs.common.lock.DistributedLockProfile;
 import com.prodigalgal.ircs.common.lock.TimeSliceReservation;
 import com.prodigalgal.ircs.common.lock.TimeSliceReservationRequest;
+import com.prodigalgal.ircs.common.outbound.EgressIdentities;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ManualScrapeConfigRequest;
 import java.time.Duration;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 class ScraperTrafficLimiter {
@@ -37,7 +37,7 @@ class ScraperTrafficLimiter {
         this.lockManager = lockManager;
         this.configValues = configValues;
         this.enabledByDeployment = enabled;
-        this.egressIdentityByDeployment = sanitizeIdentity(egressIdentity);
+        this.egressIdentityByDeployment = EgressIdentities.sanitize(egressIdentity);
         this.defaultGapByDeployment = positiveOr(defaultGapMs, Duration.ofSeconds(1));
         this.maxWaitByDeployment = maxWait == null || maxWait.isNegative() ? Duration.ZERO : maxWait;
         this.ttlByDeployment = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
@@ -106,7 +106,7 @@ class ScraperTrafficLimiter {
         String value = configValues == null
                 ? egressIdentityByDeployment
                 : configValues.egressIdentity(egressIdentityByDeployment);
-        return sanitizeIdentity(value);
+        return EgressIdentities.resolve(value, egressIdentityByDeployment);
     }
 
     private Duration defaultGap() {
@@ -137,11 +137,4 @@ class ScraperTrafficLimiter {
         return millis > 0 ? Duration.ofMillis(millis) : fallback;
     }
 
-    private static String sanitizeIdentity(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "unknown";
-        }
-        String sanitized = value.trim().replaceAll("[^A-Za-z0-9_.-]", "_");
-        return sanitized.isBlank() ? "unknown" : sanitized;
-    }
 }

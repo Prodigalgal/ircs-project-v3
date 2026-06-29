@@ -107,7 +107,7 @@ class CoverImageTrafficLimiter {
         String value = runtimeConfig == null
                 ? egressIdentityByDeployment
                 : runtimeConfig.stringValue("app.storage.image.traffic.egress-id", egressIdentityByDeployment);
-        return EgressIdentities.sanitize(value);
+        return EgressIdentities.resolve(value, egressIdentityByDeployment);
     }
 
     private Duration globalGap() {
