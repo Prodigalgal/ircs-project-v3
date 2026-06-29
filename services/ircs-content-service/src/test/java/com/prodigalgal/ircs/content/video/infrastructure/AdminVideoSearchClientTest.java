@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 class AdminVideoSearchClientTest {
 
@@ -123,9 +124,9 @@ class AdminVideoSearchClientTest {
             ContentConfigValues configValues) {
         return new AdminVideoSearchClient(
                 mapper,
-                new OutboundHttpClient(new OutboundUrlPolicy(host -> {
+                provider(new OutboundHttpClient(new OutboundUrlPolicy(host -> {
                     throw new AssertionError("internal service calls must not resolve public DNS");
-                }), transport),
+                }), transport)),
                 configValues,
                 Duration.ofSeconds(1),
                 "content-service",
@@ -138,6 +139,15 @@ class AdminVideoSearchClientTest {
         when(configValues.adminVideoSearchEsEnabled()).thenReturn(enabled);
         when(configValues.searchBaseUrl()).thenReturn("http://ircs-search-service:8080");
         return configValues;
+    }
+
+    private ObjectProvider<OutboundHttpClient> provider(OutboundHttpClient client) {
+        return new ObjectProvider<>() {
+            @Override
+            public OutboundHttpClient getObject() {
+                return client;
+            }
+        };
     }
 
     private static final class FakeTransport implements OutboundTransport {

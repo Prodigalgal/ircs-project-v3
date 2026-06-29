@@ -1,11 +1,14 @@
 package com.prodigalgal.ircs.content.video.infrastructure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
+import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundCircuitOpenException;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
+import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import com.prodigalgal.ircs.content.config.ContentConfigValues;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchRequest;
@@ -15,6 +18,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -36,14 +40,16 @@ class AdminVideoSearchClient {
 
     AdminVideoSearchClient(
             ObjectMapper objectMapper,
-            OutboundHttpClient httpClient,
+            ObjectProvider<OutboundHttpClient> httpClientProvider,
             ContentConfigValues configValues,
             @Value("${app.content.admin-video-search.request-timeout:PT3S}") Duration requestTimeout,
             @Value("${app.content.admin-video-search.service-id:content-service}") String serviceId,
             @Value("${app.content.admin-video-search.service-token:${APP_SEARCH_SERVICE_TOKEN:}}") String serviceToken,
             @Value("${app.content.admin-video-search.service-scopes:search:sync}") String serviceScopes) {
         this.objectMapper = objectMapper;
-        this.httpClient = httpClient;
+        this.httpClient = httpClientProvider == null
+                ? defaultHttpClient()
+                : httpClientProvider.getIfAvailable(AdminVideoSearchClient::defaultHttpClient);
         this.configValues = configValues;
         this.requestTimeout = requestTimeout == null || requestTimeout.isZero() || requestTimeout.isNegative()
                 ? Duration.ofSeconds(3)
@@ -97,5 +103,11 @@ class AdminVideoSearchClient {
         String baseUrl = configValues.searchBaseUrl();
         String normalizedBase = StringUtils.trimTrailingCharacter(baseUrl, '/');
         return URI.create(normalizedBase + path);
+    }
+
+    private static OutboundHttpClient defaultHttpClient() {
+        return new OutboundHttpClient(
+                new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
+                new JdkOutboundTransport());
     }
 }
