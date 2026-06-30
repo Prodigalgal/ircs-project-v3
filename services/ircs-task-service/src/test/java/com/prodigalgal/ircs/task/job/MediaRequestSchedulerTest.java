@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -28,11 +29,25 @@ class MediaRequestSchedulerTest {
                 new MediaRequestCandidate(firstId, "黑客帝国", 1999, 4),
                 new MediaRequestCandidate(secondId, "异形", null, 2)));
         UUID batchId = UUID.randomUUID();
-        when(batchService.createBatchFromPendingRequests(org.mockito.ArgumentMatchers.anyList())).thenReturn(batchId);
+        when(batchService.createBatchFromPendingRequests(org.mockito.ArgumentMatchers.anyList())).thenReturn(Optional.of(batchId));
 
         scheduler.schedulePendingMediaRequestsLocked();
 
         verify(batchService).createBatchFromPendingRequests(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void doesNotReturnRequestsToPendingWhenAllClaimedRequestsAlreadyExist() {
+        UUID requestId = UUID.randomUUID();
+        when(taskRepository.claimPendingMediaRequests(20))
+                .thenReturn(List.of(new MediaRequestCandidate(requestId, "黑客帝国", 1999, 1)));
+        when(batchService.createBatchFromPendingRequests(org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(Optional.empty());
+
+        scheduler.schedulePendingMediaRequestsLocked();
+
+        verify(batchService).createBatchFromPendingRequests(org.mockito.ArgumentMatchers.anyList());
+        verify(taskRepository, never()).markMediaRequestsPending(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test

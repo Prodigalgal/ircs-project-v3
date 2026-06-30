@@ -5,6 +5,7 @@ import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,8 +53,13 @@ class MediaRequestScheduler {
             return;
         }
         try {
-            UUID batchId = batchService.createBatchFromPendingRequests(candidates);
-            log.info("Created media request batch {}, requestCount={}", batchId, candidates.size());
+            Optional<UUID> batchId = batchService.createBatchFromPendingRequests(candidates);
+            if (batchId.isPresent()) {
+                log.info("Created media request batch {}, claimedRequestCount={}", batchId.get(), candidates.size());
+            } else {
+                log.info("Skipped media request batch creation because all {} claimed requests already exist internally",
+                        candidates.size());
+            }
         } catch (RuntimeException ex) {
             taskRepository.markMediaRequestsPending(ids(candidates), safeMessage(ex));
             throw ex;

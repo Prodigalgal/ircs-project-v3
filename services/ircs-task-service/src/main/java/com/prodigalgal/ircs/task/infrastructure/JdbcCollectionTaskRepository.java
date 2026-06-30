@@ -162,6 +162,25 @@ public class JdbcCollectionTaskRepository {
                 safeIds.toArray());
     }
 
+    public void markMediaRequestSkippedExisting(UUID mediaRequestId, UUID existingVideoId, String existingVideoSource) {
+        jdbcTemplate.update(
+                """
+                update portal_media_requests
+                   set status = 'SKIPPED_EXISTS',
+                       existing_video_id = ?,
+                       existing_video_source = ?,
+                       completed_at = now(),
+                       current_batch_id = null,
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = null
+                 where id = ?
+                """,
+                existingVideoId,
+                existingVideoSource,
+                mediaRequestId);
+    }
+
     public Page<MediaRequestBatchResponse> findMediaRequestBatches(Pageable pageable, String status) {
         Pageable safePageable = sanitize(pageable);
         List<Object> params = new ArrayList<>();
@@ -272,13 +291,17 @@ public class JdbcCollectionTaskRepository {
         jdbcTemplate.update(
                 """
                 update portal_media_requests
-                   set status = 'COMPLETED',
+                   set status = 'SKIPPED_EXISTS',
+                       existing_video_id = ?,
+                       existing_video_source = ?,
                        completed_at = now(),
                        updated_at = now(),
                        version = version + 1,
-                       last_error_message = 'Internal video already exists'
+                       last_error_message = null
                  where id = ?
                 """,
+                existingVideoId,
+                existingVideoSource,
                 mediaRequestId);
     }
 

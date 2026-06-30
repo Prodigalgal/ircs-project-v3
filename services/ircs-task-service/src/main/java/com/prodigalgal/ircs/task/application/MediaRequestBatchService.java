@@ -3,13 +3,16 @@ package com.prodigalgal.ircs.task.application;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleRequest;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
 import com.prodigalgal.ircs.task.domain.MediaRequestBatchItemCandidate;
+import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.dto.MediaRequestBatchActionResponse;
 import com.prodigalgal.ircs.task.dto.MediaRequestBatchResponse;
 import com.prodigalgal.ircs.task.dto.TaskCardSummary;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.MediaRequestContentLookupRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -59,11 +62,26 @@ public class MediaRequestBatchService {
     }
 
     @Transactional
-    public UUID createBatchFromPendingRequests(List<com.prodigalgal.ircs.task.domain.MediaRequestCandidate> candidates) {
+    public Optional<UUID> createBatchFromPendingRequests(List<MediaRequestCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) {
             throw new IllegalArgumentException("media request candidates are required");
         }
-        return taskRepository.createMediaRequestBatch(candidates);
+        List<MediaRequestCandidate> missingCandidates = new ArrayList<>(candidates.size());
+        for (MediaRequestCandidate candidate : candidates) {
+            var existing = contentLookupRepository.findExistingVideo(candidate.title(), candidate.releaseYear());
+            if (existing.isPresent()) {
+                taskRepository.markMediaRequestSkippedExisting(
+                        candidate.id(),
+                        existing.get().id(),
+                        existing.get().source());
+            } else {
+                missingCandidates.add(candidate);
+            }
+        }
+        if (missingCandidates.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(taskRepository.createMediaRequestBatch(missingCandidates));
     }
 
     @Transactional

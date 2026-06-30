@@ -17,5 +17,7 @@ public record MediaRequestResponse(
         Instant scheduledAt,
         Instant completedAt,
         String lastErrorMessage,
+        UUID existingVideoId,
+        String existingVideoSource,
         int spentPoints) {
 }

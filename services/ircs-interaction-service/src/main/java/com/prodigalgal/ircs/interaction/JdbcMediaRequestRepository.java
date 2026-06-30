@@ -33,14 +33,26 @@ public class JdbcMediaRequestRepository {
                            title = excluded.title,
                            extra_info = coalesce(nullif(excluded.extra_info, ''), portal_media_requests.extra_info),
                            status = case
-                               when portal_media_requests.status in ('COMPLETED', 'FAILED') then 'PENDING'
+                               when portal_media_requests.status in ('COMPLETED', 'FAILED', 'CANCELLED') then 'PENDING'
                                else portal_media_requests.status
                            end,
                            request_count = portal_media_requests.request_count + 1,
                            last_requested_at = excluded.last_requested_at,
-                           last_error_message = null
+                           existing_video_id = case
+                               when portal_media_requests.status = 'SKIPPED_EXISTS' then portal_media_requests.existing_video_id
+                               else null
+                           end,
+                           existing_video_source = case
+                               when portal_media_requests.status = 'SKIPPED_EXISTS' then portal_media_requests.existing_video_source
+                               else null
+                           end,
+                           last_error_message = case
+                               when portal_media_requests.status = 'SKIPPED_EXISTS' then portal_media_requests.last_error_message
+                               else null
+                           end
                     returning id, member_id, title, release_year, extra_info, status, request_count, created_at,
-                              updated_at, last_requested_at, scheduled_at, completed_at, last_error_message
+                              updated_at, last_requested_at, scheduled_at, completed_at, last_error_message,
+                              existing_video_id, existing_video_source
                 )
                 select *, ? as spent_points
                 from upserted
@@ -64,6 +76,7 @@ public class JdbcMediaRequestRepository {
                 """
                 select id, member_id, title, release_year, extra_info, status, request_count, created_at,
                        updated_at, last_requested_at, scheduled_at, completed_at, last_error_message,
+                       existing_video_id, existing_video_source,
                        0 as spent_points
                   from portal_media_requests
                  where member_id = ?
@@ -91,6 +104,7 @@ public class JdbcMediaRequestRepository {
                     """
                     select id, member_id, title, release_year, extra_info, status, request_count, created_at,
                            updated_at, last_requested_at, scheduled_at, completed_at, last_error_message,
+                           existing_video_id, existing_video_source,
                            0 as spent_points
                       from portal_media_requests
                      where id = ?
@@ -122,6 +136,8 @@ public class JdbcMediaRequestRepository {
                 instant(rs.getTimestamp("scheduled_at")),
                 instant(rs.getTimestamp("completed_at")),
                 rs.getString("last_error_message"),
+                rs.getObject("existing_video_id", UUID.class),
+                rs.getString("existing_video_source"),
                 rs.getInt("spent_points"));
     }
 

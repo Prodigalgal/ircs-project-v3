@@ -119,6 +119,8 @@ class MediaRequestCommandServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 spentPoints);
     }
 }

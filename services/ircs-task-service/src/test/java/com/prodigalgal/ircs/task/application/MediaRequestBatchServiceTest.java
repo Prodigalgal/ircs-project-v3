@@ -2,18 +2,21 @@ package com.prodigalgal.ircs.task.application;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduledTask;
 import com.prodigalgal.ircs.task.domain.MediaRequestBatchItemCandidate;
+import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.domain.MediaRequestExistingVideo;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.MediaRequestContentLookupRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class MediaRequestBatchServiceTest {
@@ -28,6 +31,47 @@ class MediaRequestBatchServiceTest {
             contentLookupRepository,
             trendDiscoveryTaskService,
             taskCommandService);
+
+    @Test
+    void filtersExistingVideosBeforeCreatingBatch() {
+        UUID existingRequestId = UUID.randomUUID();
+        UUID missingRequestId = UUID.randomUUID();
+        UUID existingVideoId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        MediaRequestCandidate existing = new MediaRequestCandidate(existingRequestId, "黑客帝国", 1999, 4);
+        MediaRequestCandidate missing = new MediaRequestCandidate(missingRequestId, "异形", null, 2);
+        when(contentLookupRepository.findExistingVideo("黑客帝国", 1999))
+                .thenReturn(Optional.of(new MediaRequestExistingVideo(existingVideoId, "UNIFIED")));
+        when(contentLookupRepository.findExistingVideo("异形", null)).thenReturn(Optional.empty());
+        when(taskRepository.createMediaRequestBatch(List.of(missing))).thenReturn(batchId);
+
+        Optional<UUID> actual = service.createBatchFromPendingRequests(List.of(existing, missing));
+
+        Assertions.assertThat(actual).contains(batchId);
+        verify(taskRepository).markMediaRequestSkippedExisting(existingRequestId, existingVideoId, "UNIFIED");
+        verify(taskRepository).createMediaRequestBatch(List.of(missing));
+    }
+
+    @Test
+    void skipsBatchCreationWhenAllRequestsAlreadyExist() {
+        UUID firstRequestId = UUID.randomUUID();
+        UUID secondRequestId = UUID.randomUUID();
+        UUID firstVideoId = UUID.randomUUID();
+        UUID secondVideoId = UUID.randomUUID();
+        MediaRequestCandidate first = new MediaRequestCandidate(firstRequestId, "黑客帝国", 1999, 4);
+        MediaRequestCandidate second = new MediaRequestCandidate(secondRequestId, "异形", null, 2);
+        when(contentLookupRepository.findExistingVideo("黑客帝国", 1999))
+                .thenReturn(Optional.of(new MediaRequestExistingVideo(firstVideoId, "UNIFIED")));
+        when(contentLookupRepository.findExistingVideo("异形", null))
+                .thenReturn(Optional.of(new MediaRequestExistingVideo(secondVideoId, "RAW")));
+
+        Optional<UUID> actual = service.createBatchFromPendingRequests(List.of(first, second));
+
+        Assertions.assertThat(actual).isEmpty();
+        verify(taskRepository).markMediaRequestSkippedExisting(firstRequestId, firstVideoId, "UNIFIED");
+        verify(taskRepository).markMediaRequestSkippedExisting(secondRequestId, secondVideoId, "RAW");
+        verify(taskRepository, never()).createMediaRequestBatch(any());
+    }
 
     @Test
     void skipsItemWhenInternalVideoAlreadyExists() {
