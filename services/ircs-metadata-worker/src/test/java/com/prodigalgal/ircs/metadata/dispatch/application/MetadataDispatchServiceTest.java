@@ -1,16 +1,15 @@
 package com.prodigalgal.ircs.metadata.dispatch.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.domain.RawVideoEnrichmentRecord;
@@ -19,13 +18,13 @@ import com.prodigalgal.ircs.metadata.dispatch.infrastructure.RawVideoEnrichmentR
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -103,8 +102,8 @@ class MetadataDispatchServiceTest {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(record));
-        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
+        RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, new ObjectMapper());
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
@@ -125,27 +124,18 @@ class MetadataDispatchServiceTest {
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES), result.providers());
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("DOUBAN"),
-                eq(id),
-                eq("hash-v1"),
-                contains("\"provider\":\"DOUBAN\""),
-                eq(Duration.ZERO));
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("TMDB"),
-                eq(id),
-                eq("hash-v1"),
-                contains("\"provider\":\"TMDB\""),
-                eq(Duration.ZERO));
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("ROTTEN_TOMATOES"),
-                eq(id),
-                eq("hash-v1"),
-                contains("\"provider\":\"ROTTEN_TOMATOES\""),
-                eq(Duration.ZERO));
+        ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
+        verify(workQueue, org.mockito.Mockito.times(3)).submitAfterCommit(requestCaptor.capture());
+        assertEquals(List.of(
+                PipelineRuntimeWorkTypes.providerTaskId("DOUBAN", id, "hash-v1"),
+                PipelineRuntimeWorkTypes.providerTaskId("TMDB", id, "hash-v1"),
+                PipelineRuntimeWorkTypes.providerTaskId("ROTTEN_TOMATOES", id, "hash-v1")),
+                requestCaptor.getAllValues().stream().map(RuntimeWorkItemRequest::taskId).toList());
+        assertEquals(List.of(
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER,
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER,
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER),
+                requestCaptor.getAllValues().stream().map(RuntimeWorkItemRequest::taskType).toList());
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
 
@@ -155,8 +145,8 @@ class MetadataDispatchServiceTest {
         RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("tmdb-1");
         when(repository.findById(id)).thenReturn(Optional.of(record));
-        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, new ObjectMapper());
+        RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, new ObjectMapper());
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
@@ -177,13 +167,11 @@ class MetadataDispatchServiceTest {
 
         assertEquals("DISPATCHED", result.status());
         assertEquals(List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES), result.providers());
-        verify(pipelineQueue, never()).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("TMDB"),
-                eq(id),
-                eq("hash-v1"),
-                org.mockito.Mockito.anyString(),
-                eq(Duration.ZERO));
+        ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
+        verify(workQueue, org.mockito.Mockito.times(2)).submitAfterCommit(requestCaptor.capture());
+        org.assertj.core.api.Assertions.assertThat(requestCaptor.getAllValues())
+                .extracting(RuntimeWorkItemRequest::taskId)
+                .noneMatch(taskId -> taskId.toString().contains("TMDB"));
     }
 
     @Test

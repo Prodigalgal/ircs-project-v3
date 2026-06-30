@@ -106,7 +106,6 @@ class MagnetWorkQueueWorker {
         int effectiveBatchSize = batchSize();
         Duration visibility = visibility();
         heartbeat(owner, visibility.plusMinutes(1));
-        workQueue.requeueExpired(MagnetWorkTypes.SEARCH, effectiveBatchSize);
         List<RuntimeWorkItem> items = workQueue.claim(
                 MagnetWorkTypes.SEARCH,
                 owner,

@@ -357,6 +357,17 @@ public class RedisRuntimeWorkQueue implements RuntimeWorkQueue {
     }
 
     @Override
+    public boolean hasOpenTask(String taskType, String taskId) {
+        String normalizedTaskType = normalizeTaskType(taskType);
+        if (!StringUtils.hasText(taskId)) {
+            return false;
+        }
+        String normalizedTaskId = taskId.trim();
+        return redisTemplate.opsForZSet().score(pendingKey(normalizedTaskType), normalizedTaskId) != null
+                || redisTemplate.opsForZSet().score(inflightKey(normalizedTaskType), normalizedTaskId) != null;
+    }
+
+    @Override
     public boolean complete(RuntimeWorkItem item) {
         if (item == null || !StringUtils.hasText(item.taskId()) || !StringUtils.hasText(item.submissionId())) {
             return false;

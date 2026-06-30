@@ -149,14 +149,9 @@ class SearchSyncWorkQueueWorker {
         try {
             int effectiveBatchSize = Math.max(1, batchSize);
             Duration heartbeatTtl = consumerHeartbeatTtl();
-            lane.markStage("HEARTBEAT", null, null, Instant.now());
-            heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
-            lane.markStage("REQUEUE_EXPIRED", null, null, Instant.now());
-            requeued += workQueue.requeueExpired(lane.taskType, effectiveBatchSize);
-            if (requeued > 0) {
-                lane.lastProgressAt = Instant.now();
-            }
-            WorkRunResult result = processItemsSafely(lane, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
+        lane.markStage("HEARTBEAT", null, null, Instant.now());
+        heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
+        WorkRunResult result = processItemsSafely(lane, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
             processed = result.processed();
             failed = result.failed();
             if (failed > 0) {

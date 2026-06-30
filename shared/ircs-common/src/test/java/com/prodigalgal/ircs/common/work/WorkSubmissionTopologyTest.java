@@ -6,7 +6,7 @@ import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import java.util.List;
@@ -38,10 +38,10 @@ class WorkSubmissionTopologyTest {
     }
 
     @Test
-    void corePipelineWorkTypesAreNotSubmissionGated() {
-        assertThat(pipelineSubmissionKeys(PipelineTaskTypes.NORMALIZE_VIDEO)).isEmpty();
-        assertThat(pipelineSubmissionKeys(PipelineTaskTypes.ENRICH_METADATA)).isEmpty();
-        assertThat(pipelineSubmissionKeys(PipelineTaskTypes.METADATA_PROVIDER)).isEmpty();
+    void corePipelineRuntimeWorkTypesAreNotSubmissionGated() {
+        assertThat(runtimeSubmissionKeys(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO)).isEmpty();
+        assertThat(runtimeSubmissionKeys(PipelineRuntimeWorkTypes.ENRICH_METADATA)).isEmpty();
+        assertThat(runtimeSubmissionKeys(PipelineRuntimeWorkTypes.METADATA_PROVIDER)).isEmpty();
     }
 
     @Test
@@ -53,9 +53,9 @@ class WorkSubmissionTopologyTest {
                         "app.normalization.llm-cleaning.work-queue.worker.enabled");
         assertThat(runtimeConsumerKeys(MagnetWorkTypes.SEARCH))
                 .containsExactly("app.magnet.work-queue.worker.enabled");
-        assertThat(pipelineConsumerKeys(PipelineTaskTypes.NORMALIZE_VIDEO)).isEmpty();
-        assertThat(pipelineConsumerKeys(PipelineTaskTypes.ENRICH_METADATA)).isEmpty();
-        assertThat(pipelineConsumerKeys(PipelineTaskTypes.METADATA_PROVIDER)).isEmpty();
+        assertThat(runtimeConsumerKeys(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO)).isEmpty();
+        assertThat(runtimeConsumerKeys(PipelineRuntimeWorkTypes.ENRICH_METADATA)).isEmpty();
+        assertThat(runtimeConsumerKeys(PipelineRuntimeWorkTypes.METADATA_PROVIDER)).isEmpty();
     }
 
     private static List<String> runtimeSubmissionKeys(String taskType) {
@@ -64,20 +64,8 @@ class WorkSubmissionTopologyTest {
                 .toList();
     }
 
-    private static List<String> pipelineSubmissionKeys(String taskType) {
-        return SystemConfigWorkSubmissionGate.pipelineSubmissionFlags(taskType).stream()
-                .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
-                .toList();
-    }
-
     private static List<String> runtimeConsumerKeys(String taskType) {
         return SystemConfigWorkSubmissionGate.runtimeConsumerFlags(taskType).orElseThrow().stream()
-                .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
-                .toList();
-    }
-
-    private static List<String> pipelineConsumerKeys(String taskType) {
-        return SystemConfigWorkSubmissionGate.pipelineConsumerFlags(taskType).orElseThrow().stream()
                 .map(SystemConfigWorkSubmissionGate.ConfigFlag::key)
                 .toList();
     }

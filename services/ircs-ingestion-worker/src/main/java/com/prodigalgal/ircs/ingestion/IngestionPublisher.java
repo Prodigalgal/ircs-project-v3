@@ -2,9 +2,10 @@ package com.prodigalgal.ircs.ingestion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.contracts.ingestion.PlaylistSyncMessage;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -17,14 +18,19 @@ public class IngestionPublisher {
 
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
 
     public void publishPlaylistSync(PlaylistSyncMessage message) {
         publishJson(QueueTopic.PLAYLIST_SYNC, message);
     }
 
     public void publishNormalize(UUID rawVideoId, String pipelineVersion) {
-        pipelineQueue.submitAfterCommit(PipelineCommand.normalize(rawVideoId, pipelineVersion));
+        workQueue.submitAfterCommit(new RuntimeWorkItemRequest(
+                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
+                PipelineRuntimeWorkTypes.normalizeTaskId(rawVideoId, pipelineVersion),
+                rawVideoId.toString(),
+                PipelineRuntimeWorkTypes.normalizeVersion(pipelineVersion),
+                ""));
     }
 
     private void publishJson(QueueTopic topic, Object payload) {

@@ -2,9 +2,9 @@ package com.prodigalgal.ircs.normalization;
 
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTask;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
@@ -22,9 +22,9 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-public class NormalizeVideoValkeyWorker {
+public class NormalizeVideoWorkQueueWorker {
 
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
     private final RawVideoNormalizationService normalizationService;
     private final NormalizationConfigValues configValues;
     private final WorkerJobAuditWriter auditWriter;
@@ -34,8 +34,8 @@ public class NormalizeVideoValkeyWorker {
     private final ExecutorService taskExecutor = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("normalize-video-task-", 0).factory());
 
-    NormalizeVideoValkeyWorker(
-            PipelineValkeyQueue pipelineQueue,
+    NormalizeVideoWorkQueueWorker(
+            RuntimeWorkQueue workQueue,
             RawVideoNormalizationService normalizationService,
             NormalizationConfigValues configValues,
             WorkerJobAuditWriter auditWriter,
@@ -45,7 +45,7 @@ public class NormalizeVideoValkeyWorker {
             @Value("${app.normalization.valkey-worker.batch-size:${APP_NORMALIZATION_VALKEY_WORKER_BATCH_SIZE:10}}")
                     int batchSize,
             @Value("${app.normalization.valkey-worker.visibility-timeout:PT10M}") Duration visibilityTimeout) {
-        this.pipelineQueue = pipelineQueue;
+        this.workQueue = workQueue;
         this.normalizationService = normalizationService;
         this.configValues = configValues;
         this.auditWriter = auditWriter == null ? WorkerJobAuditWriter.noop() : auditWriter;
@@ -70,12 +70,8 @@ public class NormalizeVideoValkeyWorker {
 
     int runOnce() {
         heartbeat();
-        int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.NORMALIZE_VIDEO, batchSize);
-        if (reclaimed > 0) {
-            log.info("Requeued expired normalization tasks from Valkey: count={}", reclaimed);
-        }
-        List<PipelineValkeyTask> tasks = pipelineQueue.claim(
-                PipelineTaskTypes.NORMALIZE_VIDEO,
+        List<RuntimeWorkItem> tasks = workQueue.claim(
+                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
                 workerId,
                 batchSize,
                 visibilityTimeout);
@@ -83,7 +79,7 @@ public class NormalizeVideoValkeyWorker {
         return tasks.size();
     }
 
-    private void processBatch(List<PipelineValkeyTask> tasks) {
+    private void processBatch(List<RuntimeWorkItem> tasks) {
         if (tasks.isEmpty()) {
             return;
         }
@@ -97,39 +93,44 @@ public class NormalizeVideoValkeyWorker {
         try {
             future.join();
         } catch (CompletionException ex) {
-            log.warn("Normalization Valkey task future completed exceptionally: {}", ex.getMessage());
+            log.warn("Normalization runtime work task future completed exceptionally: {}", ex.getMessage());
         }
     }
 
     private void heartbeat() {
-        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.NORMALIZE_VIDEO, workerId, visibilityTimeout.plusMinutes(1));
+        workQueue.heartbeatConsumer(
+                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
+                workerId,
+                visibilityTimeout.plusMinutes(1));
     }
 
-    private void process(PipelineValkeyTask task) {
+    private void process(RuntimeWorkItem task) {
         Instant startedAt = Instant.now();
+        UUID rawVideoId = rawVideoId(task);
+        String pipelineVersion = task.version();
         try {
             log.info(
-                    "Processing Valkey normalization task: rawVideoId={}, pipelineVersion={}, attempt={}",
-                    task.rawVideoId(),
-                    task.pipelineVersion(),
+                    "Processing runtime normalization task: rawVideoId={}, pipelineVersion={}, attempt={}",
+                    rawVideoId,
+                    pipelineVersion,
                     task.attempt());
             RawVideoNormalizationService.NormalizationResult result =
-                    normalizationService.normalize(task.rawVideoId(), task.pipelineVersion());
+                    normalizationService.normalize(rawVideoId, pipelineVersion);
             if ("MISSING".equals(result.status())) {
-                pipelineQueue.fail(task, false, Duration.ZERO, result.reason());
-                recordFailed(startedAt, task.rawVideoId(), new IllegalStateException(result.reason()));
+                workQueue.fail(task, false, Duration.ZERO, result.reason());
+                recordFailed(startedAt, rawVideoId, new IllegalStateException(result.reason()));
                 return;
             }
             if ("FAILED".equals(result.status())) {
-                pipelineQueue.fail(task, true, retryDelay(task.attempt()), result.reason());
-                recordSucceeded(startedAt, task.rawVideoId());
+                workQueue.fail(task, true, retryDelay(task.attempt()), result.reason());
+                recordSucceeded(startedAt, rawVideoId);
                 return;
             }
-            pipelineQueue.complete(task);
-            recordSucceeded(startedAt, task.rawVideoId());
+            workQueue.complete(task);
+            recordSucceeded(startedAt, rawVideoId);
         } catch (RuntimeException ex) {
-            pipelineQueue.fail(task, true, retryDelay(task.attempt()), ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            recordFailed(startedAt, task.rawVideoId(), ex);
+            workQueue.fail(task, true, retryDelay(task.attempt()), ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            recordFailed(startedAt, rawVideoId, ex);
         }
     }
 
@@ -140,7 +141,7 @@ public class NormalizeVideoValkeyWorker {
 
     private void recordSucceeded(Instant startedAt, UUID rawVideoId) {
         recordAudit(WorkerJobAuditEvent.succeeded(
-                "valkey-worker",
+                "runtime-work-queue",
                 "normalization.raw-video",
                 correlationId(rawVideoId),
                 elapsedSince(startedAt)));
@@ -148,7 +149,7 @@ public class NormalizeVideoValkeyWorker {
 
     private void recordFailed(Instant startedAt, UUID rawVideoId, RuntimeException error) {
         recordAudit(WorkerJobAuditEvent.failed(
-                "valkey-worker",
+                "runtime-work-queue",
                 "normalization.raw-video",
                 correlationId(rawVideoId),
                 elapsedSince(startedAt),
@@ -159,8 +160,15 @@ public class NormalizeVideoValkeyWorker {
         try {
             auditWriter.record(event);
         } catch (RuntimeException ex) {
-            log.warn("Normalize Valkey worker audit write failed: {}", ex.getMessage());
+            log.warn("Normalize runtime worker audit write failed: {}", ex.getMessage());
         }
+    }
+
+    private static UUID rawVideoId(RuntimeWorkItem task) {
+        if (task == null || task.aggregateId() == null || task.aggregateId().isBlank()) {
+            throw new IllegalArgumentException("Normalization runtime task requires aggregateId");
+        }
+        return UUID.fromString(task.aggregateId());
     }
 
     private static String correlationId(UUID rawVideoId) {

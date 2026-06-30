@@ -1,7 +1,6 @@
 package com.prodigalgal.ircs.metadata.pipeline;
 
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineStep;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,7 +14,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class MetadataPipelineRunRepository {
 
-    private static final String STEP = PipelineStep.ENRICH_METADATA.name();
+    private static final String STEP = "ENRICH_METADATA";
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_SUCCESS = "SUCCESS";
     private static final String STATUS_FAILED = "FAILED";

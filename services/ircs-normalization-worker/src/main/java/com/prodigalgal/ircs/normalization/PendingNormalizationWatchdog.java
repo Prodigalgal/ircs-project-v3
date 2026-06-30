@@ -4,9 +4,10 @@ import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -26,7 +27,7 @@ class PendingNormalizationWatchdog {
     static final String LEASE_NAME = "normalization:pending-watchdog";
 
     private final RawVideoNormalizationRepository repository;
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
     private final NormalizationConfigValues configValues;
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
     private final WorkerJobAuditWriter auditWriter;
@@ -34,14 +35,14 @@ class PendingNormalizationWatchdog {
 
     PendingNormalizationWatchdog(
             RawVideoNormalizationRepository repository,
-            PipelineValkeyQueue pipelineQueue,
+            RuntimeWorkQueue workQueue,
             NormalizationConfigValues configValues,
             ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider,
             WorkerJobAuditWriter auditWriter,
             @Value("${spring.application.name:ircs-normalization-worker}") String applicationName,
             @Value("${app.worker.id:${APP_WORKER_ID:}}") String configuredWorkerId) {
         this.repository = repository;
-        this.pipelineQueue = pipelineQueue;
+        this.workQueue = workQueue;
         this.configValues = configValues;
         this.clusterLeaseServiceProvider = clusterLeaseServiceProvider;
         this.auditWriter = auditWriter == null ? WorkerJobAuditWriter.noop() : auditWriter;
@@ -83,11 +84,11 @@ class PendingNormalizationWatchdog {
                 repository.findPendingNormalizationQueueItems(updatedBefore, configValues.pendingWatchdogBatchSize());
         int submitted = 0;
         for (RawVideoNormalizationRepository.RawVideoQueueItem item : items) {
-            PipelineCommand command = PipelineCommand.normalize(item.id(), item.dataHash());
-            if (pipelineQueue.hasOpenTask(command)) {
+            RuntimeWorkItemRequest request = normalizeRequest(item);
+            if (workQueue.hasOpenTask(request.taskType(), request.taskId())) {
                 continue;
             }
-            pipelineQueue.submit(command);
+            workQueue.submit(request);
             submitted++;
         }
         if (submitted > 0) {
@@ -98,6 +99,15 @@ class PendingNormalizationWatchdog {
                     workerId);
         }
         return submitted;
+    }
+
+    private static RuntimeWorkItemRequest normalizeRequest(RawVideoNormalizationRepository.RawVideoQueueItem item) {
+        return new RuntimeWorkItemRequest(
+                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
+                PipelineRuntimeWorkTypes.normalizeTaskId(item.id(), item.dataHash()),
+                item.id().toString(),
+                PipelineRuntimeWorkTypes.normalizeVersion(item.dataHash()),
+                "");
     }
 
     private Optional<ClusterLease> acquireLease() {

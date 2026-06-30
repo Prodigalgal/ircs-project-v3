@@ -4,7 +4,7 @@ import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import java.time.Duration;
@@ -75,21 +75,8 @@ public final class RateMetricKeys {
         return normalized;
     }
 
-    public static String pipelineMetric(String taskType, String action) {
-        return pipelinePrefix(taskType) + "." + action;
-    }
-
     public static String runtimeMetric(String taskType, String action) {
         return runtimePrefix(taskType) + "." + action;
-    }
-
-    private static String pipelinePrefix(String taskType) {
-        return switch (taskType) {
-            case PipelineTaskTypes.NORMALIZE_VIDEO -> "pipeline.normalize";
-            case PipelineTaskTypes.ENRICH_METADATA -> "pipeline.metadata_dispatch";
-            case PipelineTaskTypes.METADATA_PROVIDER -> "pipeline.metadata_provider";
-            default -> "pipeline." + normalizeMetricPart(taskType);
-        };
     }
 
     private static String runtimePrefix(String taskType) {
@@ -97,6 +84,9 @@ public final class RateMetricKeys {
             case SearchSyncWorkTypes.RAW -> "runtime.search_raw";
             case SearchSyncWorkTypes.UNIFIED -> "runtime.search_unified";
             case AggregationWorkTypes.RAW_VIDEO -> "runtime.aggregation";
+            case PipelineRuntimeWorkTypes.NORMALIZE_VIDEO -> "runtime.pipeline_normalize";
+            case PipelineRuntimeWorkTypes.ENRICH_METADATA -> "runtime.pipeline_metadata_dispatch";
+            case PipelineRuntimeWorkTypes.METADATA_PROVIDER -> "runtime.pipeline_metadata_provider";
             case LlmCleaningWorkTypes.RAW_TERM -> "runtime.llm_cleaning";
             case StorageWorkTypes.AVATAR_SYNC -> "runtime.storage_avatar";
             case StorageWorkTypes.COVER_R2_SYNC -> "runtime.storage_cover";

@@ -2,9 +2,9 @@ package com.prodigalgal.ircs.metadata.provider.worker;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTask;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import com.prodigalgal.ircs.metadata.config.SystemConfigRepository;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPublisher.MetadataProviderTaskPayload;
@@ -25,14 +25,14 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-public class MetadataProviderValkeyWorker {
+public class MetadataProviderWorkQueueWorker {
 
     private static final int MAX_DYNAMIC_BATCH_SIZE = 1000;
     private static final int MAX_DYNAMIC_PARALLELISM = 128;
     private static final String BATCH_SIZE_KEY = "app.metadata.valkey-provider-worker.batch-size";
     private static final String PARALLELISM_KEY = "app.metadata.valkey-provider-worker.parallelism";
     private static final long SETTINGS_CACHE_TTL_NANOS = Duration.ofSeconds(10).toNanos();
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
     private final MetadataProviderWorker providerWorker;
     private final ObjectMapper objectMapper;
     private final String workerId;
@@ -45,8 +45,8 @@ public class MetadataProviderValkeyWorker {
     private volatile WorkerSettings cachedSettings;
     private volatile long cachedSettingsExpiresAtNanos;
 
-    MetadataProviderValkeyWorker(
-            PipelineValkeyQueue pipelineQueue,
+    MetadataProviderWorkQueueWorker(
+            RuntimeWorkQueue workQueue,
             MetadataProviderWorker providerWorker,
             ObjectMapper objectMapper,
             ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider,
@@ -59,7 +59,7 @@ public class MetadataProviderValkeyWorker {
                     int parallelism,
             @Value("${app.metadata.valkey-provider-worker.visibility-timeout:PT10M}") Duration visibilityTimeout,
             @Value("${app.metadata.valkey-provider-worker.retry-delay:PT2M}") Duration retryDelay) {
-        this.pipelineQueue = pipelineQueue;
+        this.workQueue = workQueue;
         this.providerWorker = providerWorker;
         this.objectMapper = objectMapper;
         this.systemConfigRepository = systemConfigRepositoryProvider == null
@@ -100,12 +100,8 @@ public class MetadataProviderValkeyWorker {
         int batchSize = settings.batchSize();
         int parallelism = applyParallelism(settings.parallelism());
         heartbeat();
-        int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.METADATA_PROVIDER, batchSize);
-        if (reclaimed > 0) {
-            log.info("Requeued expired metadata provider tasks from Valkey: count={}", reclaimed);
-        }
-        List<PipelineValkeyTask> tasks = pipelineQueue.claim(
-                PipelineTaskTypes.METADATA_PROVIDER,
+        List<RuntimeWorkItem> tasks = workQueue.claim(
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER,
                 workerId,
                 batchSize,
                 visibilityTimeout);
@@ -114,10 +110,13 @@ public class MetadataProviderValkeyWorker {
     }
 
     private void heartbeat() {
-        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.METADATA_PROVIDER, workerId, visibilityTimeout.plusMinutes(1));
+        workQueue.heartbeatConsumer(
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER,
+                workerId,
+                visibilityTimeout.plusMinutes(1));
     }
 
-    private void processBatch(List<PipelineValkeyTask> tasks, int parallelism) {
+    private void processBatch(List<RuntimeWorkItem> tasks, int parallelism) {
         if (tasks.isEmpty()) {
             return;
         }
@@ -126,7 +125,7 @@ public class MetadataProviderValkeyWorker {
             return;
         }
         List<Future<?>> futures = new ArrayList<>(tasks.size());
-        for (PipelineValkeyTask task : tasks) {
+        for (RuntimeWorkItem task : tasks) {
             futures.add(executor.submit(() -> processSafely(task)));
         }
         for (Future<?> future : futures) {
@@ -136,20 +135,20 @@ public class MetadataProviderValkeyWorker {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception ex) {
-                log.warn("Metadata provider Valkey task future failed: {}", ex.getMessage());
+                log.warn("Metadata provider runtime task future failed: {}", ex.getMessage());
             }
         }
     }
 
-    private void processSafely(PipelineValkeyTask task) {
+    private void processSafely(RuntimeWorkItem task) {
         try {
             process(task);
         } catch (RuntimeException ex) {
-            log.warn("Metadata provider Valkey task failed: taskId={}, reason={}", task.taskId(), ex.getMessage());
+            log.warn("Metadata provider runtime task failed: taskId={}, reason={}", task.taskId(), ex.getMessage());
         }
     }
 
-    private void process(PipelineValkeyTask task) {
+    private void process(RuntimeWorkItem task) {
         try {
             MetadataProviderTaskPayload payload =
                     objectMapper.reader()
@@ -157,13 +156,13 @@ public class MetadataProviderValkeyWorker {
                             .forType(MetadataProviderTaskPayload.class)
                             .readValue(task.payload());
             providerWorker.execute(payload.context(), payload.provider());
-            pipelineQueue.complete(task);
+            workQueue.complete(task);
         } catch (RuntimeException ex) {
-            pipelineQueue.fail(task, true, retryDelay, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            workQueue.fail(task, true, retryDelay, ex.getClass().getSimpleName() + ": " + ex.getMessage());
             throw ex;
         } catch (Exception ex) {
-            pipelineQueue.fail(task, true, retryDelay, ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            throw new IllegalStateException("Unable to process metadata provider Valkey task", ex);
+            workQueue.fail(task, true, retryDelay, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            throw new IllegalStateException("Unable to process metadata provider runtime task", ex);
         }
     }
 

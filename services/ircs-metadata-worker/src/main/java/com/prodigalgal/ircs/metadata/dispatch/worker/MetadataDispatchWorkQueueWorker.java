@@ -1,8 +1,8 @@
 package com.prodigalgal.ircs.metadata.dispatch.worker;
 
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTask;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import com.prodigalgal.ircs.metadata.dispatch.application.MetadataDispatchService;
 import com.prodigalgal.ircs.metadata.dispatch.dto.MetadataDispatchResult;
@@ -15,17 +15,17 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-public class MetadataDispatchValkeyWorker {
+public class MetadataDispatchWorkQueueWorker {
 
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
     private final MetadataDispatchService dispatchService;
     private final String workerId;
     private final int batchSize;
     private final Duration visibilityTimeout;
     private final Duration retryDelay;
 
-    MetadataDispatchValkeyWorker(
-            PipelineValkeyQueue pipelineQueue,
+    MetadataDispatchWorkQueueWorker(
+            RuntimeWorkQueue workQueue,
             MetadataDispatchService dispatchService,
             @Value("${spring.application.name:ircs-metadata-worker}") String applicationName,
             @Value("${app.metadata.pipeline.worker-id:${APP_METADATA_PIPELINE_WORKER_ID:}}")
@@ -34,7 +34,7 @@ public class MetadataDispatchValkeyWorker {
                     int batchSize,
             @Value("${app.metadata.valkey-dispatcher.visibility-timeout:PT10M}") Duration visibilityTimeout,
             @Value("${app.metadata.valkey-dispatcher.retry-delay:PT5M}") Duration retryDelay) {
-        this.pipelineQueue = pipelineQueue;
+        this.workQueue = workQueue;
         this.dispatchService = dispatchService;
         this.workerId = WorkerInstanceIds.resolve(applicationName, configuredWorkerId);
         this.batchSize = Math.max(1, batchSize);
@@ -58,12 +58,8 @@ public class MetadataDispatchValkeyWorker {
 
     int runOnce() {
         heartbeat();
-        int reclaimed = pipelineQueue.requeueExpired(PipelineTaskTypes.ENRICH_METADATA, batchSize);
-        if (reclaimed > 0) {
-            log.info("Requeued expired metadata dispatch tasks from Valkey: count={}", reclaimed);
-        }
-        List<PipelineValkeyTask> tasks = pipelineQueue.claim(
-                PipelineTaskTypes.ENRICH_METADATA,
+        List<RuntimeWorkItem> tasks = workQueue.claim(
+                PipelineRuntimeWorkTypes.ENRICH_METADATA,
                 workerId,
                 batchSize,
                 visibilityTimeout);
@@ -72,25 +68,37 @@ public class MetadataDispatchValkeyWorker {
     }
 
     private void heartbeat() {
-        pipelineQueue.heartbeatConsumer(PipelineTaskTypes.ENRICH_METADATA, workerId, visibilityTimeout.plusMinutes(1));
+        workQueue.heartbeatConsumer(
+                PipelineRuntimeWorkTypes.ENRICH_METADATA,
+                workerId,
+                visibilityTimeout.plusMinutes(1));
     }
 
-    private void process(PipelineValkeyTask task) {
+    private void process(RuntimeWorkItem task) {
         try {
-            MetadataDispatchResult result = dispatchService.dispatch(task.rawVideoId(), task.pipelineVersion());
+            MetadataDispatchResult result = dispatchService.dispatch(
+                    rawVideoId(task),
+                    task.version());
             if (!result.videoFound()) {
-                pipelineQueue.fail(task, false, Duration.ZERO, "RAW_VIDEO_NOT_FOUND");
+                workQueue.fail(task, false, Duration.ZERO, "RAW_VIDEO_NOT_FOUND");
                 return;
             }
             if ("FAILED".equals(result.status())) {
-                pipelineQueue.fail(task, true, retryDelay, "ENRICHMENT_RETRYABLE_FAILURE");
+                workQueue.fail(task, true, retryDelay, "ENRICHMENT_RETRYABLE_FAILURE");
                 return;
             }
-            pipelineQueue.complete(task);
+            workQueue.complete(task);
         } catch (RuntimeException ex) {
-            pipelineQueue.fail(task, true, retryDelay, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            workQueue.fail(task, true, retryDelay, ex.getClass().getSimpleName() + ": " + ex.getMessage());
             throw ex;
         }
+    }
+
+    private static java.util.UUID rawVideoId(RuntimeWorkItem task) {
+        if (task == null || task.aggregateId() == null || task.aggregateId().isBlank()) {
+            throw new IllegalArgumentException("Metadata dispatch runtime task requires aggregateId");
+        }
+        return java.util.UUID.fromString(task.aggregateId());
     }
 
     private static Duration positive(Duration value, Duration fallback) {

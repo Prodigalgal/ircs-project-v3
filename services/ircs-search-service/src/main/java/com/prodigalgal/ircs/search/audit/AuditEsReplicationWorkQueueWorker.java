@@ -114,7 +114,6 @@ class AuditEsReplicationWorkQueueWorker {
         Duration visibility = visibility();
         String owner = workerId();
         heartbeat(owner, visibility);
-        workQueue.requeueExpired(AuditReplicationWorkTypes.ES_REPLICATION, effectiveBatchSize);
         List<RuntimeWorkItem> items = workQueue.claim(
                 AuditReplicationWorkTypes.ES_REPLICATION,
                 owner,

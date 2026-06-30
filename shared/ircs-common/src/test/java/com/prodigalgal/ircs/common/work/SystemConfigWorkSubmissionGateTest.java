@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
@@ -42,7 +42,7 @@ class SystemConfigWorkSubmissionGateTest {
     }
 
     @Test
-    void keepsCorePipelineSubmissionAlwaysOpen() {
+    void keepsCorePipelineRuntimeSubmissionAlwaysOpen() {
         insert("app.metadata.enabled", "false");
         insert("app.metadata.valkey-dispatcher.enabled", "false");
         insert("app.metadata.valkey-provider-worker.enabled", "false");
@@ -50,9 +50,9 @@ class SystemConfigWorkSubmissionGateTest {
 
         SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
 
-        assertThat(gate.canSubmitPipeline(PipelineTaskTypes.NORMALIZE_VIDEO)).isTrue();
-        assertThat(gate.canSubmitPipeline(PipelineTaskTypes.ENRICH_METADATA)).isTrue();
-        assertThat(gate.canSubmitPipeline(PipelineTaskTypes.METADATA_PROVIDER)).isTrue();
+        assertThat(gate.canSubmitRuntime(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO)).isTrue();
+        assertThat(gate.canSubmitRuntime(PipelineRuntimeWorkTypes.ENRICH_METADATA)).isTrue();
+        assertThat(gate.canSubmitRuntime(PipelineRuntimeWorkTypes.METADATA_PROVIDER)).isTrue();
     }
 
     @Test
@@ -113,7 +113,6 @@ class SystemConfigWorkSubmissionGateTest {
         SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
 
         assertThat(gate.canSubmitRuntime("custom.work")).isTrue();
-        assertThat(gate.canSubmitPipeline("CUSTOM_PIPELINE")).isTrue();
     }
 
     private SystemConfigWorkSubmissionGate gate(Environment environment) {

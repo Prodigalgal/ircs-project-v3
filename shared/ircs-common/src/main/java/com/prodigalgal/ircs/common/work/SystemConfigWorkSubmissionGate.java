@@ -5,7 +5,7 @@ import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
 import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import java.time.Duration;
@@ -47,7 +47,10 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
                     flag("app.audit.es-replication.enabled", true),
                     flag("app.search.audit-es-replication.worker.enabled", true))),
             Map.entry(MagnetWorkTypes.SEARCH, flags(
-                    flag("app.magnet.work-queue.submission.enabled", true))));
+                    flag("app.magnet.work-queue.submission.enabled", true))),
+            Map.entry(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO, List.of()),
+            Map.entry(PipelineRuntimeWorkTypes.ENRICH_METADATA, List.of()),
+            Map.entry(PipelineRuntimeWorkTypes.METADATA_PROVIDER, List.of()));
 
     private static final Map<String, List<ConfigFlag>> RUNTIME_CONSUMER_FLAGS = Map.ofEntries(
             Map.entry(AggregationWorkTypes.RAW_VIDEO, List.of()),
@@ -59,14 +62,10 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
             Map.entry(AuditReplicationWorkTypes.ES_REPLICATION,
                     runtimeSubmissionFlags(AuditReplicationWorkTypes.ES_REPLICATION)),
             Map.entry(MagnetWorkTypes.SEARCH, flags(
-                    flag("app.magnet.work-queue.worker.enabled", true))));
-
-    private static final Map<String, List<ConfigFlag>> PIPELINE_SUBMISSION_FLAGS = Map.of();
-
-    private static final Map<String, List<ConfigFlag>> PIPELINE_CONSUMER_FLAGS = Map.ofEntries(
-            Map.entry(PipelineTaskTypes.NORMALIZE_VIDEO, List.of()),
-            Map.entry(PipelineTaskTypes.ENRICH_METADATA, List.of()),
-            Map.entry(PipelineTaskTypes.METADATA_PROVIDER, List.of()));
+                    flag("app.magnet.work-queue.worker.enabled", true))),
+            Map.entry(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO, List.of()),
+            Map.entry(PipelineRuntimeWorkTypes.ENRICH_METADATA, List.of()),
+            Map.entry(PipelineRuntimeWorkTypes.METADATA_PROVIDER, List.of()));
 
     private final JdbcTemplate jdbcTemplate;
     private final Environment environment;
@@ -89,25 +88,12 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
         return enabled(RUNTIME_SUBMISSION_FLAGS.get(taskType));
     }
 
-    @Override
-    public boolean canSubmitPipeline(String taskType) {
-        return enabled(PIPELINE_SUBMISSION_FLAGS.get(taskType));
-    }
-
     public static List<ConfigFlag> runtimeSubmissionFlags(String taskType) {
         return RUNTIME_SUBMISSION_FLAGS.getOrDefault(taskType, List.of());
     }
 
-    public static List<ConfigFlag> pipelineSubmissionFlags(String taskType) {
-        return PIPELINE_SUBMISSION_FLAGS.getOrDefault(taskType, List.of());
-    }
-
     public static Optional<List<ConfigFlag>> runtimeConsumerFlags(String taskType) {
         return Optional.ofNullable(RUNTIME_CONSUMER_FLAGS.get(taskType));
-    }
-
-    public static Optional<List<ConfigFlag>> pipelineConsumerFlags(String taskType) {
-        return Optional.ofNullable(PIPELINE_CONSUMER_FLAGS.get(taskType));
     }
 
     private boolean enabled(List<ConfigFlag> flags) {

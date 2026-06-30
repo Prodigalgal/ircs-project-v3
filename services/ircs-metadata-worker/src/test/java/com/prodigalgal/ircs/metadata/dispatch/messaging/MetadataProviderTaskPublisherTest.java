@@ -1,16 +1,17 @@
 package com.prodigalgal.ircs.metadata.dispatch.messaging;
 
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
-import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -20,9 +21,9 @@ class MetadataProviderTaskPublisherTest {
 
     @Test
     void publishesProviderFetchAsValkeyTasks() {
-        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
+        RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, objectMapper);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, objectMapper);
         UUID videoId = UUID.randomUUID();
         MetadataSearchContext context = MetadataSearchContext.builder()
                 .videoId(videoId)
@@ -34,34 +35,28 @@ class MetadataProviderTaskPublisherTest {
         publisher.publish(ProviderType.TMDB, context);
         publisher.publish(ProviderType.ROTTEN_TOMATOES, context);
 
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("DOUBAN"),
-                eq(videoId),
-                eq("hash-v1"),
-                contains("\"provider\":\"DOUBAN\""),
-                eq(Duration.ZERO));
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("TMDB"),
-                eq(videoId),
-                eq("hash-v1"),
-                contains("\"provider\":\"TMDB\""),
-                eq(Duration.ZERO));
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("ROTTEN_TOMATOES"),
-                eq(videoId),
-                eq("hash-v1"),
-                contains("\"provider\":\"ROTTEN_TOMATOES\""),
-                eq(Duration.ZERO));
+        ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
+        verify(workQueue, org.mockito.Mockito.times(3)).submitAfterCommit(requestCaptor.capture());
+        List<RuntimeWorkItemRequest> requests = requestCaptor.getAllValues();
+        assertEquals(List.of(
+                PipelineRuntimeWorkTypes.providerTaskId("DOUBAN", videoId, "hash-v1"),
+                PipelineRuntimeWorkTypes.providerTaskId("TMDB", videoId, "hash-v1"),
+                PipelineRuntimeWorkTypes.providerTaskId("ROTTEN_TOMATOES", videoId, "hash-v1")),
+                requests.stream().map(RuntimeWorkItemRequest::taskId).toList());
+        assertTrue(requests.stream().allMatch(request ->
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER.equals(request.taskType())
+                        && videoId.toString().equals(request.aggregateId())
+                        && "hash-v1".equals(request.version())));
+        assertTrue(requests.get(0).payload().contains("\"provider\":\"DOUBAN\""));
+        assertTrue(requests.get(1).payload().contains("\"provider\":\"TMDB\""));
+        assertTrue(requests.get(2).payload().contains("\"provider\":\"ROTTEN_TOMATOES\""));
     }
 
     @Test
     void omitsDerivedFullTitleFromValkeyPayload() throws Exception {
-        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
+        RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(pipelineQueue, objectMapper);
+        MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, objectMapper);
         UUID videoId = UUID.randomUUID();
         MetadataSearchContext context = MetadataSearchContext.builder()
                 .videoId(videoId)
@@ -72,15 +67,9 @@ class MetadataProviderTaskPublisherTest {
 
         publisher.publish(ProviderType.TMDB, context);
 
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(pipelineQueue).submitAfterCommit(
-                eq(PipelineTaskTypes.METADATA_PROVIDER),
-                contains("TMDB"),
-                eq(videoId),
-                eq("hash-v1"),
-                payloadCaptor.capture(),
-                eq(Duration.ZERO));
-        JsonNode payload = objectMapper.readTree(payloadCaptor.getValue());
+        ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
+        verify(workQueue).submitAfterCommit(requestCaptor.capture());
+        JsonNode payload = objectMapper.readTree(requestCaptor.getValue().payload());
         Assertions.assertFalse(payload.path("context").has("fullTitle"));
     }
 }

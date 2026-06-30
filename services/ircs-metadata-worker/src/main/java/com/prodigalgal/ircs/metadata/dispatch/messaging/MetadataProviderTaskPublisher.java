@@ -4,8 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import lombok.RequiredArgsConstructor;
@@ -15,19 +16,21 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class MetadataProviderTaskPublisher {
 
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
     private final ObjectMapper objectMapper;
 
     public void publish(ProviderType provider, MetadataSearchContext context) {
         try {
             String payload = objectMapper.writeValueAsString(payloadNode(provider, context));
-            pipelineQueue.submitAfterCommit(
-                    PipelineTaskTypes.METADATA_PROVIDER,
-                    PipelineValkeyQueue.providerTaskId(provider.name(), context.getVideoId(), context.getPipelineVersion()),
-                    context.getVideoId(),
-                    context.getPipelineVersion(),
-                    payload,
-                    java.time.Duration.ZERO);
+            workQueue.submitAfterCommit(new RuntimeWorkItemRequest(
+                    PipelineRuntimeWorkTypes.METADATA_PROVIDER,
+                    PipelineRuntimeWorkTypes.providerTaskId(
+                            provider.name(),
+                            context.getVideoId(),
+                            context.getPipelineVersion()),
+                    context.getVideoId().toString(),
+                    PipelineRuntimeWorkTypes.normalizeVersion(context.getPipelineVersion()),
+                    payload));
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("Unable to serialize metadata search context", ex);
         }

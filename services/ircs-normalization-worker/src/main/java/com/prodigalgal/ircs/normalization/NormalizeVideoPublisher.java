@@ -1,7 +1,8 @@
 package com.prodigalgal.ircs.normalization;
 
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -10,17 +11,22 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class NormalizeVideoPublisher {
 
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
 
     public void publish(UUID rawVideoId, String pipelineVersion) {
-        publish(PipelineCommand.normalize(rawVideoId, pipelineVersion));
-    }
-
-    public void publish(PipelineCommand command) {
-        pipelineQueue.submitAfterCommit(command);
+        workQueue.submitAfterCommit(request(rawVideoId, pipelineVersion));
     }
 
     public void publishNow(UUID rawVideoId, String pipelineVersion) {
-        pipelineQueue.submit(PipelineCommand.normalize(rawVideoId, pipelineVersion));
+        workQueue.submit(request(rawVideoId, pipelineVersion));
+    }
+
+    private static RuntimeWorkItemRequest request(UUID rawVideoId, String pipelineVersion) {
+        return new RuntimeWorkItemRequest(
+                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
+                PipelineRuntimeWorkTypes.normalizeTaskId(rawVideoId, pipelineVersion),
+                rawVideoId.toString(),
+                PipelineRuntimeWorkTypes.normalizeVersion(pipelineVersion),
+                "");
     }
 }

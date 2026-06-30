@@ -139,6 +139,22 @@ class RedisRuntimeWorkQueueRateMetricsTest {
     }
 
     @Test
+    void hasOpenTaskChecksPendingAndInflightSets() {
+        @SuppressWarnings("unchecked")
+        ZSetOperations<String, String> zSets = org.mockito.Mockito.mock(ZSetOperations.class);
+        when(redisTemplate.opsForZSet()).thenReturn(zSets);
+        when(zSets.score("ircs:work:v1:" + SearchSyncWorkTypes.RAW + ":pending", "task-pending"))
+                .thenReturn(1.0d);
+        when(zSets.score("ircs:work:v1:" + SearchSyncWorkTypes.RAW + ":pending", "task-inflight"))
+                .thenReturn(null);
+        when(zSets.score("ircs:work:v1:" + SearchSyncWorkTypes.RAW + ":inflight", "task-inflight"))
+                .thenReturn(2.0d);
+
+        assertTrue(queue.hasOpenTask(SearchSyncWorkTypes.RAW, "task-pending"));
+        assertTrue(queue.hasOpenTask(SearchSyncWorkTypes.RAW, "task-inflight"));
+    }
+
+    @Test
     void requeueDlqPassesReplayLimitAndQueueKeys() {
         queue.requeueDlq(AggregationWorkTypes.RAW_VIDEO, 7, 3);
 

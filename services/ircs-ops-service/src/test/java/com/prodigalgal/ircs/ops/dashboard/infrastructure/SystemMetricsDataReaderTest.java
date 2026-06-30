@@ -23,9 +23,6 @@ class SystemMetricsDataReaderTest {
     private final RabbitAdmin rabbitAdmin = mock(RabbitAdmin.class);
     private final RedisConnectionFactory redisConnectionFactory = mock(RedisConnectionFactory.class);
     @SuppressWarnings("unchecked")
-    private final ObjectProvider<com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue> pipelineQueueProvider =
-            mock(ObjectProvider.class);
-    @SuppressWarnings("unchecked")
     private final ObjectProvider<com.prodigalgal.ircs.common.work.RuntimeWorkQueue> runtimeWorkQueueProvider =
             mock(ObjectProvider.class);
     @SuppressWarnings("unchecked")
@@ -36,7 +33,6 @@ class SystemMetricsDataReaderTest {
             rabbitAdmin,
             redisConnectionFactory,
             new SimpleMeterRegistry(),
-            pipelineQueueProvider,
             runtimeWorkQueueProvider,
             aggregationOpsStatsClientProvider,
             rabbitManagementQueueClient);

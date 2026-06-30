@@ -15,6 +15,10 @@ public interface RuntimeWorkQueue {
 
     List<RuntimeWorkItem> claim(String taskType, String ownerId, int limit, Duration visibilityTimeout);
 
+    default boolean hasOpenTask(String taskType, String taskId) {
+        return false;
+    }
+
     boolean complete(RuntimeWorkItem item);
 
     boolean fail(RuntimeWorkItem item, boolean retryable, Duration retryDelay, String reason);

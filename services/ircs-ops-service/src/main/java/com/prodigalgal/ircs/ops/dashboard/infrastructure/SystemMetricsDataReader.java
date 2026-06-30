@@ -1,7 +1,5 @@
 package com.prodigalgal.ircs.ops.dashboard.infrastructure;
 
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
@@ -31,7 +29,6 @@ public class SystemMetricsDataReader {
     private final RabbitAdmin rabbitAdmin;
     private final RedisConnectionFactory redisConnectionFactory;
     private final MeterRegistry meterRegistry;
-    private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
     private final RabbitManagementQueueClient rabbitManagementQueueClient;
@@ -43,21 +40,6 @@ public class SystemMetricsDataReader {
             registerQueueGauges(topic, topic.retryName(), "retry", false);
             registerQueueGauges(topic, topic.dlqName(), "dlq", true);
         }
-    }
-
-    public void registerValkeyPipelineGauges(String taskType) {
-        Gauge.builder("ircs.valkey.pipeline.pending", () -> pipelineCounts(taskType).pending())
-                .description("Valkey pipeline pending task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.pipeline.inflight", () -> pipelineCounts(taskType).inflight())
-                .description("Valkey pipeline inflight task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.pipeline.dlq", () -> pipelineCounts(taskType).dlq())
-                .description("Valkey pipeline DLQ task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
     }
 
     public void registerRuntimeWorkGauges(String taskType) {
@@ -128,18 +110,6 @@ public class SystemMetricsDataReader {
         }
     }
 
-    public PipelineValkeyTaskCounts pipelineCounts(String taskType) {
-        PipelineValkeyQueue queue = pipelineValkeyQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return emptyPipelineCounts();
-        }
-        try {
-            return queue.counts(taskType);
-        } catch (Exception ignored) {
-            return emptyPipelineCounts();
-        }
-    }
-
     public RuntimeWorkQueueCounts runtimeWorkCounts(String taskType) {
         RuntimeWorkQueue queue = runtimeWorkQueueProvider.getIfAvailable();
         if (queue == null) {
@@ -150,18 +120,6 @@ public class SystemMetricsDataReader {
             return counts == null ? emptyRuntimeWorkCounts() : counts;
         } catch (Exception ignored) {
             return emptyRuntimeWorkCounts();
-        }
-    }
-
-    public long pipelineConsumerCount(String taskType) {
-        PipelineValkeyQueue queue = pipelineValkeyQueueProvider.getIfAvailable();
-        if (queue == null) {
-            return 0L;
-        }
-        try {
-            return queue.consumerCount(taskType);
-        } catch (Exception ignored) {
-            return 0L;
         }
     }
 
@@ -219,10 +177,6 @@ public class SystemMetricsDataReader {
                 .tag("queue_role", queueRole)
                 .tag("dlq", String.valueOf(dlq))
                 .register(meterRegistry);
-    }
-
-    private PipelineValkeyTaskCounts emptyPipelineCounts() {
-        return new PipelineValkeyTaskCounts(0, 0, 0);
     }
 
     private RuntimeWorkQueueCounts emptyRuntimeWorkCounts() {

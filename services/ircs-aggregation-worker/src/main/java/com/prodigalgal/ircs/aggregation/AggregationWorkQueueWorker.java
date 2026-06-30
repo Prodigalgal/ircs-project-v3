@@ -134,13 +134,7 @@ class AggregationWorkQueueWorker {
         int requeued = 0;
         ProcessResult result = ProcessResult.empty();
         try {
-            setStage("REQUEUE_EXPIRED", null, null, 0);
             heartbeat(resolvedWorkerId);
-            requeued = workQueue.requeueExpired(AggregationWorkTypes.RAW_VIDEO, effectiveBatchSize);
-            if (requeued > 0) {
-                lastProgressAt = Instant.now();
-                log.info("Requeued expired aggregation work: count={}", requeued);
-            }
             setStage("CLAIM", null, null, effectiveBatchSize);
             List<RuntimeWorkItem> items = workQueue.claim(
                     AggregationWorkTypes.RAW_VIDEO,

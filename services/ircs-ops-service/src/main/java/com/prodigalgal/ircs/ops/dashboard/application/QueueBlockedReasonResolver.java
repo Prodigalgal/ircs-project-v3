@@ -17,10 +17,6 @@ public class QueueBlockedReasonResolver {
 
     private final RuntimeConfigService runtimeConfig;
 
-    String pipelineBlockedReason(String taskType, long messageCount, int consumerCount, RateMetricResponse rate) {
-        return blockedReason(messageCount, consumerCount, pipelineWorkPolicy(taskType), rate);
-    }
-
     String runtimeWorkBlockedReason(
             String taskType,
             RuntimeWorkMetricRole role,
@@ -100,12 +96,6 @@ public class QueueBlockedReasonResolver {
         long runningForSeconds = longValue(worker.get("runningForSeconds"));
         long thresholdSeconds = Math.max(1L, aggregationProcessingStallThreshold().toSeconds());
         return runningForSeconds >= thresholdSeconds ? "CONSUMER_PROCESSING_STUCK" : "PROCESSING";
-    }
-
-    private QueueConsumerPolicy pipelineWorkPolicy(String taskType) {
-        return SystemConfigWorkSubmissionGate.pipelineConsumerFlags(taskType)
-                .map(QueueConsumerPolicy::enabled)
-                .orElseGet(QueueConsumerPolicy::missing);
     }
 
     private QueueConsumerPolicy runtimeWorkPolicy(String taskType) {

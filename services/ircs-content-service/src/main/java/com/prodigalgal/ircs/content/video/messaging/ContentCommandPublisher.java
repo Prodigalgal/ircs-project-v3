@@ -1,8 +1,9 @@
 package com.prodigalgal.ircs.content.video.messaging;
 
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.util.UUID;
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Component;
 public class ContentCommandPublisher {
 
     private final SearchSyncWorkPublisher searchSyncWorkPublisher;
-    private final PipelineValkeyQueue pipelineQueue;
+    private final RuntimeWorkQueue workQueue;
 
     public void publishRawSearch(UUID rawVideoId, SyncOperation operation) {
         searchSyncWorkPublisher.enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, operation);
@@ -25,10 +26,31 @@ public class ContentCommandPublisher {
     }
 
     public void publishNormalize(UUID rawVideoId, String pipelineVersion) {
-        pipelineQueue.submitAfterCommit(PipelineCommand.normalize(rawVideoId, pipelineVersion));
+        workQueue.submitAfterCommit(request(
+                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
+                PipelineRuntimeWorkTypes.normalizeTaskId(rawVideoId, pipelineVersion),
+                rawVideoId,
+                pipelineVersion));
     }
 
     public void publishEnrich(UUID rawVideoId, String pipelineVersion) {
-        pipelineQueue.submitAfterCommit(PipelineCommand.enrich(rawVideoId, pipelineVersion));
+        workQueue.submitAfterCommit(request(
+                PipelineRuntimeWorkTypes.ENRICH_METADATA,
+                PipelineRuntimeWorkTypes.enrichTaskId(rawVideoId, pipelineVersion),
+                rawVideoId,
+                pipelineVersion));
+    }
+
+    private static RuntimeWorkItemRequest request(
+            String taskType,
+            String taskId,
+            UUID rawVideoId,
+            String pipelineVersion) {
+        return new RuntimeWorkItemRequest(
+                taskType,
+                taskId,
+                rawVideoId.toString(),
+                PipelineRuntimeWorkTypes.normalizeVersion(pipelineVersion),
+                "");
     }
 }

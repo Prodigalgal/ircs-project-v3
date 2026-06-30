@@ -13,9 +13,7 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineTaskTypes;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyTaskCounts;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
@@ -49,9 +47,6 @@ class SystemMetricsServiceTest {
     private final RedisConnectionFactory redisConnectionFactory = org.mockito.Mockito.mock(RedisConnectionFactory.class);
     private final StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
     @SuppressWarnings("unchecked")
-    private final ObjectProvider<PipelineValkeyQueue> pipelineValkeyQueueProvider =
-            org.mockito.Mockito.mock(ObjectProvider.class);
-    @SuppressWarnings("unchecked")
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
     @SuppressWarnings("unchecked")
@@ -68,7 +63,6 @@ class SystemMetricsServiceTest {
             rabbitAdmin,
             redisConnectionFactory,
             meterRegistry,
-            pipelineValkeyQueueProvider,
             runtimeWorkQueueProvider,
             aggregationOpsStatsClientProvider,
             rabbitManagementQueueClient);
@@ -107,15 +101,15 @@ class SystemMetricsServiceTest {
     }
 
     @Test
-    void metricsExposeValkeyPipelineBacklog() {
-        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
-        when(pipelineValkeyQueueProvider.getIfAvailable()).thenReturn(pipelineQueue);
-        when(pipelineQueue.counts(PipelineTaskTypes.NORMALIZE_VIDEO))
-                .thenReturn(new PipelineValkeyTaskCounts(2, 1, 0));
-        when(pipelineQueue.counts(PipelineTaskTypes.ENRICH_METADATA))
-                .thenReturn(new PipelineValkeyTaskCounts(4, 2, 1));
-        when(pipelineQueue.counts(PipelineTaskTypes.METADATA_PROVIDER))
-                .thenReturn(new PipelineValkeyTaskCounts(5, 3, 2));
+    void metricsExposePipelineRuntimeWorkBacklog() {
+        RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
+        when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
+        when(runtimeWorkQueue.counts(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO))
+                .thenReturn(new RuntimeWorkQueueCounts(2, 1, 0));
+        when(runtimeWorkQueue.counts(PipelineRuntimeWorkTypes.ENRICH_METADATA))
+                .thenReturn(new RuntimeWorkQueueCounts(4, 2, 1));
+        when(runtimeWorkQueue.counts(PipelineRuntimeWorkTypes.METADATA_PROVIDER))
+                .thenReturn(new RuntimeWorkQueueCounts(5, 3, 2));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 
         SystemMetricsResponse metrics = service.currentMetrics();
@@ -123,13 +117,15 @@ class SystemMetricsServiceTest {
         assertEquals(3, metrics.normalizeQueueDepth());
         assertEquals(6, metrics.enrichQueueDepth());
         assertTrue(metrics.queueGroups().stream()
-                .filter(group -> "Valkey Pipeline".equals(group.title()))
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
                 .flatMap(group -> group.queues().stream())
-                .anyMatch(queue -> "VALKEY_PROVIDER_INFLIGHT".equals(queue.key()) && queue.messageCount() == 3));
+                .anyMatch(queue -> "RUNTIME_PIPELINE_METADATA_PROVIDER_INFLIGHT".equals(queue.key())
+                        && queue.messageCount() == 3));
         assertTrue(metrics.queueGroups().stream()
                 .filter(QueueGroupResponse::dlq)
                 .flatMap(group -> group.queues().stream())
-                .anyMatch(queue -> "VALKEY_PROVIDER_DLQ".equals(queue.key()) && queue.messageCount() == 2));
+                .anyMatch(queue -> "RUNTIME_PIPELINE_METADATA_PROVIDER_DLQ".equals(queue.key())
+                        && queue.messageCount() == 2));
     }
 
     @Test
@@ -341,18 +337,15 @@ class SystemMetricsServiceTest {
 
     @Test
     void metricsExposeValkeyBucketRatesForTopCardsAndRows() {
-        PipelineValkeyQueue pipelineQueue = org.mockito.Mockito.mock(PipelineValkeyQueue.class);
         RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         stubRateBucket(Map.of(
                 RateMetricKeys.COLLECTION_PAGE_DISCOVERED, "1",
                 RateMetricKeys.COLLECTION_DETAIL_COMPLETED, "3",
-                RateMetricKeys.pipelineMetric(PipelineTaskTypes.NORMALIZE_VIDEO, RateMetricKeys.ACTION_COMPLETED), "2",
-                RateMetricKeys.pipelineMetric(PipelineTaskTypes.METADATA_PROVIDER, RateMetricKeys.ACTION_CLAIMED), "1",
-                RateMetricKeys.pipelineMetric(PipelineTaskTypes.METADATA_PROVIDER, RateMetricKeys.ACTION_COMPLETED), "1",
+                RateMetricKeys.runtimeMetric(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO, RateMetricKeys.ACTION_COMPLETED), "2",
+                RateMetricKeys.runtimeMetric(PipelineRuntimeWorkTypes.METADATA_PROVIDER, RateMetricKeys.ACTION_CLAIMED), "1",
+                RateMetricKeys.runtimeMetric(PipelineRuntimeWorkTypes.METADATA_PROVIDER, RateMetricKeys.ACTION_COMPLETED), "1",
                 RateMetricKeys.runtimeMetric(SearchSyncWorkTypes.RAW, RateMetricKeys.ACTION_COMPLETED), "1"));
-        when(pipelineValkeyQueueProvider.getIfAvailable()).thenReturn(pipelineQueue);
         when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
-        when(pipelineQueue.counts(anyString())).thenReturn(new PipelineValkeyTaskCounts(0, 0, 0));
         when(runtimeWorkQueue.counts(anyString())).thenReturn(new RuntimeWorkQueueCounts(0, 0, 0));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 
@@ -363,9 +356,9 @@ class SystemMetricsServiceTest {
         assertEquals(2, metrics.normalizationRate().instantTpm());
         assertEquals(1, metrics.metadataRate().instantTpm());
         assertTrue(metrics.queueGroups().stream()
-                .filter(group -> "Valkey Pipeline".equals(group.title()))
+                .filter(group -> "Valkey Runtime Work".equals(group.title()))
                 .flatMap(group -> group.queues().stream())
-                .anyMatch(queue -> "VALKEY_PROVIDER_PENDING".equals(queue.key())
+                .anyMatch(queue -> "RUNTIME_PIPELINE_METADATA_PROVIDER_PENDING".equals(queue.key())
                         && queue.rateKind() == RateKind.CLAIM
                         && queue.rate().instantTpm() == 1));
         assertTrue(metrics.queueGroups().stream()

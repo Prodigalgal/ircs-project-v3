@@ -9,8 +9,9 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
-import com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueue;
-import com.prodigalgal.ircs.contracts.pipeline.PipelineCommand;
+import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
+import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -31,7 +32,7 @@ class PendingNormalizationWatchdogTest {
     private RawVideoNormalizationRepository repository;
 
     @Mock
-    private PipelineValkeyQueue pipelineQueue;
+    private RuntimeWorkQueue workQueue;
 
     @Mock
     private NormalizationConfigValues configValues;
@@ -55,7 +56,7 @@ class PendingNormalizationWatchdogTest {
                 Instant.now().plusSeconds(30));
         watchdog = new PendingNormalizationWatchdog(
                 repository,
-                pipelineQueue,
+                workQueue,
                 configValues,
                 provider(clusterLeaseService),
                 auditWriter,
@@ -80,16 +81,21 @@ class PendingNormalizationWatchdogTest {
                 .thenReturn(List.of(
                         new RawVideoNormalizationRepository.RawVideoQueueItem(first, "hash-1"),
                         new RawVideoNormalizationRepository.RawVideoQueueItem(second, "hash-2")));
-        when(pipelineQueue.hasOpenTask(any(PipelineCommand.class))).thenReturn(false);
+        when(workQueue.hasOpenTask(any(), any())).thenReturn(false);
 
         int submitted = watchdog.reconcilePending();
 
         assertEquals(2, submitted);
-        ArgumentCaptor<PipelineCommand> commandCaptor = ArgumentCaptor.forClass(PipelineCommand.class);
-        verify(pipelineQueue, org.mockito.Mockito.times(2)).submit(commandCaptor.capture());
-        assertEquals(List.of(first, second), commandCaptor.getAllValues().stream()
-                .map(PipelineCommand::rawVideoId)
+        ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
+        verify(workQueue, org.mockito.Mockito.times(2)).submit(requestCaptor.capture());
+        assertEquals(List.of(first, second), requestCaptor.getAllValues().stream()
+                .map(RuntimeWorkItemRequest::aggregateId)
+                .map(UUID::fromString)
                 .toList());
+        assertEquals(List.of(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO, PipelineRuntimeWorkTypes.NORMALIZE_VIDEO),
+                requestCaptor.getAllValues().stream()
+                        .map(RuntimeWorkItemRequest::taskType)
+                        .toList());
         verify(clusterLeaseService).release(lease);
         verify(auditWriter).record(any());
     }
@@ -108,12 +114,12 @@ class PendingNormalizationWatchdogTest {
                 .thenReturn(Optional.of(lease));
         when(repository.findPendingNormalizationQueueItems(any(Instant.class), org.mockito.ArgumentMatchers.eq(50)))
                 .thenReturn(List.of(new RawVideoNormalizationRepository.RawVideoQueueItem(rawVideoId, "hash-1")));
-        when(pipelineQueue.hasOpenTask(any(PipelineCommand.class))).thenReturn(true);
+        when(workQueue.hasOpenTask(any(), any())).thenReturn(true);
 
         int submitted = watchdog.reconcilePending();
 
         assertEquals(0, submitted);
-        verify(pipelineQueue, never()).submit(any(PipelineCommand.class));
+        verify(workQueue, never()).submit(any(RuntimeWorkItemRequest.class));
         verify(auditWriter, never()).record(any());
     }
 
