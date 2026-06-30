@@ -42,12 +42,15 @@ class TrafficMonitorServiceTest {
         when(redisTemplate.opsForSet()).thenReturn(setOps);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY)).thenReturn(Set.of(
-                PREFIX + "Provider:TMDB",
-                PREFIX + "Global:Scraper:Ip:203.0.113.10",
+                PREFIX + "Provider:Metadata:Ip:203.0.113.10:TMDB",
+                PREFIX + "Global:ImageDownload:Ip:203.0.113.10",
                 PREFIX + "cred:" + credentialId,
+                PREFIX + "Provider:TMDB",
                 PREFIX + "Domain:stale.example"));
-        when(valueOps.get(PREFIX + "Provider:TMDB")).thenReturn(String.valueOf(now + 2500L));
-        when(valueOps.get(PREFIX + "Global:Scraper:Ip:203.0.113.10")).thenReturn(String.valueOf(now + 1500L));
+        when(valueOps.get(PREFIX + "Provider:Metadata:Ip:203.0.113.10:TMDB"))
+                .thenReturn(String.valueOf(now + 2500L));
+        when(valueOps.get(PREFIX + "Global:ImageDownload:Ip:203.0.113.10"))
+                .thenReturn(String.valueOf(now + 1500L));
         when(valueOps.get(PREFIX + "cred:" + credentialId)).thenReturn(String.valueOf(now + 35_000L));
         when(valueOps.get(PREFIX + "Domain:stale.example")).thenReturn(String.valueOf(now - 120_000L));
         when(credentialLabelRepository.findLabel(credentialId)).thenReturn(Optional.of("[TMDB] main"));
@@ -55,13 +58,14 @@ class TrafficMonitorServiceTest {
         TrafficStatusResponse status = service.getTrafficStatus();
 
         assertEquals(2, status.globalLimiters().size());
-        assertEquals("Global:Scraper:Ip:203.0.113.10", status.globalLimiters().getFirst().key());
-        assertEquals("全局锁: Scraper / IP 203.0.113.10", status.globalLimiters().getFirst().label());
-        assertEquals("Provider:TMDB", status.globalLimiters().get(1).key());
+        assertEquals("Global:ImageDownload:Ip:203.0.113.10", status.globalLimiters().getFirst().key());
+        assertEquals("图片下载全局 / 出口 203.0.113.10", status.globalLimiters().getFirst().label());
+        assertEquals("Provider:Metadata:Ip:203.0.113.10:TMDB", status.globalLimiters().get(1).key());
         assertFalse(status.globalLimiters().get(1).isBlocked());
         assertEquals(1, status.credentialLimiters().size());
         assertEquals("[TMDB] main", status.credentialLimiters().getFirst().label());
         assertTrue(status.credentialLimiters().getFirst().isBlocked());
+        verify(setOps).remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, PREFIX + "Provider:TMDB");
         verify(setOps).remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, PREFIX + "Domain:stale.example");
     }
 
@@ -149,14 +153,14 @@ class TrafficMonitorServiceTest {
         when(redisTemplate.opsForSet()).thenReturn(setOps);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY))
-                .thenReturn(Set.of(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId));
-        when(valueOps.get(PREFIX + "DataSource:Ip:203.0.113.10:" + sourceId))
+                .thenReturn(Set.of(PREFIX + "DataSource:Scraper:Ip:203.0.113.10:" + sourceId));
+        when(valueOps.get(PREFIX + "DataSource:Scraper:Ip:203.0.113.10:" + sourceId))
                 .thenReturn(String.valueOf(now + 1200L));
 
         TrafficStatusResponse status = service.getTrafficStatus();
 
         assertEquals(1, status.globalLimiters().size());
-        assertEquals("数据源锁: " + sourceId + " / IP 203.0.113.10", status.globalLimiters().getFirst().label());
+        assertEquals("资源站采集: " + sourceId + " / 出口 203.0.113.10", status.globalLimiters().getFirst().label());
     }
 
     @Test
@@ -168,18 +172,18 @@ class TrafficMonitorServiceTest {
         when(redisTemplate.opsForSet()).thenReturn(setOps);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(setOps.members(TrafficLimitKeys.ACTIVE_INDEX_KEY)).thenReturn(Set.of(
-                PREFIX + "Provider:Ip:2001_db8__10:DOUBAN",
-                PREFIX + "Domain:Ip:203.0.113.10:img.example.com"));
-        when(valueOps.get(PREFIX + "Provider:Ip:2001_db8__10:DOUBAN"))
+                PREFIX + "Provider:Magnet:Ip:2001_db8__10:DOUBAN",
+                PREFIX + "Domain:ImageDownload:Ip:203.0.113.10:img.example.com"));
+        when(valueOps.get(PREFIX + "Provider:Magnet:Ip:2001_db8__10:DOUBAN"))
                 .thenReturn(String.valueOf(now + 1200L));
-        when(valueOps.get(PREFIX + "Domain:Ip:203.0.113.10:img.example.com"))
+        when(valueOps.get(PREFIX + "Domain:ImageDownload:Ip:203.0.113.10:img.example.com"))
                 .thenReturn(String.valueOf(now + 800L));
 
         TrafficStatusResponse status = service.getTrafficStatus();
 
         assertEquals(2, status.globalLimiters().size());
-        assertEquals("域名锁: img.example.com / IP 203.0.113.10", status.globalLimiters().getFirst().label());
-        assertEquals("全局锁: DOUBAN / IP 2001_db8__10", status.globalLimiters().get(1).label());
+        assertEquals("图片域名: img.example.com / 出口 203.0.113.10", status.globalLimiters().getFirst().label());
+        assertEquals("磁链 Provider: DOUBAN / 出口 2001_db8__10", status.globalLimiters().get(1).label());
     }
 
     @Test
@@ -187,9 +191,11 @@ class TrafficMonitorServiceTest {
         SetOperations<String, String> setOps = org.mockito.Mockito.mock(SetOperations.class);
         when(redisTemplate.opsForSet()).thenReturn(setOps);
 
-        service.resetKey("Provider:TMDB");
+        service.resetKey("Provider:Metadata:Ip:203.0.113.10:TMDB");
 
-        verify(redisTemplate).delete(PREFIX + "Provider:TMDB");
-        verify(setOps).remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, PREFIX + "Provider:TMDB");
+        verify(redisTemplate).delete(PREFIX + "Provider:Metadata:Ip:203.0.113.10:TMDB");
+        verify(setOps).remove(
+                TrafficLimitKeys.ACTIVE_INDEX_KEY,
+                PREFIX + "Provider:Metadata:Ip:203.0.113.10:TMDB");
     }
 }

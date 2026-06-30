@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ops.traffic.application;
 
 import com.prodigalgal.ircs.common.lock.TrafficLimitKeys;
+import com.prodigalgal.ircs.common.lock.TrafficLimitKeys.TrafficKeyDescription;
 import com.prodigalgal.ircs.ops.traffic.dto.TrafficSlotResponse;
 import com.prodigalgal.ircs.ops.traffic.dto.TrafficStatusResponse;
 import com.prodigalgal.ircs.ops.traffic.infrastructure.CredentialLabelRepository;
@@ -37,7 +38,12 @@ public class TrafficMonitorService {
 
         try {
             for (String fullKey : indexedTrafficKeys()) {
-                String rawKey = fullKey.substring(PREFIX.length());
+                String rawKey = TrafficLimitKeys.stripPrefix(fullKey);
+                if (!TrafficLimitKeys.isCurrentTrafficKey(rawKey)) {
+                    removeIndexedKey(fullKey);
+                    redisTemplate.delete(fullKey);
+                    continue;
+                }
                 TrafficSlotResponse slot = buildSlot(rawKey, fullKey);
                 if (slot == null) {
                     removeIndexedKey(fullKey);
@@ -82,6 +88,7 @@ public class TrafficMonitorService {
     private void removeIndexedKey(String redisKey) {
         if (TrafficLimitKeys.isTrafficKey(redisKey)) {
             redisTemplate.opsForSet().remove(TrafficLimitKeys.ACTIVE_INDEX_KEY, redisKey);
+            redisTemplate.delete(TrafficLimitKeys.metaKey(redisKey));
         }
     }
 
@@ -116,16 +123,28 @@ public class TrafficMonitorService {
         }
 
         double congestion = Math.round(((double) waitTime / MAX_BLOCKING_TIME_MS) * 100.0) / 100.0;
+        TrafficSlotDetails details = details(rawKey, redisKey);
         return new TrafficSlotResponse(
                 rawKey,
-                resolveLabel(rawKey),
+                details.label(),
+                details.business(),
+                details.scope(),
+                details.target(),
+                details.egressIdentity(),
                 waitTime / 1000L,
                 waitTime,
                 congestion,
                 waitTime > MAX_BLOCKING_TIME_MS,
                 "TIME_SLICE",
                 null,
-                null);
+                null,
+                details.lastResult(),
+                details.lastObservedAt(),
+                details.totalRequests(),
+                details.allowedCount(),
+                details.waitingCount(),
+                details.rejectedCount(),
+                details.errorCount());
     }
 
     private TrafficSlotResponse buildTokenBucketSlot(String rawKey, String redisKey) {
@@ -146,16 +165,28 @@ public class TrafficMonitorService {
                 ? 0.0
                 : Math.round(((double) (capacity - Math.min(capacity, safeRemaining)) / capacity) * 100.0) / 100.0;
         long waitingTasks = safeRemaining >= permits ? 0L : permits - safeRemaining;
+        TrafficSlotDetails details = details(rawKey, redisKey);
         return new TrafficSlotResponse(
                 rawKey,
-                resolveLabel(rawKey),
+                details.label(),
+                details.business(),
+                details.scope(),
+                details.target(),
+                details.egressIdentity(),
                 waitingTasks,
                 retryAfterMs,
                 congestion,
                 retryAfterMs > MAX_BLOCKING_TIME_MS,
                 "TOKEN_BUCKET",
                 safeRemaining,
-                capacity > 0L ? capacity : null);
+                capacity > 0L ? capacity : null,
+                details.lastResult(),
+                details.lastObservedAt(),
+                details.totalRequests(),
+                details.allowedCount(),
+                details.waitingCount(),
+                details.rejectedCount(),
+                details.errorCount());
     }
 
     private DataType redisType(String redisKey) {
@@ -166,52 +197,40 @@ public class TrafficMonitorService {
         }
     }
 
+    private TrafficSlotDetails details(String rawKey, String redisKey) {
+        TrafficKeyDescription description = TrafficLimitKeys.describe(rawKey);
+        Map<Object, Object> meta = readMeta(redisKey);
+        String label = stringValue(meta, "displayName", resolveLabel(rawKey));
+        return new TrafficSlotDetails(
+                label,
+                stringValue(meta, "business", description.business()),
+                stringValue(meta, "scope", description.scope()),
+                stringValue(meta, "target", description.target()),
+                stringValue(meta, "egressIdentity", description.egressIdentity()),
+                stringValue(meta, "lastResult", "unknown"),
+                stringValue(meta, "lastObservedAt", null),
+                parseLong(meta.get("totalRequests"), 0L),
+                parseLong(meta.get("allowedCount"), 0L),
+                parseLong(meta.get("waitingCount"), 0L),
+                parseLong(meta.get("rejectedCount"), 0L),
+                parseLong(meta.get("errorCount"), 0L));
+    }
+
+    private Map<Object, Object> readMeta(String redisKey) {
+        try {
+            Map<Object, Object> values = redisTemplate.opsForHash().entries(TrafficLimitKeys.metaKey(redisKey));
+            return values == null ? Map.of() : values;
+        } catch (RuntimeException ignored) {
+            return Map.of();
+        }
+    }
+
     private String resolveLabel(String rawKey) {
+        TrafficKeyDescription description = TrafficLimitKeys.describe(rawKey);
         if (rawKey.startsWith("cred:")) {
             return resolveCredentialLabel(rawKey.substring(5));
         }
-        if (rawKey.startsWith("Provider:Ip:")) {
-            return resolveTrailingIpLabel(rawKey.substring(12), "全局锁");
-        }
-        if (rawKey.startsWith("Provider:")) {
-            return "全局锁: " + rawKey.substring(9);
-        }
-        if (rawKey.startsWith("Global:")) {
-            return resolveGlobalLabel(rawKey.substring(7));
-        }
-        if (rawKey.startsWith("DataSource:Ip:")) {
-            return resolveTrailingIpLabel(rawKey.substring(14), "数据源锁");
-        }
-        if (rawKey.startsWith("DataSource:")) {
-            return "数据源锁: " + rawKey.substring(11);
-        }
-        if (rawKey.startsWith("Domain:Ip:")) {
-            return resolveTrailingIpLabel(rawKey.substring(10), "域名锁");
-        }
-        if (rawKey.startsWith("Domain:")) {
-            return "域名锁: " + rawKey.substring(7);
-        }
-        return rawKey;
-    }
-
-    private String resolveGlobalLabel(String value) {
-        int marker = value.indexOf(":Ip:");
-        if (marker < 1 || marker >= value.length() - 4) {
-            return "全局锁: " + value;
-        }
-        String name = value.substring(0, marker);
-        String ip = value.substring(marker + 4);
-        return "全局锁: " + name + " / IP " + ip;
-    }
-
-    private String resolveTrailingIpLabel(String value, String prefix) {
-        int delimiter = value.lastIndexOf(':');
-        if (delimiter < 1 || delimiter >= value.length() - 1) {
-            return prefix + ": " + value;
-        }
-        String ip = value.substring(0, delimiter);
-        String target = value.substring(delimiter + 1);
-        return prefix + ": " + target + " / IP " + ip;
+        return description.displayName();
     }
 
     private String resolveCredentialLabel(String idText) {
@@ -255,13 +274,30 @@ public class TrafficMonitorService {
         return new TrafficSlotResponse(
                 key,
                 label.label(),
+                "凭证",
+                "credential",
+                label.id().toString(),
+                null,
                 0L,
                 0L,
                 0.0,
                 false,
                 "TOKEN_BUCKET",
                 capacity,
-                capacity);
+                capacity,
+                "idle",
+                null,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L);
+    }
+
+    private String stringValue(Map<Object, Object> values, String key, String fallback) {
+        Object value = values.get(key);
+        String text = value == null ? null : String.valueOf(value);
+        return StringUtils.hasText(text) ? text : fallback;
     }
 
     private long parseLong(Object value, long fallback) {
@@ -273,5 +309,20 @@ public class TrafficMonitorService {
         } catch (NumberFormatException ignored) {
             return fallback;
         }
+    }
+
+    private record TrafficSlotDetails(
+            String label,
+            String business,
+            String scope,
+            String target,
+            String egressIdentity,
+            String lastResult,
+            String lastObservedAt,
+            long totalRequests,
+            long allowedCount,
+            long waitingCount,
+            long rejectedCount,
+            long errorCount) {
     }
 }

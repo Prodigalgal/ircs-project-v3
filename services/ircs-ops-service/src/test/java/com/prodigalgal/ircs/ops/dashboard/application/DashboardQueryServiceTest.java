@@ -11,10 +11,13 @@ import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient.SearchIndexCounts;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.JdbcDashboardRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SearchOpsStatsClient;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import org.junit.jupiter.api.Test;
 
 class DashboardQueryServiceTest {
@@ -26,18 +29,23 @@ class DashboardQueryServiceTest {
     private final SearchOpsStatsClient searchOpsStatsClient = org.mockito.Mockito.mock(SearchOpsStatsClient.class);
     private final AggregationOpsStatsClient aggregationOpsStatsClient =
             org.mockito.Mockito.mock(AggregationOpsStatsClient.class);
+    private final DashboardSearchIndexStatsClient searchIndexStatsClient =
+            org.mockito.Mockito.mock(DashboardSearchIndexStatsClient.class);
     private final DashboardQueryService service =
             new DashboardQueryService(
                     repository,
                     metricsService,
                     taskRuntimeOverviewService,
                     searchOpsStatsClient,
-                    aggregationOpsStatsClient);
+                    aggregationOpsStatsClient,
+                    searchIndexStatsClient);
 
     @Test
     void analysisBoundsDaysAndTurnsNullListsIntoEmptyLists() {
         DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
         when(repository.loadStats()).thenReturn(stats);
+        when(searchIndexStatsClient.currentCounts())
+                .thenReturn(new SearchIndexCounts(OptionalLong.empty(), OptionalLong.empty()));
         when(repository.weeklyTrend(90)).thenReturn(null);
         when(repository.categoryDistribution()).thenReturn(null);
         when(repository.sourceDistribution()).thenReturn(null);
@@ -48,7 +56,7 @@ class DashboardQueryServiceTest {
 
         DashboardAnalysisResponse analysis = service.getAnalysis(500);
 
-        assertEquals(stats, analysis.stats());
+        assertEquals(stats.withSearchCounts(1, 2), analysis.stats());
         assertTrue(analysis.weeklyTrend().isEmpty());
         assertTrue(analysis.categoryDistribution().isEmpty());
         assertEquals(Map.of("Both", 1L, "None", 0L), analysis.idCoverage());
@@ -60,15 +68,44 @@ class DashboardQueryServiceTest {
         DashboardStatsResponse first = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
         DashboardStatsResponse refreshed = new DashboardStatsResponse(2, 0, 3, 0, 4, 0, 0, 0, 0, 0, 0, 0);
         when(repository.loadStats()).thenReturn(first, refreshed);
+        when(searchIndexStatsClient.currentCounts())
+                .thenReturn(new SearchIndexCounts(OptionalLong.empty(), OptionalLong.empty()));
 
-        assertEquals(first, service.getStatistics());
-        assertEquals(first, service.getStatistics());
+        assertEquals(first.withSearchCounts(1, 2), service.getStatistics());
+        assertEquals(first.withSearchCounts(1, 2), service.getStatistics());
         verify(repository, times(1)).loadStats();
 
         service.refresh(14);
 
-        assertEquals(refreshed, service.getStatistics());
+        assertEquals(refreshed.withSearchCounts(2, 3), service.getStatistics());
         verify(repository, times(2)).loadStats();
+    }
+
+    @Test
+    void statisticsUseSearchIndexCountsWhenAvailable() {
+        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
+        when(repository.loadStats()).thenReturn(stats);
+        when(searchIndexStatsClient.currentCounts())
+                .thenReturn(new SearchIndexCounts(OptionalLong.of(10L), OptionalLong.of(20L)));
+
+        DashboardStatsResponse response = service.getStatistics();
+
+        assertEquals(1, response.rawCountDb());
+        assertEquals(10, response.rawCountEs());
+        assertEquals(2, response.unifiedCountDb());
+        assertEquals(20, response.unifiedCountEs());
+    }
+
+    @Test
+    void statisticsFallBackToDatabaseCountsWhenSearchIndexUnavailable() {
+        DashboardStatsResponse stats = new DashboardStatsResponse(7, 0, 8, 0, 3, 0, 0, 0, 0, 0, 0, 0);
+        when(repository.loadStats()).thenReturn(stats);
+        when(searchIndexStatsClient.currentCounts()).thenThrow(new IllegalStateException("es unavailable"));
+
+        DashboardStatsResponse response = service.getStatistics();
+
+        assertEquals(7, response.rawCountEs());
+        assertEquals(8, response.unifiedCountEs());
     }
 
     @Test

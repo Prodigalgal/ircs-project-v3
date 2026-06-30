@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.task.infrastructure;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.task.domain.ScheduledTaskDefinition;
+import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import com.prodigalgal.ircs.task.domain.TaskRuntimeState;
 import com.prodigalgal.ircs.task.domain.ValidatedCreateTask;
@@ -74,6 +75,59 @@ public class JdbcCollectionTaskRepository {
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
+    }
+
+    public List<MediaRequestCandidate> claimPendingMediaRequests(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, MAX_PAGE_SIZE));
+        return jdbcTemplate.query(
+                """
+                with claimed as (
+                    select id
+                      from portal_media_requests
+                     where status = 'PENDING'
+                     order by request_count desc, last_requested_at asc, id asc
+                     limit ?
+                     for update skip locked
+                )
+                update portal_media_requests request
+                   set status = 'SCHEDULING',
+                       scheduled_at = now(),
+                       updated_at = now(),
+                       version = request.version + 1
+                  from claimed
+                 where request.id = claimed.id
+                 returning request.id, request.title, request.release_year, request.request_count
+                """,
+                (rs, rowNum) -> new MediaRequestCandidate(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("title"),
+                        apiReleaseYear(rs.getInt("release_year")),
+                        rs.getInt("request_count")),
+                safeLimit);
+    }
+
+    public void markMediaRequestsScheduled(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        List<UUID> safeIds = List.copyOf(ids);
+        jdbcTemplate.update(
+                "update portal_media_requests set status = 'SCHEDULED', updated_at = now(), "
+                        + "version = version + 1, last_error_message = null where id in (" + placeholders(safeIds.size()) + ")",
+                safeIds.toArray());
+    }
+
+    public void markMediaRequestsPending(List<UUID> ids, String reason) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        List<Object> args = new ArrayList<>();
+        args.add(reason);
+        args.addAll(ids);
+        jdbcTemplate.update(
+                "update portal_media_requests set status = 'PENDING', updated_at = now(), "
+                        + "version = version + 1, last_error_message = ? where id in (" + placeholders(ids.size()) + ")",
+                args.toArray());
     }
 
     public UUID create(ValidatedCreateTask task) {
@@ -807,5 +861,13 @@ public class JdbcCollectionTaskRepository {
             return value;
         }
         return value.substring(0, 2000);
+    }
+
+    private String placeholders(int size) {
+        return String.join(",", java.util.Collections.nCopies(Math.max(1, size), "?"));
+    }
+
+    private Integer apiReleaseYear(int releaseYear) {
+        return releaseYear <= 0 ? null : releaseYear;
     }
 }

@@ -58,7 +58,7 @@ class MagnetProviderTrafficLimiter {
         }
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.PROVIDER_FETCH);
         TimeSliceReservation reservation = lockManager.reserveTimeSlice(new TimeSliceReservationRequest(
-                profile.keyPrefix() + "Ip:" + egressIdentity() + ":" + EgressIdentities.sanitize(keyPart),
+                profile.keyPrefix() + "Magnet:Ip:" + egressIdentity() + ":" + EgressIdentities.sanitize(keyPart),
                 gap(provider),
                 maxWait(),
                 ttl()));

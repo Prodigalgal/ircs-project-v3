@@ -124,6 +124,9 @@ class SystemConfigDefaultsTest {
         assertEquals("25", defaults.staticDefaultValue("app.storage.image.download-backfill.batch-size").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.ops.service-restart.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.register.time-window.enabled").orElseThrow());
+        assertEquals("1", defaults.staticDefaultValue("member.message.point-cost").orElseThrow());
+        assertEquals("5", defaults.staticDefaultValue("member.media-request.daily-limit").orElseThrow());
+        assertEquals("3", defaults.staticDefaultValue("member.media-request.point-cost").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.search.work-queue.worker.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.storage.r2.work-queue.worker.enabled").orElseThrow());
@@ -139,6 +142,9 @@ class SystemConfigDefaultsTest {
         assertEquals("true", defaults.staticDefaultValue("app.magnet.work-queue.submission.enabled").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("app.magnet.work-queue.worker.enabled").orElseThrow());
         assertEquals("5", defaults.staticDefaultValue("app.magnet.work-queue.worker.batch-size").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.task.media-request.enabled").orElseThrow());
+        assertEquals("20", defaults.staticDefaultValue("app.task.media-request.batch-size").orElseThrow());
+        assertEquals("60000", defaults.staticDefaultValue("app.task.media-request.fixed-delay-ms").orElseThrow());
         assertEquals("true", defaults.staticDefaultValue("member.oauth.auto-register.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.bind-existing-email.enabled").orElseThrow());
         assertEquals("true",
@@ -375,6 +381,9 @@ class SystemConfigDefaultsTest {
             "member.register.time-window.end",
             "member.register.timezone",
             "member.message.daily-limit",
+            "member.message.point-cost",
+            "member.media-request.daily-limit",
+            "member.media-request.point-cost",
             "app.mail.enabled",
             "app.mail.host",
             "app.mail.port",
@@ -514,6 +523,14 @@ class SystemConfigDefaultsTest {
             "app.task.trend-discovery.enabled",
             "app.task.trend-discovery.max-keywords",
             "app.task.trend-discovery.max-data-sources",
+            "app.task.media-request.enabled",
+            "app.task.media-request.initial-delay-ms",
+            "app.task.media-request.fixed-delay-ms",
+            "app.task.media-request.batch-size",
+            "app.task.media-request.start-page",
+            "app.task.media-request.end-page",
+            "app.task.media-request.request-fixed-delay-ms",
+            "app.task.media-request.max-data-sources",
             "app.task.scheduler.enabled",
             "app.aggregation.work-queue.batch-size",
             "app.aggregation.work-queue.batch-size.min",

@@ -76,7 +76,7 @@ class ScraperTrafficLimiter {
     }
 
     private String key(DistributedLockProfile profile, UUID sourceId) {
-        return profile.keyPrefix() + "Ip:" + egressIdentity() + ":" + sourceId;
+        return profile.keyPrefix() + "Scraper:Ip:" + egressIdentity() + ":" + sourceId;
     }
 
     private Duration sourceGap(ManualScrapeConfigRequest config) {

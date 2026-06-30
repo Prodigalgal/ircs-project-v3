@@ -69,7 +69,7 @@ public class MetadataProviderTrafficLimiter {
             return;
         }
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.PROVIDER_FETCH);
-        String key = profile.keyPrefix() + "Ip:" + egressIdentity + ":" + EgressIdentities.sanitize(providerCode);
+        String key = profile.keyPrefix() + "Metadata:Ip:" + egressIdentity + ":" + EgressIdentities.sanitize(providerCode);
         TimeSliceReservation reservation = lockManager.reserveTimeSlice(new TimeSliceReservationRequest(
                 key,
                 settings.defaultGap(),

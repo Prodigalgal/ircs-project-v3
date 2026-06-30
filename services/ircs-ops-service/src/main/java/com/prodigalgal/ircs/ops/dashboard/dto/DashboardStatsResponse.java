@@ -14,4 +14,19 @@ public record DashboardStatsResponse(
         long imageDownloadFailed,
         long imageDeadLink
 ) {
+    public DashboardStatsResponse withSearchCounts(long nextRawCountEs, long nextUnifiedCountEs) {
+        return new DashboardStatsResponse(
+                rawCountDb,
+                Math.max(0L, nextRawCountEs),
+                unifiedCountDb,
+                Math.max(0L, nextUnifiedCountEs),
+                totalTasks,
+                pendingNormalization,
+                pendingEnrichment,
+                normalizationFailed,
+                enrichmentMissingDouban,
+                enrichmentMissingTmdb,
+                imageDownloadFailed,
+                imageDeadLink);
+    }
 }

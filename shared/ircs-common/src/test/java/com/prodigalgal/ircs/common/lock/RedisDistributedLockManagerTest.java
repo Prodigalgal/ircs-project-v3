@@ -35,7 +35,7 @@ class RedisDistributedLockManagerTest {
     void reserveTimeSliceReturnsReservedWaitAndNextAvailableTime() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:Provider:DOUBAN", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
+                eq(List.of("traffic:limit:Provider:Metadata:Ip:203.0.113.10:DOUBAN", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -43,7 +43,7 @@ class RedisDistributedLockManagerTest {
                 .thenReturn((List) List.of(1L, 250L, Instant.parse("2026-06-11T12:00:02Z").toEpochMilli()));
 
         TimeSliceReservation reservation = manager.reserveTimeSlice(new TimeSliceReservationRequest(
-                "traffic:limit:Provider:DOUBAN",
+                "traffic:limit:Provider:Metadata:Ip:203.0.113.10:DOUBAN",
                 Duration.ofSeconds(2),
                 Duration.ofMinutes(1),
                 Duration.ofMinutes(10)));
@@ -59,7 +59,7 @@ class RedisDistributedLockManagerTest {
     void reserveTimeSliceRejectsWhenQueueWaitExceedsMaxWait() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:DataSource:source-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
+                eq(List.of("traffic:limit:DataSource:Scraper:Ip:203.0.113.10:source-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -67,7 +67,7 @@ class RedisDistributedLockManagerTest {
                 .thenReturn((List) List.of(-1L, 120_001L, Instant.parse("2026-06-11T12:02:01Z").toEpochMilli()));
 
         TimeSliceReservation reservation = manager.reserveTimeSlice(new TimeSliceReservationRequest(
-                "traffic:limit:DataSource:source-1",
+                "traffic:limit:DataSource:Scraper:Ip:203.0.113.10:source-1",
                 Duration.ofSeconds(2),
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10)));

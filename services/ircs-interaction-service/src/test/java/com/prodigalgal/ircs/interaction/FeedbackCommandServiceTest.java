@@ -23,10 +23,11 @@ import org.springframework.http.HttpStatus;
 class FeedbackCommandServiceTest {
 
     private final JdbcFeedbackRepository repository = org.mockito.Mockito.mock(JdbcFeedbackRepository.class);
+    private final MemberPointLedger pointLedger = org.mockito.Mockito.mock(MemberPointLedger.class);
     private final SystemConfigRepository systemConfigRepository = org.mockito.Mockito.mock(SystemConfigRepository.class);
     private final MockEnvironment environment = new MockEnvironment();
     private final FeedbackCommandService service =
-            new FeedbackCommandService(repository, systemConfigRepository, environment);
+            new FeedbackCommandService(repository, pointLedger, systemConfigRepository, environment);
 
     @Test
     void submitsCleanedContentWithinDailyLimit() {
@@ -44,6 +45,7 @@ class FeedbackCommandServiceTest {
         ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository).insertMessage(any(), eq(memberId), contentCaptor.capture(), any());
         assertEquals("可以 & 继续看", contentCaptor.getValue());
+        verify(pointLedger).spend(memberId, 1, "MESSAGE");
     }
 
     @Test
@@ -71,7 +73,7 @@ class FeedbackCommandServiceTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.status());
         assertEquals("留言内容过长 (最多500字)", exception.getMessage());
-        verifyNoInteractions(repository, systemConfigRepository);
+        verifyNoInteractions(repository, pointLedger, systemConfigRepository);
     }
 
     @Test
@@ -153,6 +155,20 @@ class FeedbackCommandServiceTest {
         UserMessageResponse response = service.submit(memberId, new FeedbackSubmitRequest("还能留言"));
 
         assertSame(expected, response);
+    }
+
+    @Test
+    void storedPointCostOverridesDefaultCost() {
+        UUID memberId = UUID.randomUUID();
+        when(systemConfigRepository.findValue("member.message.daily-limit")).thenReturn(Optional.of("5"));
+        when(systemConfigRepository.findValue("member.message.point-cost")).thenReturn(Optional.of("2"));
+        when(repository.countMemberMessagesCreatedBetween(eq(memberId), any(), any())).thenReturn(0L);
+        UserMessageResponse expected = message(memberId, "扣积分");
+        when(repository.insertMessage(any(), eq(memberId), any(), any())).thenReturn(expected);
+
+        service.submit(memberId, new FeedbackSubmitRequest("扣积分"));
+
+        verify(pointLedger).spend(memberId, 2, "MESSAGE");
     }
 
     @Test

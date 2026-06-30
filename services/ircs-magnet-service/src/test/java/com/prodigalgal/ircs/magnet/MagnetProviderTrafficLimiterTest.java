@@ -110,7 +110,7 @@ class MagnetProviderTrafficLimiterTest {
     @Test
     void normalizesIpv6EgressIdentityInProviderKey() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
-                "traffic:limit:Provider:Ip:2001_db8__10:" + PROVIDER_ID,
+                "traffic:limit:Provider:Magnet:Ip:2001_db8__10:" + PROVIDER_ID,
                 Duration.ZERO,
                 Instant.parse("2026-06-11T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:01Z")));
@@ -127,7 +127,7 @@ class MagnetProviderTrafficLimiterTest {
         limiter.acquireProviderSlot(provider(1500));
 
         assertThat(lockManager.lastTimeSliceRequest.key())
-                .isEqualTo("traffic:limit:Provider:Ip:2001_db8__10:" + PROVIDER_ID);
+                .isEqualTo("traffic:limit:Provider:Magnet:Ip:2001_db8__10:" + PROVIDER_ID);
     }
 
     @Test
@@ -189,7 +189,7 @@ class MagnetProviderTrafficLimiterTest {
     }
 
     private static String providerKey() {
-        return "traffic:limit:Provider:Ip:" + EGRESS_IP + ":" + PROVIDER_ID;
+        return "traffic:limit:Provider:Magnet:Ip:" + EGRESS_IP + ":" + PROVIDER_ID;
     }
 
     @SuppressWarnings("unchecked")

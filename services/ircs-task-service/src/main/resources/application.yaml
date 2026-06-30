@@ -75,6 +75,15 @@ app:
       enabled: ${APP_TASK_TREND_DISCOVERY_ENABLED:true}
       max-keywords: ${APP_TASK_TREND_DISCOVERY_MAX_KEYWORDS:50}
       max-data-sources: ${APP_TASK_TREND_DISCOVERY_MAX_DATA_SOURCES:0}
+    media-request:
+      enabled: ${APP_TASK_MEDIA_REQUEST_ENABLED:true}
+      initial-delay-ms: ${APP_TASK_MEDIA_REQUEST_INITIAL_DELAY_MS:30000}
+      fixed-delay-ms: ${APP_TASK_MEDIA_REQUEST_FIXED_DELAY_MS:60000}
+      batch-size: ${APP_TASK_MEDIA_REQUEST_BATCH_SIZE:20}
+      start-page: ${APP_TASK_MEDIA_REQUEST_START_PAGE:1}
+      end-page: ${APP_TASK_MEDIA_REQUEST_END_PAGE:1}
+      request-fixed-delay-ms: ${APP_TASK_MEDIA_REQUEST_REQUEST_FIXED_DELAY_MS:0}
+      max-data-sources: ${APP_TASK_MEDIA_REQUEST_MAX_DATA_SOURCES:0}
 
 ircs:
   outbound:

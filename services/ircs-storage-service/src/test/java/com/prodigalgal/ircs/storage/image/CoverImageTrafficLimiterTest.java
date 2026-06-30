@@ -43,7 +43,7 @@ class CoverImageTrafficLimiterTest {
                 .isEqualTo("traffic:limit:Global:ImageDownload:Ip:203.0.113.10");
         assertThat(lockManager.timeSliceRequests.getFirst().gap()).isEqualTo(Duration.ofMillis(500));
         assertThat(lockManager.timeSliceRequests.get(1).key())
-                .isEqualTo("traffic:limit:Domain:Ip:203.0.113.10:images.example.test");
+                .isEqualTo("traffic:limit:Domain:ImageDownload:Ip:203.0.113.10:images.example.test");
         assertThat(lockManager.timeSliceRequests.get(1).gap()).isEqualTo(Duration.ofMillis(1500));
         assertThat(lockManager.timeSliceRequests.get(1).maxWait()).isEqualTo(Duration.ofMinutes(2));
         assertThat(lockManager.timeSliceRequests.get(1).ttl()).isEqualTo(Duration.ofMinutes(10));
@@ -58,7 +58,7 @@ class CoverImageTrafficLimiterTest {
                         Instant.parse("2026-06-11T00:00:00Z"),
                         Instant.parse("2026-06-11T00:00:01Z")),
                 TimeSliceReservation.rejected(
-                        "traffic:limit:Domain:Ip:203.0.113.10:images.example.test",
+                        "traffic:limit:Domain:ImageDownload:Ip:203.0.113.10:images.example.test",
                         Duration.ofMinutes(3),
                         Instant.parse("2026-06-11T00:00:00Z"),
                         Instant.parse("2026-06-11T00:03:00Z")));
@@ -112,7 +112,7 @@ class CoverImageTrafficLimiterTest {
         assertThat(lockManager.timeSliceRequests.getFirst().key())
                 .isEqualTo("traffic:limit:Global:ImageDownload:Ip:203.0.113.10");
         assertThat(lockManager.timeSliceRequests.get(1).key())
-                .isEqualTo("traffic:limit:Domain:Ip:203.0.113.10:images.example.test");
+                .isEqualTo("traffic:limit:Domain:ImageDownload:Ip:203.0.113.10:images.example.test");
     }
 
     @SuppressWarnings("unchecked")

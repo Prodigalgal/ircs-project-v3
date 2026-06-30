@@ -26,7 +26,7 @@ class MetadataProviderTrafficLimiterTest {
     @Test
     void reservesProviderTimeSliceUsingEgressIdentity() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
-                "traffic:limit:Provider:Ip:203.0.113.10:DOUBAN",
+                "traffic:limit:Provider:Metadata:Ip:203.0.113.10:DOUBAN",
                 Duration.ZERO,
                 Instant.parse("2026-06-11T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:01Z")));
@@ -42,7 +42,7 @@ class MetadataProviderTrafficLimiterTest {
         limiter.acquireProviderSlot("DOUBAN");
 
         assertThat(lockManager.lastTimeSliceRequest.key())
-                .isEqualTo("traffic:limit:Provider:Ip:203.0.113.10:DOUBAN");
+                .isEqualTo("traffic:limit:Provider:Metadata:Ip:203.0.113.10:DOUBAN");
         assertThat(lockManager.lastTimeSliceRequest.gap()).isEqualTo(Duration.ofMillis(1500));
         assertThat(lockManager.lastTimeSliceRequest.maxWait()).isEqualTo(Duration.ofMinutes(2));
         assertThat(lockManager.lastTimeSliceRequest.ttl()).isEqualTo(Duration.ofMinutes(10));
@@ -51,7 +51,7 @@ class MetadataProviderTrafficLimiterTest {
     @Test
     void rejectsWhenProviderQueueWaitExceedsMaxWait() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.rejected(
-                "traffic:limit:Provider:Ip:203.0.113.10:ROTTEN_TOMATOES",
+                "traffic:limit:Provider:Metadata:Ip:203.0.113.10:ROTTEN_TOMATOES",
                 Duration.ofMinutes(3),
                 Instant.parse("2026-06-11T00:00:00Z"),
                 Instant.parse("2026-06-11T00:03:00Z")));
@@ -72,7 +72,7 @@ class MetadataProviderTrafficLimiterTest {
     @Test
     void usesDynamicSystemConfigAheadOfDeploymentDefaults() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TimeSliceReservation.reserved(
-                "traffic:limit:Provider:Ip:203.0.113.10:TMDB",
+                "traffic:limit:Provider:Metadata:Ip:203.0.113.10:TMDB",
                 Duration.ZERO,
                 Instant.parse("2026-06-11T00:00:00Z"),
                 Instant.parse("2026-06-11T00:00:01Z")));

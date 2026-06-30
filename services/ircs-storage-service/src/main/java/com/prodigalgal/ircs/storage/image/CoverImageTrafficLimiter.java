@@ -19,6 +19,7 @@ import org.springframework.util.StringUtils;
 class CoverImageTrafficLimiter {
 
     private static final String GLOBAL_KEY_PREFIX = "traffic:limit:Global:ImageDownload:Ip:";
+    private static final String DOMAIN_KEY_PREFIX = "traffic:limit:Domain:ImageDownload:Ip:";
 
     private final DistributedLockManager lockManager;
     private final RuntimeConfigService runtimeConfig;
@@ -64,7 +65,7 @@ class CoverImageTrafficLimiter {
         }
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.DOMAIN_FETCH);
         reserve(
-                profile.keyPrefix() + "Ip:" + egressIdentity + ":" + EgressIdentities.sanitize(host.toLowerCase(Locale.ROOT)),
+                DOMAIN_KEY_PREFIX + egressIdentity + ":" + EgressIdentities.sanitize(host.toLowerCase(Locale.ROOT)),
                 domainGap(),
                 host);
     }

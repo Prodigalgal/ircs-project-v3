@@ -5,7 +5,9 @@ import com.prodigalgal.ircs.common.lease.RedisClusterLeaseService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -195,9 +197,18 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
             }
             metrics.recordOperation("time_slice", "reserve", metricResult, elapsed(started));
             metrics.recordWait("time_slice", metricResult, reservation.waitTime());
+            recordTrafficUsage(request.key(), "TIME_SLICE", metricResult, request.ttl(), Map.of(
+                    "gapMs", String.valueOf(request.gap().toMillis()),
+                    "maxWaitMs", String.valueOf(request.maxWait().toMillis()),
+                    "waitMs", String.valueOf(reservation.waitTime().toMillis()),
+                    "nextAvailableAt", reservation.nextAvailableAt().toString()));
             return reservation;
         } catch (RuntimeException ex) {
             metrics.recordOperation("time_slice", "reserve", "error", elapsed(started));
+            recordTrafficUsage(request.key(), "TIME_SLICE", "error", request.ttl(), Map.of(
+                    "gapMs", String.valueOf(request.gap().toMillis()),
+                    "maxWaitMs", String.valueOf(request.maxWait().toMillis()),
+                    "error", ex.getClass().getSimpleName()));
             throw ex;
         }
     }
@@ -240,9 +251,18 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
             }
             metrics.recordOperation("token_bucket", "reserve", metricResult, elapsed(started));
             metrics.recordWait("token_bucket", metricResult, reservation.retryAfter());
+            recordTrafficUsage(request.key(), "TOKEN_BUCKET", metricResult, request.ttl(), Map.of(
+                    "capacity", String.valueOf(request.capacity()),
+                    "permits", String.valueOf(request.permits()),
+                    "remainingPermits", String.valueOf(reservation.remainingTokens()),
+                    "retryAfterMs", String.valueOf(reservation.retryAfter().toMillis())));
             return reservation;
         } catch (RuntimeException ex) {
             metrics.recordOperation("token_bucket", "reserve", "error", elapsed(started));
+            recordTrafficUsage(request.key(), "TOKEN_BUCKET", "error", request.ttl(), Map.of(
+                    "capacity", String.valueOf(request.capacity()),
+                    "permits", String.valueOf(request.permits()),
+                    "error", ex.getClass().getSimpleName()));
             throw ex;
         }
     }
@@ -279,6 +299,54 @@ public class RedisDistributedLockManager implements DistributedLockManager, Dist
     private static long valueAt(List<Long> result, int index) {
         Long value = result.get(index);
         return value == null ? 0L : value;
+    }
+
+    private void recordTrafficUsage(String trafficKey, String limiterType, String result, Duration ttl, Map<String, String> fields) {
+        try {
+            if (!TrafficLimitKeys.isCurrentTrafficKey(trafficKey)) {
+                return;
+            }
+            TrafficLimitKeys.TrafficKeyDescription description = TrafficLimitKeys.describe(trafficKey);
+            Map<String, String> values = new HashMap<>();
+            values.put("key", TrafficLimitKeys.stripPrefix(trafficKey));
+            values.put("redisKey", trafficKey);
+            values.put("limiterType", limiterType);
+            values.put("business", description.business());
+            values.put("scope", description.scope());
+            values.put("target", nullToEmpty(description.target()));
+            values.put("egressIdentity", nullToEmpty(description.egressIdentity()));
+            values.put("displayName", description.displayName());
+            values.put("lastResult", result);
+            values.put("lastObservedAt", Instant.now(clock).toString());
+            values.putAll(fields);
+
+            String metaKey = TrafficLimitKeys.metaKey(trafficKey);
+            redisTemplate.opsForHash().putAll(metaKey, values);
+            redisTemplate.opsForHash().increment(metaKey, counterField(result), 1L);
+            redisTemplate.opsForHash().increment(metaKey, "totalRequests", 1L);
+            redisTemplate.expire(metaKey, metaTtl(ttl));
+        } catch (RuntimeException ignored) {
+            // Traffic metadata is best-effort; limiter correctness must not depend on observability writes.
+        }
+    }
+
+    private static String counterField(String result) {
+        return switch (result) {
+            case "reserved", "fallback_reserved", "allowed", "fallback_allowed" -> "allowedCount";
+            case "waiting" -> "waitingCount";
+            case "rejected" -> "rejectedCount";
+            case "error" -> "errorCount";
+            default -> "otherCount";
+        };
+    }
+
+    private static Duration metaTtl(Duration ttl) {
+        Duration base = ttl == null || !ttl.isPositive() ? Duration.ofMinutes(10) : ttl;
+        return base.plus(Duration.ofHours(1));
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private static Duration elapsed(long startedNanos) {

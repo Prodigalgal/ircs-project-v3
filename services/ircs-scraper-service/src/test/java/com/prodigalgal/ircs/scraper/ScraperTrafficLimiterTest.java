@@ -149,7 +149,7 @@ class ScraperTrafficLimiterTest {
         limiter.acquireDataSourceSlot(source(), config(1000));
 
         assertThat(lockManager.timeSliceRequests.getFirst().key())
-                .isEqualTo("traffic:limit:DataSource:Ip:2001_db8__10:" + SOURCE_ID);
+                .isEqualTo("traffic:limit:DataSource:Scraper:Ip:2001_db8__10:" + SOURCE_ID);
     }
 
     @Test
@@ -240,7 +240,7 @@ class ScraperTrafficLimiterTest {
     }
 
     private static String sourceKey() {
-        return "traffic:limit:DataSource:Ip:" + EGRESS_IP + ":" + SOURCE_ID;
+        return "traffic:limit:DataSource:Scraper:Ip:" + EGRESS_IP + ":" + SOURCE_ID;
     }
 
     private static class FakeDistributedLockManager implements DistributedLockManager {

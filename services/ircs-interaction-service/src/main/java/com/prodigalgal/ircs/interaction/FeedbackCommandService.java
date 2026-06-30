@@ -19,11 +19,14 @@ import org.springframework.util.StringUtils;
 public class FeedbackCommandService {
 
     private static final String DAILY_LIMIT_KEY = "member.message.daily-limit";
+    private static final String POINT_COST_KEY = "member.message.point-cost";
     private static final int DEFAULT_DAILY_LIMIT = 5;
+    private static final int DEFAULT_POINT_COST = 1;
     private static final int MAX_CONTENT_LENGTH = 500;
     private static final ZoneId DAILY_LIMIT_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final JdbcFeedbackRepository repository;
+    private final MemberPointLedger pointLedger;
     private final SystemConfigRepository systemConfigRepository;
     private final Environment environment;
 
@@ -43,6 +46,7 @@ public class FeedbackCommandService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "留言内容无效或包含非法字符");
         }
 
+        pointLedger.spend(memberId, pointCost(), "MESSAGE");
         return repository.insertMessage(IrcsUuidGenerators.nextId(), memberId, safeContent, Instant.now());
     }
 
@@ -74,22 +78,30 @@ public class FeedbackCommandService {
     }
 
     private int dailyLimit() {
-        Optional<String> injectedLimit = RuntimeInjectedConfig.find(environment, DAILY_LIMIT_KEY);
-        if (injectedLimit.isPresent()) {
-            return parseLimit(injectedLimit.get().trim());
-        }
-        return systemConfigRepository.findValue(DAILY_LIMIT_KEY)
-                .filter(StringUtils::hasText)
-                .map(String::trim)
-                .map(this::parseLimit)
-                .orElse(DEFAULT_DAILY_LIMIT);
+        return configInt(DAILY_LIMIT_KEY, DEFAULT_DAILY_LIMIT);
     }
 
-    private int parseLimit(String rawValue) {
+    private int pointCost() {
+        return Math.max(0, configInt(POINT_COST_KEY, DEFAULT_POINT_COST));
+    }
+
+    private int configInt(String key, int fallback) {
+        Optional<String> injectedLimit = RuntimeInjectedConfig.find(environment, key);
+        if (injectedLimit.isPresent()) {
+            return parseLimit(injectedLimit.get().trim(), fallback);
+        }
+        return systemConfigRepository.findValue(key)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .map(raw -> parseLimit(raw, fallback))
+                .orElse(fallback);
+    }
+
+    private int parseLimit(String rawValue, int fallback) {
         try {
             return Integer.parseInt(rawValue);
         } catch (NumberFormatException ignored) {
-            return DEFAULT_DAILY_LIMIT;
+            return fallback;
         }
     }
 

@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.ops.dashboard.dto.SourceQualityResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.JdbcDashboardRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SearchOpsStatsClient;
 import java.time.Duration;
@@ -30,6 +31,7 @@ public class DashboardQueryService {
     private final TaskRuntimeOverviewService taskRuntimeOverviewService;
     private final SearchOpsStatsClient searchOpsStatsClient;
     private final AggregationOpsStatsClient aggregationOpsStatsClient;
+    private final DashboardSearchIndexStatsClient searchIndexStatsClient;
     private final DashboardReadCache<DashboardStatsResponse> statsCache = new DashboardReadCache<>(STATS_CACHE_TTL);
     private final DashboardKeyedReadCache<Integer, DashboardAnalysisResponse> analysisCache =
             new DashboardKeyedReadCache<>(ANALYSIS_CACHE_TTL);
@@ -37,7 +39,19 @@ public class DashboardQueryService {
             new DashboardReadCache<>(SOURCE_QUALITY_CACHE_TTL);
 
     public DashboardStatsResponse getStatistics() {
-        return statsCache.get(dashboardRepository::loadStats);
+        return statsCache.get(this::loadStatistics);
+    }
+
+    private DashboardStatsResponse loadStatistics() {
+        DashboardStatsResponse dbStats = dashboardRepository.loadStats();
+        try {
+            DashboardSearchIndexStatsClient.SearchIndexCounts indexCounts = searchIndexStatsClient.currentCounts();
+            return dbStats.withSearchCounts(
+                    indexCounts.rawCount().orElse(dbStats.rawCountDb()),
+                    indexCounts.unifiedCount().orElse(dbStats.unifiedCountDb()));
+        } catch (RuntimeException ignored) {
+            return dbStats.withSearchCounts(dbStats.rawCountDb(), dbStats.unifiedCountDb());
+        }
     }
 
     public DashboardAnalysisResponse getAnalysis(int days) {

@@ -49,7 +49,7 @@ class RedisDistributedLockManagerMetricsTest {
     void recordsTimeSliceRejectedAndWaitDuration() {
         when(redisTemplate.execute(
                 any(RedisScript.class),
-                eq(List.of("traffic:limit:DataSource:source-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
+                eq(List.of("traffic:limit:DataSource:Scraper:Ip:203.0.113.10:source-1", TrafficLimitKeys.ACTIVE_INDEX_KEY)),
                 any(),
                 any(),
                 any(),
@@ -57,7 +57,7 @@ class RedisDistributedLockManagerMetricsTest {
                 .thenReturn((List) List.of(-1L, 10_000L, Instant.parse("2026-06-11T12:00:10Z").toEpochMilli()));
 
         TimeSliceReservation reservation = manager.reserveTimeSlice(new TimeSliceReservationRequest(
-                "traffic:limit:DataSource:source-1",
+                "traffic:limit:DataSource:Scraper:Ip:203.0.113.10:source-1",
                 Duration.ofSeconds(2),
                 Duration.ofSeconds(5),
                 Duration.ofMinutes(10)));
