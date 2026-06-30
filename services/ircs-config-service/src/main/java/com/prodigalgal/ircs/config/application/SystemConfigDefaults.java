@@ -53,6 +53,12 @@ public class SystemConfigDefaults {
             cfg("app.normalization.valkey-worker.visibility-timeout", "PT10M", "归一化 Valkey worker 任务可见性超时"),
             cfg("app.normalization.valkey-worker.initial-delay-ms", "10000", "归一化 Valkey worker 启动延迟(毫秒)"),
             cfg("app.normalization.valkey-worker.fixed-delay-ms", "1000", "归一化 Valkey worker 空转轮询间隔(毫秒)"),
+            cfg("app.normalization.pending-watchdog.enabled", "true", "是否启用归一化 PENDING 补投递 Watchdog"),
+            cfg("app.normalization.pending-watchdog.batch-size", "200", "归一化 PENDING Watchdog 每轮扫描数量"),
+            cfg("app.normalization.pending-watchdog.min-pending-age", "PT5M", "归一化 PENDING Watchdog 最小等待时间"),
+            cfg("app.normalization.pending-watchdog.lease-ttl", "PT45S", "归一化 PENDING Watchdog 集群租约 TTL"),
+            cfg("app.normalization.pending-watchdog.initial-delay-ms", "30000", "归一化 PENDING Watchdog 启动延迟(毫秒)"),
+            cfg("app.normalization.pending-watchdog.fixed-delay-ms", "60000", "归一化 PENDING Watchdog 扫描间隔(毫秒)"),
             cfg("app.metadata.timeout.processing-min", "45", "元数据丰富处理超时时间(分钟)"),
             cfg("app.metadata.timeout.pending-min", "120", "元数据等待超时补救(分钟)"),
             cfg("app.metadata.cron", "0 0/30 * * * ?", "元数据填充任务 CRON 表达式"),
@@ -569,6 +575,10 @@ public class SystemConfigDefaults {
                 || isCacheStartupKey(key)
                 || key.startsWith("app.storage.r2.")
                 || key.startsWith("app.storage.image.download-backfill.")
+                || key.startsWith("app.normalization.valkey-worker.initial-delay-ms")
+                || key.startsWith("app.normalization.valkey-worker.fixed-delay-ms")
+                || key.startsWith("app.normalization.pending-watchdog.initial-delay-ms")
+                || key.startsWith("app.normalization.pending-watchdog.fixed-delay-ms")
                 || key.startsWith("app.magnet.auto-search.initial-delay-ms")
                 || key.startsWith("app.magnet.auto-search.fixed-delay-ms")
                 || key.startsWith("app.magnet.work-queue.worker.initial-delay-ms")

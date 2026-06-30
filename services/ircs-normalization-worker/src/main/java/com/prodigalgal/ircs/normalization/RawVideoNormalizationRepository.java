@@ -205,6 +205,24 @@ public class RawVideoNormalizationRepository {
                         rs.getString("data_hash")));
     }
 
+    public List<RawVideoQueueItem> findPendingNormalizationQueueItems(Instant updatedBefore, int limit) {
+        return jdbcTemplate.query(
+                """
+                select id, data_hash
+                  from raw_videos
+                 where normalization_status = 'PENDING'
+                   and (updated_at is null or updated_at <= :updatedBefore)
+                 order by updated_at asc nulls first, id asc
+                 limit :limit
+                """,
+                new MapSqlParameterSource()
+                        .addValue("updatedBefore", Timestamp.from(updatedBefore == null ? Instant.now() : updatedBefore))
+                        .addValue("limit", Math.max(1, limit)),
+                (rs, rowNum) -> new RawVideoQueueItem(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("data_hash")));
+    }
+
     private MapSqlParameterSource params(UUID id, RawVideoPatch patch) {
         return new MapSqlParameterSource()
                 .addValue("id", id)

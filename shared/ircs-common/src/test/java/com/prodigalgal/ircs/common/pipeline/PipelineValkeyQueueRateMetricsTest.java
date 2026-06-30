@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 class PipelineValkeyQueueRateMetricsTest {
@@ -94,6 +95,17 @@ class PipelineValkeyQueueRateMetricsTest {
                 5,
                 11,
                 RateMetricKeys.pipelineMetric(PipelineTaskTypes.METADATA_PROVIDER, RateMetricKeys.ACTION_CLAIMED));
+    }
+
+    @Test
+    void hasOpenTaskChecksPendingAndInflightIndexes() {
+        @SuppressWarnings("unchecked")
+        ZSetOperations<String, String> zSetOperations = org.mockito.Mockito.mock(ZSetOperations.class);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.score("ircs:pipeline:v2:NORMALIZE_VIDEO:pending", "task-1")).thenReturn(null);
+        when(zSetOperations.score("ircs:pipeline:v2:NORMALIZE_VIDEO:inflight", "task-1")).thenReturn(1.0);
+
+        assertTrue(queue.hasOpenTask(PipelineTaskTypes.NORMALIZE_VIDEO, "task-1"));
     }
 
     @Test

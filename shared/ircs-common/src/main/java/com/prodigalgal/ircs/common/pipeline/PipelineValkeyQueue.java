@@ -220,6 +220,23 @@ public class PipelineValkeyQueue {
         submit(command, Duration.ZERO);
     }
 
+    public boolean hasOpenTask(PipelineCommand command) {
+        if (command == null) {
+            return false;
+        }
+        return hasOpenTask(taskType(command.step()), commandTaskId(command));
+    }
+
+    public boolean hasOpenTask(String taskType, String taskId) {
+        validateTaskType(taskType);
+        if (!StringUtils.hasText(taskId)) {
+            return false;
+        }
+        String normalizedTaskId = taskId.trim();
+        return redisTemplate.opsForZSet().score(pendingKey(taskType), normalizedTaskId) != null
+                || redisTemplate.opsForZSet().score(inflightKey(taskType), normalizedTaskId) != null;
+    }
+
     public void submit(PipelineCommand command, Duration delay) {
         if (command == null) {
             throw new IllegalArgumentException("pipeline command is required");

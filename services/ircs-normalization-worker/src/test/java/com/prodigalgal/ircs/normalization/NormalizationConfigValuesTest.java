@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.normalization;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
@@ -17,6 +18,10 @@ class NormalizationConfigValuesTest {
 
         assertEquals(5, values.maxRetries());
         assertEquals(60L, values.backoffBaseSeconds());
+        assertEquals(true, values.pendingWatchdogEnabled());
+        assertEquals(200, values.pendingWatchdogBatchSize());
+        assertEquals(Duration.ofMinutes(5), values.pendingWatchdogMinPendingAge());
+        assertEquals(Duration.ofSeconds(45), values.pendingWatchdogLeaseTtl());
     }
 
     @Test
@@ -30,16 +35,36 @@ class NormalizationConfigValuesTest {
     }
 
     @Test
+    void pendingWatchdogDbConfigOverridesDefaults() {
+        when(repository.findValue("app.normalization.pending-watchdog.enabled")).thenReturn(Optional.of("false"));
+        when(repository.findValue("app.normalization.pending-watchdog.batch-size")).thenReturn(Optional.of("50"));
+        when(repository.findValue("app.normalization.pending-watchdog.min-pending-age")).thenReturn(Optional.of("PT2M"));
+        when(repository.findValue("app.normalization.pending-watchdog.lease-ttl")).thenReturn(Optional.of("PT20S"));
+        NormalizationConfigValues values = values(new MockEnvironment());
+
+        assertEquals(false, values.pendingWatchdogEnabled());
+        assertEquals(50, values.pendingWatchdogBatchSize());
+        assertEquals(Duration.ofMinutes(2), values.pendingWatchdogMinPendingAge());
+        assertEquals(Duration.ofSeconds(20), values.pendingWatchdogLeaseTtl());
+    }
+
+    @Test
     void runtimeAliasesOverrideDbConfigAndKeepAliasUnits() {
         when(repository.findValue("normalization.max-retries")).thenReturn(Optional.of("7"));
         when(repository.findValue("normalization.backoff.base-seconds")).thenReturn(Optional.of("90"));
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("APP_NORMALIZATION_MAX_RETRIES", "3")
-                .withProperty("APP_NORMALIZATION_BACKOFF_BASE_SECONDS", "12");
+                .withProperty("APP_NORMALIZATION_BACKOFF_BASE_SECONDS", "12")
+                .withProperty("APP_NORMALIZATION_PENDING_WATCHDOG_BATCH_SIZE", "25")
+                .withProperty("APP_NORMALIZATION_PENDING_WATCHDOG_MIN_PENDING_AGE", "PT1M")
+                .withProperty("APP_NORMALIZATION_PENDING_WATCHDOG_LEASE_TTL", "PT15S");
         NormalizationConfigValues values = values(environment);
 
         assertEquals(3, values.maxRetries());
         assertEquals(12L, values.backoffBaseSeconds());
+        assertEquals(25, values.pendingWatchdogBatchSize());
+        assertEquals(Duration.ofMinutes(1), values.pendingWatchdogMinPendingAge());
+        assertEquals(Duration.ofSeconds(15), values.pendingWatchdogLeaseTtl());
     }
 
     @Test

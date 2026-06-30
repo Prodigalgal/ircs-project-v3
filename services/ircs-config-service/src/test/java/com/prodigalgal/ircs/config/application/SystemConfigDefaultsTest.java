@@ -98,6 +98,12 @@ class SystemConfigDefaultsTest {
         assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue(
                 "app.aggregation.work-queue.worker.processing-stall-threshold").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue(
+                "app.normalization.pending-watchdog.enabled").orElseThrow());
+        assertEquals("200", defaults.staticDefaultValue(
+                "app.normalization.pending-watchdog.batch-size").orElseThrow());
+        assertEquals("PT5M", defaults.staticDefaultValue(
+                "app.normalization.pending-watchdog.min-pending-age").orElseThrow());
         assertEquals("PT5S", defaults.staticDefaultValue("app.ops.task-runtime.overview.cache-ttl").orElseThrow());
         assertEquals("PT5S", defaults.staticDefaultValue("app.ops.runtime-dlq.cache-ttl").orElseThrow());
         assertEquals("3", defaults.staticDefaultValue("app.ops.rabbit-dlq.sampled-queue-limit").orElseThrow());
@@ -227,6 +233,8 @@ class SystemConfigDefaultsTest {
                 defaults.metadata("app.magnet.auto-search.fixed-delay-ms");
         SystemConfigDefaults.ConfigMetadata magnetWorkQueueScheduleRestart =
                 defaults.metadata("app.magnet.work-queue.worker.fixed-delay-ms");
+        SystemConfigDefaults.ConfigMetadata normalizationWatchdogScheduleRestart =
+                defaults.metadata("app.normalization.pending-watchdog.fixed-delay-ms");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, taskRuntimeCacheHot.activationMode());
@@ -243,6 +251,10 @@ class SystemConfigDefaultsTest {
                 defaults.metadata("app.magnet.work-queue.worker.batch-size").activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT,
                 defaults.metadata("app.magnet.work-queue.worker.visibility-seconds").activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT,
+                defaults.metadata("app.normalization.pending-watchdog.enabled").activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT,
+                defaults.metadata("app.normalization.pending-watchdog.batch-size").activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, cacheRestart.activationMode());
         assertTrue(cacheRestart.restartServices().contains("ircs-portal-service"));
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED, taskRestart.activationMode());
@@ -261,6 +273,9 @@ class SystemConfigDefaultsTest {
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
                 magnetWorkQueueScheduleRestart.activationMode());
         assertTrue(magnetWorkQueueScheduleRestart.restartServices().contains("ircs-magnet-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
+                normalizationWatchdogScheduleRestart.activationMode());
+        assertTrue(normalizationWatchdogScheduleRestart.restartServices().contains("ircs-normalization-worker"));
         assertConfigListenerRequiresRestart("app.aggregation.config-listener.enabled", "ircs-aggregation-worker");
         assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
         assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
@@ -331,6 +346,12 @@ class SystemConfigDefaultsTest {
             "app.normalization.valkey-worker.visibility-timeout",
             "app.normalization.valkey-worker.initial-delay-ms",
             "app.normalization.valkey-worker.fixed-delay-ms",
+            "app.normalization.pending-watchdog.enabled",
+            "app.normalization.pending-watchdog.batch-size",
+            "app.normalization.pending-watchdog.min-pending-age",
+            "app.normalization.pending-watchdog.lease-ttl",
+            "app.normalization.pending-watchdog.initial-delay-ms",
+            "app.normalization.pending-watchdog.fixed-delay-ms",
             "app.metadata.timeout.processing-min",
             "app.metadata.timeout.pending-min",
             "app.metadata.cron",

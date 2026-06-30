@@ -1,7 +1,9 @@
 package com.prodigalgal.ircs.normalization;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Locale;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -25,8 +27,15 @@ class NormalizationConfigValues {
     static final String LLM_API_KEY_KEY = "spring.ai.openai.api-key";
     static final String LLM_BASE_URL_KEY = "spring.ai.openai.base-url";
     static final String LLM_PROVIDER_KEY = "app.ai.llm.provider";
+    static final String PENDING_WATCHDOG_ENABLED_KEY = "app.normalization.pending-watchdog.enabled";
+    static final String PENDING_WATCHDOG_BATCH_SIZE_KEY = "app.normalization.pending-watchdog.batch-size";
+    static final String PENDING_WATCHDOG_MIN_PENDING_AGE_KEY = "app.normalization.pending-watchdog.min-pending-age";
+    static final String PENDING_WATCHDOG_LEASE_TTL_KEY = "app.normalization.pending-watchdog.lease-ttl";
     static final int DEFAULT_MAX_RETRIES = 5;
     static final long DEFAULT_BACKOFF_BASE_SECONDS = 60L;
+    static final int DEFAULT_PENDING_WATCHDOG_BATCH_SIZE = 200;
+    static final Duration DEFAULT_PENDING_WATCHDOG_MIN_PENDING_AGE = Duration.ofMinutes(5);
+    static final Duration DEFAULT_PENDING_WATCHDOG_LEASE_TTL = Duration.ofSeconds(45);
     static final String DEFAULT_LLM_CLEANING_MODE = "dry-run";
     static final String DEFAULT_LLM_MODEL = "gemma-4-31b-it";
     static final String DEFAULT_LLM_PROVIDER = "OPENAI";
@@ -110,6 +119,33 @@ class NormalizationConfigValues {
                 "app.normalization.llm.request-timeout-seconds"));
     }
 
+    boolean pendingWatchdogEnabled() {
+        return booleanValue(true, PENDING_WATCHDOG_ENABLED_KEY);
+    }
+
+    int pendingWatchdogBatchSize() {
+        return Math.max(1, intValue(
+                DEFAULT_PENDING_WATCHDOG_BATCH_SIZE,
+                PENDING_WATCHDOG_BATCH_SIZE_KEY,
+                "APP_NORMALIZATION_PENDING_WATCHDOG_BATCH_SIZE"));
+    }
+
+    Duration pendingWatchdogMinPendingAge() {
+        Duration value = durationValue(
+                DEFAULT_PENDING_WATCHDOG_MIN_PENDING_AGE,
+                PENDING_WATCHDOG_MIN_PENDING_AGE_KEY,
+                "APP_NORMALIZATION_PENDING_WATCHDOG_MIN_PENDING_AGE");
+        return value.isNegative() ? DEFAULT_PENDING_WATCHDOG_MIN_PENDING_AGE : value;
+    }
+
+    Duration pendingWatchdogLeaseTtl() {
+        Duration value = durationValue(
+                DEFAULT_PENDING_WATCHDOG_LEASE_TTL,
+                PENDING_WATCHDOG_LEASE_TTL_KEY,
+                "APP_NORMALIZATION_PENDING_WATCHDOG_LEASE_TTL");
+        return value.isZero() || value.isNegative() ? DEFAULT_PENDING_WATCHDOG_LEASE_TTL : value;
+    }
+
     private boolean booleanValue(boolean defaultValue, String key, String... aliases) {
         String raw = value(key, aliases);
         if (!StringUtils.hasText(raw)) {
@@ -138,6 +174,18 @@ class NormalizationConfigValues {
         try {
             return Long.parseLong(raw.trim());
         } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private Duration durationValue(Duration defaultValue, String key, String... aliases) {
+        String raw = value(key, aliases);
+        if (!StringUtils.hasText(raw)) {
+            return defaultValue;
+        }
+        try {
+            return DurationStyle.detectAndParse(raw.trim());
+        } catch (IllegalArgumentException ignored) {
             return defaultValue;
         }
     }
