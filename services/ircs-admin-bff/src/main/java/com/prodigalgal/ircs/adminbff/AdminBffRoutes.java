@@ -36,6 +36,7 @@ class AdminBffRoutes extends BffRouteTable {
                 new BffRoute("/api/v1/resolvers", contentBaseUrl, "/api/v1/resolvers"),
                 new BffRoute("/api/v1/cover-images", storageBaseUrl, "/api/v1/cover-images"),
                 new BffRoute("/api/v1/collection-tasks", taskBaseUrl, "/api/v1/collection-tasks"),
+                new BffRoute("/api/v1/media-request-batches", taskBaseUrl, "/api/v1/media-request-batches"),
                 new BffRoute("/api/v1/catalog", catalogBaseUrl, "/api/v1/catalog"),
                 new BffRoute("/api/v1/standard-categories", catalogBaseUrl, "/api/v1/standard-categories"),
                 new BffRoute("/api/v1/standard-genres", catalogBaseUrl, "/api/v1/standard-genres"),

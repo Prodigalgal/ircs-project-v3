@@ -1,8 +1,6 @@
 package com.prodigalgal.ircs.task.job;
 
-import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleRequest;
-import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
-import com.prodigalgal.ircs.task.application.TrendDiscoveryTaskService;
+import com.prodigalgal.ircs.task.application.MediaRequestBatchService;
 import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
@@ -24,23 +22,11 @@ class MediaRequestScheduler {
     static final String LOCK_NAME = "task:media-request:schedule";
 
     private final JdbcCollectionTaskRepository taskRepository;
-    private final TrendDiscoveryTaskService trendDiscoveryTaskService;
+    private final MediaRequestBatchService batchService;
     private final TaskDistributedLockRunner lockRunner;
 
     @Value("${app.task.media-request.batch-size:20}")
     private int batchSize;
-
-    @Value("${app.task.media-request.start-page:1}")
-    private int startPage;
-
-    @Value("${app.task.media-request.end-page:1}")
-    private int endPage;
-
-    @Value("${app.task.media-request.request-fixed-delay-ms:0}")
-    private int requestFixedDelayMs;
-
-    @Value("${app.task.media-request.max-data-sources:0}")
-    private int maxDataSources;
 
     @Scheduled(
             fixedDelayString = "${app.task.media-request.fixed-delay-ms:60000}",
@@ -66,28 +52,12 @@ class MediaRequestScheduler {
             return;
         }
         try {
-            TrendDiscoveryScheduleResponse response = trendDiscoveryTaskService.schedule(
-                    new TrendDiscoveryScheduleRequest(
-                            keywords,
-                            positiveOrDefault(startPage, 1),
-                            positiveOrDefault(endPage, 1),
-                            Math.max(0, requestFixedDelayMs),
-                            false,
-                            Math.max(0, maxDataSources)),
-                    "media-request:" + candidates.getFirst().id());
-            if (response.errors().isEmpty()) {
-                taskRepository.markMediaRequestsScheduled(ids(candidates));
-            } else {
-                taskRepository.markMediaRequestsPending(ids(candidates), String.join("; ", response.errors()));
-            }
+            UUID batchId = batchService.createBatchFromPendingRequests(candidates);
+            log.info("Created media request batch {}, requestCount={}", batchId, candidates.size());
         } catch (RuntimeException ex) {
             taskRepository.markMediaRequestsPending(ids(candidates), safeMessage(ex));
             throw ex;
         }
-    }
-
-    private static int positiveOrDefault(int value, int fallback) {
-        return value > 0 ? value : fallback;
     }
 
     private static List<UUID> ids(List<MediaRequestCandidate> candidates) {

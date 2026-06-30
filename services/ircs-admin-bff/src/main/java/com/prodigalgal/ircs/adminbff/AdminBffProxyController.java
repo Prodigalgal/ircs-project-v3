@@ -70,7 +70,7 @@ class AdminBffProxyController {
                 || path.startsWith("/api/v1/data-sources")) {
             return isRead(method) ? IrcsPermissions.CATALOG_READ : IrcsPermissions.CATALOG_WRITE;
         }
-        if (path.startsWith("/api/v1/collection-tasks")) {
+        if (path.startsWith("/api/v1/collection-tasks") || path.startsWith("/api/v1/media-request-batches")) {
             return isTaskRun(path, method)
                     ? IrcsPermissions.TASK_RUN
                     : isRead(method) ? IrcsPermissions.TASK_READ : IrcsPermissions.TASK_WRITE;
@@ -122,6 +122,7 @@ class AdminBffProxyController {
         return path.endsWith("/start")
                 || path.endsWith("/resume")
                 || path.endsWith("/pause")
-                || path.endsWith("/stop");
+                || path.endsWith("/stop")
+                || path.endsWith("/cancel");
     }
 }

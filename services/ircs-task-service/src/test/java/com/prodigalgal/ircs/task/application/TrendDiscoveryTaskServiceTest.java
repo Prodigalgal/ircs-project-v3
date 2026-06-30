@@ -119,7 +119,8 @@ class TrendDiscoveryTaskServiceTest {
         TrendDiscoveryTaskService result = new TrendDiscoveryTaskService(
                 taskRepository,
                 taskCommandService,
-                TaskDistributedLockRunner.local());
+                TaskDistributedLockRunner.local(),
+                new com.fasterxml.jackson.databind.ObjectMapper());
         ReflectionTestUtils.setField(result, "enabled", true);
         ReflectionTestUtils.setField(result, "maxKeywords", 50);
         ReflectionTestUtils.setField(result, "maxDataSources", 0);

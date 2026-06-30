@@ -1,12 +1,15 @@
 package com.prodigalgal.ircs.task.infrastructure;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
+import com.prodigalgal.ircs.task.domain.MediaRequestBatchItemCandidate;
 import com.prodigalgal.ircs.task.domain.ScheduledTaskDefinition;
 import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import com.prodigalgal.ircs.task.domain.TaskRuntimeState;
 import com.prodigalgal.ircs.task.domain.ValidatedCreateTask;
 import com.prodigalgal.ircs.task.domain.ValidatedUpdateTask;
+import com.prodigalgal.ircs.task.dto.MediaRequestBatchItemResponse;
+import com.prodigalgal.ircs.task.dto.MediaRequestBatchResponse;
 import com.prodigalgal.ircs.task.dto.TaskCardSummary;
 import com.prodigalgal.ircs.task.dto.TaskDetailSummary;
 
@@ -33,6 +36,7 @@ import org.springframework.stereotype.Repository;
 public class JdbcCollectionTaskRepository {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final String MEDIA_REQUEST_BATCH_HEADER_KEY = "ircsMediaRequestBatch";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -96,7 +100,7 @@ public class JdbcCollectionTaskRepository {
                        version = request.version + 1
                   from claimed
                  where request.id = claimed.id
-                 returning request.id, request.title, request.release_year, request.request_count
+                returning request.id, request.title, request.release_year, request.request_count
                 """,
                 (rs, rowNum) -> new MediaRequestCandidate(
                         rs.getObject("id", UUID.class),
@@ -104,6 +108,47 @@ public class JdbcCollectionTaskRepository {
                         apiReleaseYear(rs.getInt("release_year")),
                         rs.getInt("request_count")),
                 safeLimit);
+    }
+
+    public UUID createMediaRequestBatch(List<MediaRequestCandidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            throw new IllegalArgumentException("media request candidates are required");
+        }
+        UUID batchId = IrcsUuidGenerators.nextId();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update(
+                """
+                insert into portal_media_request_batches (
+                    id, created_at, updated_at, version, status, request_count
+                ) values (?, ?, ?, 0, 'READY', ?)
+                """,
+                batchId,
+                now,
+                now,
+                candidates.size());
+        for (MediaRequestCandidate candidate : candidates) {
+            jdbcTemplate.update(
+                    """
+                    insert into portal_media_request_batch_items (
+                        id, batch_id, media_request_id, created_at, updated_at, version,
+                        title, release_year, request_count, status
+                    ) values (?, ?, ?, ?, ?, 0, ?, ?, ?, 'READY')
+                    """,
+                    IrcsUuidGenerators.nextId(),
+                    batchId,
+                    candidate.id(),
+                    now,
+                    now,
+                    candidate.title(),
+                    dbReleaseYear(candidate.releaseYear()),
+                    candidate.requestCount());
+        }
+        jdbcTemplate.update(
+                "update portal_media_requests set status = 'BATCHED', current_batch_id = ?, updated_at = now(), "
+                        + "version = version + 1, last_error_message = null where id in ("
+                        + placeholders(candidates.size()) + ")",
+                prepend(batchId, candidates.stream().map(MediaRequestCandidate::id).toList()).toArray());
+        return batchId;
     }
 
     public void markMediaRequestsScheduled(List<UUID> ids) {
@@ -115,6 +160,271 @@ public class JdbcCollectionTaskRepository {
                 "update portal_media_requests set status = 'SCHEDULED', updated_at = now(), "
                         + "version = version + 1, last_error_message = null where id in (" + placeholders(safeIds.size()) + ")",
                 safeIds.toArray());
+    }
+
+    public Page<MediaRequestBatchResponse> findMediaRequestBatches(Pageable pageable, String status) {
+        Pageable safePageable = sanitize(pageable);
+        List<Object> params = new ArrayList<>();
+        String where = "";
+        if (status != null && !status.isBlank()) {
+            where = "where status = ?";
+            params.add(status.trim().toUpperCase());
+        }
+        Long total = jdbcTemplate.queryForObject(
+                "select count(*) from portal_media_request_batches " + where,
+                Long.class,
+                params.toArray());
+
+        List<Object> queryParams = new ArrayList<>(params);
+        queryParams.add(safePageable.getPageSize());
+        queryParams.add(safePageable.getOffset());
+        List<MediaRequestBatchResponse> content = jdbcTemplate.query(
+                """
+                select id, status, request_count, scheduled_count, skipped_count, failed_count,
+                       created_at, updated_at, started_at, cancelled_at, completed_at, last_error_message
+                  from portal_media_request_batches
+                %s
+                 order by created_at desc, id desc
+                 limit ? offset ?
+                """.formatted(where),
+                mediaRequestBatchMapper(false),
+                queryParams.toArray());
+        return new PageImpl<>(content, safePageable, total == null ? 0 : total);
+    }
+
+    public Optional<MediaRequestBatchResponse> findMediaRequestBatch(UUID batchId) {
+        try {
+            MediaRequestBatchResponse batch = jdbcTemplate.queryForObject(
+                    """
+                    select id, status, request_count, scheduled_count, skipped_count, failed_count,
+                           created_at, updated_at, started_at, cancelled_at, completed_at, last_error_message
+                      from portal_media_request_batches
+                     where id = ?
+                    """,
+                    mediaRequestBatchMapper(true),
+                    batchId);
+            return Optional.ofNullable(batch);
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    public boolean mediaRequestBatchExists(UUID batchId) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                "select exists(select 1 from portal_media_request_batches where id = ?)",
+                Boolean.class,
+                batchId);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public boolean markMediaRequestBatchRunning(UUID batchId) {
+        return jdbcTemplate.update(
+                """
+                update portal_media_request_batches
+                   set status = 'RUNNING',
+                       started_at = coalesce(started_at, now()),
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = null
+                 where id = ?
+                   and status = 'READY'
+                """,
+                batchId) > 0;
+    }
+
+    public List<MediaRequestBatchItemCandidate> findReadyMediaRequestBatchItems(UUID batchId) {
+        return jdbcTemplate.query(
+                """
+                select id, media_request_id, title, release_year, request_count
+                  from portal_media_request_batch_items
+                 where batch_id = ?
+                   and status = 'READY'
+                 order by request_count desc, created_at asc, id asc
+                """,
+                (rs, rowNum) -> new MediaRequestBatchItemCandidate(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("media_request_id", UUID.class),
+                        rs.getString("title"),
+                        apiReleaseYear(rs.getInt("release_year")),
+                        rs.getInt("request_count")),
+                batchId);
+    }
+
+    public void markMediaRequestBatchItemSkipped(
+            UUID itemId,
+            UUID mediaRequestId,
+            UUID existingVideoId,
+            String existingVideoSource) {
+        jdbcTemplate.update(
+                """
+                update portal_media_request_batch_items
+                   set status = 'SKIPPED_EXISTS',
+                       existing_video_id = ?,
+                       existing_video_source = ?,
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = null
+                 where id = ?
+                """,
+                existingVideoId,
+                existingVideoSource,
+                itemId);
+        jdbcTemplate.update(
+                """
+                update portal_media_requests
+                   set status = 'COMPLETED',
+                       completed_at = now(),
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = 'Internal video already exists'
+                 where id = ?
+                """,
+                mediaRequestId);
+    }
+
+    public void markMediaRequestBatchItemScheduled(UUID itemId, UUID mediaRequestId, int scheduledTaskCount) {
+        jdbcTemplate.update(
+                """
+                update portal_media_request_batch_items
+                   set status = 'SCHEDULED',
+                       scheduled_task_count = ?,
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = null
+                 where id = ?
+                """,
+                Math.max(0, scheduledTaskCount),
+                itemId);
+        jdbcTemplate.update(
+                """
+                update portal_media_requests
+                   set status = 'SCHEDULED',
+                       scheduled_at = now(),
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = null
+                 where id = ?
+                """,
+                mediaRequestId);
+    }
+
+    public void markMediaRequestBatchItemFailed(UUID itemId, UUID mediaRequestId, String reason) {
+        jdbcTemplate.update(
+                """
+                update portal_media_request_batch_items
+                   set status = 'FAILED',
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = ?
+                 where id = ?
+                """,
+                truncate(reason),
+                itemId);
+        jdbcTemplate.update(
+                """
+                update portal_media_requests
+                   set status = 'FAILED',
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = ?
+                 where id = ?
+                """,
+                truncate(reason),
+                mediaRequestId);
+    }
+
+    public void finishMediaRequestBatch(UUID batchId, String status, String reason) {
+        MediaRequestBatchCounters counters = mediaRequestBatchCounters(batchId);
+        jdbcTemplate.update(
+                """
+                update portal_media_request_batches
+                   set status = ?,
+                       scheduled_count = ?,
+                       skipped_count = ?,
+                       failed_count = ?,
+                       completed_at = case when ? in ('COMPLETED', 'FAILED', 'PARTIAL') then now() else completed_at end,
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = ?
+                 where id = ?
+                """,
+                status,
+                counters.scheduled(),
+                counters.skipped(),
+                counters.failed(),
+                status,
+                truncate(reason),
+                batchId);
+    }
+
+    public boolean cancelMediaRequestBatch(UUID batchId, String reason) {
+        int updated = jdbcTemplate.update(
+                """
+                update portal_media_request_batches
+                   set status = 'CANCELLED',
+                       cancelled_at = now(),
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = ?
+                 where id = ?
+                   and status in ('READY', 'RUNNING')
+                """,
+                truncate(reason),
+                batchId);
+        if (updated <= 0) {
+            return false;
+        }
+        jdbcTemplate.update(
+                """
+                update portal_media_request_batch_items
+                   set status = 'CANCELLED',
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = ?
+                 where batch_id = ?
+                   and status = 'READY'
+                """,
+                truncate(reason),
+                batchId);
+        jdbcTemplate.update(
+                """
+                update portal_media_requests
+                   set status = 'CANCELLED',
+                       updated_at = now(),
+                       version = version + 1,
+                       last_error_message = ?
+                 where current_batch_id = ?
+                   and status in ('BATCHED', 'SCHEDULING')
+                """,
+                truncate(reason),
+                batchId);
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                   set status = 'PAUSED',
+                       enabled = false,
+                       updated_at = now(),
+                       last_error_message = ?
+                 where headers -> ? ->> 'batchId' = ?
+                   and status in ('IDLE', 'QUEUED')
+                """,
+                truncate(reason),
+                MEDIA_REQUEST_BATCH_HEADER_KEY,
+                batchId.toString());
+        return true;
+    }
+
+    public List<UUID> findMediaRequestCollectionTaskIds(UUID batchId) {
+        return jdbcTemplate.query(
+                """
+                select id
+                  from collection_tasks
+                 where headers -> ? ->> 'batchId' = ?
+                 order by created_at desc, id desc
+                """,
+                (rs, rowNum) -> rs.getObject("id", UUID.class),
+                MEDIA_REQUEST_BATCH_HEADER_KEY,
+                batchId.toString());
     }
 
     public void markMediaRequestsPending(List<UUID> ids, String reason) {
@@ -606,9 +916,20 @@ public class JdbcCollectionTaskRepository {
             UUID dataSourceId,
             Boolean enabled
     ) {
+        return findAll(pageable, name, status, dataSourceId, enabled, null);
+    }
+
+    public Page<TaskCardSummary> findAll(
+            Pageable pageable,
+            String name,
+            String status,
+            UUID dataSourceId,
+            Boolean enabled,
+            UUID mediaRequestBatchId
+    ) {
         Pageable safePageable = sanitize(pageable);
         List<Object> whereParams = new ArrayList<>();
-        String where = buildWhere(name, status, dataSourceId, enabled, whereParams);
+        String where = buildWhere(name, status, dataSourceId, enabled, mediaRequestBatchId, whereParams);
 
         Long total = jdbcTemplate.queryForObject(
                 "select count(*) from collection_tasks t " + where,
@@ -718,6 +1039,7 @@ public class JdbcCollectionTaskRepository {
             String status,
             UUID dataSourceId,
             Boolean enabled,
+            UUID mediaRequestBatchId,
             List<Object> params
     ) {
         List<String> predicates = new ArrayList<>();
@@ -736,6 +1058,11 @@ public class JdbcCollectionTaskRepository {
         if (enabled != null) {
             predicates.add("t.enabled = ?");
             params.add(enabled);
+        }
+        if (mediaRequestBatchId != null) {
+            predicates.add("t.headers -> ? ->> 'batchId' = ?");
+            params.add(MEDIA_REQUEST_BATCH_HEADER_KEY);
+            params.add(mediaRequestBatchId.toString());
         }
         if (predicates.isEmpty()) {
             return "";
@@ -824,6 +1151,65 @@ public class JdbcCollectionTaskRepository {
                 toInstant(rs.getTimestamp("stat_end_time")));
     }
 
+    private RowMapper<MediaRequestBatchResponse> mediaRequestBatchMapper(boolean includeItems) {
+        return (rs, rowNum) -> {
+            UUID batchId = rs.getObject("id", UUID.class);
+            return new MediaRequestBatchResponse(
+                    batchId,
+                    rs.getString("status"),
+                    rs.getInt("request_count"),
+                    rs.getInt("scheduled_count"),
+                    rs.getInt("skipped_count"),
+                    rs.getInt("failed_count"),
+                    toInstant(rs.getTimestamp("created_at")),
+                    toInstant(rs.getTimestamp("updated_at")),
+                    toInstant(rs.getTimestamp("started_at")),
+                    toInstant(rs.getTimestamp("cancelled_at")),
+                    toInstant(rs.getTimestamp("completed_at")),
+                    rs.getString("last_error_message"),
+                    includeItems ? findMediaRequestBatchItems(batchId) : List.of());
+        };
+    }
+
+    private List<MediaRequestBatchItemResponse> findMediaRequestBatchItems(UUID batchId) {
+        return jdbcTemplate.query(
+                """
+                select id, media_request_id, title, release_year, request_count, status,
+                       existing_video_id, existing_video_source, scheduled_task_count, last_error_message
+                  from portal_media_request_batch_items
+                 where batch_id = ?
+                 order by request_count desc, created_at asc, id asc
+                """,
+                (rs, rowNum) -> new MediaRequestBatchItemResponse(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("media_request_id", UUID.class),
+                        rs.getString("title"),
+                        apiReleaseYear(rs.getInt("release_year")),
+                        rs.getInt("request_count"),
+                        rs.getString("status"),
+                        rs.getObject("existing_video_id", UUID.class),
+                        rs.getString("existing_video_source"),
+                        rs.getInt("scheduled_task_count"),
+                        rs.getString("last_error_message")),
+                batchId);
+    }
+
+    private MediaRequestBatchCounters mediaRequestBatchCounters(UUID batchId) {
+        return jdbcTemplate.queryForObject(
+                """
+                select count(*) filter (where status = 'SCHEDULED') as scheduled,
+                       count(*) filter (where status = 'SKIPPED_EXISTS') as skipped,
+                       count(*) filter (where status = 'FAILED') as failed
+                  from portal_media_request_batch_items
+                 where batch_id = ?
+                """,
+                (rs, rowNum) -> new MediaRequestBatchCounters(
+                        rs.getInt("scheduled"),
+                        rs.getInt("skipped"),
+                        rs.getInt("failed")),
+                batchId);
+    }
+
     private Integer getInteger(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
         int value = rs.getInt(column);
         return rs.wasNull() ? null : value;
@@ -869,5 +1255,21 @@ public class JdbcCollectionTaskRepository {
 
     private Integer apiReleaseYear(int releaseYear) {
         return releaseYear <= 0 ? null : releaseYear;
+    }
+
+    private Integer dbReleaseYear(Integer releaseYear) {
+        return releaseYear == null || releaseYear <= 0 ? 0 : releaseYear;
+    }
+
+    private List<Object> prepend(Object first, List<?> rest) {
+        List<Object> result = new ArrayList<>();
+        result.add(first);
+        if (rest != null) {
+            result.addAll(rest);
+        }
+        return result;
+    }
+
+    private record MediaRequestBatchCounters(int scheduled, int skipped, int failed) {
     }
 }

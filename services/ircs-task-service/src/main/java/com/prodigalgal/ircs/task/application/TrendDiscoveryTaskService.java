@@ -4,6 +4,7 @@ package com.prodigalgal.ircs.task.application;
 
 
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.task.infrastructure.DataSourceSeedCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
@@ -12,6 +13,7 @@ import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduledTask;
 import com.prodigalgal.ircs.task.domain.CollectionTaskDefaults;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
+import java.util.Map;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -42,6 +44,7 @@ public class TrendDiscoveryTaskService {
     private final JdbcCollectionTaskRepository taskRepository;
     private final TaskCommandService taskCommandService;
     private final TaskDistributedLockRunner lockRunner;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.task.trend-discovery.enabled:true}")
     private boolean enabled;
@@ -53,6 +56,21 @@ public class TrendDiscoveryTaskService {
     private int maxDataSources;
 
     public TrendDiscoveryScheduleResponse schedule(TrendDiscoveryScheduleRequest request, String correlationId) {
+        return schedule(request, correlationId, true, null);
+    }
+
+    public TrendDiscoveryScheduleResponse prepare(
+            TrendDiscoveryScheduleRequest request,
+            String correlationId,
+            Map<String, Object> taskMetadata) {
+        return schedule(request, correlationId, false, taskMetadata);
+    }
+
+    private TrendDiscoveryScheduleResponse schedule(
+            TrendDiscoveryScheduleRequest request,
+            String correlationId,
+            boolean autoStart,
+            Map<String, Object> taskMetadata) {
         List<String> keywords = sanitizeKeywords(request == null ? null : request.keywords());
         if (!enabled) {
             return new TrendDiscoveryScheduleResponse(TASK_NAME, keywords.size(), 0, 0, 0, 0, List.of(),
@@ -63,7 +81,7 @@ public class TrendDiscoveryTaskService {
         }
         AtomicReference<TrendDiscoveryScheduleResponse> response = new AtomicReference<>();
         boolean acquired = lockRunner.runExclusive(lockName(correlationId, keywords),
-                () -> response.set(scheduleLocked(request, keywords)));
+                () -> response.set(scheduleLocked(request, keywords, autoStart, taskMetadata)));
         if (!acquired) {
             return new TrendDiscoveryScheduleResponse(TASK_NAME, keywords.size(), 0, 0, 0, 0, List.of(),
                     List.of("trend discovery scheduling lock is held by another task-service instance"));
@@ -73,7 +91,9 @@ public class TrendDiscoveryTaskService {
 
     private TrendDiscoveryScheduleResponse scheduleLocked(
             TrendDiscoveryScheduleRequest request,
-            List<String> keywords) {
+            List<String> keywords,
+            boolean autoStart,
+            Map<String, Object> taskMetadata) {
         List<DataSourceSeedCandidate> dataSources = limitDataSources(
                 taskRepository.findDefaultTaskSeedDataSources(),
                 request == null ? null : request.maxDataSources());
@@ -89,13 +109,13 @@ public class TrendDiscoveryTaskService {
         for (String keyword : keywords) {
             for (DataSourceSeedCandidate dataSource : dataSources) {
                 try {
-                    EnsureTaskResult result = ensureTask(dataSource, keyword, startPage, endPage, fixedDelayMs);
+                    EnsureTaskResult result = ensureTask(dataSource, keyword, startPage, endPage, fixedDelayMs, taskMetadata);
                     if (result.created()) {
                         created++;
                     } else {
                         reused++;
                     }
-                    boolean accepted = taskCommandService.startInternal(result.taskId(), false);
+                    boolean accepted = autoStart && taskCommandService.startInternal(result.taskId(), false);
                     if (accepted) {
                         queued++;
                     }
@@ -104,7 +124,7 @@ public class TrendDiscoveryTaskService {
                             dataSource.id(),
                             dataSource.name(),
                             keyword,
-                            accepted ? "QUEUED" : "SKIPPED_ACTIVE_OR_DISABLED"));
+                            taskStatus(autoStart, accepted, result.created())));
                 } catch (ResponseStatusException ex) {
                     errors.add(errorMessage(keyword, dataSource, ex.getReason()));
                 } catch (RuntimeException ex) {
@@ -129,8 +149,9 @@ public class TrendDiscoveryTaskService {
             String keyword,
             int startPage,
             int endPage,
-            int fixedDelayMs) {
-        String name = taskName(dataSource, keyword);
+            int fixedDelayMs,
+            Map<String, Object> taskMetadata) {
+        String name = taskName(dataSource, keyword, taskMetadata);
         return taskRepository.findTaskIdByName(name)
                 .map(taskId -> new EnsureTaskResult(taskId, false))
                 .orElseGet(() -> new EnsureTaskResult(taskCommandService.create(new TaskCreateRequest(
@@ -159,7 +180,28 @@ public class TrendDiscoveryTaskService {
                         null,
                         null,
                         null,
-                        "{}")), true));
+                        headers(taskMetadata))), true));
+    }
+
+    private String headers(Map<String, Object> taskMetadata) {
+        if (taskMetadata == null || taskMetadata.isEmpty()) {
+            return "{}";
+        }
+        try {
+            return objectMapper.writeValueAsString(taskMetadata);
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
+    private String taskStatus(boolean autoStart, boolean accepted, boolean created) {
+        if (accepted) {
+            return "QUEUED";
+        }
+        if (!autoStart) {
+            return created ? "READY" : "REUSED";
+        }
+        return "SKIPPED_ACTIVE_OR_DISABLED";
     }
 
     private List<String> sanitizeKeywords(List<String> rawKeywords) {
@@ -200,12 +242,25 @@ public class TrendDiscoveryTaskService {
         return List.copyOf(rawDataSources.subList(0, effectiveLimit));
     }
 
-    private String taskName(DataSourceSeedCandidate dataSource, String keyword) {
-        String suffix = shortHash(dataSource.id() + ":" + keyword);
+    private String taskName(DataSourceSeedCandidate dataSource, String keyword, Map<String, Object> taskMetadata) {
+        String discriminator = metadataDiscriminator(taskMetadata);
+        String suffix = shortHash(dataSource.id() + ":" + keyword + ":" + discriminator);
         return DISCOVERY_PREFIX
                 + " - " + abbreviate(keyword, 60)
                 + " - " + abbreviate(dataSource.name(), 60)
                 + " - " + suffix;
+    }
+
+    private String metadataDiscriminator(Map<String, Object> taskMetadata) {
+        if (taskMetadata == null) {
+            return "";
+        }
+        Object mediaRequestBatch = taskMetadata.get("ircsMediaRequestBatch");
+        if (mediaRequestBatch instanceof Map<?, ?> batch) {
+            Object batchId = batch.get("batchId");
+            return batchId == null ? "" : batchId.toString();
+        }
+        return "";
     }
 
     private String lockName(String correlationId, List<String> keywords) {

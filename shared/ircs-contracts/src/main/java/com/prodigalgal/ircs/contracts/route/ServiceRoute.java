@@ -4,7 +4,7 @@ public enum ServiceRoute {
     IDENTITY("ircs-identity-service", "/api/v1/auth/**", "/api/v1/members/**", "/api/portal/auth/**", "/api/portal/profile/**"),
     CONTENT("ircs-content-service", "/api/v1/raw-videos/**", "/api/v1/unified-videos/**", "/api/v1/playlists/**"),
     CATALOG("ircs-catalog-service", "/api/v1/standard-*/**", "/api/v1/raw-*/**", "/api/v1/data-sources/**"),
-    TASK("ircs-task-service", "/api/v1/collection-tasks/**"),
+    TASK("ircs-task-service", "/api/v1/collection-tasks/**", "/api/v1/media-request-batches/**"),
     PORTAL("ircs-portal-service", "/api/portal/**"),
     SCRAPER("ircs-scraper-service", "/api/v1/scraper/manual/**"),
     MAGNET("ircs-magnet-service", "/api/v1/magnets/**", "/api/v1/magnet-providers/**"),
@@ -31,4 +31,3 @@ public enum ServiceRoute {
         return paths.clone();
     }
 }
-

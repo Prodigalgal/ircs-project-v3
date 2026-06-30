@@ -86,6 +86,14 @@ class AdminBffRoutesTest {
     }
 
     @Test
+    void routesMediaRequestBatchesToTaskService() {
+        ResolvedRoute route = routes.resolve("/api/v1/media-request-batches/123/start").orElseThrow();
+
+        assertThat(route.targetBaseUrl()).isEqualTo("http://task");
+        assertThat(route.targetPath()).isEqualTo("/api/v1/media-request-batches/123/start");
+    }
+
+    @Test
     void routesSearchOpsToSearchService() {
         ResolvedRoute route = routes.resolve("/api/v1/search/ops/search-sync-tasks/stats").orElseThrow();
 

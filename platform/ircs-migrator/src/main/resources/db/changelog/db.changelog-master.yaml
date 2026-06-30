@@ -147,3 +147,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/add-admin-video-read-indexes.sql
   - include:
       file: db/changelog/2026/07/add-portal-media-requests.sql
+  - include:
+      file: db/changelog/2026/07/add-portal-media-request-batches.sql
