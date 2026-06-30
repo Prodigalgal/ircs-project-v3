@@ -114,19 +114,32 @@ public class MediaRequestBatchService {
                                 Math.max(0, maxDataSources)),
                         "media-request-batch:" + batchId + ":" + item.itemId(),
                         mediaRequestTaskMetadata(batchId, item));
-                if (response.errors().isEmpty()) {
-                    int taskCount = response.tasks().size();
-                    taskRepository.markMediaRequestBatchItemScheduled(item.itemId(), item.mediaRequestId(), taskCount);
-                    for (var task : response.tasks()) {
-                        taskCommandService.startInternal(task.taskId(), false);
-                    }
-                    scheduled++;
-                } else {
+                if (!response.errors().isEmpty()) {
                     failed++;
                     taskRepository.markMediaRequestBatchItemFailed(
                             item.itemId(),
                             item.mediaRequestId(),
                             String.join("; ", response.errors()));
+                } else if (response.tasks().isEmpty()) {
+                    failed++;
+                    taskRepository.markMediaRequestBatchItemFailed(
+                            item.itemId(),
+                            item.mediaRequestId(),
+                            "No collection tasks were prepared for media request");
+                } else {
+                    int acceptedCount = startPreparedTasks(response);
+                    int preparedCount = response.tasks().size();
+                    if (acceptedCount == preparedCount) {
+                        taskRepository.markMediaRequestBatchItemScheduled(item.itemId(), item.mediaRequestId(), acceptedCount);
+                        scheduled++;
+                    } else {
+                        failed++;
+                        taskRepository.markMediaRequestBatchItemFailed(
+                                item.itemId(),
+                                item.mediaRequestId(),
+                                "Only %d/%d prepared collection tasks were accepted for execution"
+                                        .formatted(acceptedCount, preparedCount));
+                    }
                 }
             } catch (RuntimeException ex) {
                 failed++;
@@ -174,6 +187,16 @@ public class MediaRequestBatchService {
         }
         String message = ex.getMessage().replaceAll("\\s+", " ").trim();
         return message.length() <= 500 ? message : message.substring(0, 500);
+    }
+
+    private int startPreparedTasks(TrendDiscoveryScheduleResponse response) {
+        int accepted = 0;
+        for (var task : response.tasks()) {
+            if (taskCommandService.startInternal(task.taskId(), false)) {
+                accepted++;
+            }
+        }
+        return accepted;
     }
 
     private int positiveOrDefault(int value, int fallback) {

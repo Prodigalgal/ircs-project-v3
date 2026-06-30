@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
@@ -121,11 +122,158 @@ class MediaRequestBatchServiceTest {
                         0,
                         List.of(new TrendDiscoveryScheduledTask(taskId, UUID.randomUUID(), "资源站", "异形", "READY")),
                         List.of()));
+        when(taskCommandService.startInternal(taskId, false)).thenReturn(true);
 
         service.startBatch(batchId);
 
         verify(taskRepository).markMediaRequestBatchItemScheduled(itemId, requestId, 1);
         verify(taskCommandService).startInternal(taskId, false);
         verify(taskRepository).finishMediaRequestBatch(batchId, "COMPLETED", null);
+    }
+
+    @Test
+    void failsItemWhenNoCollectionTasksArePrepared() {
+        UUID batchId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        MediaRequestBatchItemCandidate item = new MediaRequestBatchItemCandidate(
+                itemId,
+                requestId,
+                "冷门片",
+                null,
+                1);
+        when(taskRepository.markMediaRequestBatchRunning(batchId)).thenReturn(true);
+        when(taskRepository.findReadyMediaRequestBatchItems(batchId)).thenReturn(List.of(item));
+        when(contentLookupRepository.findExistingVideo("冷门片", null)).thenReturn(Optional.empty());
+        when(trendDiscoveryTaskService.prepare(any(), eq("media-request-batch:" + batchId + ":" + itemId), any()))
+                .thenReturn(new TrendDiscoveryScheduleResponse(
+                        "trend-discovery",
+                        1,
+                        0,
+                        0,
+                        0,
+                        0,
+                        List.of(),
+                        List.of()));
+
+        service.startBatch(batchId);
+
+        verify(taskRepository).markMediaRequestBatchItemFailed(
+                itemId,
+                requestId,
+                "No collection tasks were prepared for media request");
+        verifyNoInteractions(taskCommandService);
+        verify(taskRepository).finishMediaRequestBatch(batchId, "FAILED", "Some media requests failed");
+    }
+
+    @Test
+    void failsItemWhenPreparedTasksAreNotAcceptedForExecution() {
+        UUID batchId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        MediaRequestBatchItemCandidate item = new MediaRequestBatchItemCandidate(
+                itemId,
+                requestId,
+                "忙碌片",
+                null,
+                1);
+        when(taskRepository.markMediaRequestBatchRunning(batchId)).thenReturn(true);
+        when(taskRepository.findReadyMediaRequestBatchItems(batchId)).thenReturn(List.of(item));
+        when(contentLookupRepository.findExistingVideo("忙碌片", null)).thenReturn(Optional.empty());
+        when(trendDiscoveryTaskService.prepare(any(), eq("media-request-batch:" + batchId + ":" + itemId), any()))
+                .thenReturn(new TrendDiscoveryScheduleResponse(
+                        "trend-discovery",
+                        1,
+                        1,
+                        1,
+                        0,
+                        0,
+                        List.of(new TrendDiscoveryScheduledTask(taskId, UUID.randomUUID(), "资源站", "忙碌片", "READY")),
+                        List.of()));
+        when(taskCommandService.startInternal(taskId, false)).thenReturn(false);
+
+        service.startBatch(batchId);
+
+        verify(taskRepository).markMediaRequestBatchItemFailed(
+                itemId,
+                requestId,
+                "Only 0/1 prepared collection tasks were accepted for execution");
+        verify(taskRepository, never()).markMediaRequestBatchItemScheduled(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(taskRepository).finishMediaRequestBatch(batchId, "FAILED", "Some media requests failed");
+    }
+
+    @Test
+    void failsItemWhenOnlySomePreparedTasksAreAcceptedForExecution() {
+        UUID batchId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID firstTaskId = UUID.randomUUID();
+        UUID secondTaskId = UUID.randomUUID();
+        MediaRequestBatchItemCandidate item = new MediaRequestBatchItemCandidate(
+                itemId,
+                requestId,
+                "半投递片",
+                null,
+                1);
+        when(taskRepository.markMediaRequestBatchRunning(batchId)).thenReturn(true);
+        when(taskRepository.findReadyMediaRequestBatchItems(batchId)).thenReturn(List.of(item));
+        when(contentLookupRepository.findExistingVideo("半投递片", null)).thenReturn(Optional.empty());
+        when(trendDiscoveryTaskService.prepare(any(), eq("media-request-batch:" + batchId + ":" + itemId), any()))
+                .thenReturn(new TrendDiscoveryScheduleResponse(
+                        "trend-discovery",
+                        1,
+                        2,
+                        2,
+                        0,
+                        0,
+                        List.of(
+                                new TrendDiscoveryScheduledTask(firstTaskId, UUID.randomUUID(), "资源站A", "半投递片", "READY"),
+                                new TrendDiscoveryScheduledTask(secondTaskId, UUID.randomUUID(), "资源站B", "半投递片", "READY")),
+                        List.of()));
+        when(taskCommandService.startInternal(firstTaskId, false)).thenReturn(true);
+        when(taskCommandService.startInternal(secondTaskId, false)).thenReturn(false);
+
+        service.startBatch(batchId);
+
+        verify(taskRepository).markMediaRequestBatchItemFailed(
+                itemId,
+                requestId,
+                "Only 1/2 prepared collection tasks were accepted for execution");
+        verify(taskRepository, never()).markMediaRequestBatchItemScheduled(any(), any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(taskRepository).finishMediaRequestBatch(batchId, "FAILED", "Some media requests failed");
+    }
+
+    @Test
+    void failsItemWithoutStartingPreparedTasksWhenPrepareReturnsErrors() {
+        UUID batchId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        MediaRequestBatchItemCandidate item = new MediaRequestBatchItemCandidate(
+                itemId,
+                requestId,
+                "错误片",
+                null,
+                1);
+        when(taskRepository.markMediaRequestBatchRunning(batchId)).thenReturn(true);
+        when(taskRepository.findReadyMediaRequestBatchItems(batchId)).thenReturn(List.of(item));
+        when(contentLookupRepository.findExistingVideo("错误片", null)).thenReturn(Optional.empty());
+        when(trendDiscoveryTaskService.prepare(any(), eq("media-request-batch:" + batchId + ":" + itemId), any()))
+                .thenReturn(new TrendDiscoveryScheduleResponse(
+                        "trend-discovery",
+                        1,
+                        1,
+                        1,
+                        0,
+                        0,
+                        List.of(new TrendDiscoveryScheduledTask(taskId, UUID.randomUUID(), "资源站", "错误片", "READY")),
+                        List.of("source unavailable")));
+
+        service.startBatch(batchId);
+
+        verify(taskRepository).markMediaRequestBatchItemFailed(itemId, requestId, "source unavailable");
+        verifyNoInteractions(taskCommandService);
+        verify(taskRepository).finishMediaRequestBatch(batchId, "FAILED", "Some media requests failed");
     }
 }

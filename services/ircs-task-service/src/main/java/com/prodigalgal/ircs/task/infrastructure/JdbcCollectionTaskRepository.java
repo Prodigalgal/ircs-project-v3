@@ -390,7 +390,7 @@ public class JdbcCollectionTaskRepository {
                        version = version + 1,
                        last_error_message = ?
                  where id = ?
-                   and status in ('READY', 'RUNNING')
+                   and status = 'READY'
                 """,
                 truncate(reason),
                 batchId);
