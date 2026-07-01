@@ -4,12 +4,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
@@ -50,29 +48,6 @@ class DashboardQueryServiceTest {
                     aggregationOpsStatsClient,
                     searchIndexStatsClient,
                     statsSnapshotRepository);
-
-    @Test
-    void analysisBoundsDaysAndTurnsNullListsIntoEmptyLists() {
-        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
-        when(repository.loadStats()).thenReturn(stats);
-        when(searchIndexStatsClient.currentCounts())
-                .thenReturn(new SearchIndexCounts(OptionalLong.empty(), OptionalLong.empty()));
-        when(repository.weeklyTrend(90)).thenReturn(null);
-        when(repository.categoryDistribution()).thenReturn(null);
-        when(repository.sourceDistribution()).thenReturn(null);
-        when(repository.enrichmentStatusDistribution()).thenReturn(null);
-        when(repository.idCoverage()).thenReturn(Map.of("Both", 1L, "None", 0L));
-        when(repository.sourceEfficiency()).thenReturn(null);
-        when(repository.categoryEfficiency()).thenReturn(List.of());
-
-        DashboardAnalysisResponse analysis = service.getAnalysis(500);
-
-        assertEquals(stats.withSearchCounts(1, 2), analysis.stats());
-        assertTrue(analysis.weeklyTrend().isEmpty());
-        assertTrue(analysis.categoryDistribution().isEmpty());
-        assertEquals(Map.of("Both", 1L, "None", 0L), analysis.idCoverage());
-        verify(repository).weeklyTrend(90);
-    }
 
     @Test
     void statisticsUsesShortLivedReadCacheUntilRefresh() {
@@ -140,15 +115,13 @@ class DashboardQueryServiceTest {
     }
 
     @Test
-    void analysisUsesKeyedReadCachePerBoundedDayRange() {
-        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
-        when(repository.loadStats()).thenReturn(stats);
+    void trendUsesKeyedReadCachePerBoundedDayRange() {
         when(repository.weeklyTrend(14)).thenReturn(List.of());
         when(repository.weeklyTrend(30)).thenReturn(List.of());
 
-        service.getAnalysis(14);
-        service.getAnalysis(14);
-        service.getAnalysis(30);
+        service.getTrend(14);
+        service.getTrend(14);
+        service.getTrend(30);
 
         verify(repository, times(1)).weeklyTrend(14);
         verify(repository, times(1)).weeklyTrend(30);
@@ -267,25 +240,23 @@ class DashboardQueryServiceTest {
     }
 
     @Test
-    void refreshClearsAnalysisAndSourceQualityCaches() {
-        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
-        when(repository.loadStats()).thenReturn(stats);
+    void refreshClearsDashboardAndSourceQualityCaches() {
         when(repository.weeklyTrend(14)).thenReturn(List.of());
         when(repository.sourceQuality()).thenReturn(List.of());
+        when(repository.idCoverage()).thenReturn(Map.of());
 
-        service.getAnalysis(14);
+        service.getTrend(14);
         service.getSourceQuality();
         service.getCoverage();
-        clearInvocations(repository);
 
         service.refresh(14);
-        service.getAnalysis(14);
+        service.getTrend(14);
         service.getSourceQuality();
         service.getCoverage();
 
-        verify(repository, times(1)).weeklyTrend(14);
-        verify(repository, times(1)).sourceQuality();
-        verify(repository, times(1)).idCoverage();
+        verify(repository, times(2)).weeklyTrend(14);
+        verify(repository, times(2)).sourceQuality();
+        verify(repository, times(2)).idCoverage();
     }
 
     @Test

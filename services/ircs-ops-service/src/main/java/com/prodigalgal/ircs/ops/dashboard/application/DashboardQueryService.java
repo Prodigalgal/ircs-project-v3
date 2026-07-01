@@ -1,6 +1,5 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
-import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
@@ -29,7 +28,6 @@ import org.springframework.stereotype.Service;
 public class DashboardQueryService {
 
     private static final Duration STATS_CACHE_TTL = Duration.ofSeconds(30);
-    private static final Duration ANALYSIS_CACHE_TTL = Duration.ofSeconds(45);
     private static final Duration ANALYSIS_BLOCK_CACHE_TTL = Duration.ofMinutes(3);
     private static final Duration SOURCE_QUALITY_CACHE_TTL = Duration.ofSeconds(60);
 
@@ -41,8 +39,6 @@ public class DashboardQueryService {
     private final DashboardSearchIndexStatsClient searchIndexStatsClient;
     private final DashboardStatsSnapshotRepository statsSnapshotRepository;
     private final DashboardReadCache<DashboardStatsResponse> statsCache = new DashboardReadCache<>(STATS_CACHE_TTL);
-    private final DashboardKeyedReadCache<Integer, DashboardAnalysisResponse> analysisCache =
-            new DashboardKeyedReadCache<>(ANALYSIS_CACHE_TTL);
     private final DashboardKeyedReadCache<Integer, List<ChartDataPoint>> trendCache =
             new DashboardKeyedReadCache<>(ANALYSIS_BLOCK_CACHE_TTL);
     private final DashboardReadCache<DashboardDistributionsResponse> distributionsCache =
@@ -81,25 +77,6 @@ public class DashboardQueryService {
         } catch (RuntimeException ignored) {
             return dbStats.withSearchCounts(dbStats.rawCountDb(), dbStats.unifiedCountDb());
         }
-    }
-
-    public DashboardAnalysisResponse getAnalysis(int days) {
-        int boundedDays = Math.max(1, Math.min(days, 90));
-        return analysisCache.get(boundedDays, () -> loadAnalysis(boundedDays));
-    }
-
-    private DashboardAnalysisResponse loadAnalysis(int boundedDays) {
-        DashboardDistributionsResponse distributions = getDistributions();
-        DashboardEfficiencyResponse efficiency = getEfficiency();
-        return new DashboardAnalysisResponse(
-                getStatistics(),
-                getTrend(boundedDays),
-                distributions.categoryDistribution(),
-                distributions.sourceDistribution(),
-                distributions.enrichmentStatusDistribution(),
-                getCoverage(),
-                efficiency.sourceEfficiency(),
-                efficiency.categoryEfficiency());
     }
 
     public List<ChartDataPoint> getTrend(int days) {
@@ -161,7 +138,6 @@ public class DashboardQueryService {
     public void refresh(int days) {
         statsCache.clear();
         statsSnapshotRepository.invalidate();
-        analysisCache.clear();
         trendCache.clear();
         distributionsCache.clear();
         coverageCache.clear();

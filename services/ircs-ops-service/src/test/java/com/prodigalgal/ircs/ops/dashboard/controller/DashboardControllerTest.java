@@ -9,7 +9,6 @@ import static org.mockito.Mockito.doThrow;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardQueryService;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardStreamService;
 import com.prodigalgal.ircs.ops.dashboard.dto.ChartDataPoint;
-import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
@@ -38,23 +37,6 @@ class DashboardControllerTest {
 
         assertEquals(stats, controller.statistics().getBody());
         verify(dashboardQueryService).getStatistics();
-    }
-
-    @Test
-    void returnsAnalysis() {
-        DashboardAnalysisResponse analysis = new DashboardAnalysisResponse(
-                new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0),
-                List.of(new ChartDataPoint("2026-06-04", 1)),
-                List.of(),
-                List.of(),
-                List.of(),
-                Map.of("Both", 1L),
-                List.of(),
-                List.of());
-        when(dashboardQueryService.getAnalysis(14)).thenReturn(analysis);
-
-        assertEquals(analysis, controller.analysis(14).getBody());
-        verify(dashboardQueryService).getAnalysis(14);
     }
 
     @Test

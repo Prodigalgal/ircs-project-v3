@@ -294,7 +294,9 @@ deferred:  q.interaction.watch_progress consumer, write APIs, admin moderation A
 Current dev ops-service scope:
 
 ```text
-owned:     GET /api/v1/dashboard/statistics, GET /api/v1/dashboard/analysis, GET /api/v1/dashboard/metrics,
+owned:     GET /api/v1/dashboard/statistics, GET /api/v1/dashboard/trend,
+           GET /api/v1/dashboard/distributions, GET /api/v1/dashboard/coverage,
+           GET /api/v1/dashboard/efficiency, GET /api/v1/dashboard/metrics,
            GET /api/v1/dashboard/source-quality, POST /api/v1/dashboard/refresh,
            GET /api/v1/ops/maintenance/active, GET /api/v1/ops/maintenance/stream/{sessionId}
 database:  shared PostgreSQL dashboard read model as migration bridge

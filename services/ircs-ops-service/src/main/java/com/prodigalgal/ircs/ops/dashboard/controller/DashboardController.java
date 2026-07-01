@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.ops.dashboard.controller;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardQueryService;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardStreamService;
 import com.prodigalgal.ircs.ops.dashboard.dto.ChartDataPoint;
-import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
@@ -36,11 +35,6 @@ public class DashboardController {
     @GetMapping("/statistics")
     public ResponseEntity<DashboardStatsResponse> statistics() {
         return ResponseEntity.ok(dashboardQueryService.getStatistics());
-    }
-
-    @GetMapping("/analysis")
-    public ResponseEntity<DashboardAnalysisResponse> analysis(@RequestParam(defaultValue = "14") int days) {
-        return ResponseEntity.ok(dashboardQueryService.getAnalysis(days));
     }
 
     @GetMapping("/trend")

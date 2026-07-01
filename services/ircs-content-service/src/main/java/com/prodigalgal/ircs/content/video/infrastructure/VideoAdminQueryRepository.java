@@ -480,6 +480,26 @@ class VideoAdminQueryRepository {
                 language)) {
             return Optional.empty();
         }
+        Optional<Page<RawVideoCardResponse>> emptyStatusPage = rawStatusOnlyEmptyPage(
+                pageable,
+                where,
+                params,
+                title,
+                categoryId,
+                enrichmentStatus,
+                normalizationStatus,
+                aggregationStatus,
+                year,
+                area,
+                minScore,
+                isMissingSlug,
+                dataSourceId,
+                sourceCategoryName,
+                genre,
+                language);
+        if (emptyStatusPage.isPresent()) {
+            return emptyStatusPage;
+        }
         AdminVideoSearchRequest request = new AdminVideoSearchRequest(
                 pageable.getPageNumber(),
                 pageable.getPageSize(),
@@ -507,6 +527,74 @@ class VideoAdminQueryRepository {
                 null);
         return adminVideoSearchClient.searchRawIds(request)
                 .flatMap(result -> rawSearchResultPage(result, pageable, where, params));
+    }
+
+    private Optional<Page<RawVideoCardResponse>> rawStatusOnlyEmptyPage(
+            Pageable pageable,
+            String where,
+            MapSqlParameterSource params,
+            String title,
+            UUID categoryId,
+            String enrichmentStatus,
+            String normalizationStatus,
+            String aggregationStatus,
+            String year,
+            String area,
+            BigDecimal minScore,
+            Boolean isMissingSlug,
+            UUID dataSourceId,
+            String sourceCategoryName,
+            String genre,
+            String language) {
+        if (!isRawStatusOnlyFilter(
+                title,
+                categoryId,
+                enrichmentStatus,
+                normalizationStatus,
+                aggregationStatus,
+                year,
+                area,
+                minScore,
+                isMissingSlug,
+                dataSourceId,
+                sourceCategoryName,
+                genre,
+                language)) {
+            return Optional.empty();
+        }
+        return hasAnyDatabaseRow("raw_videos rv", where, params)
+                ? Optional.empty()
+                : Optional.of(Page.empty(pageable));
+    }
+
+    private boolean isRawStatusOnlyFilter(
+            String title,
+            UUID categoryId,
+            String enrichmentStatus,
+            String normalizationStatus,
+            String aggregationStatus,
+            String year,
+            String area,
+            BigDecimal minScore,
+            Boolean isMissingSlug,
+            UUID dataSourceId,
+            String sourceCategoryName,
+            String genre,
+            String language) {
+        boolean hasStatus = StringUtils.hasText(enrichmentStatus)
+                || StringUtils.hasText(normalizationStatus)
+                || StringUtils.hasText(aggregationStatus);
+        return hasStatus
+                && !StringUtils.hasText(title)
+                && categoryId == null
+                && !StringUtils.hasText(year)
+                && !StringUtils.hasText(area)
+                && minScore == null
+                && isMissingSlug == null
+                && dataSourceId == null
+                && !StringUtils.hasText(sourceCategoryName)
+                && !StringUtils.hasText(genre)
+                && !StringUtils.hasText(language);
     }
 
     private boolean rawSearchSupported(

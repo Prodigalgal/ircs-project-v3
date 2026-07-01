@@ -67,6 +67,16 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).doesNotContain("if (StringUtils.hasText(metadataStatus)) {\n            return Optional.empty();");
     }
 
+    @Test
+    void statusOnlyRawFiltersCanShortCircuitEmptyDatabaseStateBeforeSearch() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("rawStatusOnlyEmptyPage(");
+        assertThat(source).contains("isRawStatusOnlyFilter(");
+        assertThat(source).contains("Optional.of(Page.empty(pageable))");
+        assertThat(source).contains("hasAnyDatabaseRow(\"raw_videos rv\", where, params)");
+    }
+
     private static Path sourceFile() {
         Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path relative = Path.of(
