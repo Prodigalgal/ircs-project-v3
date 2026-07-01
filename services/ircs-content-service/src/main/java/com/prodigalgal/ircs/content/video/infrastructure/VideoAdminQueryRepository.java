@@ -45,6 +45,7 @@ import org.springframework.util.StringUtils;
 class VideoAdminQueryRepository {
 
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int FILTERED_EXACT_COUNT_PAGE_LIMIT = 3;
     private static final TypeReference<Set<String>> STRING_SET = new TypeReference<>() {
     };
 
@@ -76,6 +77,7 @@ class VideoAdminQueryRepository {
                 minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
         Optional<Page<RawVideoCardResponse>> searchPage = rawSearchPage(
                 safe,
+                params,
                 where,
                 title,
                 categoryId,
@@ -250,6 +252,7 @@ class VideoAdminQueryRepository {
                 director);
         Optional<Page<UnifiedVideoCardResponse>> searchPage = unifiedSearchPage(
                 safe,
+                params,
                 where,
                 title,
                 categoryId,
@@ -443,6 +446,7 @@ class VideoAdminQueryRepository {
 
     private Optional<Page<RawVideoCardResponse>> rawSearchPage(
             Pageable pageable,
+            MapSqlParameterSource params,
             String where,
             String title,
             UUID categoryId,
@@ -461,6 +465,7 @@ class VideoAdminQueryRepository {
             return Optional.empty();
         }
         if (!hasRawExactSearchCriteria(
+                title,
                 categoryId,
                 enrichmentStatus,
                 normalizationStatus,
@@ -470,6 +475,7 @@ class VideoAdminQueryRepository {
                 minScore,
                 isMissingSlug,
                 dataSourceId,
+                sourceCategoryName,
                 genre,
                 language)) {
             return Optional.empty();
@@ -479,7 +485,7 @@ class VideoAdminQueryRepository {
                 pageable.getPageSize(),
                 primarySort(pageable),
                 primaryDirection(pageable),
-                null,
+                trimToNull(title),
                 categoryId,
                 null,
                 enrichmentStatus,
@@ -494,17 +500,13 @@ class VideoAdminQueryRepository {
                 null,
                 null,
                 dataSourceId,
-                null,
+                trimToNull(sourceCategoryName),
                 trimToNull(genre),
                 trimToNull(language),
                 null,
                 null);
         return adminVideoSearchClient.searchRawIds(request)
-                .filter(result -> !result.ids().isEmpty())
-                .map(result -> new PageImpl<>(
-                        findRawCardsByIds(result.ids()),
-                        pageable,
-                        Math.max(pageable.getOffset() + result.ids().size(), result.total())));
+                .flatMap(result -> rawSearchResultPage(result, pageable, where, params));
     }
 
     private boolean rawSearchSupported(
@@ -513,14 +515,13 @@ class VideoAdminQueryRepository {
             String sourceCategoryName,
             String genre,
             String language) {
-        return !StringUtils.hasText(title)
-                && exactCodeFilter(area)
-                && !StringUtils.hasText(sourceCategoryName)
+        return exactCodeFilter(area)
                 && exactCodeFilter(genre)
                 && exactCodeFilter(language);
     }
 
     private boolean hasRawExactSearchCriteria(
+            String title,
             UUID categoryId,
             String enrichmentStatus,
             String normalizationStatus,
@@ -530,9 +531,11 @@ class VideoAdminQueryRepository {
             BigDecimal minScore,
             Boolean isMissingSlug,
             UUID dataSourceId,
+            String sourceCategoryName,
             String genre,
             String language) {
         return categoryId != null
+                || StringUtils.hasText(title)
                 || StringUtils.hasText(enrichmentStatus)
                 || StringUtils.hasText(normalizationStatus)
                 || StringUtils.hasText(aggregationStatus)
@@ -542,7 +545,22 @@ class VideoAdminQueryRepository {
                 || StringUtils.hasText(language)
                 || minScore != null
                 || isMissingSlug != null
-                || dataSourceId != null;
+                || dataSourceId != null
+                || StringUtils.hasText(sourceCategoryName);
+    }
+
+    private Optional<Page<RawVideoCardResponse>> rawSearchResultPage(
+            AdminVideoSearchResult result,
+            Pageable pageable,
+            String where,
+            MapSqlParameterSource params) {
+        if (result.ids().isEmpty() && hasAnyDatabaseRow("raw_videos rv", where, params)) {
+            return Optional.empty();
+        }
+        return Optional.of(new PageImpl<>(
+                findRawCardsByIds(result.ids()),
+                pageable,
+                Math.max(pageable.getOffset() + result.ids().size(), result.total())));
     }
 
     private String rawCountSql(String where) {
@@ -688,6 +706,7 @@ class VideoAdminQueryRepository {
 
     private Optional<Page<UnifiedVideoCardResponse>> unifiedSearchPage(
             Pageable pageable,
+            MapSqlParameterSource params,
             String where,
             String title,
             UUID categoryId,
@@ -709,6 +728,7 @@ class VideoAdminQueryRepository {
             return Optional.empty();
         }
         if (!hasUnifiedExactSearchCriteria(
+                title,
                 categoryId,
                 year,
                 area,
@@ -718,7 +738,9 @@ class VideoAdminQueryRepository {
                 contentVisibility,
                 metadataStatus,
                 genre,
-                language)) {
+                language,
+                actor,
+                director)) {
             return Optional.empty();
         }
         String normalizedVisibility = StringUtils.hasText(contentVisibility)
@@ -732,7 +754,7 @@ class VideoAdminQueryRepository {
                 pageable.getPageSize(),
                 primarySort(pageable),
                 primaryDirection(pageable),
-                null,
+                trimToNull(title),
                 categoryId,
                 null,
                 null,
@@ -750,14 +772,10 @@ class VideoAdminQueryRepository {
                 null,
                 trimToNull(genre),
                 trimToNull(language),
-                null,
-                null);
+                trimToNull(actor),
+                trimToNull(director));
         return adminVideoSearchClient.searchUnifiedIds(request)
-                .filter(result -> !result.ids().isEmpty())
-                .map(result -> new PageImpl<>(
-                        withSourceCounts(findUnifiedCardsByIds(result.ids())),
-                        pageable,
-                        Math.max(pageable.getOffset() + result.ids().size(), result.total())));
+                .flatMap(result -> unifiedSearchResultPage(result, pageable, where, params));
     }
 
     private boolean unifiedSearchSupported(
@@ -767,15 +785,13 @@ class VideoAdminQueryRepository {
             String language,
             String actor,
             String director) {
-        return !StringUtils.hasText(title)
-                && exactCodeFilter(area)
+        return exactCodeFilter(area)
                 && exactCodeFilter(genre)
-                && exactCodeFilter(language)
-                && !StringUtils.hasText(actor)
-                && !StringUtils.hasText(director);
+                && exactCodeFilter(language);
     }
 
     private boolean hasUnifiedExactSearchCriteria(
+            String title,
             UUID categoryId,
             String year,
             String area,
@@ -785,8 +801,11 @@ class VideoAdminQueryRepository {
             String contentVisibility,
             String metadataStatus,
             String genre,
-            String language) {
+            String language,
+            String actor,
+            String director) {
         return categoryId != null
+                || StringUtils.hasText(title)
                 || StringUtils.hasText(year)
                 || StringUtils.hasText(area)
                 || minScore != null
@@ -795,7 +814,23 @@ class VideoAdminQueryRepository {
                 || StringUtils.hasText(contentVisibility)
                 || StringUtils.hasText(metadataStatus)
                 || StringUtils.hasText(genre)
-                || StringUtils.hasText(language);
+                || StringUtils.hasText(language)
+                || StringUtils.hasText(actor)
+                || StringUtils.hasText(director);
+    }
+
+    private Optional<Page<UnifiedVideoCardResponse>> unifiedSearchResultPage(
+            AdminVideoSearchResult result,
+            Pageable pageable,
+            String where,
+            MapSqlParameterSource params) {
+        if (result.ids().isEmpty() && hasAnyDatabaseRow("unified_videos uv", where, params)) {
+            return Optional.empty();
+        }
+        return Optional.of(new PageImpl<>(
+                withSourceCounts(findUnifiedCardsByIds(result.ids())),
+                pageable,
+                Math.max(pageable.getOffset() + result.ids().size(), result.total())));
     }
 
     private boolean isNumericYear(String year) {
@@ -1196,7 +1231,10 @@ class VideoAdminQueryRepository {
             int contentSize) {
         long observed = pageable.getOffset() + contentSize;
         if (StringUtils.hasText(where)) {
-            return Math.max(observed, exactCount(exactCountSql, params));
+            if (shouldUseExactFilteredCount(pageable, contentSize)) {
+                return Math.max(observed, exactCount(exactCountSql, params));
+            }
+            return estimatedTotal(pageable, contentSize);
         }
         try {
             Long approximate = jdbcTemplate.queryForObject(
@@ -1216,6 +1254,30 @@ class VideoAdminQueryRepository {
     private long exactCount(String sql, MapSqlParameterSource params) {
         Long total = jdbcTemplate.queryForObject(sql, params, Long.class);
         return total == null ? 0 : total;
+    }
+
+    private boolean hasAnyDatabaseRow(String fromClause, String where, MapSqlParameterSource params) {
+        try {
+            Integer found = jdbcTemplate.queryForObject(
+                    "select 1 from " + fromClause + where + " limit 1",
+                    params,
+                    Integer.class);
+            return found != null;
+        } catch (EmptyResultDataAccessException ignored) {
+            return false;
+        } catch (DataAccessException ignored) {
+            return true;
+        }
+    }
+
+    private boolean shouldUseExactFilteredCount(Pageable pageable, int contentSize) {
+        return pageable.getPageNumber() < FILTERED_EXACT_COUNT_PAGE_LIMIT
+                && contentSize < pageable.getPageSize();
+    }
+
+    private long estimatedTotal(Pageable pageable, int contentSize) {
+        long observed = pageable.getOffset() + contentSize;
+        return contentSize >= pageable.getPageSize() ? observed + 1 : observed;
     }
 
     private Set<String> readStringSet(String json) {

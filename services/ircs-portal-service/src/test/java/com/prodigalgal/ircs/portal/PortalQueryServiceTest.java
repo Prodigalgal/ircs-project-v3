@@ -13,6 +13,7 @@ import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -94,12 +95,8 @@ class PortalQueryServiceTest {
         PortalMovieCard card = sampleCard();
         when(portalRepository.findSpotlight(principal, 20)).thenReturn(null);
         when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
-        when(portalRepository.findCategorySection(principal, "movie", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "series", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "anime", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "variety", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
+        when(portalRepository.findCategorySections(principal, publicCategorySlugs(), 20))
+                .thenReturn(Map.of("documentary", List.of(card)));
 
         PortalHomeResponse home = service.getHome(principal);
 
@@ -111,7 +108,7 @@ class PortalQueryServiceTest {
         assertEquals("documentary", home.sections().get(5).id());
         assertEquals("纪录片场", home.sections().get(5).title());
         assertEquals(List.of(card), home.sections().get(5).movies());
-        verify(portalRepository).findCategorySection(principal, "documentary", 20);
+        verify(portalRepository).findCategorySections(principal, publicCategorySlugs(), 20);
     }
 
     @Test
@@ -119,12 +116,10 @@ class PortalQueryServiceTest {
         PortalMovieCard card = sampleCard();
         when(portalRepository.findSpotlight(principal, 20)).thenReturn(List.of(card));
         when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
-        when(portalRepository.findCategorySection(principal, "movie", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "series", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "short-drama", 20)).thenReturn(List.of(card));
-        when(portalRepository.findCategorySection(principal, "anime", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "variety", 20)).thenReturn(List.of());
-        when(portalRepository.findCategorySection(principal, "documentary", 20)).thenReturn(List.of(card));
+        when(portalRepository.findCategorySections(principal, publicCategorySlugs(), 20))
+                .thenReturn(Map.of(
+                        "short-drama", List.of(card),
+                        "documentary", List.of(card)));
 
         PortalHomeResponse home = service.getHome(principal);
 
@@ -143,7 +138,7 @@ class PortalQueryServiceTest {
                         "music",
                         "other"),
                 home.sections().stream().map(PortalCategorySection::id).toList());
-        verify(portalRepository, times(0)).findCategorySection(principal, "experimental", 20);
+        verify(portalRepository).findCategorySections(principal, publicCategorySlugs(), 20);
     }
 
     @Test
@@ -245,6 +240,21 @@ class PortalQueryServiceTest {
                 List.of(),
                 List.of(),
                 List.of());
+    }
+
+    private List<String> publicCategorySlugs() {
+        return List.of(
+                "movie",
+                "series",
+                "short-drama",
+                "anime",
+                "variety",
+                "documentary",
+                "sports",
+                "news",
+                "education",
+                "music",
+                "other");
     }
 
     private PortalReadModelCache localCache() {

@@ -2,7 +2,10 @@ package com.prodigalgal.ircs.ops.dashboard.controller;
 
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardQueryService;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardStreamService;
+import com.prodigalgal.ircs.ops.dashboard.dto.ChartDataPoint;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SourceQualityResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
@@ -38,6 +41,26 @@ public class DashboardController {
     @GetMapping("/analysis")
     public ResponseEntity<DashboardAnalysisResponse> analysis(@RequestParam(defaultValue = "14") int days) {
         return ResponseEntity.ok(dashboardQueryService.getAnalysis(days));
+    }
+
+    @GetMapping("/trend")
+    public ResponseEntity<List<ChartDataPoint>> trend(@RequestParam(defaultValue = "14") int days) {
+        return ResponseEntity.ok(dashboardQueryService.getTrend(days));
+    }
+
+    @GetMapping("/distributions")
+    public ResponseEntity<DashboardDistributionsResponse> distributions() {
+        return ResponseEntity.ok(dashboardQueryService.getDistributions());
+    }
+
+    @GetMapping("/coverage")
+    public ResponseEntity<Map<String, Long>> coverage() {
+        return ResponseEntity.ok(dashboardQueryService.getCoverage());
+    }
+
+    @GetMapping("/efficiency")
+    public ResponseEntity<DashboardEfficiencyResponse> efficiency() {
+        return ResponseEntity.ok(dashboardQueryService.getEfficiency());
     }
 
     @PostMapping("/refresh")

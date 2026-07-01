@@ -25,9 +25,14 @@ public class JdbcDashboardRepository {
     public DashboardStatsResponse loadStats() {
         return jdbcTemplate.queryForObject(
                 """
-                SELECT coalesce(raw_stats.raw_count, 0) AS raw_count,
-                       coalesce(unified_stats.unified_count, 0) AS unified_count,
-                       coalesce(task_stats.task_count, 0) AS task_count,
+                WITH table_estimates AS (
+                    SELECT relname, greatest(coalesce(n_live_tup, 0), 0) AS live_rows
+                      FROM pg_stat_user_tables
+                     WHERE relname IN ('raw_videos', 'unified_videos', 'collection_tasks')
+                )
+                SELECT greatest(coalesce(est_raw.live_rows, 0), coalesce(raw_stats.observed_raw_count, 0)) AS raw_count,
+                       greatest(coalesce(est_unified.live_rows, 0), 0) AS unified_count,
+                       greatest(coalesce(est_tasks.live_rows, 0), 0) AS task_count,
                        coalesce(raw_stats.pending_normalization, 0) AS pending_normalization,
                        coalesce(raw_stats.pending_enrichment, 0) AS pending_enrichment,
                        coalesce(raw_stats.failed_normalization, 0) AS failed_normalization,
@@ -36,7 +41,12 @@ public class JdbcDashboardRepository {
                        coalesce(cover_stats.failed_cover, 0) AS failed_cover,
                        coalesce(cover_stats.dead_link_cover, 0) AS dead_link_cover
                   FROM (
-                        SELECT count(*) AS raw_count,
+                        SELECT count(*) FILTER (
+                                   WHERE normalization_status IN ('PENDING', 'FAILED')
+                                      OR enrichment_status = 'PENDING'
+                                      OR nullif(trim(coalesce(douban_id, '')), '') IS NULL
+                                      OR nullif(trim(coalesce(tmdb_id, '')), '') IS NULL
+                               ) AS observed_raw_count,
                                count(*) FILTER (WHERE normalization_status = 'PENDING') AS pending_normalization,
                                count(*) FILTER (WHERE enrichment_status = 'PENDING') AS pending_enrichment,
                                count(*) FILTER (WHERE normalization_status = 'FAILED') AS failed_normalization,
@@ -49,18 +59,13 @@ public class JdbcDashboardRepository {
                           FROM raw_videos
                   ) raw_stats
                   CROSS JOIN (
-                        SELECT count(*) AS unified_count
-                          FROM unified_videos
-                  ) unified_stats
-                  CROSS JOIN (
-                        SELECT count(*) AS task_count
-                          FROM collection_tasks
-                  ) task_stats
-                  CROSS JOIN (
                         SELECT count(*) FILTER (WHERE status = 'FAILED') AS failed_cover,
                                count(*) FILTER (WHERE status = 'DEAD_LINK') AS dead_link_cover
                           FROM cover_images
                   ) cover_stats
+                  LEFT JOIN table_estimates est_raw ON est_raw.relname = 'raw_videos'
+                  LEFT JOIN table_estimates est_unified ON est_unified.relname = 'unified_videos'
+                  LEFT JOIN table_estimates est_tasks ON est_tasks.relname = 'collection_tasks'
                 """,
                 Map.of(),
                 (rs, rowNum) -> new DashboardStatsResponse(

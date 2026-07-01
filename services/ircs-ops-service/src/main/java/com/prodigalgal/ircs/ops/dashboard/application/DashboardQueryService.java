@@ -1,18 +1,24 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SourceQualityResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.ChartDataPoint;
+import com.prodigalgal.ircs.ops.dashboard.domain.DashboardStatsSnapshot;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardStatsSnapshotRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.JdbcDashboardRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SearchOpsStatsClient;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +30,7 @@ public class DashboardQueryService {
 
     private static final Duration STATS_CACHE_TTL = Duration.ofSeconds(30);
     private static final Duration ANALYSIS_CACHE_TTL = Duration.ofSeconds(45);
+    private static final Duration ANALYSIS_BLOCK_CACHE_TTL = Duration.ofMinutes(3);
     private static final Duration SOURCE_QUALITY_CACHE_TTL = Duration.ofSeconds(60);
 
     private final JdbcDashboardRepository dashboardRepository;
@@ -32,9 +39,18 @@ public class DashboardQueryService {
     private final SearchOpsStatsClient searchOpsStatsClient;
     private final AggregationOpsStatsClient aggregationOpsStatsClient;
     private final DashboardSearchIndexStatsClient searchIndexStatsClient;
+    private final DashboardStatsSnapshotRepository statsSnapshotRepository;
     private final DashboardReadCache<DashboardStatsResponse> statsCache = new DashboardReadCache<>(STATS_CACHE_TTL);
     private final DashboardKeyedReadCache<Integer, DashboardAnalysisResponse> analysisCache =
             new DashboardKeyedReadCache<>(ANALYSIS_CACHE_TTL);
+    private final DashboardKeyedReadCache<Integer, List<ChartDataPoint>> trendCache =
+            new DashboardKeyedReadCache<>(ANALYSIS_BLOCK_CACHE_TTL);
+    private final DashboardReadCache<DashboardDistributionsResponse> distributionsCache =
+            new DashboardReadCache<>(ANALYSIS_BLOCK_CACHE_TTL);
+    private final DashboardReadCache<Map<String, Long>> coverageCache =
+            new DashboardReadCache<>(ANALYSIS_BLOCK_CACHE_TTL);
+    private final DashboardReadCache<DashboardEfficiencyResponse> efficiencyCache =
+            new DashboardReadCache<>(ANALYSIS_BLOCK_CACHE_TTL);
     private final DashboardReadCache<List<SourceQualityResponse>> sourceQualityCache =
             new DashboardReadCache<>(SOURCE_QUALITY_CACHE_TTL);
 
@@ -43,6 +59,19 @@ public class DashboardQueryService {
     }
 
     private DashboardStatsResponse loadStatistics() {
+        return usableStatsSnapshot()
+                .map(DashboardStatsSnapshot::stats)
+                .orElseGet(this::refreshStatisticsSnapshot);
+    }
+
+    private DashboardStatsResponse refreshStatisticsSnapshot() {
+        DashboardStatsResponse stats = loadLiveStatistics();
+        statsSnapshotRepository.save(stats, Instant.now());
+        statsCache.put(stats);
+        return stats;
+    }
+
+    private DashboardStatsResponse loadLiveStatistics() {
         DashboardStatsResponse dbStats = dashboardRepository.loadStats();
         try {
             DashboardSearchIndexStatsClient.SearchIndexCounts indexCounts = searchIndexStatsClient.currentCounts();
@@ -60,15 +89,39 @@ public class DashboardQueryService {
     }
 
     private DashboardAnalysisResponse loadAnalysis(int boundedDays) {
+        DashboardDistributionsResponse distributions = getDistributions();
+        DashboardEfficiencyResponse efficiency = getEfficiency();
         return new DashboardAnalysisResponse(
                 getStatistics(),
-                safeList(() -> dashboardRepository.weeklyTrend(boundedDays)),
+                getTrend(boundedDays),
+                distributions.categoryDistribution(),
+                distributions.sourceDistribution(),
+                distributions.enrichmentStatusDistribution(),
+                getCoverage(),
+                efficiency.sourceEfficiency(),
+                efficiency.categoryEfficiency());
+    }
+
+    public List<ChartDataPoint> getTrend(int days) {
+        int boundedDays = Math.max(1, Math.min(days, 90));
+        return trendCache.get(boundedDays, () -> safeList(() -> dashboardRepository.weeklyTrend(boundedDays)));
+    }
+
+    public DashboardDistributionsResponse getDistributions() {
+        return distributionsCache.get(() -> new DashboardDistributionsResponse(
                 safeList(dashboardRepository::categoryDistribution),
                 safeList(dashboardRepository::sourceDistribution),
-                safeList(dashboardRepository::enrichmentStatusDistribution),
-                safeMap(dashboardRepository::idCoverage),
+                safeList(dashboardRepository::enrichmentStatusDistribution)));
+    }
+
+    public Map<String, Long> getCoverage() {
+        return coverageCache.get(() -> safeMap(dashboardRepository::idCoverage));
+    }
+
+    public DashboardEfficiencyResponse getEfficiency() {
+        return efficiencyCache.get(() -> new DashboardEfficiencyResponse(
                 safeList(dashboardRepository::sourceEfficiency),
-                safeList(dashboardRepository::categoryEfficiency));
+                safeList(dashboardRepository::categoryEfficiency)));
     }
 
     public SystemMetricsResponse getMetrics() {
@@ -91,12 +144,36 @@ public class DashboardQueryService {
         return sourceQualityCache.get(() -> safeList(dashboardRepository::sourceQuality));
     }
 
+    public int warmAnalysisBlocks(int days, int taskRuntimeLimit, Instant deadline) {
+        int warmed = 0;
+        warmed += warmBlock(deadline, this::refreshStatisticsSnapshot);
+        warmed += warmBlock(deadline, () -> getTrend(days));
+        warmed += warmBlock(deadline, this::getDistributions);
+        warmed += warmBlock(deadline, this::getCoverage);
+        warmed += warmBlock(deadline, this::getEfficiency);
+        warmed += warmBlock(deadline, this::getMetrics);
+        warmed += warmBlock(deadline, () -> getTaskRuntimeOverview(taskRuntimeLimit));
+        warmed += warmBlock(deadline, this::getSearchOpsStats);
+        warmed += warmBlock(deadline, this::getAggregationOpsStats);
+        return warmed;
+    }
+
     public void refresh(int days) {
         statsCache.clear();
+        statsSnapshotRepository.invalidate();
         analysisCache.clear();
+        trendCache.clear();
+        distributionsCache.clear();
+        coverageCache.clear();
+        efficiencyCache.clear();
         sourceQualityCache.clear();
         taskRuntimeOverviewService.clearCache();
         systemMetricsService.refreshRateMetrics();
+    }
+
+    private Optional<DashboardStatsSnapshot> usableStatsSnapshot() {
+        Optional<DashboardStatsSnapshot> snapshot = statsSnapshotRepository.findUsable();
+        return snapshot == null ? Optional.empty() : snapshot;
     }
 
     private <T> List<T> safeList(Supplier<List<T>> supplier) {
@@ -126,6 +203,18 @@ public class DashboardQueryService {
         }
     }
 
+    private int warmBlock(Instant deadline, Supplier<?> supplier) {
+        if (deadline != null && !Instant.now().isBefore(deadline)) {
+            return 0;
+        }
+        try {
+            supplier.get();
+            return 1;
+        } catch (RuntimeException ignored) {
+            return 0;
+        }
+    }
+
     private static final class DashboardReadCache<T> {
 
         private final Duration ttl;
@@ -151,6 +240,10 @@ public class DashboardQueryService {
                 value = new CachedValue<>(loaded, now.plus(ttl));
                 return loaded;
             }
+        }
+
+        void put(T loaded) {
+            value = new CachedValue<>(loaded, Instant.now().plus(ttl));
         }
 
         void clear() {

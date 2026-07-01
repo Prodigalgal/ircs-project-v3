@@ -16,6 +16,10 @@ class JdbcDashboardRepositorySqlPolicyTest {
         assertThat(source).contains("public DashboardStatsResponse loadStats()");
         assertThat(source).contains("CROSS JOIN");
         assertThat(source).contains("count(*) FILTER");
+        assertThat(source).contains("pg_stat_user_tables");
+        assertThat(source).contains("table_estimates");
+        assertThat(source).doesNotContain("SELECT count(*) AS unified_count");
+        assertThat(source).doesNotContain("SELECT count(*) AS task_count");
         assertThat(source).doesNotContain("count(\"raw_videos\")");
         assertThat(source).doesNotContain("countRawByStatus(");
         assertThat(source).doesNotContain("countCoverByStatus(");

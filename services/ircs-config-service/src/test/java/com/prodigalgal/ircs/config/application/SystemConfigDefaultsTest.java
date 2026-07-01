@@ -94,6 +94,9 @@ class SystemConfigDefaultsTest {
         assertEquals("PT2S", defaults.staticDefaultValue("app.runtime-config.local-cache.ttl").orElseThrow());
         assertEquals("PT3S", defaults.staticDefaultValue("app.ops.dashboard.stream.metrics.interval").orElseThrow());
         assertEquals("PT5S", defaults.staticDefaultValue("app.ops.dashboard.stream.search-ops.interval").orElseThrow());
+        assertEquals("PT30S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-interval").orElseThrow());
+        assertEquals("PT30S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.fresh-ttl").orElseThrow());
+        assertEquals("PT5M", defaults.staticDefaultValue("app.ops.dashboard.snapshot.stale-grace").orElseThrow());
         assertEquals("PT15S", defaults.staticDefaultValue("app.ops.metrics.cache-ttl").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue(
@@ -235,6 +238,8 @@ class SystemConfigDefaultsTest {
                 defaults.metadata("app.magnet.work-queue.worker.enabled");
         SystemConfigDefaults.ConfigMetadata adminVideoSearchHot =
                 defaults.metadata("app.content.admin-video-search.es-enabled");
+        SystemConfigDefaults.ConfigMetadata dashboardSnapshotHot =
+                defaults.metadata("app.ops.dashboard.snapshot.refresh-interval");
         SystemConfigDefaults.ConfigMetadata magnetAutoSearchScheduleRestart =
                 defaults.metadata("app.magnet.auto-search.fixed-delay-ms");
         SystemConfigDefaults.ConfigMetadata magnetWorkQueueScheduleRestart =
@@ -253,6 +258,7 @@ class SystemConfigDefaultsTest {
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetAutoSearchHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, magnetWorkQueueHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, adminVideoSearchHot.activationMode());
+        assertEquals(SystemConfigDefaults.ActivationMode.HOT, dashboardSnapshotHot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT,
                 defaults.metadata("app.magnet.work-queue.worker.batch-size").activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT,
@@ -426,6 +432,12 @@ class SystemConfigDefaultsTest {
             "app.ops.dashboard.stream.search-ops.interval",
             "app.ops.dashboard.stream.aggregation-ops.interval",
             "app.ops.dashboard.stream.timeout",
+            "app.ops.dashboard.snapshot.enabled",
+            "app.ops.dashboard.snapshot.refresh-interval",
+            "app.ops.dashboard.snapshot.refresh-budget",
+            "app.ops.dashboard.snapshot.fresh-ttl",
+            "app.ops.dashboard.snapshot.stale-grace",
+            "app.ops.dashboard.snapshot.default-task-runtime-limit",
             "app.ops.metrics.cache-ttl",
             "app.ops.metrics.instant-window",
             "app.ops.metrics.stable-window",

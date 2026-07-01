@@ -59,10 +59,16 @@ public class PortalQueryService {
     private PortalHomeResponse getHomeUncached(IrcsRequestPrincipal principal) {
         List<PortalMovieCard> spotlight = safeList(portalRepository.findSpotlight(principal, MOVIE_RAIL_SIZE));
         List<PortalMovieCard> trending = safeList(portalRepository.findTrending(principal, MOVIE_TREND_SIZE));
+        List<CategoryItem> categories = stableCategories(principal);
+        Map<String, List<PortalMovieCard>> moviesByCategory =
+                portalRepository.findCategorySections(
+                        principal,
+                        categories.stream().map(CategoryItem::slug).toList(),
+                        MOVIE_RAIL_SIZE);
         List<PortalCategorySection> sections = new ArrayList<>();
 
-        for (CategoryItem category : stableCategories(principal)) {
-            List<PortalMovieCard> movies = portalRepository.findCategorySection(principal, category.slug(), MOVIE_RAIL_SIZE);
+        for (CategoryItem category : categories) {
+            List<PortalMovieCard> movies = moviesByCategory.get(category.slug());
             sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), safeList(movies)));
         }
 

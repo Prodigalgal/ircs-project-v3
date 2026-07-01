@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.clearInvocations;
@@ -8,15 +10,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardAnalysisResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
+import com.prodigalgal.ircs.ops.dashboard.domain.DashboardStatsSnapshot;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient.SearchIndexCounts;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardStatsSnapshotRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.JdbcDashboardRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SearchOpsStatsClient;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +39,8 @@ class DashboardQueryServiceTest {
             org.mockito.Mockito.mock(AggregationOpsStatsClient.class);
     private final DashboardSearchIndexStatsClient searchIndexStatsClient =
             org.mockito.Mockito.mock(DashboardSearchIndexStatsClient.class);
+    private final DashboardStatsSnapshotRepository statsSnapshotRepository =
+            org.mockito.Mockito.mock(DashboardStatsSnapshotRepository.class);
     private final DashboardQueryService service =
             new DashboardQueryService(
                     repository,
@@ -38,7 +48,8 @@ class DashboardQueryServiceTest {
                     taskRuntimeOverviewService,
                     searchOpsStatsClient,
                     aggregationOpsStatsClient,
-                    searchIndexStatsClient);
+                    searchIndexStatsClient,
+                    statsSnapshotRepository);
 
     @Test
     void analysisBoundsDaysAndTurnsNullListsIntoEmptyLists() {
@@ -97,6 +108,26 @@ class DashboardQueryServiceTest {
     }
 
     @Test
+    void statisticsUsesMaterializedSnapshotBeforeLiveQuery() {
+        Instant generatedAt = Instant.parse("2026-07-01T00:00:00Z");
+        DashboardStatsResponse snapshotStats =
+                new DashboardStatsResponse(11, 12, 21, 22, 31, 1, 2, 3, 4, 5, 6, 7);
+        DashboardStatsSnapshot snapshot = new DashboardStatsSnapshot(
+                snapshotStats,
+                generatedAt,
+                generatedAt.plusSeconds(6),
+                generatedAt.plusSeconds(66),
+                "database");
+        when(statsSnapshotRepository.findUsable()).thenReturn(Optional.of(snapshot));
+
+        DashboardStatsResponse response = service.getStatistics();
+
+        assertEquals(snapshotStats, response);
+        verify(repository, times(0)).loadStats();
+        verify(searchIndexStatsClient, times(0)).currentCounts();
+    }
+
+    @Test
     void statisticsFallBackToDatabaseCountsWhenSearchIndexUnavailable() {
         DashboardStatsResponse stats = new DashboardStatsResponse(7, 0, 8, 0, 3, 0, 0, 0, 0, 0, 0, 0);
         when(repository.loadStats()).thenReturn(stats);
@@ -124,6 +155,111 @@ class DashboardQueryServiceTest {
     }
 
     @Test
+    void analysisBlocksUseIndependentReadCaches() {
+        when(repository.weeklyTrend(14)).thenReturn(List.of());
+        when(repository.categoryDistribution()).thenReturn(List.of());
+        when(repository.sourceDistribution()).thenReturn(List.of());
+        when(repository.enrichmentStatusDistribution()).thenReturn(List.of());
+        when(repository.idCoverage()).thenReturn(Map.of("Both", 1L));
+        when(repository.sourceEfficiency()).thenReturn(List.of());
+        when(repository.categoryEfficiency()).thenReturn(List.of());
+
+        service.getTrend(14);
+        service.getTrend(14);
+        service.getDistributions();
+        service.getDistributions();
+        service.getCoverage();
+        service.getCoverage();
+        service.getEfficiency();
+        service.getEfficiency();
+
+        verify(repository, times(1)).weeklyTrend(14);
+        verify(repository, times(1)).categoryDistribution();
+        verify(repository, times(1)).sourceDistribution();
+        verify(repository, times(1)).enrichmentStatusDistribution();
+        verify(repository, times(1)).idCoverage();
+        verify(repository, times(1)).sourceEfficiency();
+        verify(repository, times(1)).categoryEfficiency();
+    }
+
+    @Test
+    void splitResponsesNormalizeNullPayloads() {
+        when(repository.categoryDistribution()).thenReturn(null);
+        when(repository.sourceDistribution()).thenReturn(null);
+        when(repository.enrichmentStatusDistribution()).thenReturn(null);
+        when(repository.sourceEfficiency()).thenReturn(null);
+        when(repository.categoryEfficiency()).thenReturn(null);
+
+        DashboardDistributionsResponse distributions = service.getDistributions();
+        DashboardEfficiencyResponse efficiency = service.getEfficiency();
+
+        assertTrue(distributions.categoryDistribution().isEmpty());
+        assertTrue(distributions.sourceDistribution().isEmpty());
+        assertTrue(distributions.enrichmentStatusDistribution().isEmpty());
+        assertTrue(efficiency.sourceEfficiency().isEmpty());
+        assertTrue(efficiency.categoryEfficiency().isEmpty());
+    }
+
+    @Test
+    void warmAnalysisBlocksWarmsSplitCachesUntilDeadline() {
+        DashboardStatsResponse stats = new DashboardStatsResponse(1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0);
+        TaskRuntimeOverviewResponse overview = new TaskRuntimeOverviewResponse(
+                java.time.Instant.parse("2026-06-13T00:00:00Z"),
+                25,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                Map.of(),
+                Map.of(),
+                List.of());
+        when(repository.loadStats()).thenReturn(stats);
+        when(searchIndexStatsClient.currentCounts())
+                .thenReturn(new SearchIndexCounts(OptionalLong.empty(), OptionalLong.empty()));
+        when(repository.weeklyTrend(14)).thenReturn(List.of());
+        when(repository.categoryDistribution()).thenReturn(List.of());
+        when(repository.sourceDistribution()).thenReturn(List.of());
+        when(repository.enrichmentStatusDistribution()).thenReturn(List.of());
+        when(repository.idCoverage()).thenReturn(Map.of());
+        when(repository.sourceEfficiency()).thenReturn(List.of());
+        when(repository.categoryEfficiency()).thenReturn(List.of());
+        when(taskRuntimeOverviewService.currentOverview(25)).thenReturn(overview);
+        when(searchOpsStatsClient.currentStats()).thenReturn(Map.of("available", true));
+        when(aggregationOpsStatsClient.currentStats()).thenReturn(Map.of("available", true));
+
+        int warmed = service.warmAnalysisBlocks(14, 25, Instant.now().plusSeconds(5));
+
+        assertEquals(9, warmed);
+        verify(repository).loadStats();
+        verify(statsSnapshotRepository).save(eq(stats.withSearchCounts(1, 2)), any(Instant.class));
+        verify(repository).weeklyTrend(14);
+        verify(repository).categoryDistribution();
+        verify(repository).sourceDistribution();
+        verify(repository).enrichmentStatusDistribution();
+        verify(repository).idCoverage();
+        verify(repository).sourceEfficiency();
+        verify(repository).categoryEfficiency();
+        verify(metricsService).currentMetrics();
+        verify(taskRuntimeOverviewService).currentOverview(25);
+    }
+
+    @Test
+    void warmAnalysisBlocksStopsWhenDeadlineAlreadyExpired() {
+        int warmed = service.warmAnalysisBlocks(14, 25, Instant.now().minusSeconds(1));
+
+        assertEquals(0, warmed);
+        verify(repository, times(0)).loadStats();
+    }
+
+    @Test
     void refreshDelegatesToRateMetricsRefresh() {
         service.refresh(14);
 
@@ -139,14 +275,17 @@ class DashboardQueryServiceTest {
 
         service.getAnalysis(14);
         service.getSourceQuality();
+        service.getCoverage();
         clearInvocations(repository);
 
         service.refresh(14);
         service.getAnalysis(14);
         service.getSourceQuality();
+        service.getCoverage();
 
         verify(repository, times(1)).weeklyTrend(14);
         verify(repository, times(1)).sourceQuality();
+        verify(repository, times(1)).idCoverage();
     }
 
     @Test

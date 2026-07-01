@@ -24,6 +24,10 @@ class VideoAdminQuerySqlPolicyTest {
 
         assertThat(source).contains("pg_stat_user_tables");
         assertThat(source).contains("exactCount(exactCountSql, params)");
+        assertThat(source).contains("shouldUseExactFilteredCount(pageable, contentSize)");
+        assertThat(source).contains("estimatedTotal(pageable, contentSize)");
+        assertThat(source).contains("hasAnyDatabaseRow(\"raw_videos rv\", where, params)");
+        assertThat(source).contains("hasAnyDatabaseRow(\"unified_videos uv\", where, params)");
         assertThat(source).contains("totalElements(\"raw_videos\"");
         assertThat(source).contains("totalElements(\"unified_videos\"");
     }
@@ -55,6 +59,10 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).contains("withSourceCounts(findUnifiedCardsByIds(result.ids()))");
         assertThat(source).contains("aggregationStatus,");
         assertThat(source).contains("normalizedMetadataStatus");
+        assertThat(source).contains("trimToNull(title)");
+        assertThat(source).contains("trimToNull(actor)");
+        assertThat(source).contains("trimToNull(director)");
+        assertThat(source).doesNotContain(".filter(result -> !result.ids().isEmpty())");
         assertThat(source).doesNotContain("if (StringUtils.hasText(aggregationStatus)) {\n            return Optional.empty();");
         assertThat(source).doesNotContain("if (StringUtils.hasText(metadataStatus)) {\n            return Optional.empty();");
     }

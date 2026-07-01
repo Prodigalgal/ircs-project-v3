@@ -195,6 +195,40 @@ public class JdbcPortalRepository {
                 cardMapper()));
     }
 
+    public Map<String, List<PortalMovieCard>> findCategorySections(
+            IrcsRequestPrincipal principal,
+            List<String> categoryKeys,
+            int limit) {
+        if (categoryKeys == null || categoryKeys.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> params = new HashMap<>();
+        params.put("categoryKeys", categoryKeys);
+        params.put("limit", limit);
+        StringBuilder where = new StringBuilder(" WHERE sc.slug IN (:categoryKeys)");
+        appendScopeFilters(where, params, principal);
+
+        List<CategoryCardRow> rows = jdbcTemplate.query(
+                """
+                SELECT *
+                  FROM (
+                """ + categoryCardSelect() + where + """
+                  ) ranked
+                 WHERE ranked.section_rank <= :limit
+                 ORDER BY ranked.section_key ASC, ranked.section_rank ASC
+                """,
+                params,
+                categoryCardMapper());
+
+        List<PortalMovieCard> enrichedCards = enrichCards(rows.stream().map(CategoryCardRow::card).toList());
+        Map<String, List<PortalMovieCard>> cardsByCategory = new LinkedHashMap<>();
+        for (int i = 0; i < rows.size(); i++) {
+            CategoryCardRow row = rows.get(i);
+            cardsByCategory.computeIfAbsent(row.sectionKey(), ignored -> new ArrayList<>()).add(enrichedCards.get(i));
+        }
+        return cardsByCategory;
+    }
+
     public PageResponse<PortalMovieCard> findExplore(
             IrcsRequestPrincipal principal,
             int page,
@@ -767,6 +801,53 @@ public class JdbcPortalRepository {
                 rs.getString("description"),
                 List.of(),
                 getInstant(rs, "last_trend_at"));
+    }
+
+    private String categoryCardSelect() {
+        return """
+                SELECT uv.id,
+                       uv.title,
+                       uv.alias_title,
+                       uv.season,
+                       uv.subtitle,
+                       uv.score,
+                       uv.year AS release_year,
+                       coalesce(sc.name, '未分类') AS category_name,
+                       CASE
+                           WHEN uv.description IS NULL THEN NULL
+                           WHEN length(uv.description) > 150 THEN substring(uv.description FROM 1 FOR 150)
+                           ELSE uv.description
+                       END AS description,
+                       uv.total_episodes,
+                       uv.duration,
+                       uv.remarks,
+                       uv.last_trend_at,
+                       ci.storage_type AS cover_storage_type,
+                       ci.original_url AS cover_original_url,
+                       ci.storage_path AS cover_storage_path,
+                       sd.domain_value AS cover_source_domain,
+                       sc.slug AS section_key,
+                       row_number() over (
+                           partition by sc.slug
+                           order by uv.published_at DESC NULLS LAST,
+                                    uv.updated_at DESC NULLS LAST,
+                                    uv.id ASC
+                       ) AS section_rank
+                  FROM unified_videos uv
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
+                  LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
+                """;
+    }
+
+    private RowMapper<CategoryCardRow> categoryCardMapper() {
+        RowMapper<PortalMovieCard> delegate = cardMapper();
+        return (rs, rowNum) -> new CategoryCardRow(
+                rs.getString("section_key"),
+                delegate.mapRow(rs, rowNum));
+    }
+
+    private record CategoryCardRow(String sectionKey, PortalMovieCard card) {
     }
 
     private Integer getInteger(ResultSet rs, String column) throws SQLException {
