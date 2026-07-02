@@ -153,3 +153,7 @@ databaseChangeLog:
       file: db/changelog/2026/07/add-portal-media-request-existing-video.sql
   - include:
       file: db/changelog/2026/07/add-dashboard-stats-snapshot.sql
+  - include:
+      file: db/changelog/2026/07/add-dashboard-read-model-snapshots.sql
+  - include:
+      file: db/changelog/2026/07/add-request-audit-summary-snapshot.sql

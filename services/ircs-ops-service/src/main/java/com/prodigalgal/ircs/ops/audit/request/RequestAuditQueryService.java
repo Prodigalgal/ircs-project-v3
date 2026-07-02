@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 public class RequestAuditQueryService {
 
     private final RequestAuditRepository repository;
+    private final RequestAuditSummarySnapshotRepository summarySnapshotRepository;
 
     public Page<RequestAuditLogResponse> findAll(
             Pageable pageable,
@@ -28,6 +29,19 @@ public class RequestAuditQueryService {
     }
 
     public RequestAuditSummaryResponse summarize() {
-        return repository.summarize(Instant.now().minus(24, ChronoUnit.HOURS));
+        return usableSummarySnapshot()
+                .map(RequestAuditSummarySnapshot::summary)
+                .orElseGet(this::refreshSummarySnapshot);
+    }
+
+    RequestAuditSummaryResponse refreshSummarySnapshot() {
+        RequestAuditSummaryResponse summary = repository.summarize(Instant.now().minus(24, ChronoUnit.HOURS));
+        summarySnapshotRepository.save(summary, Instant.now());
+        return summary;
+    }
+
+    private java.util.Optional<RequestAuditSummarySnapshot> usableSummarySnapshot() {
+        java.util.Optional<RequestAuditSummarySnapshot> snapshot = summarySnapshotRepository.findUsable();
+        return snapshot == null ? java.util.Optional.empty() : snapshot;
     }
 }

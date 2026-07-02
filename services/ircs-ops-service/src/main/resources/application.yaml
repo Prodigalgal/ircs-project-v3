@@ -12,6 +12,7 @@ spring:
     hikari:
       maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:2}
       minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:0}
+      connection-init-sql: ${SPRING_DATASOURCE_HIKARI_CONNECTION_INIT_SQL:SET jit=off}
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}
     port: ${SPRING_RABBITMQ_PORT:${RABBITMQ_PORT:5672}}

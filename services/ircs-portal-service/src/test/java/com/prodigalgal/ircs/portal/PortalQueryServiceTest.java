@@ -170,6 +170,20 @@ class PortalQueryServiceTest {
     }
 
     @Test
+    void anonymousExploreWithKeywordUsesReadModelCache() {
+        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        PortalMovieCard card = sampleCard();
+        PageResponse<PortalMovieCard> page = PageResponse.of(List.of(card), 1, 0, 20);
+        when(portalRepository.findExplore(principal, 0, 20, "爱", null, null, null, null, null, null))
+                .thenReturn(page);
+
+        assertEquals(page, cachedService.explore(principal, 0, 20, "爱", null, null, null, null, null, null));
+        assertEquals(page, cachedService.explore(principal, 0, 20, "爱", null, null, null, null, null, null));
+
+        verify(portalRepository, times(1)).findExplore(principal, 0, 20, "爱", null, null, null, null, null, null);
+    }
+
+    @Test
     void movieDetailDelegatesToRepository() {
         UUID movieId = UUID.randomUUID();
         PortalMovieDetailResponse detail = sampleDetail(movieId);

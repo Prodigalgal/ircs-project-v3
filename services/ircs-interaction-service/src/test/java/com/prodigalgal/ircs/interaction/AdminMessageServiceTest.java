@@ -20,7 +20,8 @@ import org.springframework.http.HttpStatus;
 class AdminMessageServiceTest {
 
     private final JdbcAdminMessageRepository repository = org.mockito.Mockito.mock(JdbcAdminMessageRepository.class);
-    private final AdminMessageService service = new AdminMessageService(repository);
+    private final InteractionReadModelCache readModelCache = org.mockito.Mockito.mock(InteractionReadModelCache.class);
+    private final AdminMessageService service = new AdminMessageService(repository, readModelCache);
 
     @Test
     void findsMessagesWithNormalizedBoundsKeywordAndStatus() {
@@ -57,6 +58,7 @@ class AdminMessageServiceTest {
         assertSame(expected, response);
         ArgumentCaptor<String> replyCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository).reply(eq(messageId), replyCaptor.capture(), any(Instant.class));
+        verify(readModelCache).evictPublicFeedbackWall();
         assertEquals("已收到", replyCaptor.getValue());
     }
 
@@ -92,6 +94,7 @@ class AdminMessageServiceTest {
 
         assertSame(expected, response);
         verify(repository).toggleVisibility(eq(messageId), eq(true), any(Instant.class));
+        verify(readModelCache).evictPublicFeedbackWall();
     }
 
     @Test
@@ -102,6 +105,7 @@ class AdminMessageServiceTest {
         service.delete(messageId);
 
         verify(repository).delete(messageId);
+        verify(readModelCache).evictPublicFeedbackWall();
     }
 
     @Test

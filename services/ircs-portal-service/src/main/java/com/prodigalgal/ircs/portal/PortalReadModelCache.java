@@ -126,10 +126,10 @@ class PortalReadModelCache {
             String language,
             String sort,
             Supplier<PageResponse<PortalMovieCard>> loader) {
-        if (!cacheablePublic(principal) || StringUtils.hasText(keyword) || page != 0) {
+        if (!cacheablePublic(principal) || page != 0) {
             return loader.get();
         }
-        return exploreCache.get(exploreKey(page, size, type, genre, area, year, language, sort), loader);
+        return exploreCache.get(exploreKey(page, size, keyword, type, genre, area, year, language, sort), loader);
     }
 
     Optional<PortalMovieDetailResponse> detail(
@@ -157,15 +157,17 @@ class PortalReadModelCache {
     private String exploreKey(
             int page,
             int size,
+            String keyword,
             String type,
             String genre,
             String area,
             String year,
             String language,
             String sort) {
-        return "p=%d|s=%d|type=%s|genre=%s|area=%s|year=%s|lang=%s|sort=%s".formatted(
+        return "p=%d|s=%d|keyword=%s|type=%s|genre=%s|area=%s|year=%s|lang=%s|sort=%s".formatted(
                 page,
                 size,
+                token(keyword),
                 token(type),
                 token(genre),
                 token(area),

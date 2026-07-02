@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
@@ -7,9 +9,11 @@ import com.prodigalgal.ircs.ops.dashboard.dto.SourceQualityResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.ChartDataPoint;
+import com.prodigalgal.ircs.ops.dashboard.domain.DashboardReadModelSnapshot;
 import com.prodigalgal.ircs.ops.dashboard.domain.DashboardStatsSnapshot;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardReadModelSnapshotRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardStatsSnapshotRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.JdbcDashboardRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SearchOpsStatsClient;
@@ -38,6 +42,8 @@ public class DashboardQueryService {
     private final AggregationOpsStatsClient aggregationOpsStatsClient;
     private final DashboardSearchIndexStatsClient searchIndexStatsClient;
     private final DashboardStatsSnapshotRepository statsSnapshotRepository;
+    private final DashboardReadModelSnapshotRepository readModelSnapshotRepository;
+    private final ObjectMapper objectMapper;
     private final DashboardReadCache<DashboardStatsResponse> statsCache = new DashboardReadCache<>(STATS_CACHE_TTL);
     private final DashboardKeyedReadCache<Integer, List<ChartDataPoint>> trendCache =
             new DashboardKeyedReadCache<>(ANALYSIS_BLOCK_CACHE_TTL);
@@ -85,10 +91,27 @@ public class DashboardQueryService {
     }
 
     public DashboardDistributionsResponse getDistributions() {
-        return distributionsCache.get(() -> new DashboardDistributionsResponse(
+        return distributionsCache.get(this::loadDistributions);
+    }
+
+    private DashboardDistributionsResponse loadDistributions() {
+        Optional<DashboardReadModelSnapshot<DashboardDistributionsResponse>> snapshot = usableReadModelSnapshot(
+                DashboardReadModelSnapshotRepository.DISTRIBUTIONS_KEY,
+                objectMapper.constructType(DashboardDistributionsResponse.class));
+        return snapshot.map(DashboardReadModelSnapshot::payload)
+                .orElseGet(this::refreshDistributionsSnapshot);
+    }
+
+    private DashboardDistributionsResponse refreshDistributionsSnapshot() {
+        DashboardDistributionsResponse response = new DashboardDistributionsResponse(
                 safeList(dashboardRepository::categoryDistribution),
                 safeList(dashboardRepository::sourceDistribution),
-                safeList(dashboardRepository::enrichmentStatusDistribution)));
+                safeList(dashboardRepository::enrichmentStatusDistribution));
+        readModelSnapshotRepository.save(
+                DashboardReadModelSnapshotRepository.DISTRIBUTIONS_KEY,
+                response,
+                Instant.now());
+        return response;
     }
 
     public Map<String, Long> getCoverage() {
@@ -118,7 +141,24 @@ public class DashboardQueryService {
     }
 
     public List<SourceQualityResponse> getSourceQuality() {
-        return sourceQualityCache.get(() -> safeList(dashboardRepository::sourceQuality));
+        return sourceQualityCache.get(this::loadSourceQuality);
+    }
+
+    private List<SourceQualityResponse> loadSourceQuality() {
+        Optional<DashboardReadModelSnapshot<List<SourceQualityResponse>>> snapshot = usableReadModelSnapshot(
+                DashboardReadModelSnapshotRepository.SOURCE_QUALITY_KEY,
+                sourceQualityListType());
+        return snapshot.map(DashboardReadModelSnapshot::payload)
+                .orElseGet(this::refreshSourceQualitySnapshot);
+    }
+
+    private List<SourceQualityResponse> refreshSourceQualitySnapshot() {
+        List<SourceQualityResponse> response = safeList(dashboardRepository::sourceQuality);
+        readModelSnapshotRepository.save(
+                DashboardReadModelSnapshotRepository.SOURCE_QUALITY_KEY,
+                response,
+                Instant.now());
+        return response;
     }
 
     public int warmAnalysisBlocks(int days, int taskRuntimeLimit, Instant deadline) {
@@ -138,6 +178,8 @@ public class DashboardQueryService {
     public void refresh(int days) {
         statsCache.clear();
         statsSnapshotRepository.invalidate();
+        readModelSnapshotRepository.invalidate(DashboardReadModelSnapshotRepository.DISTRIBUTIONS_KEY);
+        readModelSnapshotRepository.invalidate(DashboardReadModelSnapshotRepository.SOURCE_QUALITY_KEY);
         trendCache.clear();
         distributionsCache.clear();
         coverageCache.clear();
@@ -150,6 +192,15 @@ public class DashboardQueryService {
     private Optional<DashboardStatsSnapshot> usableStatsSnapshot() {
         Optional<DashboardStatsSnapshot> snapshot = statsSnapshotRepository.findUsable();
         return snapshot == null ? Optional.empty() : snapshot;
+    }
+
+    private <T> Optional<DashboardReadModelSnapshot<T>> usableReadModelSnapshot(String key, JavaType payloadType) {
+        Optional<DashboardReadModelSnapshot<T>> snapshot = readModelSnapshotRepository.findUsable(key, payloadType);
+        return snapshot == null ? Optional.empty() : snapshot;
+    }
+
+    private JavaType sourceQualityListType() {
+        return objectMapper.getTypeFactory().constructCollectionType(List.class, SourceQualityResponse.class);
     }
 
     private <T> List<T> safeList(Supplier<List<T>> supplier) {

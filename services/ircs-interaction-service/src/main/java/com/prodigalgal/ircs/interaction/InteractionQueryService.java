@@ -10,10 +10,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class InteractionQueryService {
 
     private final JdbcInteractionRepository repository;
+    private final InteractionReadModelCache readModelCache;
 
     @Transactional(readOnly = true)
     public PageResponse<UserMessageResponse> publicWall(PageBounds bounds) {
-        return repository.findPublicMessages(bounds);
+        return readModelCache.publicFeedbackWall(bounds, () -> repository.findPublicMessages(bounds));
     }
 
     @Transactional(readOnly = true)

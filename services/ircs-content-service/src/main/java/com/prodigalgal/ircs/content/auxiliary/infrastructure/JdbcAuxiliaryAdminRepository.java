@@ -25,12 +25,14 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -115,24 +117,49 @@ public class JdbcAuxiliaryAdminRepository {
                 "select count(*) from playlists p left join raw_videos rv on p.video_id = rv.id" + where,
                 params,
                 Long.class);
-        List<PlaylistCardResponse> content = jdbcTemplate.query(
+        List<PlaylistBaseCard> pageItems = jdbcTemplate.query(
                 """
-                select p.id, p.name, p.video_id, count(e.id) as episode_count
+                select p.id, p.name, p.video_id
                 from playlists p
                 left join raw_videos rv on p.video_id = rv.id
-                left join episodes e on e.playlist_id = p.id
                 """
                         + where
-                        + " group by p.id, p.name, p.video_id "
                         + orderBy(safe, PLAYLIST_SORT_COLUMNS, "p.created_at desc")
                         + " limit :limit offset :offset",
                 params,
-                (rs, rowNum) -> new PlaylistCardResponse(
+                (rs, rowNum) -> new PlaylistBaseCard(
                         rs.getObject("id", UUID.class),
                         rs.getString("name"),
-                        rs.getObject("video_id", UUID.class),
-                        rs.getInt("episode_count")));
+                        rs.getObject("video_id", UUID.class)));
+        Map<UUID, Integer> episodeCounts = episodeCounts(pageItems.stream()
+                .map(PlaylistBaseCard::id)
+                .toList());
+        List<PlaylistCardResponse> content = pageItems.stream()
+                .map(item -> new PlaylistCardResponse(
+                        item.id(),
+                        item.name(),
+                        item.videoId(),
+                        episodeCounts.getOrDefault(item.id(), 0)))
+                .toList();
         return new PageImpl<>(content, safe, total == null ? 0 : total);
+    }
+
+    private Map<UUID, Integer> episodeCounts(List<UUID> playlistIds) {
+        if (playlistIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Integer> counts = new HashMap<>();
+        jdbcTemplate.query(
+                """
+                select playlist_id, count(*) as episode_count
+                from episodes
+                where playlist_id in (:playlistIds)
+                group by playlist_id
+                """,
+                new MapSqlParameterSource("playlistIds", playlistIds),
+                (RowCallbackHandler) rs ->
+                        counts.put(rs.getObject("playlist_id", UUID.class), rs.getInt("episode_count")));
+        return counts;
     }
 
     public Optional<PlaylistDetailResponse> findPlaylist(UUID id) {
@@ -645,6 +672,12 @@ public class JdbcAuxiliaryAdminRepository {
             String videoTitle,
             Instant createdAt,
             Instant updatedAt) {
+    }
+
+    private record PlaylistBaseCard(
+            UUID id,
+            String name,
+            UUID videoId) {
     }
 
     private record EpisodeUrlBinding(

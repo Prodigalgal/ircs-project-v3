@@ -18,6 +18,7 @@ public class AdminMessageService {
     private static final Set<String> STATUSES = Set.of("PENDING", "REPLIED", "CLOSED");
 
     private final JdbcAdminMessageRepository repository;
+    private final InteractionReadModelCache readModelCache;
 
     @Transactional(readOnly = true)
     public PageResponse<UserMessageResponse> findAll(
@@ -41,8 +42,10 @@ public class AdminMessageService {
         if (request == null || !StringUtils.hasText(request.reply())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "回复内容不能为空");
         }
-        return repository.reply(messageId, request.reply().trim(), Instant.now())
+        UserMessageResponse response = repository.reply(messageId, request.reply().trim(), Instant.now())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "留言不存在"));
+        readModelCache.evictPublicFeedbackWall();
+        return response;
     }
 
     @Transactional
@@ -53,8 +56,10 @@ public class AdminMessageService {
         if (request == null || request.publicMessage() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "public field missing");
         }
-        return repository.toggleVisibility(messageId, request.publicMessage(), Instant.now())
+        UserMessageResponse response = repository.toggleVisibility(messageId, request.publicMessage(), Instant.now())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "留言不存在"));
+        readModelCache.evictPublicFeedbackWall();
+        return response;
     }
 
     @Transactional
@@ -66,6 +71,7 @@ public class AdminMessageService {
         if (deleted == 0) {
             throw new ApiException(HttpStatus.NOT_FOUND, "留言不存在");
         }
+        readModelCache.evictPublicFeedbackWall();
     }
 
     private Optional<String> normalizeKeyword(String keyword) {

@@ -8,6 +8,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.prodigalgal.ircs.ops.dashboard.domain.DashboardReadModelSnapshot;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardDistributionsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
@@ -16,6 +18,7 @@ import com.prodigalgal.ircs.ops.dashboard.domain.DashboardStatsSnapshot;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardSearchIndexStatsClient.SearchIndexCounts;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardReadModelSnapshotRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.DashboardStatsSnapshotRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.JdbcDashboardRepository;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SearchOpsStatsClient;
@@ -39,6 +42,8 @@ class DashboardQueryServiceTest {
             org.mockito.Mockito.mock(DashboardSearchIndexStatsClient.class);
     private final DashboardStatsSnapshotRepository statsSnapshotRepository =
             org.mockito.Mockito.mock(DashboardStatsSnapshotRepository.class);
+    private final DashboardReadModelSnapshotRepository readModelSnapshotRepository =
+            org.mockito.Mockito.mock(DashboardReadModelSnapshotRepository.class);
     private final DashboardQueryService service =
             new DashboardQueryService(
                     repository,
@@ -47,7 +52,9 @@ class DashboardQueryServiceTest {
                     searchOpsStatsClient,
                     aggregationOpsStatsClient,
                     searchIndexStatsClient,
-                    statsSnapshotRepository);
+                    statsSnapshotRepository,
+                    readModelSnapshotRepository,
+                    JsonMapper.builder().findAndAddModules().build());
 
     @Test
     void statisticsUsesShortLivedReadCacheUntilRefresh() {
@@ -153,6 +160,42 @@ class DashboardQueryServiceTest {
         verify(repository, times(1)).idCoverage();
         verify(repository, times(1)).sourceEfficiency();
         verify(repository, times(1)).categoryEfficiency();
+    }
+
+    @Test
+    void distributionsUseMaterializedSnapshotBeforeLiveQuery() {
+        DashboardDistributionsResponse snapshotPayload =
+                new DashboardDistributionsResponse(List.of(), List.of(), List.of());
+        when(readModelSnapshotRepository.findUsable(eq(DashboardReadModelSnapshotRepository.DISTRIBUTIONS_KEY), any()))
+                .thenReturn(Optional.of(new DashboardReadModelSnapshot<>(
+                        snapshotPayload,
+                        Instant.now(),
+                        Instant.now().plusSeconds(30),
+                        Instant.now().plusSeconds(300),
+                        "database")));
+
+        DashboardDistributionsResponse response = service.getDistributions();
+
+        assertEquals(snapshotPayload, response);
+        verify(repository, times(0)).categoryDistribution();
+        verify(repository, times(0)).sourceDistribution();
+        verify(repository, times(0)).enrichmentStatusDistribution();
+    }
+
+    @Test
+    void sourceQualityUsesMaterializedSnapshotBeforeLiveQuery() {
+        when(readModelSnapshotRepository.findUsable(eq(DashboardReadModelSnapshotRepository.SOURCE_QUALITY_KEY), any()))
+                .thenReturn(Optional.of(new DashboardReadModelSnapshot<>(
+                        List.of(),
+                        Instant.now(),
+                        Instant.now().plusSeconds(30),
+                        Instant.now().plusSeconds(300),
+                        "database")));
+
+        List<?> response = service.getSourceQuality();
+
+        assertTrue(response.isEmpty());
+        verify(repository, times(0)).sourceQuality();
     }
 
     @Test
