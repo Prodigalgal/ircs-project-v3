@@ -910,8 +910,9 @@ class JdbcAggregationRepositoryTest {
 
         assertEquals(Boolean.TRUE, scalar(jdbc, "select adult_restricted from unified_videos where id = ?", unifiedVideoId, Boolean.class));
         assertEquals("movie", scalar(jdbc, "select category_code from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertTrue(scalar(jdbc, "select adult_assessment from unified_videos where id = ?", unifiedVideoId, String.class)
-                .contains("dataSourceAdultRestricted"));
+        String assessment = scalar(jdbc, "select adult_assessment from unified_videos where id = ?", unifiedVideoId, String.class);
+        assertTrue(assessment.contains("dataSourceAdultRestricted"));
+        assertFalse(assessment.contains("rawMetadata"));
     }
 
     @Test

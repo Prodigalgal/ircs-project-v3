@@ -1411,7 +1411,7 @@ public class JdbcAggregationRepository {
                        rv.source_category_code,
                        rv.source_category_name,
                        coalesce(ds.base_url, sd.domain_value) as source_domain,
-                       left(cast(rv.raw_metadata as varchar), 4096) as raw_metadata
+                       cast(null as varchar) as raw_metadata
                   from raw_video_unified_video rvuv
                   join raw_videos rv on rv.id = rvuv.raw_video_id
                   left join data_sources ds on ds.id = rv.data_source_id
@@ -1441,7 +1441,7 @@ public class JdbcAggregationRepository {
                        rv.source_category_code,
                        rv.source_category_name,
                        coalesce(ds.base_url, sd.domain_value) as source_domain,
-                       left(cast(rv.raw_metadata as varchar), 4096) as raw_metadata
+                       cast(null as varchar) as raw_metadata
                   from raw_video_unified_video rvuv
                   join raw_videos rv on rv.id = rvuv.raw_video_id
                   left join data_sources ds on ds.id = rv.data_source_id
