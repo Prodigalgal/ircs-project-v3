@@ -4,67 +4,95 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app.content-safety")
-class ContentSafetyProperties {
+public class ContentSafetyProperties {
 
     private final InternalAccess internalAccess = new InternalAccess();
     private final Adult adult = new Adult();
 
-    InternalAccess internalAccess() {
+    public InternalAccess internalAccess() {
         return internalAccess;
     }
 
-    Adult adult() {
+    public InternalAccess getInternalAccess() {
+        return internalAccess;
+    }
+
+    public Adult adult() {
         return adult;
     }
 
-    static class InternalAccess {
+    public Adult getAdult() {
+        return adult;
+    }
+
+    public static class InternalAccess {
         private boolean requireToken;
         private String token = "";
         private String requiredScope = "content-safety:assess";
 
-        boolean requireToken() {
+        public boolean requireToken() {
             return requireToken;
         }
 
-        void setRequireToken(boolean requireToken) {
+        public boolean isRequireToken() {
+            return requireToken;
+        }
+
+        public void setRequireToken(boolean requireToken) {
             this.requireToken = requireToken;
         }
 
-        String token() {
+        public String token() {
             return token;
         }
 
-        void setToken(String token) {
+        public String getToken() {
+            return token;
+        }
+
+        public void setToken(String token) {
             this.token = token;
         }
 
-        String requiredScope() {
+        public String requiredScope() {
             return requiredScope;
         }
 
-        void setRequiredScope(String requiredScope) {
+        public String getRequiredScope() {
+            return requiredScope;
+        }
+
+        public void setRequiredScope(String requiredScope) {
             this.requiredScope = requiredScope;
         }
     }
 
-    static class Adult {
+    public static class Adult {
         private int maxTextLength = 4096;
         private final Model model = new Model();
 
-        int maxTextLength() {
+        public int maxTextLength() {
             return maxTextLength;
         }
 
-        void setMaxTextLength(int maxTextLength) {
+        public int getMaxTextLength() {
+            return maxTextLength;
+        }
+
+        public void setMaxTextLength(int maxTextLength) {
             this.maxTextLength = maxTextLength;
         }
 
-        Model model() {
+        public Model model() {
+            return model;
+        }
+
+        public Model getModel() {
             return model;
         }
     }
 
-    static class Model {
+    public static class Model {
         private boolean enabled;
         private String name = "uget/sexual_content_dection";
         private String version = "remote";
@@ -73,59 +101,87 @@ class ContentSafetyProperties {
         private double adultThreshold = 0.85d;
         private double suspectThreshold = 0.5d;
 
-        boolean enabled() {
+        public boolean enabled() {
             return enabled;
         }
 
-        void setEnabled(boolean enabled) {
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
             this.enabled = enabled;
         }
 
-        String name() {
+        public String name() {
             return name;
         }
 
-        void setName(String name) {
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
             this.name = name;
         }
 
-        String version() {
+        public String version() {
             return version;
         }
 
-        void setVersion(String version) {
+        public String getVersion() {
+            return version;
+        }
+
+        public void setVersion(String version) {
             this.version = version;
         }
 
-        String endpoint() {
+        public String endpoint() {
             return endpoint;
         }
 
-        void setEndpoint(String endpoint) {
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
             this.endpoint = endpoint;
         }
 
-        Duration requestTimeout() {
+        public Duration requestTimeout() {
             return requestTimeout;
         }
 
-        void setRequestTimeout(Duration requestTimeout) {
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
             this.requestTimeout = requestTimeout;
         }
 
-        double adultThreshold() {
+        public double adultThreshold() {
             return adultThreshold;
         }
 
-        void setAdultThreshold(double adultThreshold) {
+        public double getAdultThreshold() {
+            return adultThreshold;
+        }
+
+        public void setAdultThreshold(double adultThreshold) {
             this.adultThreshold = adultThreshold;
         }
 
-        double suspectThreshold() {
+        public double suspectThreshold() {
             return suspectThreshold;
         }
 
-        void setSuspectThreshold(double suspectThreshold) {
+        public double getSuspectThreshold() {
+            return suspectThreshold;
+        }
+
+        public void setSuspectThreshold(double suspectThreshold) {
             this.suspectThreshold = suspectThreshold;
         }
     }
