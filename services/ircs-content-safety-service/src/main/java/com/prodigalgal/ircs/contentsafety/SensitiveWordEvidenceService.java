@@ -2,11 +2,9 @@ package com.prodigalgal.ircs.contentsafety;
 
 import com.prodigalgal.ircs.common.adult.AdultAssessmentSignal;
 import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentItem;
-import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentSourceEvidence;
 import java.lang.reflect.Method;
 import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +15,6 @@ import org.springframework.util.StringUtils;
 @Slf4j
 class SensitiveWordEvidenceService {
 
-    private static final int MAX_SOURCE_EVIDENCE_SCAN = 3;
     private static final String HELPER_CLASS = "com.github.houbb.sensitive.word.core.SensitiveWordHelper";
 
     private final Method findFirstMethod;
@@ -32,34 +29,9 @@ class SensitiveWordEvidenceService {
         }
         List<AdultAssessmentSignal> signals = new ArrayList<>();
         scanField(signals, "unified", "title", item.title(), maxTextLength, 88);
+        scanField(signals, "unified", "subtitle", item.subtitle(), maxTextLength, 82);
         scanField(signals, "unified", "aliasTitle", item.aliasTitle(), maxTextLength, 82);
-        scanField(signals, "unified", "description", item.description(), maxTextLength, 76);
-        scanCollection(signals, "unified", "genreCodes", item.genreCodes(), maxTextLength, 70);
-        int sourceCount = 0;
-        for (AdultAssessmentSourceEvidence source : item.sources()) {
-            if (sourceCount++ >= MAX_SOURCE_EVIDENCE_SCAN) {
-                break;
-            }
-            scanField(signals, "source", "dataSourceName", source.dataSourceName(), maxTextLength, 80);
-            scanField(signals, "source", "sourceDomain", source.sourceDomain(), maxTextLength, 78);
-            scanField(signals, "source", "sourceCategoryName", source.sourceCategoryName(), maxTextLength, 78);
-        }
         return signals;
-    }
-
-    private void scanCollection(
-            List<AdultAssessmentSignal> signals,
-            String source,
-            String field,
-            Collection<String> values,
-            int maxTextLength,
-            int score) {
-        if (values == null) {
-            return;
-        }
-        for (String value : values) {
-            scanField(signals, source, field, value, maxTextLength, score);
-        }
     }
 
     private void scanField(
