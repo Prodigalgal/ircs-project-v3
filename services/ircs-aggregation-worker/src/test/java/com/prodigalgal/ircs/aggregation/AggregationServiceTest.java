@@ -571,6 +571,22 @@ class AggregationServiceTest {
     }
 
     @Test
+    void backfillUnifiedAdultAssessmentsCanSkipSearchSyncWhenFullReindexWillFollow() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        when(repository.findAdultAssessmentBackfillIds(20)).thenReturn(List.of(unifiedVideoId));
+        when(repository.rebuildUnifiedAdultAssessments(List.of(unifiedVideoId))).thenReturn(List.of(unifiedVideoId));
+
+        var result = service.backfillUnifiedAdultAssessments(20, false);
+
+        assertEquals("aggregation-adult-assessment-backfill", result.taskName());
+        assertEquals(1, result.candidates());
+        assertEquals(1, result.processed());
+        assertEquals(List.of(unifiedVideoId), result.entityIds());
+        verify(repository).rebuildUnifiedAdultAssessments(List.of(unifiedVideoId));
+        verify(publisher, never()).publishUnifiedIndex(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void manuallyMergesUnifiedVideosAndPublishesSearchSync() {
         UUID rootUnifiedVideoId = UUID.randomUUID();
         UUID victimUnifiedVideoId = UUID.randomUUID();

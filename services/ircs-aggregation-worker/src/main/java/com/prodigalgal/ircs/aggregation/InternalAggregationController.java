@@ -67,11 +67,12 @@ class InternalAggregationController {
     @PostMapping("/unified-videos/backfill-adult-assessments")
     ResponseEntity<AggregationMaintenanceRunResponse> backfillUnifiedAdultAssessments(
             @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(defaultValue = "true") boolean publishSearch,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
-        return ResponseEntity.accepted().body(aggregationService.backfillUnifiedAdultAssessments(limit));
+        return ResponseEntity.accepted().body(aggregationService.backfillUnifiedAdultAssessments(limit, publishSearch));
     }
 
     @PostMapping("/reset/prepare")

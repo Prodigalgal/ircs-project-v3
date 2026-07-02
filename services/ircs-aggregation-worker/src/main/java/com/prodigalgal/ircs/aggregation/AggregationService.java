@@ -216,9 +216,16 @@ public class AggregationService {
 
     @Transactional
     public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit) {
+        return backfillUnifiedAdultAssessments(limit, true);
+    }
+
+    @Transactional
+    public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit, boolean publishSearch) {
         List<UUID> unifiedVideoIds = repository.findAdultAssessmentBackfillIds(Math.max(1, limit));
         List<UUID> processedIds = repository.rebuildUnifiedAdultAssessments(unifiedVideoIds);
-        processedIds.forEach(publisher::publishUnifiedIndex);
+        if (publishSearch) {
+            processedIds.forEach(publisher::publishUnifiedIndex);
+        }
         return new AggregationMaintenanceRunResponse(
                 "aggregation-adult-assessment-backfill",
                 unifiedVideoIds.size(),

@@ -164,10 +164,11 @@ class InternalAggregationControllerTest {
                 1,
                 1,
                 List.of(unifiedId));
-        when(aggregationService.backfillUnifiedAdultAssessments(9)).thenReturn(response);
+        when(aggregationService.backfillUnifiedAdultAssessments(9, false)).thenReturn(response);
 
         ResponseEntity<AggregationMaintenanceRunResponse> result = controller.backfillUnifiedAdultAssessments(
                 9,
+                false,
                 "ops-service",
                 "token",
                 "aggregation:maintenance");
@@ -175,7 +176,7 @@ class InternalAggregationControllerTest {
         assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
         assertEquals(response, result.getBody());
         verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
-        verify(aggregationService).backfillUnifiedAdultAssessments(9);
+        verify(aggregationService).backfillUnifiedAdultAssessments(9, false);
     }
 
     @Test
