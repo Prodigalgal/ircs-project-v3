@@ -41,6 +41,7 @@ class AdultModelClassifierClient {
                             adultText(item, properties.adult().maxTextLength())))
                     .toList());
             HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(model.endpoint().trim()))
+                    .version(HttpClient.Version.HTTP_1_1)
                     .timeout(timeout(model.requestTimeout()))
                     .header("Accept", CONTENT_TYPE_JSON)
                     .header("Content-Type", CONTENT_TYPE_JSON)
@@ -50,6 +51,7 @@ class AdultModelClassifierClient {
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
                     .build();
             HttpClient client = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
                     .connectTimeout(timeout(model.requestTimeout()))
                     .build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
