@@ -19,9 +19,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +35,7 @@ import org.springframework.util.StringUtils;
 class ContentSafetyAdultAssessmentClient {
 
     private static final String BATCH_PATH = "/internal/v1/content-safety/adult-assessments:batch";
+    private static final int REMOTE_TEXT_LIMIT = 512;
 
     private final ObjectMapper objectMapper;
     private final boolean enabled;
@@ -105,31 +108,69 @@ class ContentSafetyAdultAssessmentClient {
     }
 
     private static AdultAssessmentItem toItem(UUID id, AdultAssessmentInput input) {
+        if (input == null) {
+            return new AdultAssessmentItem(
+                    id,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of());
+        }
         return new AdultAssessmentItem(
                 id,
-                input.title(),
-                input.aliasTitle(),
-                input.description(),
-                input.remarks(),
-                input.subtitle(),
-                input.categoryCode(),
-                input.categoryName(),
-                List.copyOf(input.actorNames()),
-                List.copyOf(input.directorNames()),
-                List.copyOf(input.genreCodes()),
+                truncate(input.title()),
+                truncate(input.aliasTitle()),
+                truncate(input.description()),
+                truncate(input.remarks()),
+                truncate(input.subtitle()),
+                truncate(input.categoryCode()),
+                truncate(input.categoryName()),
+                truncateAll(input.actorNames()),
+                truncateAll(input.directorNames()),
+                truncateAll(input.genreCodes()),
                 input.sources().stream()
+                        .filter(Objects::nonNull)
                         .map(ContentSafetyAdultAssessmentClient::toSource)
                         .toList());
     }
 
     private static AdultAssessmentSourceEvidence toSource(AdultAssessmentInput.SourceEvidence source) {
         return new AdultAssessmentSourceEvidence(
-                source.dataSourceName(),
+                truncate(source.dataSourceName()),
                 source.dataSourceAdultRestricted(),
-                source.sourceCategoryCode(),
-                source.sourceCategoryName(),
-                source.sourceDomain(),
-                source.rawMetadata());
+                truncate(source.sourceCategoryCode()),
+                truncate(source.sourceCategoryName()),
+                truncate(source.sourceDomain()),
+                null);
+    }
+
+    private static List<String> truncateAll(Iterable<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        List<String> truncated = new ArrayList<>();
+        for (String value : values) {
+            String item = truncate(value);
+            if (StringUtils.hasText(item)) {
+                truncated.add(item);
+            }
+        }
+        return List.copyOf(truncated);
+    }
+
+    private static String truncate(String value) {
+        if (!StringUtils.hasText(value)) {
+            return value;
+        }
+        String trimmed = value.trim();
+        return trimmed.length() <= REMOTE_TEXT_LIMIT ? trimmed : trimmed.substring(0, REMOTE_TEXT_LIMIT);
     }
 
     private static AdultAssessment toAssessment(AdultAssessmentResult result) {
