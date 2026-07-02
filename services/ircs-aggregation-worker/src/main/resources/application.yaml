@@ -55,7 +55,7 @@ app:
       service-id: ${APP_AGGREGATION_CONTENT_SAFETY_SERVICE_ID:${spring.application.name}}
       service-token: ${APP_AGGREGATION_CONTENT_SAFETY_SERVICE_TOKEN:${APP_CONTENT_SAFETY_SERVICE_TOKEN:}}
       scopes: ${APP_AGGREGATION_CONTENT_SAFETY_SCOPES:content-safety:assess}
-      request-timeout: ${APP_AGGREGATION_CONTENT_SAFETY_REQUEST_TIMEOUT:PT5S}
+      request-timeout: ${APP_AGGREGATION_CONTENT_SAFETY_REQUEST_TIMEOUT:PT30S}
     internal-access:
       require-token: ${APP_AGGREGATION_INTERNAL_ACCESS_REQUIRE_TOKEN:false}
       token: ${APP_AGGREGATION_SERVICE_TOKEN:}

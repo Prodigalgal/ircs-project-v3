@@ -51,7 +51,7 @@ class ContentSafetyAdultAssessmentClient {
             @Value("${app.aggregation.content-safety.service-token:${APP_CONTENT_SAFETY_SERVICE_TOKEN:}}")
                     String serviceToken,
             @Value("${app.aggregation.content-safety.scopes:content-safety:assess}") String serviceScopes,
-            @Value("${app.aggregation.content-safety.request-timeout:PT5S}") Duration requestTimeout) {
+            @Value("${app.aggregation.content-safety.request-timeout:PT30S}") Duration requestTimeout) {
         this.objectMapper = objectMapper;
         this.enabled = enabled;
         this.baseUrl = stripTrailingSlash(baseUrl);
