@@ -32,7 +32,7 @@ class PortalReadModelCache {
     private static final Duration DEFAULT_METADATA_TTL = Duration.ofMinutes(5);
     private static final Duration DEFAULT_HOME_TTL = Duration.ofSeconds(60);
     private static final Duration DEFAULT_EXPLORE_TTL = Duration.ofSeconds(60);
-    private static final Duration DEFAULT_DETAIL_TTL = Duration.ofMinutes(5);
+    private static final Duration DEFAULT_DETAIL_TTL = Duration.ofMinutes(15);
 
     private final boolean enabledByDeployment;
     private final RuntimeConfigService runtimeConfig;
@@ -49,7 +49,7 @@ class PortalReadModelCache {
             @Value("${app.portal.cache.metadata-ttl:PT5M}") Duration metadataTtl,
             @Value("${app.portal.cache.home-ttl:PT60S}") Duration homeTtl,
             @Value("${app.portal.cache.explore-ttl:PT60S}") Duration exploreTtl,
-            @Value("${app.portal.cache.detail-ttl:PT5M}") Duration detailTtl) {
+            @Value("${app.portal.cache.detail-ttl:PT15M}") Duration detailTtl) {
         ObjectMapper mapper = objectMapper == null
                 ? JsonMapper.builder().findAndAddModules().build()
                 : objectMapper;

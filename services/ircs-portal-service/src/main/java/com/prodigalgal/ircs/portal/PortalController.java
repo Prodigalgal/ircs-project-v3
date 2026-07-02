@@ -24,7 +24,7 @@ public class PortalController {
 
     private static final String CACHE_PUBLIC_HOME = "public, max-age=0, s-maxage=60";
     private static final String CACHE_PUBLIC_METADATA = "public, max-age=0, s-maxage=3600";
-    private static final String CACHE_PUBLIC_DETAIL = "public, max-age=0, s-maxage=300";
+    private static final String CACHE_PUBLIC_DETAIL = "public, max-age=0, s-maxage=900";
     private static final String CACHE_PUBLIC_EXPLORE = "public, max-age=0, s-maxage=60";
     private static final String CACHE_NO_STORE = "no-store";
 

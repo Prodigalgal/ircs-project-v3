@@ -162,6 +162,8 @@ class SystemConfigDefaultsTest {
                 defaults.staticDefaultValue("member.oauth.redirect-base-url").orElseThrow());
         assertEquals("google,x,github,gitee,wechat,qq",
                 defaults.staticDefaultValue("member.oauth.allowed-providers").orElseThrow());
+        assertEquals("PT15M", defaults.staticDefaultValue("app.portal.cache.detail-ttl").orElseThrow());
+        assertEquals("PT30M", defaults.staticDefaultValue("app.portal.cache.dictionary-ttl").orElseThrow());
     }
 
     @Test
@@ -208,6 +210,18 @@ class SystemConfigDefaultsTest {
         assertLegacyUnknownUpgrade("app.scraper.traffic.egress-id");
         assertLegacyUnknownUpgrade("app.magnet.traffic.egress-id");
         assertLegacyUnknownUpgrade("app.storage.image.traffic.egress-id");
+    }
+
+    @Test
+    void upgradesLegacyPortalDetailCacheTtl() {
+        SystemConfigDefaults.ResolvedDefault resolved = defaults.all().stream()
+                .filter(config -> config.key().equals("app.portal.cache.detail-ttl"))
+                .findFirst()
+                .map(defaults::resolve)
+                .orElseThrow();
+
+        assertEquals("PT15M", resolved.value());
+        assertEquals("PT5M", resolved.upgradeLegacyValue());
     }
 
     private void assertLegacyUnknownUpgrade(String key) {
@@ -489,6 +503,7 @@ class SystemConfigDefaultsTest {
             "app.portal.cache.home-ttl",
             "app.portal.cache.explore-ttl",
             "app.portal.cache.detail-ttl",
+            "app.portal.cache.dictionary-ttl",
             "app.search.cache.enabled",
             "app.search.cache.portal-suggest-ttl",
             "app.search.cache.portal-recommend-ttl",

@@ -49,6 +49,8 @@ public class JdbcPortalRepository {
                    uv.duration,
                    uv.remarks,
                    uv.last_trend_at,
+                   cast(uv.area_codes as varchar) as area_codes,
+                   cast(uv.genre_codes as varchar) as genre_codes,
                    ci.storage_type AS cover_storage_type,
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
@@ -62,6 +64,7 @@ public class JdbcPortalRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final PortalCoverImageUrlResolver coverImageUrlResolver;
     private final ObjectMapper objectMapper;
+    private final PortalStandardNameCache standardNameCache;
 
     public List<CategoryItem> findActiveCategories(IrcsRequestPrincipal principal) {
         Map<String, Object> params = new HashMap<>();
@@ -150,7 +153,7 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return enrichCards(jdbcTemplate.query(
+        return jdbcTemplate.query(
                 CARD_SELECT + where + """
                  ORDER BY uv.published_at DESC NULLS LAST,
                           uv.updated_at DESC NULLS LAST,
@@ -158,7 +161,7 @@ public class JdbcPortalRepository {
                  LIMIT :limit
                 """,
                 params,
-                cardMapper()));
+                cardMapper());
     }
 
     public List<PortalMovieCard> findTrending(IrcsRequestPrincipal principal, int limit) {
@@ -166,7 +169,7 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return enrichCards(jdbcTemplate.query(
+        return jdbcTemplate.query(
                 CARD_SELECT + where + """
                  ORDER BY uv.last_trend_at DESC NULLS LAST,
                           uv.score DESC NULLS LAST,
@@ -175,7 +178,7 @@ public class JdbcPortalRepository {
                  LIMIT :limit
                 """,
                 params,
-                cardMapper()));
+                cardMapper());
     }
 
     public List<PortalMovieCard> findCategorySection(IrcsRequestPrincipal principal, String categoryKey, int limit) {
@@ -184,7 +187,7 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE (sc.slug = :categoryKey OR sc.name = :categoryKey)");
         appendScopeFilters(where, params, principal);
-        return enrichCards(jdbcTemplate.query(
+        return jdbcTemplate.query(
                 CARD_SELECT + where + """
                  ORDER BY uv.published_at DESC NULLS LAST,
                           uv.updated_at DESC NULLS LAST,
@@ -192,7 +195,7 @@ public class JdbcPortalRepository {
                  LIMIT :limit
                 """,
                 params,
-                cardMapper()));
+                cardMapper());
     }
 
     public Map<String, List<PortalMovieCard>> findCategorySections(
@@ -220,11 +223,9 @@ public class JdbcPortalRepository {
                 params,
                 categoryCardMapper());
 
-        List<PortalMovieCard> enrichedCards = enrichCards(rows.stream().map(CategoryCardRow::card).toList());
         Map<String, List<PortalMovieCard>> cardsByCategory = new LinkedHashMap<>();
-        for (int i = 0; i < rows.size(); i++) {
-            CategoryCardRow row = rows.get(i);
-            cardsByCategory.computeIfAbsent(row.sectionKey(), ignored -> new ArrayList<>()).add(enrichedCards.get(i));
+        for (CategoryCardRow row : rows) {
+            cardsByCategory.computeIfAbsent(row.sectionKey(), ignored -> new ArrayList<>()).add(row.card());
         }
         return cardsByCategory;
     }
@@ -245,10 +246,10 @@ public class JdbcPortalRepository {
 
         params.put("limit", size);
         params.put("offset", (long) page * size);
-        List<PortalMovieCard> content = enrichCards(jdbcTemplate.query(
+        List<PortalMovieCard> content = jdbcTemplate.query(
                 CARD_SELECT + where + orderBy(sort) + " LIMIT :limit OFFSET :offset",
                 params,
-                cardMapper()));
+                cardMapper());
         long total = exploreRequiresExactTotal(principal, keyword, type, genre, area, year, language)
                 ? exactExploreTotal(where, params)
                 : estimatedTotal(page, size, content.size());
@@ -652,70 +653,15 @@ public class JdbcPortalRepository {
     }
 
     private List<String> resolveGenreNames(String genreCodesJson) {
-        return resolveNamesByCodes("standard_genre", "code", "name", JsonStringArrays.readSet(objectMapper, genreCodesJson));
+        return standardNameCache.resolveGenreNames(JsonStringArrays.readSet(objectMapper, genreCodesJson));
     }
 
     private List<String> resolveAreaNames(String areaCodesJson) {
-        return resolveNamesByCodes("standard_areas", "code", "name", JsonStringArrays.readSet(objectMapper, areaCodesJson));
+        return standardNameCache.resolveAreaNames(JsonStringArrays.readSet(objectMapper, areaCodesJson));
     }
 
     private List<String> resolveLanguageNames(String languageCodesJson) {
-        return resolveNamesByCodes("standard_languages", "code", "name", JsonStringArrays.readSet(objectMapper, languageCodesJson));
-    }
-
-    private List<String> resolveNamesByCodes(String table, String codeColumn, String nameColumn, Iterable<String> codes) {
-        List<String> normalizedCodes = new ArrayList<>();
-        for (String code : codes) {
-            if (StringUtils.hasText(code) && !normalizedCodes.contains(code.trim())) {
-                normalizedCodes.add(code.trim());
-            }
-        }
-        if (normalizedCodes.isEmpty()) {
-            return List.of();
-        }
-        Map<String, String> namesByCode = new LinkedHashMap<>();
-        jdbcTemplate.query(
-                "select %s as code, %s as name from %s where %s in (:codes)"
-                        .formatted(codeColumn, nameColumn, table, codeColumn),
-                Map.of("codes", normalizedCodes),
-                (org.springframework.jdbc.core.RowCallbackHandler)
-                        rs -> namesByCode.put(rs.getString("code"), rs.getString("name")));
-        return normalizedCodes.stream()
-                .map(code -> fallback(namesByCode.get(code), code))
-                .toList();
-    }
-
-    private List<PortalMovieCard> enrichCards(List<PortalMovieCard> cards) {
-        if (cards == null || cards.isEmpty()) {
-            return List.of();
-        }
-
-        List<UUID> ids = cards.stream()
-                .map(PortalMovieCard::id)
-                .toList();
-        Map<UUID, List<String>> genresByVideo = findNamesByVideoId("""
-                SELECT uv.id, coalesce(sg.name, gc.code) as name
-                  FROM unified_videos uv
-                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code) ON true
-                  LEFT JOIN standard_genre sg ON sg.code = gc.code
-                 WHERE uv.id IN (:ids)
-                 ORDER BY coalesce(sg.name, gc.code) ASC
-                """, ids);
-        Map<UUID, List<String>> areasByVideo = findNamesByVideoId("""
-                SELECT uv.id, coalesce(sa.name, ac.code) as name
-                  FROM unified_videos uv
-                  JOIN LATERAL jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code) ON true
-                  LEFT JOIN standard_areas sa ON sa.code = ac.code
-                 WHERE uv.id IN (:ids)
-                 ORDER BY coalesce(sa.name, ac.code) ASC
-                """, ids);
-
-        return cards.stream()
-                .map(card -> withMetadata(
-                        card,
-                        limitGenres(genresByVideo.getOrDefault(card.id(), List.of())),
-                        String.join(", ", areasByVideo.getOrDefault(card.id(), List.of()))))
-                .toList();
+        return standardNameCache.resolveLanguageNames(JsonStringArrays.readSet(objectMapper, languageCodesJson));
     }
 
     private List<String> limitGenres(List<String> genres) {
@@ -723,41 +669,6 @@ public class JdbcPortalRepository {
             return genres;
         }
         return genres.subList(0, 3);
-    }
-
-    private Map<UUID, List<String>> findNamesByVideoId(String sql, List<UUID> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        Map<UUID, List<String>> namesByVideo = new LinkedHashMap<>();
-        jdbcTemplate.query(sql, Map.of("ids", ids), rs -> {
-            UUID videoId = rs.getObject(1, UUID.class);
-            String name = rs.getString(2);
-            if (name != null && !name.isBlank()) {
-                namesByVideo.computeIfAbsent(videoId, ignored -> new ArrayList<>()).add(name);
-            }
-        });
-        return namesByVideo;
-    }
-
-    private PortalMovieCard withMetadata(PortalMovieCard card, List<String> genres, String area) {
-        return new PortalMovieCard(
-                card.id(),
-                card.title(),
-                card.aliasTitle(),
-                card.season(),
-                card.subtitle(),
-                card.posterUrl(),
-                card.rating(),
-                card.releaseYear(),
-                card.categoryName(),
-                card.totalEpisodes(),
-                card.duration(),
-                card.remarks(),
-                area,
-                card.description(),
-                genres,
-                card.lastTrendAt());
     }
 
     private List<String> parseTags(String raw) {
@@ -816,9 +727,9 @@ public class JdbcPortalRepository {
                 rs.getString("total_episodes"),
                 rs.getString("duration"),
                 rs.getString("remarks"),
-                null,
+                String.join(", ", resolveAreaNames(rs.getString("area_codes"))),
                 rs.getString("description"),
-                List.of(),
+                limitGenres(resolveGenreNames(rs.getString("genre_codes"))),
                 getInstant(rs, "last_trend_at"));
     }
 
@@ -841,6 +752,8 @@ public class JdbcPortalRepository {
                        uv.duration,
                        uv.remarks,
                        uv.last_trend_at,
+                       cast(uv.area_codes as varchar) as area_codes,
+                       cast(uv.genre_codes as varchar) as genre_codes,
                        ci.storage_type AS cover_storage_type,
                        ci.original_url AS cover_original_url,
                        ci.storage_path AS cover_storage_path,

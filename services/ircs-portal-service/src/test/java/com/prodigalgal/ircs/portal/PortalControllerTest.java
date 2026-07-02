@@ -108,7 +108,7 @@ class PortalControllerTest {
         var response = controller.getDetail(new MockHttpServletRequest(), movieId);
 
         assertEquals(detail, response.getBody());
-        assertEquals("public, max-age=0, s-maxage=300",
+        assertEquals("public, max-age=0, s-maxage=900",
                 response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         verify(portalQueryService).getMovieDetail(principal, movieId);
     }

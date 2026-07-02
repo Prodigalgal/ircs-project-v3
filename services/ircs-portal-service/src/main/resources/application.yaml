@@ -38,5 +38,12 @@ app:
   portal:
     config-listener:
       enabled: ${APP_PORTAL_CONFIG_LISTENER_ENABLED:true}
+    cache:
+      enabled: ${APP_PORTAL_CACHE_ENABLED:true}
+      metadata-ttl: ${APP_PORTAL_CACHE_METADATA_TTL:PT5M}
+      home-ttl: ${APP_PORTAL_CACHE_HOME_TTL:PT60S}
+      explore-ttl: ${APP_PORTAL_CACHE_EXPLORE_TTL:PT60S}
+      detail-ttl: ${APP_PORTAL_CACHE_DETAIL_TTL:PT15M}
+      dictionary-ttl: ${APP_PORTAL_CACHE_DICTIONARY_TTL:PT30M}
   storage:
     r2-public-domain: ${APP_STORAGE_R2_PUBLIC_DOMAIN:}
