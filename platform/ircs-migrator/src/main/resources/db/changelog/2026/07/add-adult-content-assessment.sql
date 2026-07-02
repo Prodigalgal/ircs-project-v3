@@ -1,6 +1,6 @@
 -- liquibase formatted sql
 
--- changeset codex:20260702-add-adult-content-assessment
+-- changeset codex:20260702-add-adult-content-assessment splitStatements:false
 -- comment: Add adult-restriction source metadata and explainable unified-video assessment evidence.
 
 ALTER TABLE data_sources
