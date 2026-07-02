@@ -32,6 +32,7 @@
   - `settings.gradle` 移除 `services:ircs-portal-bff`、`services:ircs-admin-bff`。
   - 新增 `services:ircs-api-gateway`。
   - 删除旧 BFF 源码、测试、smoke 脚本和 dev deployment。
+  - 删除旧通用构建残留 `deploy/docker/bff.Dockerfile`。
   - `ProxyRequestAuditWriter` 替代旧 `BffRequestAuditWriter`。
   - `OutboundHttpPolicy.apiGatewayProxy` 替代旧 `bffProxy` 命名。
   - `SystemConfigDefaults` 与 `KubernetesDeploymentRestartService` 的可重启服务列表改为 `ircs-api-gateway`。
@@ -83,7 +84,7 @@ bash -lc 'BUILD_SCOPE=ircs-api-gateway DRY_RUN=true scripts/ci/jib-build-push-af
 - 门户和后台前端生产构建通过。
 - prod core 与 edge-cutover kustomize 渲染通过。
 - CI dry-run 只选择 `services:ircs-api-gateway -> ircs-api-gateway`。
-- 旧 BFF 关键词只保留在两条负向测试中，用于断言 `/api/backend/**` 已失效。
+- 后端测试改为断言未知 API 前缀不会被 gateway 代理；旧路径硬废弃由 Cloudflare Worker 线上规则负责。
 
 上线验证：
 
@@ -98,6 +99,9 @@ bash -lc 'BUILD_SCOPE=ircs-api-gateway DRY_RUN=true scripts/ci/jib-build-push-af
 - ArgoCD：`ircs-prod-core`、`ircs-prod-edge` 均为 `Synced/Healthy`
 - Deployment：`ircs-api-gateway` 为 `2/2 Ready`
 - 旧 Service：`ircs-admin-bff`、`ircs-portal-bff` 已不存在
+- 旧镜像包：
+  - `ircs/ircs-admin-bff` 全部 manifest 删除，`tags=[]`，旧 tag 拉取探测 `404`
+  - `ircs/ircs-portal-bff` 全部 manifest 删除，`tags=[]`，旧 tag 拉取探测 `404`
 - 线上 smoke：
   - `GET https://huawai.mnnu.eu.org/api/portal/metadata` -> `200`
   - `GET https://huawai.mnnu.eu.org/api/portal/home` -> `200`

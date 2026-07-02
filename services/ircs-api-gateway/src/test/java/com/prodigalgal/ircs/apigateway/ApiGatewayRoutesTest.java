@@ -111,7 +111,7 @@ class ApiGatewayRoutesTest {
     }
 
     @Test
-    void rejectsRemovedPortalBackendPrefix() {
-        assertThat(routes.resolve("/api/backend/api/portal/home")).isEmpty();
+    void rejectsUnknownApiPrefix() {
+        assertThat(routes.resolve("/api/unknown/portal/home")).isEmpty();
     }
 }

@@ -160,12 +160,12 @@ class ApiGatewayAuthGateTest {
     }
 
     @Test
-    void noLongerOwnsRemovedPortalBackendPrefix() throws Exception {
+    void doesNotProxyUnknownApiPrefix() throws Exception {
         GatewayProxyClient proxyClient = mock(GatewayProxyClient.class);
         ApiGatewayAuthenticator authenticator = mock(ApiGatewayAuthenticator.class);
 
         mvc(proxyClient, authenticator)
-                .perform(post("/api/backend/api/portal/interaction/history"))
+                .perform(post("/api/unknown/portal/interaction/history"))
                 .andExpect(status().isNotFound());
 
         verify(proxyClient, never()).proxy(any(HttpServletRequest.class), any(HttpServletResponse.class), any(ApiGatewayRoutes.class));
