@@ -54,15 +54,18 @@ app:
       snapshot:
         enabled: ${APP_OPS_DASHBOARD_SNAPSHOT_ENABLED:true}
         key-prefix: ${APP_OPS_DASHBOARD_SNAPSHOT_KEY_PREFIX:ircs:ops:dashboard:snapshot:v1}
-        refresh-interval: ${APP_OPS_DASHBOARD_SNAPSHOT_REFRESH_INTERVAL:PT30S}
+        refresh-interval: ${APP_OPS_DASHBOARD_SNAPSHOT_REFRESH_INTERVAL:PT1M}
         refresh-budget: ${APP_OPS_DASHBOARD_SNAPSHOT_REFRESH_BUDGET:PT3S}
-        fresh-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_FRESH_TTL:PT30S}
-        stale-grace: ${APP_OPS_DASHBOARD_SNAPSHOT_STALE_GRACE:PT5M}
+        fresh-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_FRESH_TTL:PT2M}
+        stale-grace: ${APP_OPS_DASHBOARD_SNAPSHOT_STALE_GRACE:PT15M}
         redis-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_REDIS_TTL:PT2M}
         lease-ttl: ${APP_OPS_DASHBOARD_SNAPSHOT_LEASE_TTL:PT10S}
         cluster-lease:
           enabled: ${APP_OPS_DASHBOARD_SNAPSHOT_CLUSTER_LEASE_ENABLED:true}
         default-task-runtime-limit: ${APP_OPS_DASHBOARD_SNAPSHOT_DEFAULT_TASK_RUNTIME_LIMIT:50}
+      read-model-snapshot:
+        fresh-ttl: ${APP_OPS_DASHBOARD_READ_MODEL_SNAPSHOT_FRESH_TTL:PT2M}
+        stale-grace: ${APP_OPS_DASHBOARD_READ_MODEL_SNAPSHOT_STALE_GRACE:PT15M}
     runtime-expired-inflight-reaper:
       enabled: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_ENABLED:true}
       initial-delay-ms: ${APP_OPS_RUNTIME_EXPIRED_INFLIGHT_REAPER_INITIAL_DELAY_MS:10000}

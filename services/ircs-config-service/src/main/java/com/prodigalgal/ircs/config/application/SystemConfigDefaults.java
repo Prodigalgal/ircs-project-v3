@@ -164,10 +164,12 @@ public class SystemConfigDefaults {
             cfg("app.ops.dashboard.stream.aggregation-ops.interval", "PT5S", "仪表盘 Aggregation Ops Topic SSE 推送间隔"),
             cfg("app.ops.dashboard.stream.timeout", "PT1H", "仪表盘 SSE 连接超时"),
             cfg("app.ops.dashboard.snapshot.enabled", "true", "是否启用仪表盘统计快照预热"),
-            cfg("app.ops.dashboard.snapshot.refresh-interval", "PT30S", "仪表盘统计快照刷新间隔"),
+            cfgUpgradeLegacyValue("app.ops.dashboard.snapshot.refresh-interval", "PT1M", "仪表盘统计快照刷新间隔", "PT30S"),
             cfg("app.ops.dashboard.snapshot.refresh-budget", "PT3S", "仪表盘统计快照单轮刷新预算"),
-            cfg("app.ops.dashboard.snapshot.fresh-ttl", "PT30S", "仪表盘统计快照新鲜 TTL"),
-            cfg("app.ops.dashboard.snapshot.stale-grace", "PT5M", "仪表盘统计快照过期兜底宽限"),
+            cfgUpgradeLegacyValue("app.ops.dashboard.snapshot.fresh-ttl", "PT2M", "仪表盘统计快照新鲜 TTL", "PT30S"),
+            cfgUpgradeLegacyValue("app.ops.dashboard.snapshot.stale-grace", "PT15M", "仪表盘统计快照过期兜底宽限", "PT5M"),
+            cfg("app.ops.dashboard.read-model-snapshot.fresh-ttl", "PT2M", "仪表盘读模型快照新鲜 TTL"),
+            cfg("app.ops.dashboard.read-model-snapshot.stale-grace", "PT15M", "仪表盘读模型快照过期兜底宽限"),
             cfg("app.ops.dashboard.snapshot.default-task-runtime-limit", "50", "仪表盘预热 Task Runtime 默认数量"),
             cfg("app.ops.metrics.cache-ttl", "PT15S", "运维指标接口本地缓存 TTL"),
             cfg("app.ops.metrics.instant-window", "PT60S", "运维速率指标即时窗口"),
@@ -630,6 +632,7 @@ public class SystemConfigDefaults {
                 && !key.equals("app.log-retention.fixed-delay-ms"))
                 || key.startsWith("app.notification.webhook.")
                 || key.startsWith("app.ops.dashboard.snapshot.")
+                || key.startsWith("app.ops.dashboard.read-model-snapshot.")
                 || key.startsWith("app.identity.auth-rate-limit.")
                 || "app.identity.pow.enabled".equals(key)
                 || "app.portal.cache.enabled".equals(key)

@@ -268,6 +268,27 @@ class DashboardQueryServiceTest {
     }
 
     @Test
+    void warmAnalysisBlocksReusesFreshStatsSnapshotWithoutLiveRefresh() {
+        Instant generatedAt = Instant.now();
+        DashboardStatsResponse snapshotStats =
+                new DashboardStatsResponse(11, 12, 21, 22, 31, 1, 2, 3, 4, 5, 6, 7);
+        when(statsSnapshotRepository.findUsable()).thenReturn(Optional.of(new DashboardStatsSnapshot(
+                snapshotStats,
+                generatedAt,
+                generatedAt.plusSeconds(60),
+                generatedAt.plusSeconds(600),
+                "database")));
+
+        int warmed = service.warmAnalysisBlocks(14, 25, Instant.now().plusSeconds(5));
+
+        assertEquals(9, warmed);
+        assertEquals(snapshotStats, service.getStatistics());
+        verify(repository, times(0)).loadStats();
+        verify(searchIndexStatsClient, times(0)).currentCounts();
+        verify(statsSnapshotRepository, times(0)).save(any(DashboardStatsResponse.class), any(Instant.class));
+    }
+
+    @Test
     void warmAnalysisBlocksStopsWhenDeadlineAlreadyExpired() {
         int warmed = service.warmAnalysisBlocks(14, 25, Instant.now().minusSeconds(1));
 

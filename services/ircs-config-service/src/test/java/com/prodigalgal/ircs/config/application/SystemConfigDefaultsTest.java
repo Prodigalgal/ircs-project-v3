@@ -94,9 +94,11 @@ class SystemConfigDefaultsTest {
         assertEquals("PT2S", defaults.staticDefaultValue("app.runtime-config.local-cache.ttl").orElseThrow());
         assertEquals("PT3S", defaults.staticDefaultValue("app.ops.dashboard.stream.metrics.interval").orElseThrow());
         assertEquals("PT5S", defaults.staticDefaultValue("app.ops.dashboard.stream.search-ops.interval").orElseThrow());
-        assertEquals("PT30S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-interval").orElseThrow());
-        assertEquals("PT30S", defaults.staticDefaultValue("app.ops.dashboard.snapshot.fresh-ttl").orElseThrow());
-        assertEquals("PT5M", defaults.staticDefaultValue("app.ops.dashboard.snapshot.stale-grace").orElseThrow());
+        assertEquals("PT1M", defaults.staticDefaultValue("app.ops.dashboard.snapshot.refresh-interval").orElseThrow());
+        assertEquals("PT2M", defaults.staticDefaultValue("app.ops.dashboard.snapshot.fresh-ttl").orElseThrow());
+        assertEquals("PT15M", defaults.staticDefaultValue("app.ops.dashboard.snapshot.stale-grace").orElseThrow());
+        assertEquals("PT2M", defaults.staticDefaultValue("app.ops.dashboard.read-model-snapshot.fresh-ttl").orElseThrow());
+        assertEquals("PT15M", defaults.staticDefaultValue("app.ops.dashboard.read-model-snapshot.stale-grace").orElseThrow());
         assertEquals("PT15S", defaults.staticDefaultValue("app.ops.metrics.cache-ttl").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue(
@@ -437,6 +439,8 @@ class SystemConfigDefaultsTest {
             "app.ops.dashboard.snapshot.refresh-budget",
             "app.ops.dashboard.snapshot.fresh-ttl",
             "app.ops.dashboard.snapshot.stale-grace",
+            "app.ops.dashboard.read-model-snapshot.fresh-ttl",
+            "app.ops.dashboard.read-model-snapshot.stale-grace",
             "app.ops.dashboard.snapshot.default-task-runtime-limit",
             "app.ops.metrics.cache-ttl",
             "app.ops.metrics.instant-window",

@@ -163,7 +163,7 @@ public class DashboardQueryService {
 
     public int warmAnalysisBlocks(int days, int taskRuntimeLimit, Instant deadline) {
         int warmed = 0;
-        warmed += warmBlock(deadline, this::refreshStatisticsSnapshot);
+        warmed += warmBlock(deadline, this::warmStatisticsSnapshot);
         warmed += warmBlock(deadline, () -> getTrend(days));
         warmed += warmBlock(deadline, this::getDistributions);
         warmed += warmBlock(deadline, this::getCoverage);
@@ -187,6 +187,17 @@ public class DashboardQueryService {
         sourceQualityCache.clear();
         taskRuntimeOverviewService.clearCache();
         systemMetricsService.refreshRateMetrics();
+    }
+
+    private DashboardStatsResponse warmStatisticsSnapshot() {
+        Instant now = Instant.now();
+        Optional<DashboardStatsSnapshot> snapshot = usableStatsSnapshot();
+        if (snapshot.isPresent() && snapshot.get().freshAt(now)) {
+            DashboardStatsResponse stats = snapshot.get().stats();
+            statsCache.put(stats);
+            return stats;
+        }
+        return refreshStatisticsSnapshot();
     }
 
     private Optional<DashboardStatsSnapshot> usableStatsSnapshot() {
