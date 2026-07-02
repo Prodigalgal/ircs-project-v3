@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 class SensitiveWordEvidenceService {
 
     private static final int MAX_MATCHES_PER_FIELD = 8;
+    private static final int MAX_SOURCE_EVIDENCE_SCAN = 3;
     private static final String HELPER_CLASS = "com.github.houbb.sensitive.word.core.SensitiveWordHelper";
 
     private final Method findAllMethod;
@@ -39,11 +40,14 @@ class SensitiveWordEvidenceService {
         scanCollection(signals, "unified", "actorNames", item.actorNames(), maxTextLength, 68);
         scanCollection(signals, "unified", "directorNames", item.directorNames(), maxTextLength, 64);
         scanCollection(signals, "unified", "genreCodes", item.genreCodes(), maxTextLength, 70);
+        int sourceCount = 0;
         for (AdultAssessmentSourceEvidence source : item.sources()) {
+            if (sourceCount++ >= MAX_SOURCE_EVIDENCE_SCAN) {
+                break;
+            }
             scanField(signals, "source", "dataSourceName", source.dataSourceName(), maxTextLength, 80);
             scanField(signals, "source", "sourceDomain", source.sourceDomain(), maxTextLength, 78);
             scanField(signals, "source", "sourceCategoryName", source.sourceCategoryName(), maxTextLength, 78);
-            scanField(signals, "source", "rawMetadata", source.rawMetadata(), maxTextLength, 68);
         }
         return signals;
     }
