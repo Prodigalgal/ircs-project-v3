@@ -40,7 +40,7 @@ class AdultTextClassifier:
             )
             with torch.inference_mode():
                 logits = self._model(**encoded).logits
-                probabilities = torch.softmax(logits, dim=-1).detach().cpu().tolist()
+                probabilities = torch.sigmoid(logits).detach().cpu().tolist()
             for item, item_probabilities in zip(chunk, probabilities, strict=True):
                 adult_score = self._adult_score(item_probabilities)
                 label = self._label(adult_score)

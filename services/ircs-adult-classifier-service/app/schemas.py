@@ -8,11 +8,7 @@ from pydantic import BaseModel, Field
 
 class ModelTextItem(BaseModel):
     id: UUID
-    text: str = Field(default="", max_length=4096)
-
-
-class ModelBatchRequest(BaseModel):
-    items: list[ModelTextItem] = Field(default_factory=list)
+    text: str = ""
 
 
 class ModelTextResult(BaseModel):

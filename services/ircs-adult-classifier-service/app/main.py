@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from uuid import UUID
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 
 from .classifier import AdultTextClassifier
-from .schemas import ModelBatchRequest, ModelBatchResponse
+from .schemas import ModelBatchResponse, ModelTextItem
 from .security import assert_internal_access
 from .settings import settings
 
@@ -42,7 +43,34 @@ def readiness() -> dict[str, object]:
     response_model=ModelBatchResponse,
     dependencies=[Depends(assert_internal_access)],
 )
-def classify(request: ModelBatchRequest) -> ModelBatchResponse:
+async def classify(request: Request) -> ModelBatchResponse:
     if classifier is None:
         return ModelBatchResponse(items=[])
-    return ModelBatchResponse(items=classifier.classify(request.items))
+    try:
+        payload = await request.json()
+    except ValueError:
+        payload = {}
+    return ModelBatchResponse(items=classifier.classify(_parse_items(payload)))
+
+
+def _parse_items(payload: object) -> list[ModelTextItem]:
+    if not isinstance(payload, dict):
+        return []
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        return []
+    items: list[ModelTextItem] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        raw_id = raw_item.get("id")
+        if raw_id is None:
+            continue
+        try:
+            item_id = UUID(str(raw_id))
+        except ValueError:
+            continue
+        raw_text = raw_item.get("text")
+        text = raw_text if isinstance(raw_text, str) else "" if raw_text is None else str(raw_text)
+        items.append(ModelTextItem(id=item_id, text=text))
+    return items
