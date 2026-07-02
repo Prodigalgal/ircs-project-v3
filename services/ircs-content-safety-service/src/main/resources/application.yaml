@@ -28,7 +28,7 @@ app:
       token: ${APP_CONTENT_SAFETY_SERVICE_TOKEN:}
       required-scope: ${APP_CONTENT_SAFETY_INTERNAL_ACCESS_REQUIRED_SCOPE:content-safety:assess}
     adult:
-      max-text-length: ${APP_CONTENT_SAFETY_ADULT_MAX_TEXT_LENGTH:4096}
+    max-text-length: ${APP_CONTENT_SAFETY_ADULT_MAX_TEXT_LENGTH:512}
       model:
         enabled: ${APP_CONTENT_SAFETY_ADULT_MODEL_ENABLED:false}
         name: ${APP_CONTENT_SAFETY_ADULT_MODEL_NAME:uget/sexual_content_dection}

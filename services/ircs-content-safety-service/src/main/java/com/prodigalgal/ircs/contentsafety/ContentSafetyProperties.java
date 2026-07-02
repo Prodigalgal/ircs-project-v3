@@ -68,7 +68,7 @@ public class ContentSafetyProperties {
     }
 
     public static class Adult {
-        private int maxTextLength = 4096;
+        private int maxTextLength = 512;
         private final Model model = new Model();
 
         public int maxTextLength() {
