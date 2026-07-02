@@ -97,6 +97,9 @@ public class ContentSafetyProperties {
         private String name = "uget/sexual_content_dection";
         private String version = "remote";
         private String endpoint = "";
+        private String serviceId = "ircs-content-safety-service";
+        private String serviceToken = "";
+        private String scopes = "adult-classifier:classify";
         private Duration requestTimeout = Duration.ofSeconds(3);
         private double adultThreshold = 0.85d;
         private double suspectThreshold = 0.5d;
@@ -147,6 +150,42 @@ public class ContentSafetyProperties {
 
         public void setEndpoint(String endpoint) {
             this.endpoint = endpoint;
+        }
+
+        public String serviceId() {
+            return serviceId;
+        }
+
+        public String getServiceId() {
+            return serviceId;
+        }
+
+        public void setServiceId(String serviceId) {
+            this.serviceId = serviceId;
+        }
+
+        public String serviceToken() {
+            return serviceToken;
+        }
+
+        public String getServiceToken() {
+            return serviceToken;
+        }
+
+        public void setServiceToken(String serviceToken) {
+            this.serviceToken = serviceToken;
+        }
+
+        public String scopes() {
+            return scopes;
+        }
+
+        public String getScopes() {
+            return scopes;
+        }
+
+        public void setScopes(String scopes) {
+            this.scopes = scopes;
         }
 
         public Duration requestTimeout() {

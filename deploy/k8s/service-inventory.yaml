@@ -49,6 +49,9 @@ spec:
     - name: ircs-content-safety-service
       type: internal-http
       routes: ["/internal/v1/content-safety"]
+    - name: ircs-adult-classifier-service
+      type: internal-http
+      routes: ["/internal/v1/adult-classifier"]
     - name: ircs-ops-service
       type: http
       routes: ["/api/v1/ops", "/api/v1/dashboard", "/api/v1/debug"]

@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.contentsafety;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentItem;
 import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentModelResult;
 import java.io.IOException;
@@ -43,6 +44,9 @@ class AdultModelClassifierClient {
                     .timeout(timeout(model.requestTimeout()))
                     .header("Accept", CONTENT_TYPE_JSON)
                     .header("Content-Type", CONTENT_TYPE_JSON)
+                    .header(InternalServiceAuthHeaders.SERVICE_ID, safe(model.serviceId()))
+                    .header(InternalServiceAuthHeaders.SERVICE_TOKEN, safe(model.serviceToken()))
+                    .header(InternalServiceAuthHeaders.SERVICE_SCOPES, safe(model.scopes()))
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
                     .build();
             HttpClient client = HttpClient.newBuilder()

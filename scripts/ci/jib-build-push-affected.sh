@@ -18,6 +18,7 @@ fi
 
 modules=(
   "platform:ircs-migrator=ircs-migrator"
+  "python:services/ircs-adult-classifier-service=ircs-adult-classifier-service"
   "services:ircs-api-gateway=ircs-api-gateway"
   "services:ircs-aggregation-worker=ircs-aggregation-worker"
   "services:ircs-catalog-service=ircs-catalog-service"
@@ -96,7 +97,8 @@ select_service() {
   for entry in "${modules[@]}"; do
     local module="${entry%%=*}"
     local image="${entry##*=}"
-    if [[ "${requested}" == "${module}" || "${requested}" == ":${module}" || "${normalized}" == "${image}" ]]; then
+    local gradle_module="${module#python:}"
+    if [[ "${requested}" == "${module}" || "${requested}" == "${gradle_module}" || "${requested}" == ":${module}" || "${normalized}" == "${image}" ]]; then
       add_entry "${entry}"
       return 0
     fi
@@ -213,7 +215,20 @@ for entry in "${selected[@]}"; do
   echo "${module}=${target}" >> build-image-manifest.txt
   echo "::group::${module} -> ${target}"
   if [[ "${DRY_RUN}" == "true" ]]; then
-    echo "DRY_RUN=true, skipping Jib push for ${target}"
+    echo "DRY_RUN=true, skipping image push for ${target}"
+  elif [[ "${module}" == python:* ]]; then
+    echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY%%/*}" -u "${REGISTRY_USERNAME}" --password-stdin >/dev/null
+    service_dir="${module#python:}"
+    docker buildx inspect ircs-builder >/dev/null 2>&1 || docker buildx create --name ircs-builder --use >/dev/null
+    docker buildx use ircs-builder
+    docker buildx inspect --bootstrap >/dev/null
+    docker buildx build \
+      --platform "${TARGET_OS}/${TARGET_ARCH}" \
+      --file "${service_dir}/Dockerfile" \
+      --tag "${target}" \
+      --provenance=false \
+      --push \
+      .
   else
     ./gradlew --no-daemon ":${module}:jib" \
       "-PjibToImage=${target}" \

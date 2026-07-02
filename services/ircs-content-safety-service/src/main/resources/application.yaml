@@ -34,6 +34,9 @@ app:
         name: ${APP_CONTENT_SAFETY_ADULT_MODEL_NAME:uget/sexual_content_dection}
         version: ${APP_CONTENT_SAFETY_ADULT_MODEL_VERSION:remote}
         endpoint: ${APP_CONTENT_SAFETY_ADULT_MODEL_ENDPOINT:}
+        service-id: ${APP_CONTENT_SAFETY_ADULT_MODEL_SERVICE_ID:${spring.application.name}}
+        service-token: ${APP_CONTENT_SAFETY_ADULT_MODEL_SERVICE_TOKEN:${APP_ADULT_CLASSIFIER_SERVICE_TOKEN:}}
+        scopes: ${APP_CONTENT_SAFETY_ADULT_MODEL_SCOPES:adult-classifier:classify}
         request-timeout: ${APP_CONTENT_SAFETY_ADULT_MODEL_REQUEST_TIMEOUT:PT3S}
         adult-threshold: ${APP_CONTENT_SAFETY_ADULT_MODEL_ADULT_THRESHOLD:0.85}
         suspect-threshold: ${APP_CONTENT_SAFETY_ADULT_MODEL_SUSPECT_THRESHOLD:0.5}
