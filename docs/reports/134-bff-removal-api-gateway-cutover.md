@@ -47,6 +47,7 @@
 
 - Cloudflare Worker：
   - 回源 API 前缀改为 `/api/portal`。
+  - 旧 `/api/backend/**` 在边缘直接返回 `410 Gone`，不再回源。
 
 - GitOps：
   - `frontend-bff.yaml` 替换为 `api-gateway.yaml`。
@@ -84,6 +85,27 @@ bash -lc 'BUILD_SCOPE=ircs-api-gateway DRY_RUN=true scripts/ci/jib-build-push-af
 - CI dry-run 只选择 `services:ircs-api-gateway -> ircs-api-gateway`。
 - 旧 BFF 关键词只保留在两条负向测试中，用于断言 `/api/backend/**` 已失效。
 
+上线验证：
+
+- backend commit：`4104f65 refactor: replace bff modules with api gateway`
+- huawai commit：`621f898 refactor: route portal api through gateway`
+- admin commit：`bee3862 refactor: proxy admin api through gateway`
+- cloudflare-workers commit：`310b082 fix: reject removed portal api prefix at edge`
+- ircs-prod-config 切换 commit：`97d7024 refactor: replace bff deployments with api gateway`
+- ircs-prod-config 当前线上 revision：`e21f42eba6b649dfdb4d24b026a81b44b8dcff9f`
+- Cloudflare Worker version：`9c3b2d39-2533-459b-b542-810ed6eac634`
+- `ircs-api-gateway` 镜像：`registry.mnnu.eu.org/ircs/ircs-api-gateway:sha-4104f6561f17`
+- ArgoCD：`ircs-prod-core`、`ircs-prod-edge` 均为 `Synced/Healthy`
+- Deployment：`ircs-api-gateway` 为 `2/2 Ready`
+- 旧 Service：`ircs-admin-bff`、`ircs-portal-bff` 已不存在
+- 线上 smoke：
+  - `GET https://huawai.mnnu.eu.org/api/portal/metadata` -> `200`
+  - `GET https://huawai.mnnu.eu.org/api/portal/home` -> `200`
+  - `GET https://huawai.mnnu.eu.org/api/portal/search/suggest?keyword=test` -> `200`
+  - `GET https://huawai.mnnu.eu.org/api/backend/api/portal/home` -> `410`
+  - `GET https://admin.mnnu.eu.org/api/v1/dashboard/statistics` with PAT -> `200`
+  - `GET https://admin.mnnu.eu.org/api/v1/dashboard/statistics` without auth -> `401`
+
 ## 运行态注意
 
 - 禁止手动构建镜像；镜像由自动 CI/CD 生成。
@@ -94,10 +116,10 @@ bash -lc 'BUILD_SCOPE=ircs-api-gateway DRY_RUN=true scripts/ci/jib-build-push-af
   - `GET https://huawai.mnnu.eu.org/api/portal/search/suggest?keyword=test`
   - `GET https://admin.mnnu.eu.org/api/v1/dashboard/statistics`
   - `POST https://admin.mnnu.eu.org/api/v1/auth/login`
-  - `GET https://huawai.mnnu.eu.org/api/backend/api/portal/home` 应返回 404 或非业务成功响应。
+  - `GET https://huawai.mnnu.eu.org/api/backend/api/portal/home` 应返回 `410 Gone`。
 
 ## 回滚点
 
 - 应优先回滚 backend、frontends、cloudflare-workers 与 ircs-prod-config 的本次提交组合。
-- 若仅 `ircs-api-gateway` 镜像异常，可先把 HTTPRoute 和 NGINX upstream 回滚到发布前配置，并恢复旧 BFF Deployment。
+- 因本次是硬迁移，若必须恢复旧 BFF，需要回滚到本专项前的代码和 GitOps 配置组合；不建议只局部恢复旧路径。
 - 本次没有数据库 schema 变更，不涉及数据回滚。
