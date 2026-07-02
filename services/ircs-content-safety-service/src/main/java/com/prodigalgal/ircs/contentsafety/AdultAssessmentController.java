@@ -13,14 +13,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/internal/v1/content-safety/adult-assessments")
+@RequestMapping("/internal/v1/content-safety")
 @RequiredArgsConstructor
 class AdultAssessmentController {
 
     private final ContentSafetyInternalAccessPolicy accessPolicy;
     private final AdultAssessmentService assessmentService;
 
-    @PostMapping(":batch")
+    @PostMapping("/adult-assessments:batch")
     ResponseEntity<AdultAssessmentBatchResponse> assessBatch(
             @Valid @RequestBody AdultAssessmentBatchRequest request,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
