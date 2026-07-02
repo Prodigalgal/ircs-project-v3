@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.common.security;
 
+import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -62,6 +63,10 @@ public record IrcsRequestPrincipal(
                 ? IrcsPermissions.VISIBILITY_PUBLIC
                 : visibility.trim();
         return allows(contentVisibility, effective);
+    }
+
+    public boolean allowsAdultRestrictedContent() {
+        return allowsCategory(StandardContentCategoryClassifier.ADULT);
     }
 
     public boolean hasUnrestrictedCategories() {

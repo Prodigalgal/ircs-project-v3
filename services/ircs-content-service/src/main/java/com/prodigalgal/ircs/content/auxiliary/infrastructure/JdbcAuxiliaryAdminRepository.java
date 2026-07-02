@@ -205,7 +205,9 @@ public class JdbcAuxiliaryAdminRepository {
         List<SourceDomainResponse> content = jdbcTemplate.query(
                 """
                 select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.data_source_id,
-                       ds.name as data_source_name, sd.created_at, sd.updated_at
+                       ds.name as data_source_name,
+                       coalesce(ds.adult_restricted, false) as adult_restricted,
+                       sd.created_at, sd.updated_at
                 from source_domains sd
                 left join data_sources ds on sd.data_source_id = ds.id
                 """
@@ -222,7 +224,9 @@ public class JdbcAuxiliaryAdminRepository {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
                     select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.data_source_id,
-                           ds.name as data_source_name, sd.created_at, sd.updated_at
+                           ds.name as data_source_name,
+                           coalesce(ds.adult_restricted, false) as adult_restricted,
+                           sd.created_at, sd.updated_at
                     from source_domains sd
                     left join data_sources ds on sd.data_source_id = ds.id
                     where sd.id = :id
@@ -603,6 +607,7 @@ public class JdbcAuxiliaryAdminRepository {
                 rs.getString("remark"),
                 rs.getObject("data_source_id", UUID.class),
                 rs.getString("data_source_name"),
+                rs.getBoolean("adult_restricted"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"));
     }

@@ -37,6 +37,9 @@ class PortalMetadataSqlPolicyTest {
         assertThat(source).contains("WHERE uv.category_code = :categoryKey");
         assertThat(source).contains("WHERE uv.category_code IN (:categoryKeys)");
         assertThat(source).contains("uv.content_visibility IN (:contentVisibility)");
+        assertThat(source).contains("coalesce(uv.adult_restricted, false) = false");
+        assertThat(source).contains("uv.adult_assessment ->> 'adultRestricted'");
+        assertThat(source).contains("uv.adult_assessment ->> 'level'");
         assertThat(source).doesNotContain("coalesce(uv.content_visibility");
     }
 

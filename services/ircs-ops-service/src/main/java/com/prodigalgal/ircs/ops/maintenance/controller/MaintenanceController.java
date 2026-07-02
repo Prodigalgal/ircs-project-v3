@@ -111,6 +111,11 @@ public class MaintenanceController {
         return session("aggregation-cover-backfill");
     }
 
+    @PostMapping("/aggregation/adult-assessment-backfill/init")
+    public ResponseEntity<Map<String, String>> initAggregationAdultAssessmentBackfill() {
+        return session("aggregation-adult-assessment-backfill");
+    }
+
     @PostMapping("/search/reindex-raw/init")
     public ResponseEntity<Map<String, String>> initRawReindex() {
         return session("search-reindex-raw");

@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.content.video.infrastructure;
 import static com.prodigalgal.ircs.content.video.domain.VideoAdminText.normalizeContentVisibility;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.content.config.ContentCoverImageUrlResolver;
@@ -289,6 +290,7 @@ class VideoAdminQueryRepository {
                            cast(uv.area_codes as varchar) as flat_area_codes,
                            cast(uv.language_codes as varchar) as flat_language_codes,
                            cast(uv.genre_codes as varchar) as flat_genre_codes,
+                           cast(uv.adult_assessment as varchar) as adult_assessment_json,
                            ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                            ci.storage_type as cover_storage_type, sd.domain_value as cover_domain
                     from unified_videos uv
@@ -328,6 +330,9 @@ class VideoAdminQueryRepository {
                      base.categoryName(),
                      base.contentVisibility(),
                      base.metadataStatus(),
+                     base.adultRestricted(),
+                     readJsonObject(base.adultAssessmentJson()),
+                     base.adultCheckedAt(),
                      readJsonStringSet(base.actorNamesJson()),
                     readJsonStringSet(base.directorNamesJson()),
                     resolveGenreNames(base.genreCodesJson()),
@@ -945,6 +950,8 @@ class VideoAdminQueryRepository {
                 select uv.id, uv.title, uv.alias_title, uv.year, uv.score, uv.remarks,
                        uv.season, uv.subtitle, uv.last_trend_at, uv.created_at, uv.updated_at,
                        uv.douban_id, uv.tmdb_id, uv.imdb_id, uv.content_visibility, uv.metadata_status,
+                       coalesce(uv.adult_restricted, false) as adult_restricted,
+                       uv.adult_checked_at,
                        sc.name as category_name, uv.category_code, cast(uv.area_codes as varchar) as area_codes,
                        ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                        ci.storage_type as cover_storage_type, sd.domain_value as cover_domain,
@@ -1084,6 +1091,8 @@ class VideoAdminQueryRepository {
                  rs.getString("subtitle"),
                  rs.getString("content_visibility"),
                  rs.getString("metadata_status"),
+                 rs.getBoolean("adult_restricted"),
+                 instant(rs, "adult_checked_at"),
                  instant(rs, "last_trend_at"),
                 0,
                 StringUtils.hasText(rs.getString("imdb_id")),
@@ -1131,6 +1140,8 @@ class VideoAdminQueryRepository {
                  video.subtitle(),
                  video.contentVisibility(),
                  video.metadataStatus(),
+                 video.adultRestricted(),
+                 video.adultCheckedAt(),
                  video.lastTrendAt(),
                 sourceCount,
                 video.hasImdb(),
@@ -1215,8 +1226,11 @@ class VideoAdminQueryRepository {
                 rs.getString("category_name"),
                  rs.getString("category_code"),
                  rs.getString("content_visibility"),
-                 rs.getString("metadata_status"),
-                 rs.getString("locked_fields"),
+                rs.getString("metadata_status"),
+                rs.getBoolean("adult_restricted"),
+                rs.getString("adult_assessment_json"),
+                instant(rs, "adult_checked_at"),
+                rs.getString("locked_fields"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"),
                 rs.getString("flat_actor_names"),
@@ -1383,6 +1397,14 @@ class VideoAdminQueryRepository {
         return JsonStringArrays.readSet(objectMapper, json);
     }
 
+    private JsonNode readJsonObject(String json) {
+        try {
+            return objectMapper.readTree(StringUtils.hasText(json) ? json : "{}");
+        } catch (Exception ignored) {
+            return objectMapper.createObjectNode();
+        }
+    }
+
     private String resolveCoverUrl(String storageType, String originalUrl, String storagePath, String domain) {
         return coverImageUrlResolver.resolve(storageType, originalUrl, storagePath, domain);
     }
@@ -1464,6 +1486,9 @@ class VideoAdminQueryRepository {
              String categoryCode,
              String contentVisibility,
              String metadataStatus,
+             boolean adultRestricted,
+             String adultAssessmentJson,
+             Instant adultCheckedAt,
              String lockedFieldsJson,
             Instant createdAt,
             Instant updatedAt,

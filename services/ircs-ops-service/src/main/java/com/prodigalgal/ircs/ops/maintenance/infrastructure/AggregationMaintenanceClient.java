@@ -25,6 +25,8 @@ class AggregationMaintenanceClient implements MaintenanceAggregationClient {
     private static final String RECALCULATE_DIRTY_PATH = "/internal/v1/aggregation/unified-videos/recalculate-dirty";
     private static final String ENQUEUE_PENDING_RAW_PATH = "/internal/v1/aggregation/raw-videos/enqueue-pending";
     private static final String BACKFILL_UNIFIED_COVERS_PATH = "/internal/v1/aggregation/unified-videos/backfill-covers";
+    private static final String BACKFILL_UNIFIED_ADULT_ASSESSMENTS_PATH =
+            "/internal/v1/aggregation/unified-videos/backfill-adult-assessments";
     private static final String RESET_PREPARE_PATH = "/internal/v1/aggregation/reset/prepare";
     private static final String RESET_MARK_RAW_PENDING_PATH = "/internal/v1/aggregation/reset/mark-raw-pending";
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
@@ -55,6 +57,14 @@ class AggregationMaintenanceClient implements MaintenanceAggregationClient {
     @Override
     public MaintenanceRunResult backfillUnifiedCovers(String correlationId) {
         return maintenanceRun("aggregation-cover-backfill", limitUri(BACKFILL_UNIFIED_COVERS_PATH), correlationId);
+    }
+
+    @Override
+    public MaintenanceRunResult backfillUnifiedAdultAssessments(String correlationId) {
+        return maintenanceRun(
+                "aggregation-adult-assessment-backfill",
+                limitUri(BACKFILL_UNIFIED_ADULT_ASSESSMENTS_PATH),
+                correlationId);
     }
 
     private MaintenanceRunResult maintenanceRun(String fallbackTaskName, URI uri, String correlationId) {

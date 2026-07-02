@@ -99,6 +99,18 @@ public class UnifiedVideoSearchDocument {
     @Field(type = FieldType.Keyword)
     private String metadataStatus;
 
+    @Field(type = FieldType.Boolean)
+    private boolean adultRestricted;
+
+    @Field(type = FieldType.Boolean)
+    private boolean adultAssessmentRestricted;
+
+    @Field(type = FieldType.Keyword)
+    private String adultAssessmentLevel;
+
+    @Field(type = FieldType.Date)
+    private Instant adultCheckedAt;
+
     @Field(type = FieldType.Keyword)
     private List<String> genres;
 

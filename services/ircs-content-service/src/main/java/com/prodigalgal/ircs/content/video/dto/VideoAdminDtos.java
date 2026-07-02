@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.content.video.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -245,6 +246,8 @@ public final class VideoAdminDtos {
             String subtitle,
             String contentVisibility,
             String metadataStatus,
+            boolean adultRestricted,
+            Instant adultCheckedAt,
             Instant lastTrendAt,
             int sourceCount,
             boolean hasImdb,
@@ -281,6 +284,9 @@ public final class VideoAdminDtos {
             String categoryName,
             String contentVisibility,
             String metadataStatus,
+            boolean adultRestricted,
+            JsonNode adultAssessment,
+            Instant adultCheckedAt,
             Set<String> actors,
             Set<String> directors,
             Set<String> genres,

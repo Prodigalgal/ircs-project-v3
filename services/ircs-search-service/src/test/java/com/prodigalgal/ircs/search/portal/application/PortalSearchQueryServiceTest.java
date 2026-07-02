@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.search.portal.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
@@ -190,14 +191,17 @@ class PortalSearchQueryServiceTest {
         assertTrue(query.isBool());
         assertEquals(1, query.bool().must().size());
         assertTrue(query.bool().must().getFirst().isMoreLikeThis());
-        assertEquals(3, query.bool().filter().size());
+        assertEquals(6, query.bool().filter().size());
         assertEquals("contentVisibility", query.bool().filter().get(0).terms().field());
         assertEquals(
                 List.of("categoryId", "categoryName", "categorySlug"),
                 query.bool().filter().get(1).bool().should().stream()
                         .map(filter -> filter.terms().field())
                         .toList());
-        assertEquals("genres", query.bool().filter().get(2).terms().field());
+        assertFalseOrMissingFilter(query.bool().filter().get(2), "adultRestricted");
+        assertFalseOrMissingFilter(query.bool().filter().get(3), "adultAssessmentRestricted");
+        assertTermsOrMissingFilter(query.bool().filter().get(4), "adultAssessmentLevel");
+        assertEquals("genres", query.bool().filter().get(5).terms().field());
     }
 
     @Test
@@ -291,5 +295,26 @@ class PortalSearchQueryServiceTest {
                 Set.of("剧情"),
                 Set.of("*"),
                 Set.of(IrcsPermissions.VISIBILITY_PUBLIC, IrcsPermissions.VISIBILITY_MEMBER));
+    }
+
+    private static void assertFalseOrMissingFilter(Query query, String field) {
+        assertTrue(query.isBool());
+        assertEquals("1", query.bool().minimumShouldMatch());
+        assertEquals(field, query.bool().should().get(0).term().field());
+        assertFalse(query.bool().should().get(0).term().value().booleanValue());
+        assertMissingFieldFilter(query.bool().should().get(1), field);
+    }
+
+    private static void assertTermsOrMissingFilter(Query query, String field) {
+        assertTrue(query.isBool());
+        assertEquals("1", query.bool().minimumShouldMatch());
+        assertEquals(field, query.bool().should().get(0).terms().field());
+        assertMissingFieldFilter(query.bool().should().get(1), field);
+    }
+
+    private static void assertMissingFieldFilter(Query query, String field) {
+        assertTrue(query.isBool());
+        assertEquals(1, query.bool().mustNot().size());
+        assertEquals(field, query.bool().mustNot().getFirst().exists().field());
     }
 }

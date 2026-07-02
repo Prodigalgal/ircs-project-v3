@@ -320,7 +320,15 @@ public class CatalogService {
                 options.dnsResolverEndpoint(),
                 options.connectTimeoutMs(),
                 options.readTimeoutMs(),
-                options.userAgent());
+                options.userAgent(),
+                normalizeAdultRestricted(request, defaults));
+    }
+
+    private Boolean normalizeAdultRestricted(DataSourceAdminRequest request, boolean defaults) {
+        if (defaults) {
+            return Boolean.TRUE.equals(request.adultRestricted());
+        }
+        return request.adultRestricted();
     }
 
     private void syncCategoriesBestEffort(DataSourceRead dataSource) {

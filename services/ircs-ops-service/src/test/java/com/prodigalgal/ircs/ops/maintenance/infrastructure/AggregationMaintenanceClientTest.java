@@ -139,6 +139,34 @@ class AggregationMaintenanceClientTest {
     }
 
     @Test
+    void postsAdultAssessmentBackfillToAggregationOwner() {
+        UUID unifiedId = UUID.randomUUID();
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(response(202, """
+                {"taskName":"aggregation-adult-assessment-backfill","candidates":1,"processed":1,"entityIds":["%s"]}
+                """.formatted(unifiedId)));
+        AggregationMaintenanceClient client = client(transport);
+
+        MaintenanceRunResult result = client.backfillUnifiedAdultAssessments("corr-adult");
+
+        assertThat(result.taskName()).isEqualTo("aggregation-adult-assessment-backfill");
+        assertThat(result.selectedCount()).isEqualTo(1);
+        assertThat(result.publishedCount()).isEqualTo(1);
+        assertThat(result.entityIds()).containsExactly(unifiedId);
+
+        OutboundHttpRequest sent = transport.requests.getFirst();
+        assertThat(sent.method()).isEqualTo("POST");
+        assertThat(sent.uri().toString())
+                .isEqualTo("http://aggregation-worker:8080/internal/v1/aggregation/unified-videos/backfill-adult-assessments?limit=7");
+        assertThat(sent.headers())
+                .containsEntry("Accept", "application/json")
+                .containsEntry("X-Correlation-Id", "corr-adult")
+                .containsEntry(InternalServiceAuthHeaders.SERVICE_ID, "ops-service")
+                .containsEntry(InternalServiceAuthHeaders.SERVICE_TOKEN, "service-token")
+                .containsEntry(InternalServiceAuthHeaders.SERVICE_SCOPES, "aggregation:maintenance ops:maintenance");
+    }
+
+    @Test
     void postsAggregationResetMarkRawPendingToAggregationOwner() {
         UUID rawId = UUID.randomUUID();
         FakeTransport transport = new FakeTransport();

@@ -98,6 +98,15 @@ class MaintenanceRunnerServiceTest {
         assertEquals(List.of(MaintenanceRunnerService.AGGREGATION_COVER_BACKFILL_OWNER_STEP),
                 coverBackfill.ownerSteps());
 
+        MaintenanceRunnerMetadata adultAssessmentBackfill = find(registry, "aggregation-adult-assessment-backfill");
+        assertEquals(MaintenanceRiskLevel.LOW, adultAssessmentBackfill.riskLevel());
+        assertTrue(adultAssessmentBackfill.devAllowed());
+        assertTrue(adultAssessmentBackfill.supportsDryRun());
+        assertEquals(OpsConfigValues.DEFAULT_AGGREGATION_DEV_LIMIT, adultAssessmentBackfill.defaultLimit());
+        assertEquals(OpsConfigValues.MAX_AGGREGATION_DEV_LIMIT, adultAssessmentBackfill.maxLimit());
+        assertEquals(List.of(MaintenanceRunnerService.AGGREGATION_ADULT_ASSESSMENT_BACKFILL_OWNER_STEP),
+                adultAssessmentBackfill.ownerSteps());
+
         MaintenanceRunnerMetadata aggregationReset = find(registry, "aggregation-reset");
         assertEquals(MaintenanceRiskLevel.HIGH, aggregationReset.riskLevel());
         assertTrue(aggregationReset.devAllowed());
@@ -311,6 +320,31 @@ class MaintenanceRunnerServiceTest {
     }
 
     @Test
+    void aggregationAdultAssessmentBackfillRunnerCallsAggregationOwnerAndWritesSucceededAuditEvidence() {
+        MaintenanceRunResult result = new MaintenanceRunResult(
+                "aggregation-adult-assessment-backfill",
+                2,
+                2,
+                List.of(java.util.UUID.randomUUID(), java.util.UUID.randomUUID()));
+        when(aggregationClient.backfillUnifiedAdultAssessments("corr-adult")).thenReturn(result);
+
+        MaintenanceRunnerExecution execution =
+                runnerService.run("aggregation-adult-assessment-backfill", "corr-adult");
+
+        assertFalse(execution.refused());
+        assertEquals(result, execution.result());
+        assertEquals("aggregation-adult-assessment-backfill", execution.metadata().taskName());
+        verify(aggregationClient).backfillUnifiedAdultAssessments("corr-adult");
+
+        WorkerJobAuditEvent event = captureAuditEvent();
+        assertEquals(MaintenanceRunnerService.JOB_TYPE_MAINTENANCE_RUNNER, event.jobType());
+        assertEquals("aggregation-adult-assessment-backfill", event.jobName());
+        assertEquals("succeeded", event.status());
+        assertEquals("corr-adult", event.correlationId());
+        assertNotNull(event.duration());
+    }
+
+    @Test
     void aggregationResetRunnerCallsOwnersInV1OrderAndWritesSucceededAuditEvidence() {
         java.util.UUID sampleRawId = java.util.UUID.randomUUID();
         MaintenanceRunResult prepare = new MaintenanceRunResult(
@@ -417,6 +451,7 @@ class MaintenanceRunnerServiceTest {
         verify(aggregationClient, never()).recalculateDirtyUnified(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).enqueuePendingRawWork(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).backfillUnifiedCovers(org.mockito.ArgumentMatchers.any());
+        verify(aggregationClient, never()).backfillUnifiedAdultAssessments(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).prepareAggregationReset(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).markAggregationResetRawPending(org.mockito.ArgumentMatchers.any());
         verify(trendSyncClient, never()).syncTrends(org.mockito.ArgumentMatchers.any());
@@ -443,6 +478,7 @@ class MaintenanceRunnerServiceTest {
         verify(aggregationClient, never()).recalculateDirtyUnified(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).enqueuePendingRawWork(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).backfillUnifiedCovers(org.mockito.ArgumentMatchers.any());
+        verify(aggregationClient, never()).backfillUnifiedAdultAssessments(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).prepareAggregationReset(org.mockito.ArgumentMatchers.any());
         verify(aggregationClient, never()).markAggregationResetRawPending(org.mockito.ArgumentMatchers.any());
         verify(trendSyncClient, never()).syncTrends(org.mockito.ArgumentMatchers.any());

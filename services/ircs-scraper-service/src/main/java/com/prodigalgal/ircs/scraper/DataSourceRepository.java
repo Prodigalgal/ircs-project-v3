@@ -33,7 +33,8 @@ class DataSourceRepository {
                        dns_resolver_endpoint,
                        connect_timeout_ms,
                        read_timeout_ms,
-                       user_agent
+                       user_agent,
+                       coalesce(adult_restricted, false) as adult_restricted
                 from data_sources
                 order by name asc
                 """, this::map);
@@ -56,7 +57,8 @@ class DataSourceRepository {
                        dns_resolver_endpoint,
                        connect_timeout_ms,
                        read_timeout_ms,
-                       user_agent
+                       user_agent,
+                       coalesce(adult_restricted, false) as adult_restricted
                 from data_sources
                 where id = ?
                 """, this::map, id).stream().findFirst();
@@ -79,6 +81,7 @@ class DataSourceRepository {
                 rs.getString("dns_resolver_endpoint"),
                 (Integer) rs.getObject("connect_timeout_ms"),
                 (Integer) rs.getObject("read_timeout_ms"),
-                rs.getString("user_agent"));
+                rs.getString("user_agent"),
+                rs.getBoolean("adult_restricted"));
     }
 }

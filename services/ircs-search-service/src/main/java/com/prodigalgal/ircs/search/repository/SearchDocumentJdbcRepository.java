@@ -108,6 +108,10 @@ public class SearchDocumentJdbcRepository {
                    sc.id AS category_id,
                    uv.content_visibility,
                    uv.metadata_status,
+                   coalesce(uv.adult_restricted, false) AS adult_restricted,
+                   coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) AS adult_assessment_restricted,
+                   upper(coalesce(nullif(uv.adult_assessment ->> 'level', ''), 'SAFE')) AS adult_assessment_level,
+                   uv.adult_checked_at,
                    ci.storage_type AS cover_storage_type,
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
@@ -372,6 +376,10 @@ public class SearchDocumentJdbcRepository {
             doc.setDirectors(readJsonStringList(rs, "director_names"));
             doc.setContentVisibility(rs.getString("content_visibility"));
             doc.setMetadataStatus(rs.getString("metadata_status"));
+            doc.setAdultRestricted(rs.getBoolean("adult_restricted"));
+            doc.setAdultAssessmentRestricted(rs.getBoolean("adult_assessment_restricted"));
+            doc.setAdultAssessmentLevel(rs.getString("adult_assessment_level"));
+            doc.setAdultCheckedAt(getInstant(rs, "adult_checked_at"));
             doc.setHasDouban(StringUtils.hasText(rs.getString("douban_id")));
             doc.setHasTmdb(StringUtils.hasText(rs.getString("tmdb_id")));
             doc.setHasImdb(StringUtils.hasText(rs.getString("imdb_id")));

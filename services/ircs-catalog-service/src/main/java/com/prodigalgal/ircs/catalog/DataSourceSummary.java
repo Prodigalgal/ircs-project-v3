@@ -11,7 +11,21 @@ public record DataSourceSummary(
         String transportMode,
         String httpProtocol,
         String ipVersionPolicy,
-        String dnsResolverType) {
+        String dnsResolverType,
+        boolean adultRestricted) {
+
+    public DataSourceSummary(
+            UUID id,
+            String name,
+            String baseUrl,
+            String listPath,
+            String detailPath,
+            String transportMode,
+            String httpProtocol,
+            String ipVersionPolicy,
+            String dnsResolverType) {
+        this(id, name, baseUrl, listPath, detailPath, transportMode, httpProtocol, ipVersionPolicy, dnsResolverType, false);
+    }
 
     public DataSourceSummary(
             UUID id,
@@ -19,6 +33,6 @@ public record DataSourceSummary(
             String baseUrl,
             String listPath,
             String detailPath) {
-        this(id, name, baseUrl, listPath, detailPath, "AUTO", "AUTO", "AUTO", "SYSTEM");
+        this(id, name, baseUrl, listPath, detailPath, "AUTO", "AUTO", "AUTO", "SYSTEM", false);
     }
 }

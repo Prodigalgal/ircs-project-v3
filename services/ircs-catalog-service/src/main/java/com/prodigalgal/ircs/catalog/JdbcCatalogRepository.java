@@ -94,7 +94,8 @@ public class JdbcCatalogRepository {
                        coalesce(transport_mode, 'AUTO') as transport_mode,
                        coalesce(http_protocol, 'AUTO') as http_protocol,
                        coalesce(ip_version_policy, 'AUTO') as ip_version_policy,
-                       coalesce(dns_resolver_type, 'SYSTEM') as dns_resolver_type
+                       coalesce(dns_resolver_type, 'SYSTEM') as dns_resolver_type,
+                       coalesce(adult_restricted, false) as adult_restricted
                 from data_sources
                 order by name
                 """,
@@ -107,7 +108,8 @@ public class JdbcCatalogRepository {
                         rs.getString("transport_mode"),
                         rs.getString("http_protocol"),
                         rs.getString("ip_version_policy"),
-                        rs.getString("dns_resolver_type")));
+                        rs.getString("dns_resolver_type"),
+                        rs.getBoolean("adult_restricted")));
     }
 
     public CatalogPage<DataSourceRead> pageDataSources(CatalogPageRequest pageRequest) {
@@ -129,6 +131,7 @@ public class JdbcCatalogRepository {
                        connect_timeout_ms,
                        read_timeout_ms,
                        user_agent,
+                       coalesce(adult_restricted, false) as adult_restricted,
                        created_at,
                        updated_at
                 """,
@@ -164,6 +167,7 @@ public class JdbcCatalogRepository {
                        connect_timeout_ms,
                        read_timeout_ms,
                        user_agent,
+                       coalesce(adult_restricted, false) as adult_restricted,
                        created_at,
                        updated_at
                 from data_sources
@@ -192,6 +196,7 @@ public class JdbcCatalogRepository {
                        connect_timeout_ms,
                        read_timeout_ms,
                        user_agent,
+                       coalesce(adult_restricted, false) as adult_restricted,
                        created_at,
                        updated_at
                 from data_sources
@@ -338,14 +343,14 @@ public class JdbcCatalogRepository {
                     id, created_at, updated_at, version, name, base_url, list_path,
                     list_params, detail_path, detail_params, field_mapping,
                     transport_mode, http_protocol, ip_version_policy, dns_resolver_type, dns_resolver_endpoint,
-                    connect_timeout_ms, read_timeout_ms, user_agent
+                    connect_timeout_ms, read_timeout_ms, user_agent, adult_restricted
                 )
                 values (
                     :id, :now, :now, 0, :name, :baseUrl, :listPath,
                     cast(:listParams as jsonb), :detailPath, cast(:detailParams as jsonb),
                     cast(:fieldMapping as jsonb),
                     :transportMode, :httpProtocol, :ipVersionPolicy, :dnsResolverType, :dnsResolverEndpoint,
-                    :connectTimeoutMs, :readTimeoutMs, :userAgent
+                    :connectTimeoutMs, :readTimeoutMs, :userAgent, :adultRestricted
                 )
                 """,
                 new MapSqlParameterSource()
@@ -365,7 +370,8 @@ public class JdbcCatalogRepository {
                         .addValue("dnsResolverEndpoint", request.dnsResolverEndpoint())
                         .addValue("connectTimeoutMs", request.connectTimeoutMs())
                         .addValue("readTimeoutMs", request.readTimeoutMs())
-                        .addValue("userAgent", request.userAgent()));
+                        .addValue("userAgent", request.userAgent())
+                        .addValue("adultRestricted", Boolean.TRUE.equals(request.adultRestricted())));
         return findDataSource(id).orElseThrow();
     }
 
@@ -388,6 +394,7 @@ public class JdbcCatalogRepository {
         addAssignment(assignments, params, "connect_timeout_ms", "connectTimeoutMs", request.connectTimeoutMs(), partial);
         addAssignment(assignments, params, "read_timeout_ms", "readTimeoutMs", request.readTimeoutMs(), partial);
         addAssignment(assignments, params, "user_agent", "userAgent", request.userAgent(), partial);
+        addAssignment(assignments, params, "adult_restricted", "adultRestricted", request.adultRestricted(), partial);
         assignments.add("updated_at = :updatedAt");
         if (assignments.size() == 1) {
             return findDataSource(id);
@@ -867,6 +874,7 @@ public class JdbcCatalogRepository {
                 (Integer) rs.getObject("connect_timeout_ms"),
                 (Integer) rs.getObject("read_timeout_ms"),
                 rs.getString("user_agent"),
+                rs.getBoolean("adult_restricted"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"));
     }

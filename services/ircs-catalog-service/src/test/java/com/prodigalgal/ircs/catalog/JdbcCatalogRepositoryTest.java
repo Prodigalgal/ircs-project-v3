@@ -129,7 +129,8 @@ class JdbcCatalogRepositoryTest {
                     list_params jsonb,
                     detail_path varchar(1024) not null,
                     detail_params jsonb,
-                    field_mapping jsonb
+                    field_mapping jsonb,
+                    adult_restricted boolean default false not null
                 )
                 """);
     }

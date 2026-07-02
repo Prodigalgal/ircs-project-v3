@@ -85,8 +85,21 @@ public final class AuxiliaryAdminDtos {
             String remark,
             UUID dataSourceId,
             String dataSourceName,
+            boolean adultRestricted,
             Instant createdAt,
             Instant updatedAt) {
+
+        public SourceDomainResponse(
+                UUID id,
+                String domainHash,
+                String domainValue,
+                String remark,
+                UUID dataSourceId,
+                String dataSourceName,
+                Instant createdAt,
+                Instant updatedAt) {
+            this(id, domainHash, domainValue, remark, dataSourceId, dataSourceName, false, createdAt, updatedAt);
+        }
     }
 
     public record ResolverLine(

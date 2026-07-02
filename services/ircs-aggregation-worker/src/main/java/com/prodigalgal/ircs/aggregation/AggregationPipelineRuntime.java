@@ -64,6 +64,11 @@ public class AggregationPipelineRuntime {
                 unifiedVideoId,
                 () -> repository.rebuildUnifiedPipelineCategory(unifiedVideoId),
                 failures);
+        runStage(
+                AggregationPipelineStage.ADULT_RESTRICTION,
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedAdultAssessment(unifiedVideoId),
+                failures);
         coverR2SyncImageIds.addAll(runCoverStage(unifiedVideoId, failures));
 
         return new AggregationPipelineExecution(unifiedVideoId, coverR2SyncImageIds, failures);
@@ -154,7 +159,8 @@ enum AggregationPipelineStage {
     METADATA(30, "MetadataHandler"),
     DYNAMIC_FIELD(40, "DynamicFieldHandler"),
     CATEGORY(50, "CategoryHandler"),
-    COVER_IMAGE(60, "CoverImagePipelineHandler");
+    ADULT_RESTRICTION(60, "AdultRestrictionHandler"),
+    COVER_IMAGE(70, "CoverImagePipelineHandler");
 
     private final int v1Order;
     private final String handlerName;

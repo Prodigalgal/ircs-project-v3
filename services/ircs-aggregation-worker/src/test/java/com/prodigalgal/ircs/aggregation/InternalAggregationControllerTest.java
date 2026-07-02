@@ -157,6 +157,28 @@ class InternalAggregationControllerTest {
     }
 
     @Test
+    void backfillUnifiedAdultAssessmentsChecksAccessAndDelegatesToService() {
+        UUID unifiedId = UUID.randomUUID();
+        AggregationMaintenanceRunResponse response = new AggregationMaintenanceRunResponse(
+                "aggregation-adult-assessment-backfill",
+                1,
+                1,
+                List.of(unifiedId));
+        when(aggregationService.backfillUnifiedAdultAssessments(9)).thenReturn(response);
+
+        ResponseEntity<AggregationMaintenanceRunResponse> result = controller.backfillUnifiedAdultAssessments(
+                9,
+                "ops-service",
+                "token",
+                "aggregation:maintenance");
+
+        assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        verify(aggregationService).backfillUnifiedAdultAssessments(9);
+    }
+
+    @Test
     void workQueueStateChecksAccessAndReturnsNullWhenWorkerUnavailable() {
         when(workerProvider.getIfAvailable()).thenReturn(null);
 

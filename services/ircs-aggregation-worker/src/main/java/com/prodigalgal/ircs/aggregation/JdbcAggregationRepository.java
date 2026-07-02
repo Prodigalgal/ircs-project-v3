@@ -2,6 +2,9 @@ package com.prodigalgal.ircs.aggregation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.prodigalgal.ircs.common.adult.AdultAssessment;
+import com.prodigalgal.ircs.common.adult.AdultAssessmentInput;
+import com.prodigalgal.ircs.common.adult.AdultContentAssessor;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
@@ -279,6 +282,24 @@ public class JdbcAggregationRepository {
         return backfilled;
     }
 
+    public List<UUID> findAdultAssessmentBackfillIds(int limit) {
+        return jdbcTemplate.query(
+                """
+                select id
+                  from unified_videos
+                 where adult_checked_at is null
+                    or coalesce(adult_assessment ->> 'ruleVersion', '') <> :ruleVersion
+                 order by adult_checked_at asc nulls first,
+                          updated_at desc nulls last,
+                          id asc
+                 limit :limit
+                """,
+                new MapSqlParameterSource()
+                        .addValue("ruleVersion", AdultContentAssessor.RULE_VERSION)
+                        .addValue("limit", Math.max(1, limit)),
+                (rs, rowNum) -> rs.getObject("id", UUID.class));
+    }
+
     public Optional<UUID> findMatchingUnifiedVideo(RawVideoAggregationRecord rawVideo) {
         return candidateRepository.findMatchingUnifiedVideo(rawVideo);
     }
@@ -443,6 +464,26 @@ public class JdbcAggregationRepository {
             voteUnifiedCategory(params);
             voteUnifiedCategoryCode(params);
         }
+    }
+
+    public void rebuildUnifiedAdultAssessment(UUID unifiedVideoId) {
+        Optional<UnifiedAdultAssessmentBase> base = findUnifiedAdultAssessmentBase(unifiedVideoId);
+        if (base.isEmpty()) {
+            return;
+        }
+        AdultAssessment assessment = AdultContentAssessor.assess(new AdultAssessmentInput(
+                base.get().title(),
+                base.get().aliasTitle(),
+                base.get().description(),
+                base.get().remarks(),
+                base.get().subtitle(),
+                base.get().categoryCode(),
+                base.get().categoryName(),
+                JsonStringArrays.readSet(objectMapper, base.get().actorNamesJson()),
+                JsonStringArrays.readSet(objectMapper, base.get().directorNamesJson()),
+                JsonStringArrays.readSet(objectMapper, base.get().genreCodesJson()),
+                findAdultAssessmentSources(unifiedVideoId)));
+        writeUnifiedAdultAssessment(unifiedVideoId, assessment);
     }
 
     public List<UUID> rebuildUnifiedPipelineCoverImage(UUID unifiedVideoId) {
@@ -1253,6 +1294,93 @@ public class JdbcAggregationRepository {
                 params);
     }
 
+    private Optional<UnifiedAdultAssessmentBase> findUnifiedAdultAssessmentBase(UUID unifiedVideoId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject(
+                    """
+                    select uv.title,
+                           uv.alias_title,
+                           uv.description,
+                           uv.remarks,
+                           uv.subtitle,
+                           uv.category_code,
+                           sc.name as category_name,
+                           cast(uv.actor_names as varchar) as actor_names,
+                           cast(uv.director_names as varchar) as director_names,
+                           cast(uv.genre_codes as varchar) as genre_codes
+                      from unified_videos uv
+                      left join standard_category sc on sc.slug = uv.category_code
+                     where uv.id = :unifiedVideoId
+                    """,
+                    new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                    (rs, rowNum) -> new UnifiedAdultAssessmentBase(
+                            rs.getString("title"),
+                            rs.getString("alias_title"),
+                            rs.getString("description"),
+                            rs.getString("remarks"),
+                            rs.getString("subtitle"),
+                            rs.getString("category_code"),
+                            rs.getString("category_name"),
+                            rs.getString("actor_names"),
+                            rs.getString("director_names"),
+                            rs.getString("genre_codes"))));
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private List<AdultAssessmentInput.SourceEvidence> findAdultAssessmentSources(UUID unifiedVideoId) {
+        return jdbcTemplate.query(
+                """
+                select ds.name as data_source_name,
+                       coalesce(ds.adult_restricted, false) as data_source_adult_restricted,
+                       rv.source_category_code,
+                       rv.source_category_name,
+                       coalesce(ds.base_url, sd.domain_value) as source_domain,
+                       cast(rv.raw_metadata as varchar) as raw_metadata
+                  from raw_video_unified_video rvuv
+                  join raw_videos rv on rv.id = rvuv.raw_video_id
+                  left join data_sources ds on ds.id = rv.data_source_id
+                  left join cover_images ci on ci.id = rv.cover_image_id
+                  left join source_domains sd on sd.id = ci.source_domain_id
+                 where rvuv.unified_video_id = :unifiedVideoId
+                 order by rv.created_at asc, rv.id asc
+                """,
+                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                (rs, rowNum) -> new AdultAssessmentInput.SourceEvidence(
+                        rs.getString("data_source_name"),
+                        rs.getBoolean("data_source_adult_restricted"),
+                        rs.getString("source_category_code"),
+                        rs.getString("source_category_name"),
+                        rs.getString("source_domain"),
+                        rs.getString("raw_metadata")));
+    }
+
+    private void writeUnifiedAdultAssessment(UUID unifiedVideoId, AdultAssessment assessment) {
+        jdbcTemplate.update(
+                """
+                update unified_videos
+                   set adult_restricted = :adultRestricted,
+                       adult_assessment = cast(:adultAssessment as jsonb),
+                       adult_checked_at = now(),
+                       updated_at = now(),
+                       version = coalesce(version, 0) + 1
+                 where id = :unifiedVideoId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("adultRestricted", assessment.adultRestricted())
+                        .addValue("adultAssessment", writeJson(assessment)));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize adult assessment", ex);
+        }
+    }
+
     private void mergeVictimScalarsToRoot(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
         for (UUID victimUnifiedVideoId : victimUnifiedVideoIds) {
             jdbcTemplate.update(
@@ -1470,5 +1598,18 @@ public class JdbcAggregationRepository {
             Set<String> languageCodes,
             Set<String> genreCodes,
             String categoryCode) {
+    }
+
+    private record UnifiedAdultAssessmentBase(
+            String title,
+            String aliasTitle,
+            String description,
+            String remarks,
+            String subtitle,
+            String categoryCode,
+            String categoryName,
+            String actorNamesJson,
+            String directorNamesJson,
+            String genreCodesJson) {
     }
 }

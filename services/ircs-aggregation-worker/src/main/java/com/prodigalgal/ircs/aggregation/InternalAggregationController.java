@@ -64,6 +64,16 @@ class InternalAggregationController {
         return ResponseEntity.accepted().body(aggregationService.backfillUnifiedCovers(limit));
     }
 
+    @PostMapping("/unified-videos/backfill-adult-assessments")
+    ResponseEntity<AggregationMaintenanceRunResponse> backfillUnifiedAdultAssessments(
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
+        accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
+        return ResponseEntity.accepted().body(aggregationService.backfillUnifiedAdultAssessments(limit));
+    }
+
     @PostMapping("/reset/prepare")
     ResponseEntity<AggregationResetStepResponse> prepareAggregationReset(
             @RequestParam(defaultValue = "5") int sampleLimit,

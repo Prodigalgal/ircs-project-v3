@@ -10,6 +10,8 @@ public interface MaintenanceAggregationClient {
 
     MaintenanceRunResult backfillUnifiedCovers(String correlationId);
 
+    MaintenanceRunResult backfillUnifiedAdultAssessments(String correlationId);
+
     MaintenanceRunResult prepareAggregationReset(String correlationId);
 
     MaintenanceRunResult markAggregationResetRawPending(String correlationId);

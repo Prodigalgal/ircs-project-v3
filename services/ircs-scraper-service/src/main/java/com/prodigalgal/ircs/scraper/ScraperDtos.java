@@ -169,7 +169,30 @@ public final class ScraperDtos {
             String dnsResolverEndpoint,
             Integer connectTimeoutMs,
             Integer readTimeoutMs,
-            String userAgent) {
+            String userAgent,
+            boolean adultRestricted) {
+
+        DataSourceRecord(
+                UUID id,
+                String name,
+                String baseUrl,
+                String listPath,
+                String listParams,
+                String detailPath,
+                String detailParams,
+                String fieldMapping,
+                String transportMode,
+                String httpProtocol,
+                String ipVersionPolicy,
+                String dnsResolverType,
+                String dnsResolverEndpoint,
+                Integer connectTimeoutMs,
+                Integer readTimeoutMs,
+                String userAgent) {
+            this(id, name, baseUrl, listPath, listParams, detailPath, detailParams, fieldMapping,
+                    transportMode, httpProtocol, ipVersionPolicy, dnsResolverType, dnsResolverEndpoint,
+                    connectTimeoutMs, readTimeoutMs, userAgent, false);
+        }
 
         DataSourceRecord(
                 UUID id,
@@ -181,7 +204,7 @@ public final class ScraperDtos {
                 String detailParams,
                 String fieldMapping) {
             this(id, name, baseUrl, listPath, listParams, detailPath, detailParams, fieldMapping,
-                    "AUTO", "AUTO", "AUTO", "SYSTEM", null, 10000, 10000, null);
+                    "AUTO", "AUTO", "AUTO", "SYSTEM", null, 10000, 10000, null, false);
         }
     }
 

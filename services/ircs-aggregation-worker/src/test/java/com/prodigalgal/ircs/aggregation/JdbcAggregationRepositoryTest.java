@@ -867,6 +867,54 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
+    void rebuildUnifiedAdultAssessmentMarksRestrictionWithoutChangingCategory() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:aggregation-adult-assessment-" + UUID.randomUUID()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createPipelineSchema(jdbc);
+        NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        UUID unifiedVideoId = UUID.randomUUID();
+        UUID rawVideoId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+
+        seedStandardCategory(jdbc, UUID.randomUUID(), "movie", "电影");
+        jdbc.update("""
+                insert into data_sources (id, name, base_url, adult_restricted)
+                values (?, 'Adult Source', 'https://jav.example.test', true)
+                """, dataSourceId);
+        jdbc.update("""
+                insert into unified_videos (
+                    id, created_at, updated_at, version, title, category_code,
+                    actor_names, director_names, genre_codes, metadata_status
+                ) values (
+                    ?, now(), now(), 0, '普通电影标题', 'movie',
+                    cast('[]' as jsonb), cast('[]' as jsonb), cast('[]' as jsonb), 'SYNCED'
+                )
+                """, unifiedVideoId);
+        jdbc.update("""
+                insert into raw_videos (
+                    id, created_at, updated_at, version, source_vid, source_hash, title,
+                    data_source_id, source_category_code, source_category_name, raw_metadata,
+                    enrichment_status, normalization_status, aggregation_status, category_code
+                ) values (
+                    ?, now(), now(), 0, 'adult-raw', 'adult-hash', 'JAV Sample',
+                    ?, 'movie', '电影', cast('{"site":"jav.example.test"}' as jsonb),
+                    'SUCCESS', 'READY', 'BOUND', 'movie'
+                )
+                """, rawVideoId, dataSourceId);
+        bindPipelineRaw(jdbc, rawVideoId, unifiedVideoId);
+
+        repository.rebuildUnifiedAdultAssessment(unifiedVideoId);
+
+        assertEquals(Boolean.TRUE, scalar(jdbc, "select adult_restricted from unified_videos where id = ?", unifiedVideoId, Boolean.class));
+        assertEquals("movie", scalar(jdbc, "select category_code from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertTrue(scalar(jdbc, "select adult_assessment from unified_videos where id = ?", unifiedVideoId, String.class)
+                .contains("dataSourceAdultRestricted"));
+    }
+
+    @Test
     void rebuildUnifiedPipelineCoverImageChoosesFirstRawCoverWhenUnifiedCoverIsEmpty() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:aggregation-cover-empty-" + UUID.randomUUID()
@@ -1094,6 +1142,9 @@ class JdbcAggregationRepositoryTest {
                     area_codes jsonb default '[]',
                     language_codes jsonb default '[]',
                     genre_codes jsonb default '[]',
+                    adult_restricted boolean default false not null,
+                    adult_assessment jsonb default '{}',
+                    adult_checked_at timestamp,
                     metadata_status varchar(50) not null
                 )
                 """);
@@ -1128,6 +1179,9 @@ class JdbcAggregationRepositoryTest {
                     area_codes jsonb default '[]',
                     language_codes jsonb default '[]',
                     genre_codes jsonb default '[]',
+                    adult_restricted boolean default false not null,
+                    adult_assessment jsonb default '{}',
+                    adult_checked_at timestamp,
                     metadata_status varchar(50) not null
                 )
                 """);
@@ -1229,6 +1283,9 @@ class JdbcAggregationRepositoryTest {
                     area_codes jsonb default '[]',
                     language_codes jsonb default '[]',
                     genre_codes jsonb default '[]',
+                    adult_restricted boolean default false not null,
+                    adult_assessment jsonb default '{}',
+                    adult_checked_at timestamp,
                     metadata_status varchar(50) not null
                 )
                 """);
@@ -1257,6 +1314,10 @@ class JdbcAggregationRepositoryTest {
                     season integer,
                     subtitle varchar(255),
                     cover_image_id uuid,
+                    data_source_id uuid,
+                    source_category_code varchar(100),
+                    source_category_name varchar(255),
+                    raw_metadata jsonb default '{}',
                     enrichment_status varchar(50) not null,
                     normalization_status varchar(50) not null,
                     aggregation_status varchar(50) not null,
@@ -1276,6 +1337,14 @@ class JdbcAggregationRepositoryTest {
                 )
                 """);
         jdbc.execute("""
+                create table data_sources (
+                    id uuid primary key,
+                    name varchar(255) not null,
+                    base_url varchar(1024),
+                    adult_restricted boolean default false not null
+                )
+                """);
+        jdbc.execute("""
                 create table standard_category (
                     id uuid primary key,
                     name varchar(100) not null,
@@ -1287,7 +1356,14 @@ class JdbcAggregationRepositoryTest {
                     id uuid primary key,
                     storage_type varchar(50) not null,
                     status varchar(50) not null,
-                    file_size bigint
+                    file_size bigint,
+                    source_domain_id uuid
+                )
+                """);
+        jdbc.execute("""
+                create table source_domains (
+                    id uuid primary key,
+                    domain_value varchar(1024) not null
                 )
                 """);
     }

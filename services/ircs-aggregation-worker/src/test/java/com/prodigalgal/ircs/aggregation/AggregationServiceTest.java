@@ -551,6 +551,25 @@ class AggregationServiceTest {
     }
 
     @Test
+    void backfillUnifiedAdultAssessmentsRebuildsAssessmentAndPublishesSearchSync() {
+        UUID firstUnifiedVideoId = UUID.randomUUID();
+        UUID secondUnifiedVideoId = UUID.randomUUID();
+        when(repository.findAdultAssessmentBackfillIds(20))
+                .thenReturn(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
+
+        var result = service.backfillUnifiedAdultAssessments(20);
+
+        assertEquals("aggregation-adult-assessment-backfill", result.taskName());
+        assertEquals(2, result.candidates());
+        assertEquals(2, result.processed());
+        assertEquals(List.of(firstUnifiedVideoId, secondUnifiedVideoId), result.entityIds());
+        verify(repository).rebuildUnifiedAdultAssessment(firstUnifiedVideoId);
+        verify(repository).rebuildUnifiedAdultAssessment(secondUnifiedVideoId);
+        verify(publisher).publishUnifiedIndex(firstUnifiedVideoId);
+        verify(publisher).publishUnifiedIndex(secondUnifiedVideoId);
+    }
+
+    @Test
     void manuallyMergesUnifiedVideosAndPublishesSearchSync() {
         UUID rootUnifiedVideoId = UUID.randomUUID();
         UUID victimUnifiedVideoId = UUID.randomUUID();

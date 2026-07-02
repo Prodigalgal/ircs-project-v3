@@ -25,7 +25,8 @@ record DataSourceAdminRequest(
         @Size(max = 512) String dnsResolverEndpoint,
         @Min(1) @Max(120000) Integer connectTimeoutMs,
         @Min(1) @Max(120000) Integer readTimeoutMs,
-        @Size(max = 512) String userAgent) {
+        @Size(max = 512) String userAgent,
+        Boolean adultRestricted) {
 
     DataSourceAdminRequest(
             UUID id,
@@ -37,7 +38,7 @@ record DataSourceAdminRequest(
             String detailParams,
             String fieldMapping) {
         this(id, name, baseUrl, listPath, listParams, detailPath, detailParams, fieldMapping,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null);
     }
 }
 

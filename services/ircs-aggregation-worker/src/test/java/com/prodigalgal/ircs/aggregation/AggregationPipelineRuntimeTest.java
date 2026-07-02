@@ -37,13 +37,14 @@ class AggregationPipelineRuntimeTest {
 
         assertTrue(execution.successful());
         assertEquals(List.of(coverImageId), execution.coverR2SyncImageIds());
-        assertEquals(6, transactions.calls());
+        assertEquals(7, transactions.calls());
         InOrder ordered = inOrder(repository);
         ordered.verify(repository).rebuildUnifiedPipelineBasicAttributes(unifiedVideoId);
         ordered.verify(repository).rebuildUnifiedPipelineExternalIds(unifiedVideoId);
         ordered.verify(repository).rebuildUnifiedPipelineMetadataRelations(unifiedVideoId);
         ordered.verify(repository).rebuildUnifiedPipelineDynamicFields(unifiedVideoId);
         ordered.verify(repository).rebuildUnifiedPipelineCategory(unifiedVideoId);
+        ordered.verify(repository).rebuildUnifiedAdultAssessment(unifiedVideoId);
         ordered.verify(repository).rebuildUnifiedPipelineCoverImage(unifiedVideoId);
     }
 
@@ -62,13 +63,14 @@ class AggregationPipelineRuntimeTest {
 
         assertFalse(execution.successful());
         assertEquals(List.of(coverImageId), execution.coverR2SyncImageIds());
-        assertEquals(6, transactions.calls());
+        assertEquals(7, transactions.calls());
         assertEquals(1, execution.failures().size());
         assertEquals(AggregationPipelineStage.METADATA, execution.failures().getFirst().stage());
         assertEquals("MetadataHandler", execution.failures().getFirst().handlerName());
         assertEquals(30, execution.failures().getFirst().v1Order());
         verify(repository).rebuildUnifiedPipelineDynamicFields(unifiedVideoId);
         verify(repository).rebuildUnifiedPipelineCategory(unifiedVideoId);
+        verify(repository).rebuildUnifiedAdultAssessment(unifiedVideoId);
         verify(repository).rebuildUnifiedPipelineCoverImage(unifiedVideoId);
     }
 
@@ -85,7 +87,7 @@ class AggregationPipelineRuntimeTest {
 
         assertFalse(execution.successful());
         assertTrue(execution.coverR2SyncImageIds().isEmpty());
-        assertEquals(6, transactions.calls());
+        assertEquals(7, transactions.calls());
         assertEquals(List.of(AggregationPipelineStage.COVER_IMAGE), execution.failures().stream()
                 .map(AggregationPipelineStageFailure::stage)
                 .toList());

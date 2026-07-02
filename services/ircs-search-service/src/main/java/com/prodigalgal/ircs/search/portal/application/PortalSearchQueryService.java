@@ -224,6 +224,11 @@ public class PortalSearchQueryService {
                     .should(categoryFilters)
                     .minimumShouldMatch("1"))));
         }
+        if (!effective.allowsAdultRestrictedContent()) {
+            filters.add(falseOrMissingFilter("adultRestricted"));
+            filters.add(falseOrMissingFilter("adultAssessmentRestricted"));
+            filters.add(termsOrMissingFilter("adultAssessmentLevel", List.of("SAFE", "SUSPECT")));
+        }
         if (!effective.hasUnrestrictedGenres()) {
             filters.add(termsFilter("genres", effective.dataGenres()));
         }
@@ -242,6 +247,27 @@ public class PortalSearchQueryService {
         return Query.of(q -> q.terms(t -> t
                 .field(field)
                 .terms(TermsQueryField.of(v -> v.value(fieldValues)))));
+    }
+
+    private Query falseOrMissingFilter(String field) {
+        return Query.of(q -> q.bool(b -> b
+                .should(Query.of(s -> s.term(t -> t
+                        .field(field)
+                        .value(FieldValue.of(false)))))
+                .should(missingFieldFilter(field))
+                .minimumShouldMatch("1")));
+    }
+
+    private Query termsOrMissingFilter(String field, Collection<String> values) {
+        return Query.of(q -> q.bool(b -> b
+                .should(termsFilter(field, values))
+                .should(missingFieldFilter(field))
+                .minimumShouldMatch("1")));
+    }
+
+    private Query missingFieldFilter(String field) {
+        return Query.of(q -> q.bool(b -> b
+                .mustNot(Query.of(n -> n.exists(e -> e.field(field))))));
     }
 
     private PortalMovieCardResponse toPortalCard(UnifiedVideoSearchDocument doc) {

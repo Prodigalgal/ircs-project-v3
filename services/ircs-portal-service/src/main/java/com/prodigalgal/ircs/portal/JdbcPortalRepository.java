@@ -455,6 +455,13 @@ public class JdbcPortalRepository {
                      )
                     """);
         }
+        if (!effective.allowsAdultRestrictedContent()) {
+            where.append("""
+                     AND coalesce(uv.adult_restricted, false) = false
+                     AND coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) = false
+                     AND upper(coalesce(uv.adult_assessment ->> 'level', 'SAFE')) <> 'ADULT'
+                    """);
+        }
         if (!effective.hasUnrestrictedGenres()) {
             params.put("dataGenres", effective.dataGenres());
             where.append("""

@@ -159,3 +159,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/add-request-audit-summary-snapshot.sql
   - include:
       file: db/changelog/2026/07/add-portal-home-read-indexes.sql
+  - include:
+      file: db/changelog/2026/07/add-adult-content-assessment.sql
