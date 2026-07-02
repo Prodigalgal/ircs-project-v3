@@ -99,6 +99,9 @@ class SystemConfigDefaultsTest {
         assertEquals("PT15M", defaults.staticDefaultValue("app.ops.dashboard.snapshot.stale-grace").orElseThrow());
         assertEquals("PT2M", defaults.staticDefaultValue("app.ops.dashboard.read-model-snapshot.fresh-ttl").orElseThrow());
         assertEquals("PT15M", defaults.staticDefaultValue("app.ops.dashboard.read-model-snapshot.stale-grace").orElseThrow());
+        assertEquals("PT15S", defaults.staticDefaultValue(
+                "app.ops-alert.first-page-cache.warmup.refresh-interval").orElseThrow());
+        assertEquals("20", defaults.staticDefaultValue("app.ops-alert.first-page-cache.warmup.page-size").orElseThrow());
         assertEquals("PT15S", defaults.staticDefaultValue("app.ops.metrics.cache-ttl").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue("app.ops.metrics.consumer-no-progress-grace").orElseThrow());
         assertEquals("PT10M", defaults.staticDefaultValue(
@@ -468,6 +471,9 @@ class SystemConfigDefaultsTest {
             "app.ops.service-restart.namespace",
             "app.ops.service-restart.allowed-services",
             "app.ops.service-restart.request-timeout",
+            "app.ops-alert.first-page-cache.warmup.enabled",
+            "app.ops-alert.first-page-cache.warmup.refresh-interval",
+            "app.ops-alert.first-page-cache.warmup.page-size",
             "app.rate-metrics.key-prefix",
             "app.rate-metrics.bucket-size",
             "app.rate-metrics.bucket-ttl",

@@ -15,7 +15,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -56,6 +58,20 @@ public class OpsAlertQueryService {
             return loader.get();
         }
         return healingActionFirstPageCache.get(cacheKey(pageable), loader);
+    }
+
+    public int warmFirstPages(int pageSize) {
+        int boundedPageSize = Math.max(1, Math.min(pageSize, 100));
+        findEvents(
+                PageRequest.of(0, boundedPageSize, Sort.by(Sort.Direction.DESC, "createdAt")),
+                new AlertEventFilter(null, null, null, null, null, null, null, null));
+        findIncidents(
+                PageRequest.of(0, boundedPageSize, Sort.by(Sort.Direction.DESC, "lastSeenAt")),
+                new IncidentFilter(null, null, null, null, null, null, null, null));
+        findHealingActions(
+                PageRequest.of(0, boundedPageSize, Sort.by(Sort.Direction.DESC, "createdAt")),
+                new HealingActionFilter(null, null, null, null, null, null, null));
+        return 3;
     }
 
     private boolean firstPageCacheable(Pageable pageable) {

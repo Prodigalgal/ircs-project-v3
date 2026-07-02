@@ -34,6 +34,13 @@ app:
       token: ${OPS_ALERT_SERVICE_TOKEN:${APP_OPS_SERVICE_TOKEN:}}
       read-scope: ${OPS_ALERT_INTERNAL_ACCESS_READ_SCOPE:ops-alert:read}
       run-scope: ${OPS_ALERT_INTERNAL_ACCESS_RUN_SCOPE:ops-alert:run}
+    first-page-cache:
+      warmup:
+        enabled: ${OPS_ALERT_FIRST_PAGE_CACHE_WARMUP_ENABLED:true}
+        initial-delay-ms: ${OPS_ALERT_FIRST_PAGE_CACHE_WARMUP_INITIAL_DELAY_MS:8000}
+        tick-delay-ms: ${OPS_ALERT_FIRST_PAGE_CACHE_WARMUP_TICK_DELAY_MS:5000}
+        refresh-interval: ${OPS_ALERT_FIRST_PAGE_CACHE_WARMUP_REFRESH_INTERVAL:PT15S}
+        page-size: ${OPS_ALERT_FIRST_PAGE_CACHE_WARMUP_PAGE_SIZE:20}
     self-healing:
       enabled: ${OPS_ALERT_SELF_HEALING_ENABLED:true}
       dry-run: ${OPS_ALERT_SELF_HEALING_DRY_RUN:true}

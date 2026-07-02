@@ -216,6 +216,9 @@ public class SystemConfigDefaults {
                     "ircs-storage-service",
                     "ircs-task-service"), "允许从系统设置页重启的 Deployment 列表"),
             cfg("app.ops.service-restart.request-timeout", "PT10S", "Kubernetes 重启请求超时"),
+            cfg("app.ops-alert.first-page-cache.warmup.enabled", "true", "是否启用告警首页列表预热"),
+            cfg("app.ops-alert.first-page-cache.warmup.refresh-interval", "PT15S", "告警首页列表预热刷新间隔"),
+            cfg("app.ops-alert.first-page-cache.warmup.page-size", "20", "告警首页列表预热页大小"),
             cfg("app.rate-metrics.key-prefix", "ircs:metrics:rate", "运行速率指标 Valkey Key 前缀"),
             cfg("app.rate-metrics.bucket-size", "PT10S", "运行速率指标桶大小"),
             cfg("app.rate-metrics.bucket-ttl", "PT30M", "运行速率指标桶 TTL"),
@@ -615,6 +618,7 @@ public class SystemConfigDefaults {
 
     private static boolean isKnownHotKey(String key) {
         return key.startsWith("app.ops.service-restart.")
+                || key.startsWith("app.ops-alert.first-page-cache.warmup.")
                 || key.startsWith("app.scraper.traffic.")
                 || key.startsWith("app.magnet.traffic.")
                 || key.startsWith("app.magnet.real-provider.")
