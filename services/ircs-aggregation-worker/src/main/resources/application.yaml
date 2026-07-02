@@ -49,6 +49,13 @@ app:
     context-search:
       enabled: ${APP_AGGREGATION_CONTEXT_SEARCH_ENABLED:true}
       base-url: ${APP_AGGREGATION_CONTEXT_SEARCH_BASE_URL:${APP_SEARCH_SERVICE_BASE_URL:http://ircs-search-service:8080}}
+    content-safety:
+      enabled: ${APP_AGGREGATION_CONTENT_SAFETY_ENABLED:true}
+      base-url: ${APP_AGGREGATION_CONTENT_SAFETY_BASE_URL:${APP_CONTENT_SAFETY_SERVICE_BASE_URL:http://ircs-content-safety-service:8080}}
+      service-id: ${APP_AGGREGATION_CONTENT_SAFETY_SERVICE_ID:${spring.application.name}}
+      service-token: ${APP_AGGREGATION_CONTENT_SAFETY_SERVICE_TOKEN:${APP_CONTENT_SAFETY_SERVICE_TOKEN:}}
+      scopes: ${APP_AGGREGATION_CONTENT_SAFETY_SCOPES:content-safety:assess}
+      request-timeout: ${APP_AGGREGATION_CONTENT_SAFETY_REQUEST_TIMEOUT:PT5S}
     internal-access:
       require-token: ${APP_AGGREGATION_INTERNAL_ACCESS_REQUIRE_TOKEN:false}
       token: ${APP_AGGREGATION_SERVICE_TOKEN:}

@@ -43,6 +43,7 @@ public class JdbcAggregationRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final AggregationCandidateRepository candidateRepository;
     private final AggregationMetadataNameRepository metadataNameRepository;
+    private final AdultAssessmentEvaluator adultAssessmentEvaluator;
     private final ObjectMapper objectMapper;
 
     public JdbcAggregationRepository(
@@ -51,9 +52,13 @@ public class JdbcAggregationRepository {
             AggregationContextSearchClient contextSearchClient,
             ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
             ObjectMapper objectMapper,
+            AdultAssessmentEvaluator adultAssessmentEvaluator,
             @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.adultAssessmentEvaluator = adultAssessmentEvaluator == null
+                ? AdultAssessmentEvaluator.local()
+                : adultAssessmentEvaluator;
         this.metadataNameRepository = new AggregationMetadataNameRepository(
                 jdbcTemplate,
                 metadataNameCacheProvider,
@@ -77,6 +82,7 @@ public class JdbcAggregationRepository {
                 (title, year) -> AggregationContextSearchClient.ContextSearchResult.notAttempted(),
                 null,
                 JsonMapper.builder().build(),
+                AdultAssessmentEvaluator.local(),
                 30);
     }
 
@@ -90,6 +96,7 @@ public class JdbcAggregationRepository {
                 contextSearchClient,
                 null,
                 JsonMapper.builder().build(),
+                AdultAssessmentEvaluator.local(),
                 30);
     }
 
@@ -473,7 +480,7 @@ public class JdbcAggregationRepository {
         if (base.isEmpty()) {
             return;
         }
-        AdultAssessment assessment = AdultContentAssessor.assess(new AdultAssessmentInput(
+        AdultAssessment assessment = adultAssessmentEvaluator.assess(unifiedVideoId, new AdultAssessmentInput(
                 base.get().title(),
                 base.get().aliasTitle(),
                 base.get().description(),
@@ -504,13 +511,13 @@ public class JdbcAggregationRepository {
         }
         Map<UUID, List<AdultAssessmentInput.SourceEvidence>> sourcesByUnifiedId =
                 findAdultAssessmentSources(orderedIds);
-        List<AdultAssessmentWrite> writes = new ArrayList<>(bases.size());
+        Map<UUID, AdultAssessmentInput> inputs = new LinkedHashMap<>();
         for (UUID unifiedVideoId : orderedIds) {
             UnifiedAdultAssessmentBase base = bases.get(unifiedVideoId);
             if (base == null) {
                 continue;
             }
-            AdultAssessment assessment = AdultContentAssessor.assess(new AdultAssessmentInput(
+            inputs.put(unifiedVideoId, new AdultAssessmentInput(
                     base.title(),
                     base.aliasTitle(),
                     base.description(),
@@ -522,6 +529,14 @@ public class JdbcAggregationRepository {
                     JsonStringArrays.readSet(objectMapper, base.directorNamesJson()),
                     JsonStringArrays.readSet(objectMapper, base.genreCodesJson()),
                     sourcesByUnifiedId.getOrDefault(unifiedVideoId, List.of())));
+        }
+        Map<UUID, AdultAssessment> assessments = adultAssessmentEvaluator.assessAll(inputs);
+        List<AdultAssessmentWrite> writes = new ArrayList<>(assessments.size());
+        for (UUID unifiedVideoId : orderedIds) {
+            AdultAssessment assessment = assessments.get(unifiedVideoId);
+            if (assessment == null) {
+                continue;
+            }
             writes.add(new AdultAssessmentWrite(unifiedVideoId, assessment));
         }
         return writeUnifiedAdultAssessments(writes);

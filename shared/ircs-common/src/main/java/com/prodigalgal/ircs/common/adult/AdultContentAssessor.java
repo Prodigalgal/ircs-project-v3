@@ -12,19 +12,35 @@ import org.springframework.util.StringUtils;
 
 public final class AdultContentAssessor {
 
-    public static final String RULE_VERSION = "adult-assessment-v1";
+    public static final String RULE_VERSION = "adult-assessment-v2";
 
     private static final Set<String> HIGH_CONFIDENCE_KEYWORDS = Set.of(
             "adult", "xxx", "r18", "18+", "jav", "fc2", "heyzo", "1pondo", "caribbeancom",
             "tokyo-hot", "pacopacom", "一本道", "东京热", "加勒比", "成人", "成人视频",
-            "无码", "有码", "女优", "麻豆", "国产自拍");
+            "无码", "有码", "女优", "麻豆", "国产自拍", "国产传媒", "糖心", "天美", "蜜桃",
+            "星空", "皇家华人", "91制片", "swag", "玩偶姐姐", "口交", "肛交", "深喉",
+            "足交", "性交", "性爱", "做爱", "自慰", "调教", "乱伦", "强奸", "强上",
+            "中出", "颜射", "内射", "潮吹", "无套", "约炮", "揉奶", "舔逼", "骚逼",
+            "抠逼", "掰穴", "小穴", "鸡巴", "假jb", "爆操", "求操", "假吊",
+            "插穴", "插入", "互插", "娇喘", "呻吟", "淫荡", "观音坐莲", "制服诱惑",
+            "情趣制服", "女上位", "喷水", "车震", "骑乘", "打桩", "约啪", "骚货",
+            "淫乱", "抽插", "高潮");
     private static final Set<String> MEDIUM_CONFIDENCE_KEYWORDS = Set.of(
-            "情色", "伦理", "伦理片", "情色片", "写真", "gravure");
+            "情色", "伦理", "伦理片", "情色片", "写真", "gravure", "自拍泄密",
+            "最新流出", "探花", "巨乳", "大奶", "熟女", "少妇", "人妻", "福利",
+            "情趣", "露出", "学生妹", "萝莉", "嫩妹", "嫩妹妹", "jk", "大秀",
+            "偷拍", "街拍", "外围", "包臀裙", "黑丝", "白丝", "御姐", "约拍");
     private static final Set<String> FALSE_POSITIVE_WORDS = Set.of(
             "avatar", "avengers", "java", "javascript", "travel", "cave", "available");
     private static final Pattern TOKEN_AV = Pattern.compile("(?iu)(?<![a-z0-9])av(?![a-z0-9])");
     private static final Pattern EXPLICIT_CATALOG_CODE = Pattern.compile(
-            "(?iu)(?<![a-z0-9])(?:fc2[-_\\s]*(?:ppv[-_\\s]*)?\\d{3,}|heyzo[-_\\s]*\\d{3,})(?![a-z0-9])");
+            "(?iu)(?<![a-z0-9])(?:"
+                    + "fc2[-_\\s]*(?:ppv[-_\\s]*)?\\d{3,}"
+                    + "|heyzo[-_\\s]*\\d{3,}"
+                    + "|(?:ssis|ipx|mide|jul|juq|abp|abw|dvaj|stars|fsdss|pred|ipzz|miaa|meyd"
+                    + "|adn|sone|waaa|cawd|dvdms|nacr|pppd|ebod|midv|atid|iptd|venu|dass"
+                    + "|vec|mukd|mird|rctd|sdde|ymdd|hnd|ngod|shkd|dasd|jufe|mifd)"
+                    + "[-_\\s]*\\d{2,5})(?![a-z0-9])");
 
     private AdultContentAssessor() {
     }
@@ -46,7 +62,14 @@ public final class AdultContentAssessor {
         for (AdultAssessmentInput.SourceEvidence source : input.sources()) {
             assessSource(source, signals);
         }
-        return summarize(signals);
+        return summarizeSignals(signals);
+    }
+
+    public static AdultAssessment summarizeSignals(Collection<AdultAssessmentSignal> signals) {
+        if (signals == null || signals.isEmpty()) {
+            return AdultAssessment.safe(RULE_VERSION);
+        }
+        return summarize(new ArrayList<>(signals));
     }
 
     private static void assessCanonicalCategory(
@@ -132,11 +155,22 @@ public final class AdultContentAssessor {
             signals.add(signal(source, field, "catalog-code", Math.min(highScore, 88), "命中成人站番号格式"));
             return;
         }
+        List<String> mediumMatches = new ArrayList<>();
         for (String keyword : MEDIUM_CONFIDENCE_KEYWORDS) {
             if (containsKeyword(normalized, keyword)) {
-                signals.add(signal(source, field, keyword, mediumScore, "命中中置信成人倾向词"));
-                return;
+                mediumMatches.add(keyword);
             }
+        }
+        List<String> distinctMediumMatches = distinctLongestMatches(mediumMatches);
+        if (distinctMediumMatches.size() >= 2) {
+            signals.add(signal(
+                    source,
+                    field,
+                    String.join(",", distinctMediumMatches.subList(0, Math.min(3, distinctMediumMatches.size()))),
+                    Math.min(highScore, 86),
+                    "命中多项成人上下文词"));
+        } else if (distinctMediumMatches.size() == 1) {
+            signals.add(signal(source, field, distinctMediumMatches.getFirst(), mediumScore, "命中中置信成人倾向词"));
         }
     }
 
@@ -184,6 +218,18 @@ public final class AdultContentAssessor {
             }
         }
         return false;
+    }
+
+    private static List<String> distinctLongestMatches(List<String> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return List.of();
+        }
+        return matches.stream()
+                .distinct()
+                .filter(match -> matches.stream()
+                        .distinct()
+                        .noneMatch(other -> !other.equals(match) && other.contains(match)))
+                .toList();
     }
 
     private static AdultAssessmentSignal signal(
