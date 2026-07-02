@@ -13,7 +13,7 @@ fi
 
 modules=(
   "platform:ircs-migrator=ircs-migrator"
-  "services:ircs-admin-bff=ircs-admin-bff"
+  "services:ircs-api-gateway=ircs-api-gateway"
   "services:ircs-aggregation-worker=ircs-aggregation-worker"
   "services:ircs-catalog-service=ircs-catalog-service"
   "services:ircs-config-service=ircs-config-service"
@@ -27,7 +27,6 @@ modules=(
   "services:ircs-normalization-worker=ircs-normalization-worker"
   "services:ircs-notification-worker=ircs-notification-worker"
   "services:ircs-ops-service=ircs-ops-service"
-  "services:ircs-portal-bff=ircs-portal-bff"
   "services:ircs-portal-service=ircs-portal-service"
   "services:ircs-scraper-service=ircs-scraper-service"
   "services:ircs-search-service=ircs-search-service"

@@ -4,5 +4,5 @@ public enum OutboundHttpPolicyType {
     PUBLIC_FETCH,
     IMAGE_DOWNLOAD_STRICT,
     INTERNAL_SERVICE,
-    BFF_PROXY
+    API_GATEWAY_PROXY
 }

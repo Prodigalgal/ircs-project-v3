@@ -16,7 +16,7 @@ spec:
       - key: app
         operator: In
         values:
-          - ircs-admin-bff
+          - ircs-api-gateway
           - ircs-catalog-service
           - ircs-config-service
           - ircs-content-service
@@ -26,7 +26,6 @@ spec:
           - ircs-magnet-service
           - ircs-normalization-worker
           - ircs-ops-service
-          - ircs-portal-bff
           - ircs-portal-service
           - ircs-scraper-service
           - ircs-search-service

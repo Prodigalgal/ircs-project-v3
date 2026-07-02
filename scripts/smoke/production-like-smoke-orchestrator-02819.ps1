@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string[]]$Batch = @(),
     [string]$BatchFile = "",
     [switch]$Execute,
@@ -120,7 +120,7 @@ $batches = @(
             "batch ids may be passed with -Batch UTB-02816-P1P2-02 or via -BatchFile, one batch id per line",
             "LLM input must stay fake/no-cost by default; staging-only live single fixture is out of this default plan",
             "C1 input covers catalog/content/task gate health plus resolver/player/real-source deferred live smoke",
-            "C3 input covers identity/storage/BFF/shared outbound caller and circuit matrix evidence"
+            "C3 input covers identity/storage/API Gateway/shared outbound caller and circuit matrix evidence"
         ) `
         -Switches @(
             "default plan-only; no real LLM, no outbound fetch, no SMTP, no R2",
@@ -147,7 +147,7 @@ $batches = @(
             (New-Step "C1 gate health focused regression" ".\gradlew.bat --no-daemon :shared:ircs-common:test --tests *AutoStartGateInspectorTest :services:ircs-catalog-service:test --tests *CatalogAutoStartGateHealthConfigurationTest :services:ircs-content-service:test --tests *ContentAutoStartGateHealthConfigurationTest :services:ircs-task-service:test --tests *TaskAutoStartGateHealthConfigurationTest --rerun-tasks"),
             (New-Step "C1 resolver/resource prep dry-run" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\resolver-resource-live-02816c1-prep.ps1"),
             (New-Step "C2 live matrix read-only/dry-run guard" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\config-event-live-matrix-02816c2-smoke.ps1 -DryRun"),
-            (New-Step "C3 BFF proxy/admin target validation is covered by focused tests; live/full transport remains deferred" "NOOP: record focused-test evidence before live window" @() $false)
+            (New-Step "C3 API Gateway proxy/admin target validation is covered by focused tests; live/full transport remains deferred" "NOOP: record focused-test evidence before live window" @() $false)
         )
     New-Batch `
         -Id "UTB-02816-P1P2-03" `
@@ -208,22 +208,21 @@ $batches = @(
             (New-Step "028-18 resource/rollback verifier" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ops\verify-k8s-dev-resource-rollback-guard.ps1")
         )
     New-Batch `
-        -Id "PORTAL-ADMIN-BFF" `
-        -Title "portal/admin/BFF smoke" `
-        -PlanCovers @("portal BFF smoke", "admin BFF guarded operations", "BFF request audit collection") `
-        -BatchInputs @("batch ids may be passed with -Batch PORTAL-ADMIN-BFF or via -BatchFile, one batch id per line", "BFF fixture ids must be scoped and removable") `
+        -Id "API-GATEWAY" `
+        -Title "portal/admin API Gateway smoke" `
+        -PlanCovers @("portal API Gateway smoke", "admin API Gateway guarded operations", "API Gateway request audit collection") `
+        -BatchInputs @("batch ids may be passed with -Batch API-GATEWAY or via -BatchFile, one batch id per line", "API Gateway fixture ids must be scoped and removable") `
         -Switches @("default plan-only; no external network", "-Execute may open local port-forward only") `
-        -Preconditions @("portal-bff and admin-bff are deployed and reachable by port-forward", "admin smoke fixtures are safe to create", "no public HTTPRoute change is expected") `
-        -Risks @("BFF scripts may create admin/content/ops fixtures", "port-forward port conflicts can cause false failures", "debug dry-run endpoints must remain dry-run") `
+        -Preconditions @("ircs-api-gateway is deployed and reachable by port-forward", "admin smoke fixtures are safe to create", "no public HTTPRoute change is expected") `
+        -Risks @("API Gateway smoke may create admin/content/ops fixtures", "port-forward port conflicts can cause false failures", "debug dry-run endpoints must remain dry-run") `
         -ExpectedExternalRequests 0 `
         -ExpectedEmails 0 `
         -ExpectedR2Objects 0 `
         -ExpectedDbFixtures "5-15" `
-        -CleanupChecks @("DB BFF fixtures removed", "queue and DLQ unchanged", "ES unchanged unless explicitly asserted by BFF fixture", "R2 unchanged", "local logs removed", "port-forward processes stopped", "Job/Pod residue absent", "HTTPRoute unchanged", "ResourceQuota within budget", "ops/debug residue absent") `
+        -CleanupChecks @("DB API Gateway fixtures removed", "queue and DLQ unchanged", "ES unchanged unless explicitly asserted by API Gateway fixture", "R2 unchanged", "local logs removed", "port-forward processes stopped", "Job/Pod residue absent", "HTTPRoute unchanged", "ResourceQuota within budget", "ops/debug residue absent") `
         -Steps @(
-            (New-Step "portal BFF request audit smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\portal-bff-02519-smoke.ps1"),
-            (New-Step "admin BFF guarded operations smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\admin-bff-02520-smoke.ps1"),
-            (New-Step "BFF request audit collection smoke" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke\bff-02801-request-audit-smoke.ps1")
+            (New-Step "API Gateway focused tests" ".\gradlew.bat --no-daemon :services:ircs-api-gateway:test --rerun-tasks"),
+            (New-Step "API Gateway shared outbound tests" ".\gradlew.bat --no-daemon :shared:ircs-common:test --tests *OutboundHttpClientTest --tests *ProxyRequestAuditWriterTest --rerun-tasks")
         )
     New-Batch `
         -Id "TREND-02822-F" `
@@ -455,7 +454,7 @@ if (-not [string]::IsNullOrWhiteSpace($OutputJsonPath)) {
 Write-Mark 1 "task spec and production-like plan documented"
 Write-Mark 2 "orchestrator defaults to dry-run/plan-only"
 Write-Mark 3 "UTB-02816-P1P2-01/02/03 command entries listed"
-Write-Mark 4 "resource verifier, portal/admin/BFF, provider/SMTP/R2 entries listed"
+Write-Mark 4 "resource verifier, portal/admin API Gateway, provider/SMTP/R2 entries listed"
 Write-Mark 5 "preconditions, risk, fixture/external estimates and cleanup checks recorded"
 Write-Mark 6 "093 ledger and task index updated"
 

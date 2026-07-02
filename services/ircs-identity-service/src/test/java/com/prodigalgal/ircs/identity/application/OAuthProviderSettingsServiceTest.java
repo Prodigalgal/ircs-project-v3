@@ -43,7 +43,7 @@ class OAuthProviderSettingsServiceTest {
         OAuthProviderSettings.Provider provider = settings.providers().get(0);
         assertEquals("google", provider.code());
         assertEquals("Google", provider.label());
-        assertEquals("/api/backend/api/portal/auth/oauth/google/start", provider.loginUrl());
+        assertEquals("/api/portal/auth/oauth/google/start", provider.loginUrl());
     }
 
     @Test

@@ -194,7 +194,7 @@ public class SystemConfigDefaults {
             cfg("app.ops.service-restart.kubernetes-api-base-url", "", "Kubernetes API 地址，留空使用集群内默认地址"),
             cfg("app.ops.service-restart.namespace", "", "服务重启目标命名空间，留空使用当前 Pod 命名空间"),
             cfg("app.ops.service-restart.allowed-services", String.join(",",
-                    "ircs-admin-bff",
+                    "ircs-api-gateway",
                     "ircs-aggregation-worker",
                     "ircs-catalog-service",
                     "ircs-config-service",
@@ -208,7 +208,6 @@ public class SystemConfigDefaults {
                     "ircs-normalization-worker",
                     "ircs-notification-worker",
                     "ircs-ops-service",
-                    "ircs-portal-bff",
                     "ircs-portal-service",
                     "ircs-scraper-service",
                     "ircs-search-service",
@@ -652,7 +651,7 @@ public class SystemConfigDefaults {
     private static List<String> restartServices(String key) {
         List<String> services = new ArrayList<>();
         addServiceIfMatches(services, key, "app.ops.", "ircs-ops-service");
-        addServiceIfMatches(services, key, "app.bff.", "ircs-admin-bff", "ircs-portal-bff");
+        addServiceIfMatches(services, key, "app.gateway.", "ircs-api-gateway");
         addServiceIfMatches(services, key, "app.task.", "ircs-task-service");
         addServiceIfMatches(services, key, "app.search.", "ircs-search-service");
         addServiceIfMatches(services, key, "app.content.", "ircs-content-service");
@@ -670,7 +669,7 @@ public class SystemConfigDefaults {
         addServiceIfMatches(services, key, "app.notification.", "ircs-notification-worker");
         addServiceIfMatches(services, key, "app.mail.", "ircs-notification-worker", "ircs-identity-service");
         addServiceIfMatches(services, key, "member.", "ircs-identity-service", "ircs-interaction-service");
-        addServiceIfMatches(services, key, "security.", "ircs-identity-service", "ircs-admin-bff", "ircs-portal-bff");
+        addServiceIfMatches(services, key, "security.", "ircs-identity-service", "ircs-api-gateway");
         addServiceIfMatches(services, key, "normalization.", "ircs-normalization-worker");
         addServiceIfMatches(services, key, "global.traffic.", "ircs-scraper-service", "ircs-metadata-worker", "ircs-magnet-service", "ircs-storage-service");
         if (key.startsWith("app.system-config.") || key.startsWith("app.runtime-config.")) {

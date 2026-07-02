@@ -24,7 +24,7 @@ public class OAuthProviderSettingsService {
                 .map(provider -> new OAuthProviderSettings.Provider(
                         provider.code(),
                         provider.label(),
-                        "/api/backend/api/portal/auth/oauth/" + provider.code() + "/start"))
+                        "/api/portal/auth/oauth/" + provider.code() + "/start"))
                 .toList();
 
         return new OAuthProviderSettings(true, providers);

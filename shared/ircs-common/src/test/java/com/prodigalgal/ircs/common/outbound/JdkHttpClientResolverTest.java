@@ -44,7 +44,7 @@ class JdkHttpClientResolverTest {
                 URI.create("http://ircs-ops-service:8080/api/v1/dashboard/metrics"),
                 "GET",
                 java.util.Map.of(),
-                OutboundHttpPolicy.bffProxy(timeout),
+                OutboundHttpPolicy.apiGatewayProxy(timeout),
                 new byte[0]);
     }
 }

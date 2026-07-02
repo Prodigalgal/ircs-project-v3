@@ -56,7 +56,7 @@
 
 ```powershell
 .\gradlew.bat :shared:ircs-common:test --tests com.prodigalgal.ircs.common.architecture.NoAutowiredUsageTest --tests com.prodigalgal.ircs.common.work.RedisRuntimeWorkQueueRateMetricsTest --tests com.prodigalgal.ircs.common.pipeline.PipelineValkeyQueueRateMetricsTest
-.\gradlew.bat :services:ircs-notification-worker:test :services:ircs-metadata-worker:test :services:ircs-normalization-worker:test :services:ircs-search-service:test :services:ircs-storage-service:test :services:ircs-aggregation-worker:test :services:ircs-config-service:test :services:ircs-admin-bff:test
+.\gradlew.bat :services:ircs-notification-worker:test :services:ircs-metadata-worker:test :services:ircs-normalization-worker:test :services:ircs-search-service:test :services:ircs-storage-service:test :services:ircs-aggregation-worker:test :services:ircs-config-service:test :services:ircs-api-gateway:test
 rg -n "<forbidden annotation/import pattern>" backend
 rg -n "<forbidden annotation/import pattern>" --glob "*.java"
 git diff --check

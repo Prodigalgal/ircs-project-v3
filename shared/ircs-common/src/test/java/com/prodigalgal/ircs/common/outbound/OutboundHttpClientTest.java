@@ -153,14 +153,14 @@ class OutboundHttpClientTest {
     }
 
     @Test
-    void bffProxyPolicyValidatesConfiguredTargetBaseUrlShape() throws Exception {
-        OutboundHttpPolicy bffProxy = OutboundHttpPolicy.bffProxy(Duration.ofSeconds(3));
+    void apiGatewayProxyPolicyValidatesConfiguredTargetBaseUrlShape() throws Exception {
+        OutboundHttpPolicy apiGatewayProxy = OutboundHttpPolicy.apiGatewayProxy(Duration.ofSeconds(3));
         transport.enqueue(response(200, "ok"));
 
-        assertThat(client.execute(OutboundHttpRequest.get("http://portal-service/api/v1/home", bffProxy)).statusCode())
+        assertThat(client.execute(OutboundHttpRequest.get("http://portal-service/api/v1/home", apiGatewayProxy)).statusCode())
                 .isEqualTo(200);
 
-        assertThatThrownBy(() -> client.execute(OutboundHttpRequest.get("http://token@portal-service/api", bffProxy)))
+        assertThatThrownBy(() -> client.execute(OutboundHttpRequest.get("http://token@portal-service/api", apiGatewayProxy)))
                 .isInstanceOf(OutboundHttpException.class);
         assertThat(transport.requests).hasSize(1);
     }
@@ -332,16 +332,16 @@ class OutboundHttpClientTest {
     }
 
     @Test
-    void supportsArbitraryMethodAndBodyForBffProxyCallers() throws Exception {
-        OutboundHttpPolicy bffProxy = OutboundHttpPolicy.bffProxy(Duration.ofSeconds(3))
-                .withCircuitBreakerKey("admin-bff-proxy");
+    void supportsArbitraryMethodAndBodyForApiGatewayProxyCallers() throws Exception {
+        OutboundHttpPolicy apiGatewayProxy = OutboundHttpPolicy.apiGatewayProxy(Duration.ofSeconds(3))
+                .withCircuitBreakerKey("api-gateway-proxy");
         transport.enqueue(response(202, "accepted"));
 
         OutboundHttpRequest request = new OutboundHttpRequest(
                 java.net.URI.create("http://content-service/api/v1/raw-videos/42"),
                 "PATCH",
                 Map.of("Content-Type", "application/json"),
-                bffProxy,
+                apiGatewayProxy,
                 "{\"title\":\"codex\"}".getBytes(StandardCharsets.UTF_8));
 
         assertThat(client.execute(request).bodyAsUtf8()).isEqualTo("accepted");
@@ -350,14 +350,14 @@ class OutboundHttpClientTest {
         assertThat(sent.method()).isEqualTo("PATCH");
         assertThat(new String(sent.body(), StandardCharsets.UTF_8)).isEqualTo("{\"title\":\"codex\"}");
         assertThat(sent.headers()).containsEntry("Content-Type", "application/json");
-        assertThat(sent.policy().circuitBreakerKey()).isEqualTo("admin-bff-proxy");
+        assertThat(sent.policy().circuitBreakerKey()).isEqualTo("api-gateway-proxy");
     }
 
     @Test
     void streamingClientPreservesBodyStreamAndCircuitKey() throws Exception {
-        OutboundHttpPolicy bffProxy = OutboundHttpPolicy.bffProxy(Duration.ofSeconds(3))
+        OutboundHttpPolicy apiGatewayProxy = OutboundHttpPolicy.apiGatewayProxy(Duration.ofSeconds(3))
                 .withCircuitBreaker(OutboundCircuitBreakerConfig.enabled(1, Duration.ofMinutes(5), 1))
-                .withCircuitBreakerKey("portal-bff-proxy");
+                .withCircuitBreakerKey("api-gateway-proxy");
         FakeStreamingTransport streamingTransport = new FakeStreamingTransport();
         streamingTransport.enqueue(new OutboundStreamingHttpResponse(
                 200,
@@ -371,7 +371,7 @@ class OutboundHttpClientTest {
                 java.net.URI.create("http://portal-service/api/portal/events"),
                 "GET",
                 Map.of("Accept", "text/event-stream"),
-                bffProxy,
+                apiGatewayProxy,
                 new byte[0]))) {
             assertThat(response.statusCode()).isEqualTo(200);
             assertThat(response.headers()).containsKey("Content-Type");
@@ -381,14 +381,14 @@ class OutboundHttpClientTest {
 
         OutboundHttpRequest sent = streamingTransport.requests.getFirst();
         assertThat(sent.headers()).containsEntry("Accept", "text/event-stream");
-        assertThat(sent.policy().circuitBreakerKey()).isEqualTo("portal-bff-proxy");
+        assertThat(sent.policy().circuitBreakerKey()).isEqualTo("api-gateway-proxy");
     }
 
     @Test
     void streamingClientOpensCircuitAfterRetryableStatus() throws Exception {
-        OutboundHttpPolicy guarded = OutboundHttpPolicy.bffProxy(Duration.ofSeconds(3))
+        OutboundHttpPolicy guarded = OutboundHttpPolicy.apiGatewayProxy(Duration.ofSeconds(3))
                 .withCircuitBreaker(OutboundCircuitBreakerConfig.enabled(1, Duration.ofMinutes(5), 1))
-                .withCircuitBreakerKey("admin-bff-proxy");
+                .withCircuitBreakerKey("api-gateway-proxy");
         FakeStreamingTransport streamingTransport = new FakeStreamingTransport();
         streamingTransport.enqueue(new OutboundStreamingHttpResponse(
                 503,
@@ -405,7 +405,7 @@ class OutboundHttpClientTest {
         assertThatThrownBy(() -> streamingClient.execute(
                         OutboundHttpRequest.get("http://content-service/api", guarded)))
                 .isInstanceOf(OutboundCircuitOpenException.class)
-                .hasMessageContaining("admin-bff-proxy:content-service");
+                .hasMessageContaining("api-gateway-proxy:content-service");
         assertThat(streamingTransport.requests).hasSize(1);
     }
 

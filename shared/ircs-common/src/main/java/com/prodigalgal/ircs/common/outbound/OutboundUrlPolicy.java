@@ -65,7 +65,7 @@ public class OutboundUrlPolicy {
         validateHttpUrlShape(uri);
     }
 
-    public void validateBffProxyTarget(URI uri) throws OutboundHttpException {
+    public void validateApiGatewayProxyTarget(URI uri) throws OutboundHttpException {
         validateHttpUrlShape(uri);
     }
 

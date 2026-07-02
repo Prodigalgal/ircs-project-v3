@@ -85,7 +85,7 @@ public class OutboundHttpClient {
             case PUBLIC_FETCH -> urlPolicy.validatePublicFetch(request.uri(), request.policy());
             case IMAGE_DOWNLOAD_STRICT -> urlPolicy.validateImageDownloadStrict(request.uri(), request.policy());
             case INTERNAL_SERVICE -> urlPolicy.validateInternalService(request.uri());
-            case BFF_PROXY -> urlPolicy.validateBffProxyTarget(request.uri());
+            case API_GATEWAY_PROXY -> urlPolicy.validateApiGatewayProxyTarget(request.uri());
         }
     }
 

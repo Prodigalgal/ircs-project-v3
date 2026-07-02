@@ -75,7 +75,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    void acceptsTrustedBffAdminHeadersAndGrantsRoleAdmin() throws Exception {
+    void acceptsTrustedGatewayAdminHeadersAndGrantsRoleAdmin() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/members");
         request.addHeader(IrcsAuthHeaders.AUTH_SUBJECT, "admin");
         request.addHeader(IrcsAuthHeaders.AUTH_ROLE, IrcsPermissions.ROLE_ADMIN);

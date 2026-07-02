@@ -111,12 +111,12 @@ public record OutboundHttpPolicy(
                 null);
     }
 
-    public static OutboundHttpPolicy bffProxy(Duration timeout) {
+    public static OutboundHttpPolicy apiGatewayProxy(Duration timeout) {
         return new OutboundHttpPolicy(
-                OutboundHttpPolicyType.BFF_PROXY,
+                OutboundHttpPolicyType.API_GATEWAY_PROXY,
                 timeout,
                 0,
-                "IRCS-BFF-Proxy/0.1",
+                "IRCS-API-Gateway-Proxy/0.1",
                 "AUTO",
                 "JDK",
                 "AUTO",

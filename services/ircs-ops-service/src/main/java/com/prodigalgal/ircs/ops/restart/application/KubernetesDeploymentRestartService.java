@@ -46,7 +46,7 @@ public class KubernetesDeploymentRestartService {
             Path.of("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt");
     private static final String DEFAULT_KUBERNETES_HOST = "https://kubernetes.default.svc";
     private static final Set<String> DEFAULT_ALLOWED_SERVICES = Set.of(
-            "ircs-admin-bff",
+            "ircs-api-gateway",
             "ircs-aggregation-worker",
             "ircs-catalog-service",
             "ircs-config-service",
@@ -60,7 +60,6 @@ public class KubernetesDeploymentRestartService {
             "ircs-normalization-worker",
             "ircs-notification-worker",
             "ircs-ops-service",
-            "ircs-portal-bff",
             "ircs-portal-service",
             "ircs-scraper-service",
             "ircs-search-service",

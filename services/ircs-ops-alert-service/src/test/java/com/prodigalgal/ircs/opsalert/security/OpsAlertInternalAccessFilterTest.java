@@ -34,7 +34,7 @@ class OpsAlertInternalAccessFilterTest {
         RuntimeConfigService runtimeConfig = securedRuntimeConfig();
         OpsAlertInternalAccessFilter filter = new OpsAlertInternalAccessFilter(runtimeConfig);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/ops-alert/events");
-        request.addHeader(InternalServiceAuthHeaders.SERVICE_ID, "admin-bff");
+        request.addHeader(InternalServiceAuthHeaders.SERVICE_ID, "api-gateway");
         request.addHeader(InternalServiceAuthHeaders.SERVICE_TOKEN, "secret");
         request.addHeader(InternalServiceAuthHeaders.SERVICE_SCOPES, "ops-alert:read");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -51,7 +51,7 @@ class OpsAlertInternalAccessFilterTest {
         RuntimeConfigService runtimeConfig = securedRuntimeConfig();
         OpsAlertInternalAccessFilter filter = new OpsAlertInternalAccessFilter(runtimeConfig);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/ops-alert/incidents");
-        request.addHeader(InternalServiceAuthHeaders.SERVICE_ID, "admin-bff");
+        request.addHeader(InternalServiceAuthHeaders.SERVICE_ID, "api-gateway");
         request.addHeader(InternalServiceAuthHeaders.SERVICE_TOKEN, "secret");
         request.addHeader(InternalServiceAuthHeaders.SERVICE_SCOPES, "ops-alert:read");
         MockHttpServletResponse response = new MockHttpServletResponse();

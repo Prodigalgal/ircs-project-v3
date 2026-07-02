@@ -17,7 +17,7 @@
   - normalization 只写 `raw_videos` flat/code 字段；`LlmCleaningRepository` 仅保留 category 映射。
   - aggregation 只从 flat/code 字段聚合，重复合并时合并 JSON 字段并保留 `category_code`。
   - content/search/portal/ops/metadata 主读路径统一使用 `category_code -> standard_category.slug`。
-  - catalog/admin-bff/ops maintenance 删除 raw genre/area/language API 与维护入口。
+  - catalog/api-gateway/ops maintenance 删除 raw genre/area/language API 与维护入口。
   - 新增 `JsonStringArrays` 作为 JSON string array 的统一读写和兜底解析工具。
 - 前端：
   - 标准分类、地区、语言、类型页面只展示标准字典和 code 字段。
@@ -48,7 +48,7 @@
 ## 验证
 
 - `./gradlew :services:ircs-aggregation-worker:test`
-- `./gradlew :shared:ircs-common:test --tests com.prodigalgal.ircs.common.architecture.NoLegacyContentMetadataTablesTest :services:ircs-catalog-service:test :services:ircs-normalization-worker:test :services:ircs-content-service:test :services:ircs-search-service:test :services:ircs-portal-service:test :services:ircs-admin-bff:test :services:ircs-ops-service:test`
+- `./gradlew :shared:ircs-common:test --tests com.prodigalgal.ircs.common.architecture.NoLegacyContentMetadataTablesTest :services:ircs-catalog-service:test :services:ircs-normalization-worker:test :services:ircs-content-service:test :services:ircs-search-service:test :services:ircs-portal-service:test :services:ircs-api-gateway:test :services:ircs-ops-service:test`
 - `npm run build` in `frontends/admin`
 
 ## 回滚建议
