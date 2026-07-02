@@ -556,6 +556,8 @@ class AggregationServiceTest {
         UUID secondUnifiedVideoId = UUID.randomUUID();
         when(repository.findAdultAssessmentBackfillIds(20))
                 .thenReturn(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
+        when(repository.rebuildUnifiedAdultAssessments(List.of(firstUnifiedVideoId, secondUnifiedVideoId)))
+                .thenReturn(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
 
         var result = service.backfillUnifiedAdultAssessments(20);
 
@@ -563,8 +565,7 @@ class AggregationServiceTest {
         assertEquals(2, result.candidates());
         assertEquals(2, result.processed());
         assertEquals(List.of(firstUnifiedVideoId, secondUnifiedVideoId), result.entityIds());
-        verify(repository).rebuildUnifiedAdultAssessment(firstUnifiedVideoId);
-        verify(repository).rebuildUnifiedAdultAssessment(secondUnifiedVideoId);
+        verify(repository).rebuildUnifiedAdultAssessments(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
         verify(publisher).publishUnifiedIndex(firstUnifiedVideoId);
         verify(publisher).publishUnifiedIndex(secondUnifiedVideoId);
     }

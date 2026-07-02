@@ -16,9 +16,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -484,6 +486,45 @@ public class JdbcAggregationRepository {
                 JsonStringArrays.readSet(objectMapper, base.get().genreCodesJson()),
                 findAdultAssessmentSources(unifiedVideoId)));
         writeUnifiedAdultAssessment(unifiedVideoId, assessment);
+    }
+
+    public List<UUID> rebuildUnifiedAdultAssessments(List<UUID> unifiedVideoIds) {
+        List<UUID> orderedIds = unifiedVideoIds == null
+                ? List.of()
+                : unifiedVideoIds.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .distinct()
+                        .toList();
+        if (orderedIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, UnifiedAdultAssessmentBase> bases = findUnifiedAdultAssessmentBases(orderedIds);
+        if (bases.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, List<AdultAssessmentInput.SourceEvidence>> sourcesByUnifiedId =
+                findAdultAssessmentSources(orderedIds);
+        List<AdultAssessmentWrite> writes = new ArrayList<>(bases.size());
+        for (UUID unifiedVideoId : orderedIds) {
+            UnifiedAdultAssessmentBase base = bases.get(unifiedVideoId);
+            if (base == null) {
+                continue;
+            }
+            AdultAssessment assessment = AdultContentAssessor.assess(new AdultAssessmentInput(
+                    base.title(),
+                    base.aliasTitle(),
+                    base.description(),
+                    base.remarks(),
+                    base.subtitle(),
+                    base.categoryCode(),
+                    base.categoryName(),
+                    JsonStringArrays.readSet(objectMapper, base.actorNamesJson()),
+                    JsonStringArrays.readSet(objectMapper, base.directorNamesJson()),
+                    JsonStringArrays.readSet(objectMapper, base.genreCodesJson()),
+                    sourcesByUnifiedId.getOrDefault(unifiedVideoId, List.of())));
+            writes.add(new AdultAssessmentWrite(unifiedVideoId, assessment));
+        }
+        return writeUnifiedAdultAssessments(writes);
     }
 
     public List<UUID> rebuildUnifiedPipelineCoverImage(UUID unifiedVideoId) {
@@ -1298,7 +1339,8 @@ public class JdbcAggregationRepository {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select uv.title,
+                    select uv.id,
+                           uv.title,
                            uv.alias_title,
                            uv.description,
                            uv.remarks,
@@ -1313,20 +1355,37 @@ public class JdbcAggregationRepository {
                      where uv.id = :unifiedVideoId
                     """,
                     new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
-                    (rs, rowNum) -> new UnifiedAdultAssessmentBase(
-                            rs.getString("title"),
-                            rs.getString("alias_title"),
-                            rs.getString("description"),
-                            rs.getString("remarks"),
-                            rs.getString("subtitle"),
-                            rs.getString("category_code"),
-                            rs.getString("category_name"),
-                            rs.getString("actor_names"),
-                            rs.getString("director_names"),
-                            rs.getString("genre_codes"))));
+                    this::mapUnifiedAdultAssessmentBase));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
+    }
+
+    private Map<UUID, UnifiedAdultAssessmentBase> findUnifiedAdultAssessmentBases(Collection<UUID> unifiedVideoIds) {
+        List<UnifiedAdultAssessmentBase> rows = jdbcTemplate.query(
+                """
+                select uv.id,
+                       uv.title,
+                       uv.alias_title,
+                       uv.description,
+                       uv.remarks,
+                       uv.subtitle,
+                       uv.category_code,
+                       sc.name as category_name,
+                       cast(uv.actor_names as varchar) as actor_names,
+                       cast(uv.director_names as varchar) as director_names,
+                       cast(uv.genre_codes as varchar) as genre_codes
+                  from unified_videos uv
+                  left join standard_category sc on sc.slug = uv.category_code
+                 where uv.id in (:ids)
+                """,
+                new MapSqlParameterSource("ids", unifiedVideoIds),
+                this::mapUnifiedAdultAssessmentBase);
+        Map<UUID, UnifiedAdultAssessmentBase> byId = new LinkedHashMap<>();
+        for (UnifiedAdultAssessmentBase row : rows) {
+            byId.putIfAbsent(row.id(), row);
+        }
+        return byId;
     }
 
     private List<AdultAssessmentInput.SourceEvidence> findAdultAssessmentSources(UUID unifiedVideoId) {
@@ -1356,6 +1415,41 @@ public class JdbcAggregationRepository {
                         rs.getString("raw_metadata")));
     }
 
+    private Map<UUID, List<AdultAssessmentInput.SourceEvidence>> findAdultAssessmentSources(
+            Collection<UUID> unifiedVideoIds) {
+        Map<UUID, List<AdultAssessmentInput.SourceEvidence>> sourcesByUnifiedId = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                """
+                select rvuv.unified_video_id,
+                       ds.name as data_source_name,
+                       coalesce(ds.adult_restricted, false) as data_source_adult_restricted,
+                       rv.source_category_code,
+                       rv.source_category_name,
+                       coalesce(ds.base_url, sd.domain_value) as source_domain,
+                       cast(rv.raw_metadata as varchar) as raw_metadata
+                  from raw_video_unified_video rvuv
+                  join raw_videos rv on rv.id = rvuv.raw_video_id
+                  left join data_sources ds on ds.id = rv.data_source_id
+                  left join cover_images ci on ci.id = rv.cover_image_id
+                  left join source_domains sd on sd.id = ci.source_domain_id
+                 where rvuv.unified_video_id in (:ids)
+                 order by rvuv.unified_video_id, rv.created_at asc, rv.id asc
+                """,
+                new MapSqlParameterSource("ids", unifiedVideoIds),
+                rs -> {
+                    UUID unifiedVideoId = rs.getObject("unified_video_id", UUID.class);
+                    sourcesByUnifiedId.computeIfAbsent(unifiedVideoId, ignored -> new ArrayList<>())
+                            .add(new AdultAssessmentInput.SourceEvidence(
+                                    rs.getString("data_source_name"),
+                                    rs.getBoolean("data_source_adult_restricted"),
+                                    rs.getString("source_category_code"),
+                                    rs.getString("source_category_name"),
+                                    rs.getString("source_domain"),
+                                    rs.getString("raw_metadata")));
+                });
+        return sourcesByUnifiedId;
+    }
+
     private void writeUnifiedAdultAssessment(UUID unifiedVideoId, AdultAssessment assessment) {
         jdbcTemplate.update(
                 """
@@ -1371,6 +1465,51 @@ public class JdbcAggregationRepository {
                         .addValue("unifiedVideoId", unifiedVideoId)
                         .addValue("adultRestricted", assessment.adultRestricted())
                         .addValue("adultAssessment", writeJson(assessment)));
+    }
+
+    private List<UUID> writeUnifiedAdultAssessments(List<AdultAssessmentWrite> writes) {
+        if (writes == null || writes.isEmpty()) {
+            return List.of();
+        }
+        MapSqlParameterSource[] batch = writes.stream()
+                .map(write -> new MapSqlParameterSource()
+                        .addValue("unifiedVideoId", write.unifiedVideoId())
+                        .addValue("adultRestricted", write.assessment().adultRestricted())
+                        .addValue("adultAssessment", writeJson(write.assessment())))
+                .toArray(MapSqlParameterSource[]::new);
+        int[] updates = jdbcTemplate.batchUpdate(
+                """
+                update unified_videos
+                   set adult_restricted = :adultRestricted,
+                       adult_assessment = cast(:adultAssessment as jsonb),
+                       adult_checked_at = now(),
+                       updated_at = now(),
+                       version = coalesce(version, 0) + 1
+                 where id = :unifiedVideoId
+                """,
+                batch);
+        List<UUID> updatedIds = new ArrayList<>(updates.length);
+        for (int i = 0; i < updates.length; i++) {
+            if (updates[i] > 0) {
+                updatedIds.add(writes.get(i).unifiedVideoId());
+            }
+        }
+        return updatedIds;
+    }
+
+    private UnifiedAdultAssessmentBase mapUnifiedAdultAssessmentBase(ResultSet rs, int rowNum) throws SQLException {
+        return new UnifiedAdultAssessmentBase(
+                rs.getObject("id", UUID.class),
+                rs.getString("title"),
+                rs.getString("alias_title"),
+                rs.getString("description"),
+                rs.getString("remarks"),
+                rs.getString("subtitle"),
+                rs.getString("category_code"),
+                rs.getString("category_name"),
+                rs.getString("actor_names"),
+                rs.getString("director_names"),
+                rs.getString("genre_codes"));
     }
 
     private String writeJson(Object value) {
@@ -1601,6 +1740,7 @@ public class JdbcAggregationRepository {
     }
 
     private record UnifiedAdultAssessmentBase(
+            UUID id,
             String title,
             String aliasTitle,
             String description,
@@ -1611,5 +1751,8 @@ public class JdbcAggregationRepository {
             String actorNamesJson,
             String directorNamesJson,
             String genreCodesJson) {
+    }
+
+    private record AdultAssessmentWrite(UUID unifiedVideoId, AdultAssessment assessment) {
     }
 }
