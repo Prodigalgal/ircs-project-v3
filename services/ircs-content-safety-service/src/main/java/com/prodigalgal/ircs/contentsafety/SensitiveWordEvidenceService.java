@@ -17,28 +17,23 @@ import org.springframework.util.StringUtils;
 @Slf4j
 class SensitiveWordEvidenceService {
 
-    private static final int MAX_MATCHES_PER_FIELD = 8;
     private static final int MAX_SOURCE_EVIDENCE_SCAN = 3;
     private static final String HELPER_CLASS = "com.github.houbb.sensitive.word.core.SensitiveWordHelper";
 
-    private final Method findAllMethod;
+    private final Method findFirstMethod;
 
     SensitiveWordEvidenceService() {
-        this.findAllMethod = findFindAllMethod();
+        this.findFirstMethod = findFindFirstMethod();
     }
 
     List<AdultAssessmentSignal> scan(AdultAssessmentItem item, int maxTextLength) {
-        if (item == null || findAllMethod == null) {
+        if (item == null || findFirstMethod == null) {
             return List.of();
         }
         List<AdultAssessmentSignal> signals = new ArrayList<>();
         scanField(signals, "unified", "title", item.title(), maxTextLength, 88);
         scanField(signals, "unified", "aliasTitle", item.aliasTitle(), maxTextLength, 82);
         scanField(signals, "unified", "description", item.description(), maxTextLength, 76);
-        scanField(signals, "unified", "remarks", item.remarks(), maxTextLength, 74);
-        scanField(signals, "unified", "subtitle", item.subtitle(), maxTextLength, 74);
-        scanCollection(signals, "unified", "actorNames", item.actorNames(), maxTextLength, 68);
-        scanCollection(signals, "unified", "directorNames", item.directorNames(), maxTextLength, 64);
         scanCollection(signals, "unified", "genreCodes", item.genreCodes(), maxTextLength, 70);
         int sourceCount = 0;
         for (AdultAssessmentSourceEvidence source : item.sources()) {
@@ -79,7 +74,6 @@ class SensitiveWordEvidenceService {
             return;
         }
         List<String> matches = findMatches(value);
-        int count = 0;
         for (String match : matches) {
             if (!StringUtils.hasText(match)) {
                 continue;
@@ -90,22 +84,15 @@ class SensitiveWordEvidenceService {
                     match,
                     score,
                     "sensitive-word 命中成人内容词"));
-            count++;
-            if (count >= MAX_MATCHES_PER_FIELD) {
-                break;
-            }
         }
     }
 
     @SuppressWarnings("unchecked")
     private List<String> findMatches(String value) {
         try {
-            Object result = findAllMethod.invoke(null, value);
-            if (result instanceof Collection<?> matches) {
-                return matches.stream()
-                        .map(String::valueOf)
-                        .distinct()
-                        .toList();
+            Object result = findFirstMethod.invoke(null, value);
+            if (result instanceof String match && StringUtils.hasText(match)) {
+                return List.of(match);
             }
         } catch (ReflectiveOperationException | RuntimeException ex) {
             log.debug("sensitive-word scan failed: {}", ex.getMessage());
@@ -113,10 +100,10 @@ class SensitiveWordEvidenceService {
         return List.of();
     }
 
-    private static Method findFindAllMethod() {
+    private static Method findFindFirstMethod() {
         try {
             Class<?> helper = Class.forName(HELPER_CLASS);
-            return helper.getMethod("findAll", String.class);
+            return helper.getMethod("findFirst", String.class);
         } catch (ReflectiveOperationException ex) {
             log.warn("sensitive-word helper is not available: {}", ex.getMessage());
             return null;
