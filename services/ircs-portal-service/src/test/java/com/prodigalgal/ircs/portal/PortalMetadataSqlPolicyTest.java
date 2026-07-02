@@ -30,6 +30,16 @@ class PortalMetadataSqlPolicyTest {
         assertThat(source).contains("exactExploreTotal(where, params)");
     }
 
+    @Test
+    void portalCategoryReadsUseFlattenedCodeColumns() throws IOException {
+        String source = Files.readString(sourceFile());
+
+        assertThat(source).contains("WHERE uv.category_code = :categoryKey");
+        assertThat(source).contains("WHERE uv.category_code IN (:categoryKeys)");
+        assertThat(source).contains("uv.content_visibility IN (:contentVisibility)");
+        assertThat(source).doesNotContain("coalesce(uv.content_visibility");
+    }
+
     private static Path sourceFile() {
         Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
         Path relative = Path.of("services/ircs-portal-service/src/main/java/com/prodigalgal/ircs/portal/JdbcPortalRepository.java");

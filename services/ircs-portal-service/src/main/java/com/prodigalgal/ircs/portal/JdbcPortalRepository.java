@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.portal;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
-import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
@@ -185,7 +184,7 @@ public class JdbcPortalRepository {
         Map<String, Object> params = new HashMap<>();
         params.put("categoryKey", categoryKey);
         params.put("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE (sc.slug = :categoryKey OR sc.name = :categoryKey)");
+        StringBuilder where = new StringBuilder(" WHERE uv.category_code = :categoryKey");
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query(
                 CARD_SELECT + where + """
@@ -208,7 +207,7 @@ public class JdbcPortalRepository {
         Map<String, Object> params = new HashMap<>();
         params.put("categoryKeys", categoryKeys);
         params.put("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE sc.slug IN (:categoryKeys)");
+        StringBuilder where = new StringBuilder(" WHERE uv.category_code IN (:categoryKeys)");
         appendScopeFilters(where, params, principal);
 
         List<CategoryCardRow> rows = jdbcTemplate.query(
@@ -444,9 +443,7 @@ public class JdbcPortalRepository {
         IrcsRequestPrincipal effective = principal == null ? IrcsRequestPrincipal.publicPrincipal() : principal;
         if (!effective.hasUnrestrictedVisibility()) {
             params.put("contentVisibility", effective.contentVisibility());
-            where.append(" AND coalesce(uv.content_visibility, '")
-                    .append(IrcsPermissions.VISIBILITY_PUBLIC)
-                    .append("') IN (:contentVisibility)");
+            where.append(" AND uv.content_visibility IN (:contentVisibility)");
         }
         if (!effective.hasUnrestrictedCategories()) {
             params.put("dataCategories", effective.dataCategories());
