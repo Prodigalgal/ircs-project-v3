@@ -2,16 +2,19 @@ package com.prodigalgal.ircs.search.sync;
 
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import com.prodigalgal.ircs.search.index.SearchIndexService;
 import com.prodigalgal.ircs.search.repository.SearchDocumentJdbcRepository;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +35,8 @@ class SearchReconciliationRunner {
     private final SearchSyncWorkPublisher workPublisher;
     private final WorkerJobAuditWriter auditWriter;
     private final SearchDistributedLockRunner lockRunner;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-search-reconciliation-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Value("${app.search.reconciliation.batch-size:100}")
@@ -60,7 +65,12 @@ class SearchReconciliationRunner {
 
     @Scheduled(cron = "${app.search.reconciliation.cron:0 0 3 * * ?}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "search.reconciliation.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     ReconciliationResult runOnce() {

@@ -1,14 +1,15 @@
 package com.prodigalgal.ircs.task.job;
 
-
-
-import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
+import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.concurrent.ExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +27,9 @@ class TaskWatchdog {
     private final JdbcCollectionTaskRepository taskRepository;
     private final WorkerJobAuditWriter auditWriter;
     private final TaskDistributedLockRunner lockRunner;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-task-watchdog-trigger-vt-");
+
     TaskWatchdog(
             JdbcCollectionTaskRepository taskRepository,
             WorkerJobAuditWriter auditWriter,
@@ -39,6 +43,15 @@ class TaskWatchdog {
             fixedDelayString = "${app.task.runner.watchdog-delay-ms:300000}",
             initialDelayString = "${app.task.runner.watchdog-initial-delay-ms:60000}")
     void failStaleActiveTasks() {
+        ScheduledTriggers.submit(triggerExecutor, this::failStaleActiveTasksOnce, log, "task.watchdog.fail-stale-active-tasks");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void failStaleActiveTasksOnce() {
         if (!lockRunner.runExclusive("task:watchdog:fail-stale-active-tasks", this::failStaleActiveTasksLocked)) {
             log.debug("Task watchdog skipped: distributed lock is held by another instance");
         }

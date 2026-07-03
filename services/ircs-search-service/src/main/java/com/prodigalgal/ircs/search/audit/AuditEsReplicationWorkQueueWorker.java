@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkPayload;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
@@ -86,17 +87,17 @@ class AuditEsReplicationWorkQueueWorker {
             initialDelayString = "${app.search.audit-es-replication.worker.initial-delay-ms:10000}",
             fixedRateString = "${app.search.audit-es-replication.worker.fixed-rate-ms:1000}")
     void runScheduled() {
-        try {
-            workerExecutor.execute(this::runOnce);
-        } catch (RuntimeException ex) {
-            log.warn("Audit ES replication worker trigger rejected: {}", ex.getMessage());
-        }
+        ScheduledTriggers.submit(workerExecutor, () -> runOnce(), log, "search.audit-es-replication.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.search.audit-es-replication.worker.heartbeat-initial-delay-ms:5000}",
             fixedRateString = "${app.search.audit-es-replication.worker.heartbeat-fixed-rate-ms:15000}")
     void heartbeatScheduled() {
+        ScheduledTriggers.submit(workerExecutor, this::heartbeatIfEnabled, log, "search.audit-es-replication.heartbeat");
+    }
+
+    private void heartbeatIfEnabled() {
         if (workerEnabled()) {
             heartbeat(workerId(), visibility());
         }

@@ -6,9 +6,11 @@ import com.prodigalgal.ircs.common.aggregation.AggregationWorkPayload;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -16,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +37,8 @@ class AggregationWorkQueueWorker {
     private final ObjectMapper objectMapper;
     private final AggregationService aggregationService;
     private final WorkerJobAuditWriter auditWriter;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-aggregation-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong consecutiveFailures = new AtomicLong(0);
     private volatile Instant lastRunAt;
@@ -87,7 +92,12 @@ class AggregationWorkQueueWorker {
             initialDelayString = "${app.aggregation.work-queue.worker.initial-delay-ms:10000}",
             fixedDelayString = "${app.aggregation.work-queue.worker.fixed-delay-ms:1000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "aggregation.work-queue.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int runOnce() {

@@ -1,14 +1,13 @@
 package com.prodigalgal.ircs.task.job;
 
-
-
-
-
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import com.prodigalgal.ircs.task.domain.ValidatedCreateTask;
 import com.prodigalgal.ircs.task.infrastructure.DataSourceSeedCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
-import com.prodigalgal.ircs.task.domain.ValidatedCreateTask;
+import jakarta.annotation.PreDestroy;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -40,6 +39,9 @@ class DefaultCollectionTaskSeeder implements ApplicationRunner {
     private final CollectionTaskCronScheduler cronScheduler;
     private final TaskDistributedLockRunner lockRunner;
     private final boolean enabled;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-default-task-seed-trigger-vt-");
+
     DefaultCollectionTaskSeeder(
             JdbcCollectionTaskRepository taskRepository,
             CollectionTaskCronScheduler cronScheduler,
@@ -60,7 +62,12 @@ class DefaultCollectionTaskSeeder implements ApplicationRunner {
             fixedDelayString = "${app.task.default-seed.fixed-delay-ms:60000}",
             initialDelayString = "${app.task.default-seed.initial-delay-ms:30000}")
     void scheduledSeedDefaultTasks() {
-        seedDefaultTasks();
+        ScheduledTriggers.submit(triggerExecutor, this::seedDefaultTasks, log, "task.default-seed.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     void seedDefaultTasks() {

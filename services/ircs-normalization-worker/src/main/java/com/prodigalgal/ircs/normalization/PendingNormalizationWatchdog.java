@@ -5,13 +5,17 @@ import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +36,9 @@ class PendingNormalizationWatchdog {
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
     private final WorkerJobAuditWriter auditWriter;
     private final String workerId;
+    private final ExecutorService triggerExecutor = ScheduledTriggers.virtualThreadExecutor(
+            "ircs-pending-normalization-watchdog-vt-");
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     PendingNormalizationWatchdog(
             RawVideoNormalizationRepository repository,
@@ -53,28 +60,37 @@ class PendingNormalizationWatchdog {
             initialDelayString = "${app.normalization.pending-watchdog.initial-delay-ms:30000}",
             fixedDelayString = "${app.normalization.pending-watchdog.fixed-delay-ms:60000}")
     public void scheduledTick() {
-        reconcilePending();
+        ScheduledTriggers.submit(triggerExecutor, () -> reconcilePending(), log, "normalization.pending-watchdog.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int reconcilePending() {
-        if (!configValues.pendingWatchdogEnabled()) {
+        if (!configValues.pendingWatchdogEnabled() || !running.compareAndSet(false, true)) {
             return 0;
         }
-        Optional<ClusterLease> lease = acquireLease();
-        if (lease.isEmpty()) {
-            log.debug("Pending normalization watchdog skipped because cluster lease is held: workerId={}", workerId);
-            return 0;
-        }
-        Instant startedAt = Instant.now();
         try {
-            int submitted = submitMissingPendingTasks();
-            recordSucceeded(startedAt, submitted);
-            return submitted;
-        } catch (RuntimeException ex) {
-            recordFailed(startedAt, ex);
-            throw ex;
+            Optional<ClusterLease> lease = acquireLease();
+            if (lease.isEmpty()) {
+                log.debug("Pending normalization watchdog skipped because cluster lease is held: workerId={}", workerId);
+                return 0;
+            }
+            Instant startedAt = Instant.now();
+            try {
+                int submitted = submitMissingPendingTasks();
+                recordSucceeded(startedAt, submitted);
+                return submitted;
+            } catch (RuntimeException ex) {
+                recordFailed(startedAt, ex);
+                throw ex;
+            } finally {
+                releaseLease(lease.get());
+            }
         } finally {
-            releaseLease(lease.get());
+            running.set(false);
         }
     }
 

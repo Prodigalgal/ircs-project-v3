@@ -1,8 +1,11 @@
 package com.prodigalgal.ircs.opsalert.application;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +26,8 @@ public class OpsAlertFirstPageWarmupService {
 
     private final OpsAlertQueryService queryService;
     private final RuntimeConfigService runtimeConfig;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-ops-alert-warmup-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     private volatile Instant nextWarmupAt = Instant.EPOCH;
@@ -31,6 +36,15 @@ public class OpsAlertFirstPageWarmupService {
             initialDelayString = "${app.ops-alert.first-page-cache.warmup.initial-delay-ms:8000}",
             fixedDelayString = "${app.ops-alert.first-page-cache.warmup.tick-delay-ms:5000}")
     public void warmupOnSchedule() {
+        ScheduledTriggers.submit(triggerExecutor, this::warmupIfDue, log, "ops-alert.first-page-warmup");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void warmupIfDue() {
         if (!enabled() || Instant.now().isBefore(nextWarmupAt)) {
             return;
         }

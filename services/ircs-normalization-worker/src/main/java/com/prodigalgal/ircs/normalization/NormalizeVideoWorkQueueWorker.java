@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.normalization;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
@@ -15,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,8 +33,11 @@ public class NormalizeVideoWorkQueueWorker {
     private final String workerId;
     private final int batchSize;
     private final Duration visibilityTimeout;
+    private final ExecutorService triggerExecutor = ScheduledTriggers.virtualThreadExecutor(
+            "ircs-normalize-video-trigger-vt-");
     private final ExecutorService taskExecutor = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("normalize-video-task-", 0).factory());
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     NormalizeVideoWorkQueueWorker(
             RuntimeWorkQueue workQueue,
@@ -58,25 +63,32 @@ public class NormalizeVideoWorkQueueWorker {
             initialDelayString = "${app.normalization.valkey-worker.initial-delay-ms:10000}",
             fixedDelayString = "${app.normalization.valkey-worker.fixed-delay-ms:1000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "normalization.valkey-worker.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.normalization.valkey-worker.heartbeat-initial-delay-ms:5000}",
             fixedDelayString = "${app.normalization.valkey-worker.heartbeat-fixed-delay-ms:15000}")
     public void heartbeatScheduled() {
-        heartbeat();
+        ScheduledTriggers.submit(triggerExecutor, this::heartbeat, log, "normalization.valkey-worker.heartbeat");
     }
 
     int runOnce() {
-        heartbeat();
-        List<RuntimeWorkItem> tasks = workQueue.claim(
-                PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
-                workerId,
-                batchSize,
-                visibilityTimeout);
-        processBatch(tasks);
-        return tasks.size();
+        if (!running.compareAndSet(false, true)) {
+            return 0;
+        }
+        try {
+            heartbeat();
+            List<RuntimeWorkItem> tasks = workQueue.claim(
+                    PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
+                    workerId,
+                    batchSize,
+                    visibilityTimeout);
+            processBatch(tasks);
+            return tasks.size();
+        } finally {
+            running.set(false);
+        }
     }
 
     private void processBatch(List<RuntimeWorkItem> tasks) {
@@ -185,6 +197,7 @@ public class NormalizeVideoWorkQueueWorker {
 
     @PreDestroy
     void shutdown() {
+        triggerExecutor.shutdownNow();
         taskExecutor.shutdownNow();
     }
 }

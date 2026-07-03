@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.task.domain.TaskConfigurationChangedEvent;
 import com.prodigalgal.ircs.task.application.TaskCommandService;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -50,7 +51,7 @@ class CollectionTaskCronSchedulerTest {
         ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
         verify(scheduler).schedule(runnableCaptor.capture(), any(Trigger.class));
         runnableCaptor.getValue().run();
-        verify(taskCommandService).startInternal(taskId, false);
+        verify(taskCommandService, timeout(1000)).startInternal(taskId, false);
 
         cronScheduler.onTaskConfigurationChanged(new TaskConfigurationChangedEvent(taskId, true));
 

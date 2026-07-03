@@ -1,11 +1,15 @@
 package com.prodigalgal.ircs.common.retention;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import jakarta.annotation.PreDestroy;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,6 +27,9 @@ public class LogRetentionScheduler {
     private final ObjectProvider<LogRetentionTarget> targetProvider;
     private final RuntimeConfigService runtimeConfig;
     private final Clock clock;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-log-retention-trigger-vt-");
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     public LogRetentionScheduler(
             ObjectProvider<LogRetentionTarget> targetProvider,
@@ -38,18 +45,27 @@ public class LogRetentionScheduler {
             initialDelayString = "${app.log-retention.initial-delay-ms:60000}",
             fixedDelayString = "${app.log-retention.fixed-delay-ms:3600000}")
     void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "common.log-retention.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     List<LogRetentionResult> runOnce() {
-        if (!runtimeConfig.booleanValue(ENABLED_KEY, true)) {
+        if (!runtimeConfig.booleanValue(ENABLED_KEY, true) || !running.compareAndSet(false, true)) {
             return List.of();
         }
-        List<LogRetentionResult> results = new ArrayList<>();
-        for (LogRetentionTarget target : targetProvider.orderedStream().toList()) {
-            purgeTarget(target).ifPresent(results::add);
+        try {
+            List<LogRetentionResult> results = new ArrayList<>();
+            for (LogRetentionTarget target : targetProvider.orderedStream().toList()) {
+                purgeTarget(target).ifPresent(results::add);
+            }
+            return List.copyOf(results);
+        } finally {
+            running.set(false);
         }
-        return List.copyOf(results);
     }
 
     private java.util.Optional<LogRetentionResult> purgeTarget(LogRetentionTarget target) {

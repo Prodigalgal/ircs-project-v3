@@ -4,15 +4,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.storage.StorageWorkPayload;
 import com.prodigalgal.ircs.common.storage.StorageWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +41,8 @@ public class StorageR2WorkQueueWorker {
     private final R2ObjectStorage r2ObjectStorage;
     private final WorkerJobAuditWriter auditWriter;
     private final SystemConfigRepository systemConfigRepository;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-storage-r2-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
@@ -86,17 +91,19 @@ public class StorageR2WorkQueueWorker {
             initialDelayString = "${app.storage.r2.work-queue.worker.initial-delay-ms:30000}",
             fixedDelayString = "${app.storage.r2.work-queue.worker.fixed-delay-ms:5000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "storage.r2.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.storage.r2.work-queue.worker.heartbeat-initial-delay-ms:5000}",
             fixedDelayString = "${app.storage.r2.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
     public void heartbeatScheduled() {
-        if (workerEnabled() && r2ObjectStorage.isActive()) {
-            heartbeat(StorageWorkTypes.AVATAR_SYNC);
-            heartbeat(StorageWorkTypes.COVER_R2_SYNC);
-        }
+        ScheduledTriggers.submit(triggerExecutor, this::heartbeatIfActive, log, "storage.r2.heartbeat");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int runOnce() {
@@ -143,6 +150,13 @@ public class StorageR2WorkQueueWorker {
                 taskType,
                 workerId(),
                 Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
+    }
+
+    private void heartbeatIfActive() {
+        if (workerEnabled() && r2ObjectStorage.isActive()) {
+            heartbeat(StorageWorkTypes.AVATAR_SYNC);
+            heartbeat(StorageWorkTypes.COVER_R2_SYNC);
+        }
     }
 
     private void process(RuntimeWorkItem item, String jobName, Function<UUID, WorkResult> handler) {

@@ -1,16 +1,15 @@
 package com.prodigalgal.ircs.task.job;
 
-
-
-
-
-import com.prodigalgal.ircs.task.domain.ScheduledTaskDefinition;
-import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.domain.TaskConfigurationChangedEvent;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.task.application.TaskCommandService;
+import com.prodigalgal.ircs.task.domain.ScheduledTaskDefinition;
+import com.prodigalgal.ircs.task.domain.TaskConfigurationChangedEvent;
+import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
+import jakarta.annotation.PreDestroy;
 import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +29,8 @@ class CollectionTaskCronScheduler {
     private final TaskCommandService taskCommandService;
     private final TaskScheduler scheduler;
     private final boolean enabled;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-collection-task-cron-trigger-vt-");
     private final Map<UUID, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
     CollectionTaskCronScheduler(
@@ -87,6 +88,11 @@ class CollectionTaskCronScheduler {
         }
     }
 
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
     int scheduledCount() {
         return scheduledTasks.size();
     }
@@ -100,7 +106,11 @@ class CollectionTaskCronScheduler {
                     ? ZoneId.of("UTC")
                     : ZoneId.of(task.timeZone());
             ScheduledFuture<?> future = scheduler.schedule(
-                    () -> taskCommandService.startInternal(task.id(), false),
+                    () -> ScheduledTriggers.submit(
+                            triggerExecutor,
+                            () -> taskCommandService.startInternal(task.id(), false),
+                            log,
+                            "task.collection-cron." + task.id()),
                     new CronTrigger(task.cronExpression(), zoneId));
             if (future != null) {
                 scheduledTasks.put(task.id(), future);

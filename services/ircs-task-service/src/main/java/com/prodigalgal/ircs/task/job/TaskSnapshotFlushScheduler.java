@@ -1,19 +1,17 @@
 package com.prodigalgal.ircs.task.job;
 
-
-
-
-
-
-import com.prodigalgal.ircs.task.application.TaskRuntimeRepairResult;
-import com.prodigalgal.ircs.task.application.TaskSnapshotFlushService;
-import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
-import com.prodigalgal.ircs.task.application.TaskSnapshotFlushResult;
-import com.prodigalgal.ircs.task.application.TaskRuntimeRepairService;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import com.prodigalgal.ircs.task.application.TaskRuntimeRepairResult;
+import com.prodigalgal.ircs.task.application.TaskRuntimeRepairService;
+import com.prodigalgal.ircs.task.application.TaskSnapshotFlushResult;
+import com.prodigalgal.ircs.task.application.TaskSnapshotFlushService;
+import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.ExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -36,6 +34,8 @@ class TaskSnapshotFlushScheduler {
     private final Duration minDirtyAge;
     private final int batchSize;
     private final int repairBatchSize;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-task-snapshot-flush-trigger-vt-");
 
     TaskSnapshotFlushScheduler(
             TaskSnapshotFlushService flushService,
@@ -58,6 +58,15 @@ class TaskSnapshotFlushScheduler {
             fixedDelayString = "${app.task.snapshot.flush.delay-ms:30000}",
             initialDelayString = "${app.task.snapshot.flush.initial-delay-ms:30000}")
     void flushDirtyMasters() {
+        ScheduledTriggers.submit(triggerExecutor, this::flushDirtyMastersOnce, log, "task.snapshot-flush.flush-dirty-masters");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void flushDirtyMastersOnce() {
         if (!lockRunner.runExclusive("task:snapshot-flush:dirty-masters", this::flushDirtyMastersLocked)) {
             log.debug("Task snapshot flush skipped: distributed lock is held by another instance");
         }

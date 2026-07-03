@@ -1,12 +1,15 @@
 package com.prodigalgal.ircs.task.job;
 
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.task.application.MediaRequestBatchService;
 import com.prodigalgal.ircs.task.domain.MediaRequestCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
+import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +28,8 @@ class MediaRequestScheduler {
     private final JdbcCollectionTaskRepository taskRepository;
     private final MediaRequestBatchService batchService;
     private final TaskDistributedLockRunner lockRunner;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-media-request-scheduler-trigger-vt-");
 
     @Value("${app.task.media-request.batch-size:20}")
     private int batchSize;
@@ -33,6 +38,15 @@ class MediaRequestScheduler {
             fixedDelayString = "${app.task.media-request.fixed-delay-ms:60000}",
             initialDelayString = "${app.task.media-request.initial-delay-ms:30000}")
     void schedulePendingMediaRequests() {
+        ScheduledTriggers.submit(triggerExecutor, this::schedulePendingMediaRequestsOnce, log, "task.media-request.schedule");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void schedulePendingMediaRequestsOnce() {
         if (!lockRunner.runExclusive(LOCK_NAME, this::schedulePendingMediaRequestsLocked)) {
             log.debug("Media request scheduler skipped: distributed lock is held by another instance");
         }

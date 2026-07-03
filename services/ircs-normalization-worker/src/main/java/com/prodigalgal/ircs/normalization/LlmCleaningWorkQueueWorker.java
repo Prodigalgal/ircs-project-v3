@@ -6,9 +6,11 @@ import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkPayload;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -17,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,6 +41,8 @@ class LlmCleaningWorkQueueWorker {
     private final LlmCleaningService cleaningService;
     private final WorkerJobAuditWriter auditWriter;
     private final SystemConfigRepository systemConfigRepository;
+    private final ExecutorService triggerExecutor = ScheduledTriggers.virtualThreadExecutor(
+            "ircs-llm-cleaning-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
@@ -82,16 +87,19 @@ class LlmCleaningWorkQueueWorker {
             initialDelayString = "${app.normalization.llm-cleaning.work-queue.worker.initial-delay-ms:30000}",
             fixedDelayString = "${app.normalization.llm-cleaning.work-queue.worker.fixed-delay-ms:5000}")
     void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "normalization.llm-cleaning.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.normalization.llm-cleaning.work-queue.worker.heartbeat-initial-delay-ms:5000}",
             fixedDelayString = "${app.normalization.llm-cleaning.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
     void heartbeatScheduled() {
-        if (workerEnabled()) {
-            heartbeat();
-        }
+        ScheduledTriggers.submit(triggerExecutor, this::heartbeatIfEnabled, log, "normalization.llm-cleaning.heartbeat");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int runOnce() {
@@ -128,6 +136,12 @@ class LlmCleaningWorkQueueWorker {
                 LlmCleaningWorkTypes.RAW_TERM,
                 workerId(),
                 Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
+    }
+
+    private void heartbeatIfEnabled() {
+        if (workerEnabled()) {
+            heartbeat();
+        }
     }
 
     private void process(List<RuntimeWorkItem> items) {

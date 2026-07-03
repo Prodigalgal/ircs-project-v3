@@ -1,10 +1,13 @@
 package com.prodigalgal.ircs.magnet;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -22,6 +25,8 @@ class MagnetAutoSearchScheduler {
     private final JdbcMagnetRepository magnetRepository;
     private final MagnetQueryService magnetQueryService;
     private final RuntimeConfigService runtimeConfig;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-magnet-auto-search-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Value("${app.magnet.auto-search.enabled:false}")
@@ -46,6 +51,15 @@ class MagnetAutoSearchScheduler {
             initialDelayString = "${app.magnet.auto-search.initial-delay-ms:60000}",
             fixedDelayString = "${app.magnet.auto-search.fixed-delay-ms:300000}")
     void runScheduled() {
+        ScheduledTriggers.submit(triggerExecutor, this::runScheduledBatch, log, "magnet.auto-search.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void runScheduledBatch() {
         if (!enabled() || !running.compareAndSet(false, true)) {
             return;
         }

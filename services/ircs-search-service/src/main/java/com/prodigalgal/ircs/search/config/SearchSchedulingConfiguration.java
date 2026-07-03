@@ -1,8 +1,7 @@
 package com.prodigalgal.ircs.search.config;
 
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,16 +27,11 @@ public class SearchSchedulingConfiguration {
 
     @Bean(name = SEARCH_SYNC_EXECUTOR, destroyMethod = "close")
     ExecutorService searchSyncWorkerExecutor() {
-        return virtualThreadExecutor("ircs-search-sync-vt-");
+        return ScheduledTriggers.virtualThreadExecutor("ircs-search-sync-vt-");
     }
 
     @Bean(name = AUDIT_ES_REPLICATION_EXECUTOR, destroyMethod = "close")
     ExecutorService auditEsReplicationWorkerExecutor() {
-        return virtualThreadExecutor("ircs-search-audit-es-vt-");
-    }
-
-    private static ExecutorService virtualThreadExecutor(String threadNamePrefix) {
-        ThreadFactory factory = Thread.ofVirtual().name(threadNamePrefix, 0).factory();
-        return Executors.newThreadPerTaskExecutor(factory);
+        return ScheduledTriggers.virtualThreadExecutor("ircs-search-audit-es-vt-");
     }
 }

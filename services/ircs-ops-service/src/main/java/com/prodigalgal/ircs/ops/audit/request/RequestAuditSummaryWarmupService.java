@@ -1,8 +1,11 @@
 package com.prodigalgal.ircs.ops.audit.request;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +23,8 @@ class RequestAuditSummaryWarmupService {
 
     private final RequestAuditQueryService queryService;
     private final RuntimeConfigService runtimeConfig;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-request-audit-warmup-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     private volatile Instant nextWarmupAt = Instant.EPOCH;
@@ -28,6 +33,15 @@ class RequestAuditSummaryWarmupService {
             initialDelayString = "${app.ops.request-audit.summary-snapshot.initial-delay-ms:7000}",
             fixedDelayString = "${app.ops.request-audit.summary-snapshot.tick-delay-ms:5000}")
     public void warmupOnSchedule() {
+        ScheduledTriggers.submit(triggerExecutor, this::warmupIfDue, log, "ops.request-audit.summary-warmup");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void warmupIfDue() {
         if (!enabled() || Instant.now().isBefore(nextWarmupAt)) {
             return;
         }

@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.metadata.provider.worker;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
@@ -13,10 +14,12 @@ import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +41,10 @@ public class MetadataProviderWorkQueueWorker {
     private final String workerId;
     private final int defaultBatchSize;
     private final int defaultParallelism;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-metadata-provider-trigger-vt-");
     private final ThreadPoolExecutor executor;
+    private final AtomicBoolean running = new AtomicBoolean(false);
     private final Duration visibilityTimeout;
     private final Duration retryDelay;
     private final SystemConfigRepository systemConfigRepository;
@@ -85,28 +91,35 @@ public class MetadataProviderWorkQueueWorker {
             initialDelayString = "${app.metadata.valkey-provider-worker.initial-delay-ms:10000}",
             fixedDelayString = "${app.metadata.valkey-provider-worker.fixed-delay-ms:1000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "metadata.provider.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.metadata.valkey-provider-worker.heartbeat-initial-delay-ms:5000}",
             fixedDelayString = "${app.metadata.valkey-provider-worker.heartbeat-fixed-delay-ms:15000}")
     public void heartbeatScheduled() {
-        heartbeat();
+        ScheduledTriggers.submit(triggerExecutor, this::heartbeat, log, "metadata.provider.heartbeat");
     }
 
     int runOnce() {
-        WorkerSettings settings = workerSettings();
-        int batchSize = settings.batchSize();
-        int parallelism = applyParallelism(settings.parallelism());
-        heartbeat();
-        List<RuntimeWorkItem> tasks = workQueue.claim(
-                PipelineRuntimeWorkTypes.METADATA_PROVIDER,
-                workerId,
-                batchSize,
-                visibilityTimeout);
-        processBatch(tasks, parallelism);
-        return tasks.size();
+        if (!running.compareAndSet(false, true)) {
+            return 0;
+        }
+        try {
+            WorkerSettings settings = workerSettings();
+            int batchSize = settings.batchSize();
+            int parallelism = applyParallelism(settings.parallelism());
+            heartbeat();
+            List<RuntimeWorkItem> tasks = workQueue.claim(
+                    PipelineRuntimeWorkTypes.METADATA_PROVIDER,
+                    workerId,
+                    batchSize,
+                    visibilityTimeout);
+            processBatch(tasks, parallelism);
+            return tasks.size();
+        } finally {
+            running.set(false);
+        }
     }
 
     private void heartbeat() {
@@ -168,6 +181,7 @@ public class MetadataProviderWorkQueueWorker {
 
     @PreDestroy
     void shutdown() {
+        triggerExecutor.shutdownNow();
         executor.shutdownNow();
     }
 

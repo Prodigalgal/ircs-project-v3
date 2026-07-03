@@ -34,7 +34,7 @@ class TaskWatchdogTest {
         when(taskRepository.failStaleActiveTasks(any(Instant.class), eq("Watchdog: Task heartbeat timeout.")))
                 .thenReturn(2);
 
-        watchdog.failStaleActiveTasks();
+        watchdog.failStaleActiveTasksOnce();
 
         WorkerJobAuditEvent event = captureAuditEvent();
         assertEquals(TaskWatchdog.JOB_TYPE_TASK_WATCHDOG, event.jobType());
@@ -49,7 +49,7 @@ class TaskWatchdogTest {
         when(taskRepository.failStaleActiveTasks(any(Instant.class), eq("Watchdog: Task heartbeat timeout.")))
                 .thenReturn(0);
 
-        watchdog.failStaleActiveTasks();
+        watchdog.failStaleActiveTasksOnce();
 
         verifyNoInteractions(auditWriter);
     }

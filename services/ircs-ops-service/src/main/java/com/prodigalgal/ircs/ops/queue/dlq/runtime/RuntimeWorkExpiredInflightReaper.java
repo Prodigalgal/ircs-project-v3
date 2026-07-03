@@ -3,13 +3,16 @@ package com.prodigalgal.ircs.ops.queue.dlq.runtime;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.ops.queue.domain.RuntimeWorkQueueCatalog;
 import com.prodigalgal.ircs.ops.queue.domain.RuntimeWorkQueueDescriptor;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +31,8 @@ public class RuntimeWorkExpiredInflightReaper {
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
     private final RuntimeConfigService runtimeConfig;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-runtime-expired-reaper-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger cursor = new AtomicInteger(0);
 
@@ -44,7 +49,12 @@ public class RuntimeWorkExpiredInflightReaper {
             initialDelayString = "${app.ops.runtime-expired-inflight-reaper.initial-delay-ms:10000}",
             fixedDelayString = "${app.ops.runtime-expired-inflight-reaper.fixed-delay-ms:1000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "ops.runtime-expired-inflight-reaper.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     public int runOnce() {

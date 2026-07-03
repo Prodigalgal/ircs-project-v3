@@ -2,12 +2,15 @@ package com.prodigalgal.ircs.ops.queue.dlq.runtime;
 
 import com.prodigalgal.ircs.common.lease.ClusterLease;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.ops.queue.domain.RuntimeWorkQueueCatalog;
 import com.prodigalgal.ircs.ops.queue.domain.RuntimeWorkQueueDescriptor;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +29,8 @@ class RuntimeWorkDlqReplayWorker {
 
     private final RuntimeWorkDlqService dlqService;
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-runtime-dlq-replay-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger cursor = new AtomicInteger(0);
 
@@ -55,7 +60,12 @@ class RuntimeWorkDlqReplayWorker {
             initialDelayString = "${app.ops.runtime-dlq-replay.worker.initial-delay-ms:10000}",
             fixedDelayString = "${app.ops.runtime-dlq-replay.worker.fixed-delay-ms:1000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "ops.runtime-dlq-replay.run");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int runOnce() {

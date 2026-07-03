@@ -4,12 +4,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -40,6 +43,8 @@ class MagnetWorkQueueWorker {
     private final ObjectMapper objectMapper;
     private final MagnetQueryService magnetQueryService;
     private final RuntimeConfigService runtimeConfig;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-magnet-worker-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Value("${app.magnet.work-queue.worker.enabled:true}")
@@ -78,16 +83,19 @@ class MagnetWorkQueueWorker {
             initialDelayString = "${app.magnet.work-queue.worker.initial-delay-ms:10000}",
             fixedDelayString = "${app.magnet.work-queue.worker.fixed-delay-ms:1000}")
     void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "magnet.work-queue.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.magnet.work-queue.worker.heartbeat-initial-delay-ms:5000}",
             fixedDelayString = "${app.magnet.work-queue.worker.heartbeat-fixed-delay-ms:15000}")
     void heartbeatScheduled() {
-        if (enabled()) {
-            heartbeat(workerId(), heartbeatTtl());
-        }
+        ScheduledTriggers.submit(triggerExecutor, this::heartbeatIfEnabled, log, "magnet.work-queue.heartbeat");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int runOnce() {
@@ -146,6 +154,12 @@ class MagnetWorkQueueWorker {
 
     private void heartbeat(String owner, Duration ttl) {
         workQueue.heartbeatConsumer(MagnetWorkTypes.SEARCH, owner, ttl);
+    }
+
+    private void heartbeatIfEnabled() {
+        if (enabled()) {
+            heartbeat(workerId(), heartbeatTtl());
+        }
     }
 
     private Duration visibility() {

@@ -46,7 +46,7 @@ class TaskSnapshotFlushSchedulerTest {
         when(repairService.repairStuckActiveMasters(10))
                 .thenReturn(new TaskRuntimeRepairResult(0, 0, 0, 0, 0));
 
-        scheduler.flushDirtyMasters();
+        scheduler.flushDirtyMastersOnce();
 
         WorkerJobAuditEvent event = captureAuditEvent();
         assertEquals(TaskSnapshotFlushScheduler.JOB_TYPE_TASK_SNAPSHOT_FLUSH, event.jobType());
@@ -63,7 +63,7 @@ class TaskSnapshotFlushSchedulerTest {
         when(repairService.repairStuckActiveMasters(10))
                 .thenReturn(new TaskRuntimeRepairResult(0, 0, 0, 0, 0));
 
-        scheduler.flushDirtyMasters();
+        scheduler.flushDirtyMastersOnce();
 
         verifyNoInteractions(auditWriter);
     }

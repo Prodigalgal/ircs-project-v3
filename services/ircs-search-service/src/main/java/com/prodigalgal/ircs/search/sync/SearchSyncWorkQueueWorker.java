@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkPayload;
 import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
@@ -90,22 +91,22 @@ class SearchSyncWorkQueueWorker {
             initialDelayString = "${app.search.work-queue.worker.initial-delay-ms:10000}",
             fixedRateString = "${app.search.work-queue.worker.fixed-rate-ms:1000}")
     public void runRawScheduled() {
-        submitLane(SearchSyncWorkTypes.RAW);
+        ScheduledTriggers.submit(
+                workerExecutor,
+                () -> runOnce(SearchSyncWorkTypes.RAW),
+                log,
+                "search.sync-work-queue." + SearchSyncWorkTypes.RAW);
     }
 
     @Scheduled(
             initialDelayString = "${app.search.work-queue.worker.initial-delay-ms:10000}",
             fixedRateString = "${app.search.work-queue.worker.fixed-rate-ms:1000}")
     public void runUnifiedScheduled() {
-        submitLane(SearchSyncWorkTypes.UNIFIED);
-    }
-
-    private void submitLane(String taskType) {
-        try {
-            workerExecutor.execute(() -> runOnce(taskType));
-        } catch (RuntimeException ex) {
-            log.warn("Search sync work queue trigger rejected: taskType={}, reason={}", taskType, ex.getMessage());
-        }
+        ScheduledTriggers.submit(
+                workerExecutor,
+                () -> runOnce(SearchSyncWorkTypes.UNIFIED),
+                log,
+                "search.sync-work-queue." + SearchSyncWorkTypes.UNIFIED);
     }
 
     int runOnce() {

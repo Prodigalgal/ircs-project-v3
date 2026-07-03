@@ -23,7 +23,7 @@ class DashboardSnapshotWarmupServiceTest {
     void skipsWarmupWhenDisabled() {
         when(runtimeConfig.booleanValue("app.ops.dashboard.snapshot.enabled", true)).thenReturn(false);
 
-        service.warmupOnSchedule();
+        service.warmupIfDue();
 
         verify(dashboardQueryService, times(0)).warmAnalysisBlocks(eq(14), eq(50), any());
     }
@@ -74,8 +74,8 @@ class DashboardSnapshotWarmupServiceTest {
                         500))
                 .thenReturn(50);
 
-        service.warmupOnSchedule();
-        service.warmupOnSchedule();
+        service.warmupIfDue();
+        service.warmupIfDue();
 
         verify(dashboardQueryService, times(1)).warmAnalysisBlocks(eq(14), eq(50), any());
     }

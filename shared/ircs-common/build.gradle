@@ -11,6 +11,7 @@ dependencies {
     compileOnly 'com.fasterxml.jackson.core:jackson-databind'
     compileOnly 'io.micrometer:micrometer-core'
     compileOnly 'io.jsonwebtoken:jjwt-api:0.12.6'
+    compileOnly 'jakarta.annotation:jakarta.annotation-api'
     compileOnly 'jakarta.servlet:jakarta.servlet-api'
     compileOnly 'org.slf4j:slf4j-api'
     compileOnly 'org.springframework:spring-jdbc'

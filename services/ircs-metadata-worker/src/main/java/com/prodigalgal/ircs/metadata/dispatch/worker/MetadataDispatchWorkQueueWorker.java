@@ -1,13 +1,17 @@
 package com.prodigalgal.ircs.metadata.dispatch.worker;
 
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import com.prodigalgal.ircs.metadata.dispatch.application.MetadataDispatchService;
 import com.prodigalgal.ircs.metadata.dispatch.dto.MetadataDispatchResult;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,6 +27,9 @@ public class MetadataDispatchWorkQueueWorker {
     private final int batchSize;
     private final Duration visibilityTimeout;
     private final Duration retryDelay;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-metadata-dispatch-trigger-vt-");
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     MetadataDispatchWorkQueueWorker(
             RuntimeWorkQueue workQueue,
@@ -46,25 +53,37 @@ public class MetadataDispatchWorkQueueWorker {
             initialDelayString = "${app.metadata.valkey-dispatcher.initial-delay-ms:10000}",
             fixedDelayString = "${app.metadata.valkey-dispatcher.fixed-delay-ms:1000}")
     public void runScheduled() {
-        runOnce();
+        ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "metadata.dispatch.run");
     }
 
     @Scheduled(
             initialDelayString = "${app.metadata.valkey-dispatcher.heartbeat-initial-delay-ms:5000}",
             fixedDelayString = "${app.metadata.valkey-dispatcher.heartbeat-fixed-delay-ms:15000}")
     public void heartbeatScheduled() {
-        heartbeat();
+        ScheduledTriggers.submit(triggerExecutor, this::heartbeat, log, "metadata.dispatch.heartbeat");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
     }
 
     int runOnce() {
-        heartbeat();
-        List<RuntimeWorkItem> tasks = workQueue.claim(
-                PipelineRuntimeWorkTypes.ENRICH_METADATA,
-                workerId,
-                batchSize,
-                visibilityTimeout);
-        tasks.forEach(this::process);
-        return tasks.size();
+        if (!running.compareAndSet(false, true)) {
+            return 0;
+        }
+        try {
+            heartbeat();
+            List<RuntimeWorkItem> tasks = workQueue.claim(
+                    PipelineRuntimeWorkTypes.ENRICH_METADATA,
+                    workerId,
+                    batchSize,
+                    visibilityTimeout);
+            tasks.forEach(this::process);
+            return tasks.size();
+        } finally {
+            running.set(false);
+        }
     }
 
     private void heartbeat() {

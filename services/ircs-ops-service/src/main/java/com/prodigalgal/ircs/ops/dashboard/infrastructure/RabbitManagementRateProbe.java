@@ -3,14 +3,18 @@ package com.prodigalgal.ircs.ops.dashboard.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
 import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,6 +29,9 @@ public class RabbitManagementRateProbe {
     private final StringRedisTemplate redisTemplate;
     private final RuntimeConfigService runtimeConfig;
     private final RabbitManagementQueueClient queueClient;
+    private final ExecutorService triggerExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-rabbit-rate-probe-trigger-vt-");
+    private final AtomicBoolean running = new AtomicBoolean(false);
     private final Map<String, Long> counters = new ConcurrentHashMap<>();
     private volatile Instant nextSampleAt;
     private volatile boolean lastSampleSuccessful;
@@ -42,6 +49,26 @@ public class RabbitManagementRateProbe {
 
     @Scheduled(initialDelayString = "1000", fixedDelayString = "1000")
     public void sampleScheduled() {
+        ScheduledTriggers.submit(triggerExecutor, this::sampleIfDue, log, "ops.rabbit-rate-probe.sample");
+    }
+
+    @PreDestroy
+    void shutdownTriggerExecutor() {
+        triggerExecutor.shutdownNow();
+    }
+
+    void sampleIfDue() {
+        if (!running.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            sampleIfDueLocked();
+        } finally {
+            running.set(false);
+        }
+    }
+
+    private void sampleIfDueLocked() {
         Instant now = Instant.now();
         Instant scheduledAt = nextSampleAt;
         if (scheduledAt == null) {
