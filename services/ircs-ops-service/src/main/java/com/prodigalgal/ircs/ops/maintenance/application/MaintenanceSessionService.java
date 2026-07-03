@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops.maintenance.application;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.ops.maintenance.domain.MaintenanceRunResult;
 import com.prodigalgal.ircs.ops.maintenance.domain.MaintenanceRunnerExecution;
@@ -13,7 +14,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -24,8 +24,7 @@ public class MaintenanceSessionService {
 
     private final MaintenanceRunnerService maintenanceRunnerService;
     private final MaintenanceNotificationPublisher notificationPublisher;
-    private final ExecutorService streamExecutor = Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual().name("maintenance-session-", 0).factory());
+    private final ExecutorService streamExecutor = VirtualThreadExecutors.newPerTaskExecutor("maintenance-session-");
     private final ConcurrentMap<UUID, MaintenanceSessionInfo> sessions = new ConcurrentHashMap<>();
     private final Set<UUID> startedSessions = ConcurrentHashMap.newKeySet();
 

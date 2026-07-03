@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.normalization;
 
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
@@ -15,7 +16,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,8 +35,7 @@ public class NormalizeVideoWorkQueueWorker {
     private final Duration visibilityTimeout;
     private final ExecutorService triggerExecutor = ScheduledTriggers.virtualThreadExecutor(
             "ircs-normalize-video-trigger-vt-");
-    private final ExecutorService taskExecutor = Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual().name("normalize-video-task-", 0).factory());
+    private final ExecutorService taskExecutor = VirtualThreadExecutors.newPerTaskExecutor("normalize-video-task-");
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     NormalizeVideoWorkQueueWorker(

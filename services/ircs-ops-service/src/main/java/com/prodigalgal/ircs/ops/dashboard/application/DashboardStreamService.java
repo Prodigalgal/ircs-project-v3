@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
@@ -9,7 +10,6 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,8 +34,7 @@ public class DashboardStreamService {
             DashboardQueryService dashboardQueryService,
             RuntimeConfigService runtimeConfig) {
         this.dashboardQueryService = dashboardQueryService;
-        this.streamExecutor = Executors.newThreadPerTaskExecutor(
-                Thread.ofVirtual().name("dashboard-topic-stream-", 0).factory());
+        this.streamExecutor = VirtualThreadExecutors.newPerTaskExecutor("dashboard-topic-stream-");
         this.runtimeConfig = runtimeConfig;
         this.fallbackInterval = Duration.ofSeconds(3);
         this.fallbackTimeout = Duration.ofHours(1);

@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.metrics.RateMetricKeys;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
@@ -30,8 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,7 +48,8 @@ public class SystemMetricsService {
     private final RateMetricSnapshotReader rateMetricSnapshotReader;
     private final QueueBlockedReasonResolver blockedReasonResolver;
 
-    private final ExecutorService metricsRefreshExecutor = Executors.newSingleThreadExecutor(refreshThreadFactory());
+    private final ExecutorService metricsRefreshExecutor =
+            VirtualThreadExecutors.newPerTaskExecutor("ops-metrics-refresh-");
     private final AtomicBoolean metricsRefreshRunning = new AtomicBoolean(false);
     private volatile CachedMetrics cachedMetrics;
 
@@ -391,10 +391,6 @@ public class SystemMetricsService {
     }
 
     private record CachedMetrics(SystemMetricsResponse response, long expiresAtMillis) {
-    }
-
-    private static ThreadFactory refreshThreadFactory() {
-        return Thread.ofVirtual().name("ops-metrics-refresh-", 0).factory();
     }
 
     private record RateDescriptor(RateKind kind, String metricKey, String label) {

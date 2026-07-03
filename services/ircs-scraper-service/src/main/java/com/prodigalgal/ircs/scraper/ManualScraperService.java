@@ -2,10 +2,10 @@ package com.prodigalgal.ircs.scraper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
-
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
+import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DirectScrapeItem;
@@ -418,7 +418,7 @@ class ManualScraperService {
 
         private BoundedVirtualThreadExecutor(String threadNamePrefix, int concurrency) {
             this.permits = new Semaphore(Math.max(1, concurrency));
-            this.threadFactory = Thread.ofVirtual().name(threadNamePrefix, 0).factory();
+            this.threadFactory = VirtualThreadExecutors.threadFactory(threadNamePrefix);
         }
 
         @Override

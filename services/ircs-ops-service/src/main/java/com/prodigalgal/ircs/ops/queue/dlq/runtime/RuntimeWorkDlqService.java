@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.ops.queue.dlq.runtime;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
@@ -16,8 +17,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -44,7 +43,7 @@ public class RuntimeWorkDlqService {
         this.workQueue = workQueue;
         this.runtimeConfig = runtimeConfig;
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.queueReadExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory("ops-runtime-dlq-read-"));
+        this.queueReadExecutor = VirtualThreadExecutors.newPerTaskExecutor("ops-runtime-dlq-read-");
     }
 
     List<RuntimeWorkDlqQueueResponse> listQueues(int sampleLimit) {
@@ -213,10 +212,6 @@ public class RuntimeWorkDlqService {
 
     private static boolean cacheEnabled(Duration ttl) {
         return ttl != null && !ttl.isZero() && !ttl.isNegative();
-    }
-
-    private static ThreadFactory virtualThreadFactory(String prefix) {
-        return Thread.ofVirtual().name(prefix, 0).factory();
     }
 
     private static String preview(String value) {

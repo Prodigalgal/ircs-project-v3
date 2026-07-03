@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ops.dashboard.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.contracts.task.TaskRuntimeHotKeys;
@@ -22,8 +23,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -53,7 +52,7 @@ class TaskRuntimeOverviewService {
         this.objectMapper = objectMapper;
         this.runtimeConfig = runtimeConfig;
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.itemLoadExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory("ops-task-runtime-read-"));
+        this.itemLoadExecutor = VirtualThreadExecutors.newPerTaskExecutor("ops-task-runtime-read-");
         this.fallbackMaxLimit = DEFAULT_MAX_LIMIT;
     }
 
@@ -356,10 +355,6 @@ class TaskRuntimeOverviewService {
 
     private static boolean cacheEnabled(Duration ttl) {
         return ttl != null && !ttl.isZero() && !ttl.isNegative();
-    }
-
-    private static ThreadFactory virtualThreadFactory(String prefix) {
-        return Thread.ofVirtual().name(prefix, 0).factory();
     }
 
     private record CachedOverview(TaskRuntimeOverviewResponse response, Instant expiresAt) {
