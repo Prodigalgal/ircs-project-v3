@@ -60,10 +60,13 @@ public class JdbcPortalRepository {
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
             """;
     private static final String SITEMAP_LAST_MODIFIED = """
-            GREATEST(
-                COALESCE(uv.published_at, TIMESTAMP '1970-01-01'),
-                COALESCE(uv.updated_at, TIMESTAMP '1970-01-01'),
-                COALESCE(uv.last_trend_at, TIMESTAMP '1970-01-01')
+            NULLIF(
+                GREATEST(
+                    COALESCE(CASE WHEN uv.published_at <= CURRENT_TIMESTAMP THEN uv.published_at END, TIMESTAMP '1970-01-01'),
+                    COALESCE(CASE WHEN uv.updated_at <= CURRENT_TIMESTAMP THEN uv.updated_at END, TIMESTAMP '1970-01-01'),
+                    COALESCE(CASE WHEN uv.last_trend_at <= CURRENT_TIMESTAMP THEN uv.last_trend_at END, TIMESTAMP '1970-01-01')
+                ),
+                TIMESTAMP '1970-01-01'
             )
             """;
 
