@@ -9,16 +9,19 @@ import com.prodigalgal.ircs.common.search.SearchSyncWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import com.prodigalgal.ircs.search.config.SearchSchedulingConfiguration;
 import com.prodigalgal.ircs.search.support.SystemConfigRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -37,6 +40,7 @@ class SearchSyncWorkQueueWorker {
     private final WorkerJobAuditWriter auditWriter;
     private final SearchSyncWorkQueueMetrics metrics;
     private final SystemConfigRepository systemConfigRepository;
+    private final Executor workerExecutor;
     private final LaneRuntime rawLane = new LaneRuntime(SearchSyncWorkTypes.RAW);
     private final LaneRuntime unifiedLane = new LaneRuntime(SearchSyncWorkTypes.UNIFIED);
     private volatile Boolean cachedEnabled;
@@ -69,7 +73,8 @@ class SearchSyncWorkQueueWorker {
             SearchSyncProcessor syncProcessor,
             WorkerJobAuditWriter auditWriter,
             SearchSyncWorkQueueMetrics metrics,
-            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider) {
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider,
+            @Qualifier(SearchSchedulingConfiguration.SEARCH_SYNC_EXECUTOR) Executor workerExecutor) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.syncProcessor = syncProcessor;
@@ -78,20 +83,29 @@ class SearchSyncWorkQueueWorker {
         this.systemConfigRepository = systemConfigRepositoryProvider == null
                 ? null
                 : systemConfigRepositoryProvider.getIfAvailable();
+        this.workerExecutor = workerExecutor == null ? Runnable::run : workerExecutor;
     }
 
     @Scheduled(
             initialDelayString = "${app.search.work-queue.worker.initial-delay-ms:10000}",
-            fixedDelayString = "${app.search.work-queue.worker.fixed-delay-ms:1000}")
+            fixedRateString = "${app.search.work-queue.worker.fixed-rate-ms:1000}")
     public void runRawScheduled() {
-        runOnce(SearchSyncWorkTypes.RAW);
+        submitLane(SearchSyncWorkTypes.RAW);
     }
 
     @Scheduled(
             initialDelayString = "${app.search.work-queue.worker.initial-delay-ms:10000}",
-            fixedDelayString = "${app.search.work-queue.worker.fixed-delay-ms:1000}")
+            fixedRateString = "${app.search.work-queue.worker.fixed-rate-ms:1000}")
     public void runUnifiedScheduled() {
-        runOnce(SearchSyncWorkTypes.UNIFIED);
+        submitLane(SearchSyncWorkTypes.UNIFIED);
+    }
+
+    private void submitLane(String taskType) {
+        try {
+            workerExecutor.execute(() -> runOnce(taskType));
+        } catch (RuntimeException ex) {
+            log.warn("Search sync work queue trigger rejected: taskType={}, reason={}", taskType, ex.getMessage());
+        }
     }
 
     int runOnce() {
@@ -149,9 +163,9 @@ class SearchSyncWorkQueueWorker {
         try {
             int effectiveBatchSize = Math.max(1, batchSize);
             Duration heartbeatTtl = consumerHeartbeatTtl();
-        lane.markStage("HEARTBEAT", null, null, Instant.now());
-        heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
-        WorkRunResult result = processItemsSafely(lane, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
+            lane.markStage("HEARTBEAT", null, null, Instant.now());
+            heartbeat(lane.taskType, resolvedWorkerId, heartbeatTtl);
+            WorkRunResult result = processItemsSafely(lane, resolvedWorkerId, effectiveBatchSize, heartbeatTtl);
             processed = result.processed();
             failed = result.failed();
             if (failed > 0) {

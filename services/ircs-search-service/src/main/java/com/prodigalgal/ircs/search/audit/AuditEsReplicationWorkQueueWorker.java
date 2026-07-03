@@ -7,15 +7,18 @@ import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
+import com.prodigalgal.ircs.search.config.SearchSchedulingConfiguration;
 import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
 import com.prodigalgal.ircs.search.index.SearchIndexService;
 import com.prodigalgal.ircs.search.support.SystemConfigRepository;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -33,6 +36,7 @@ class AuditEsReplicationWorkQueueWorker {
     private final AuditEsReplicationRepository repository;
     private final SearchIndexService searchIndexService;
     private final SystemConfigRepository systemConfigRepository;
+    private final Executor workerExecutor;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Boolean cachedEnabled;
     private volatile long cachedEnabledExpiresAtNanos;
@@ -66,7 +70,8 @@ class AuditEsReplicationWorkQueueWorker {
             ObjectMapper objectMapper,
             AuditEsReplicationRepository repository,
             SearchIndexService searchIndexService,
-            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider) {
+            ObjectProvider<SystemConfigRepository> systemConfigRepositoryProvider,
+            @Qualifier(SearchSchedulingConfiguration.AUDIT_ES_REPLICATION_EXECUTOR) Executor workerExecutor) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.repository = repository;
@@ -74,18 +79,23 @@ class AuditEsReplicationWorkQueueWorker {
         this.systemConfigRepository = systemConfigRepositoryProvider == null
                 ? null
                 : systemConfigRepositoryProvider.getIfAvailable();
+        this.workerExecutor = workerExecutor == null ? Runnable::run : workerExecutor;
     }
 
     @Scheduled(
             initialDelayString = "${app.search.audit-es-replication.worker.initial-delay-ms:10000}",
-            fixedDelayString = "${app.search.audit-es-replication.worker.fixed-delay-ms:1000}")
+            fixedRateString = "${app.search.audit-es-replication.worker.fixed-rate-ms:1000}")
     void runScheduled() {
-        runOnce();
+        try {
+            workerExecutor.execute(this::runOnce);
+        } catch (RuntimeException ex) {
+            log.warn("Audit ES replication worker trigger rejected: {}", ex.getMessage());
+        }
     }
 
     @Scheduled(
             initialDelayString = "${app.search.audit-es-replication.worker.heartbeat-initial-delay-ms:5000}",
-            fixedDelayString = "${app.search.audit-es-replication.worker.heartbeat-fixed-delay-ms:15000}")
+            fixedRateString = "${app.search.audit-es-replication.worker.heartbeat-fixed-rate-ms:15000}")
     void heartbeatScheduled() {
         if (workerEnabled()) {
             heartbeat(workerId(), visibility());

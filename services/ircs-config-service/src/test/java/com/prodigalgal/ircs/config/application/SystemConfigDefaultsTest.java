@@ -265,6 +265,10 @@ class SystemConfigDefaultsTest {
                 defaults.metadata("app.magnet.work-queue.worker.fixed-delay-ms");
         SystemConfigDefaults.ConfigMetadata normalizationWatchdogScheduleRestart =
                 defaults.metadata("app.normalization.pending-watchdog.fixed-delay-ms");
+        SystemConfigDefaults.ConfigMetadata searchWorkQueueScheduleRestart =
+                defaults.metadata("app.search.work-queue.worker.fixed-rate-ms");
+        SystemConfigDefaults.ConfigMetadata searchAuditScheduleRestart =
+                defaults.metadata("app.search.audit-es-replication.worker.fixed-rate-ms");
 
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, hot.activationMode());
         assertEquals(SystemConfigDefaults.ActivationMode.HOT, taskRuntimeCacheHot.activationMode());
@@ -307,6 +311,12 @@ class SystemConfigDefaultsTest {
         assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
                 normalizationWatchdogScheduleRestart.activationMode());
         assertTrue(normalizationWatchdogScheduleRestart.restartServices().contains("ircs-normalization-worker"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
+                searchWorkQueueScheduleRestart.activationMode());
+        assertTrue(searchWorkQueueScheduleRestart.restartServices().contains("ircs-search-service"));
+        assertEquals(SystemConfigDefaults.ActivationMode.RESTART_REQUIRED,
+                searchAuditScheduleRestart.activationMode());
+        assertTrue(searchAuditScheduleRestart.restartServices().contains("ircs-search-service"));
         assertConfigListenerRequiresRestart("app.aggregation.config-listener.enabled", "ircs-aggregation-worker");
         assertConfigListenerRequiresRestart("app.content.config-listener.enabled", "ircs-content-service");
         assertConfigListenerRequiresRestart("app.identity.config-listener.enabled", "ircs-identity-service");
@@ -597,7 +607,7 @@ class SystemConfigDefaultsTest {
             "app.search.work-queue.worker.max-retries",
             "app.search.work-queue.worker.max-backoff-seconds",
             "app.search.work-queue.worker.initial-delay-ms",
-            "app.search.work-queue.worker.fixed-delay-ms",
+            "app.search.work-queue.worker.fixed-rate-ms",
             "app.audit.es-replication.enabled",
             "app.search.audit-es-replication.worker.enabled",
             "app.search.audit-es-replication.worker.batch-size",
@@ -605,7 +615,8 @@ class SystemConfigDefaultsTest {
             "app.search.audit-es-replication.worker.max-retries",
             "app.search.audit-es-replication.worker.max-backoff-seconds",
             "app.search.audit-es-replication.worker.initial-delay-ms",
-            "app.search.audit-es-replication.worker.fixed-delay-ms",
+            "app.search.audit-es-replication.worker.fixed-rate-ms",
+            "app.search.audit-es-replication.worker.heartbeat-fixed-rate-ms",
             "app.search.reconciliation.enabled",
             "app.storage.base-path",
             "app.storage.public-path",

@@ -330,7 +330,7 @@ public class SystemConfigDefaults {
             cfg("app.search.work-queue.worker.max-retries", "5", "搜索 Valkey worker 最大重试次数"),
             cfg("app.search.work-queue.worker.max-backoff-seconds", "300", "搜索 Valkey worker 最大退避时间(秒)"),
             cfg("app.search.work-queue.worker.initial-delay-ms", "10000", "搜索 Valkey worker 启动延迟(毫秒)"),
-            cfg("app.search.work-queue.worker.fixed-delay-ms", "1000", "搜索 Valkey worker 空转轮询间隔(毫秒)"),
+            cfg("app.search.work-queue.worker.fixed-rate-ms", "1000", "搜索 Valkey worker 固定触发频率(毫秒)"),
             cfg("app.audit.es-replication.enabled", "true", "是否将审计日志投递到 ES 投影队列"),
             cfg("app.search.audit-es-replication.worker.enabled", "true", "是否启用审计日志 ES 投影 Valkey worker"),
             cfg("app.search.audit-es-replication.worker.batch-size", "100", "审计日志 ES 投影 worker 每轮领取数量"),
@@ -338,7 +338,8 @@ public class SystemConfigDefaults {
             cfg("app.search.audit-es-replication.worker.max-retries", "8", "审计日志 ES 投影最大重试次数"),
             cfg("app.search.audit-es-replication.worker.max-backoff-seconds", "900", "审计日志 ES 投影最大退避时间(秒)"),
             cfg("app.search.audit-es-replication.worker.initial-delay-ms", "10000", "审计日志 ES 投影 worker 启动延迟(毫秒)"),
-            cfg("app.search.audit-es-replication.worker.fixed-delay-ms", "1000", "审计日志 ES 投影 worker 空转轮询间隔(毫秒)"),
+            cfg("app.search.audit-es-replication.worker.fixed-rate-ms", "1000", "审计日志 ES 投影 worker 固定触发频率(毫秒)"),
+            cfg("app.search.audit-es-replication.worker.heartbeat-fixed-rate-ms", "15000", "审计日志 ES 投影 worker 心跳触发频率(毫秒)"),
             cfg("app.search.reconciliation.enabled", "true", "是否启用ES-DB数据对账定时任务"),
             cfg("app.storage.base-path", "./storage", "文件存储本地根目录"),
             cfg("app.storage.public-path", "/media", "静态资源Web访问前缀"),
@@ -612,6 +613,12 @@ public class SystemConfigDefaults {
                 || key.startsWith("app.system-config.valkey-cache.")
                 || key.startsWith("app.log-retention.initial-delay-ms")
                 || key.startsWith("app.log-retention.fixed-delay-ms")
+                || key.startsWith("app.search.work-queue.worker.initial-delay-ms")
+                || key.startsWith("app.search.work-queue.worker.fixed-rate-ms")
+                || key.startsWith("app.search.audit-es-replication.worker.initial-delay-ms")
+                || key.startsWith("app.search.audit-es-replication.worker.fixed-rate-ms")
+                || key.startsWith("app.search.audit-es-replication.worker.heartbeat-initial-delay-ms")
+                || key.startsWith("app.search.audit-es-replication.worker.heartbeat-fixed-rate-ms")
                 || "app.runtime-config.local-cache.ttl".equals(key)
                 || "security.jwt.secret".equals(key)
                 || "security.admin.password".equals(key);

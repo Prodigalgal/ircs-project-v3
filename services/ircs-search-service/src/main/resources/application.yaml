@@ -57,12 +57,16 @@ app:
       worker:
         enabled: ${APP_SEARCH_WORK_QUEUE_WORKER_ENABLED:false}
         initial-delay-ms: ${APP_SEARCH_WORK_QUEUE_INITIAL_DELAY_MS:10000}
-        fixed-delay-ms: ${APP_SEARCH_WORK_QUEUE_FIXED_DELAY_MS:1000}
+        fixed-rate-ms: ${APP_SEARCH_WORK_QUEUE_FIXED_RATE_MS:1000}
         batch-size: ${APP_SEARCH_WORK_QUEUE_BATCH_SIZE:100}
         max-retries: ${APP_SEARCH_WORK_QUEUE_MAX_RETRIES:5}
         visibility-seconds: ${APP_SEARCH_WORK_QUEUE_VISIBILITY_SECONDS:300}
         max-backoff-seconds: ${APP_SEARCH_WORK_QUEUE_MAX_BACKOFF_SECONDS:300}
         worker-id: ${APP_SEARCH_WORK_QUEUE_WORKER_ID:}
+    audit-es-replication:
+      worker:
+        fixed-rate-ms: ${APP_SEARCH_AUDIT_ES_REPLICATION_WORKER_FIXED_RATE_MS:1000}
+        heartbeat-fixed-rate-ms: ${APP_SEARCH_AUDIT_ES_REPLICATION_WORKER_HEARTBEAT_FIXED_RATE_MS:15000}
     sync:
       jdbc-query-timeout-seconds: ${APP_SEARCH_SYNC_JDBC_QUERY_TIMEOUT_SECONDS:30}
     cache:

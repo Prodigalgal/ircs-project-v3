@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -137,14 +138,43 @@ class AuditEsReplicationWorkQueueWorkerTest {
         verifyNoInteractions(repository, searchIndexService);
     }
 
+    @Test
+    void scheduledTriggerSubmitsWorkWithoutRunningOnSchedulerThread() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        RuntimeWorkItem item = item(1);
+        queue.items.add(item);
+        AuditEventSearchDocument document = new AuditEventSearchDocument();
+        document.setId("request_audit_logs:" + UUID.randomUUID());
+        when(repository.findDocument(any(AuditReplicationWorkPayload.class))).thenReturn(Optional.of(document));
+        RecordingExecutor executor = new RecordingExecutor();
+        AuditEsReplicationWorkQueueWorker worker = worker(queue, null, executor);
+
+        worker.runScheduled();
+
+        assertThat(executor.tasks).hasSize(1);
+        assertThat(queue.completed).isEmpty();
+
+        executor.runNext();
+
+        assertThat(queue.completed).containsExactly(item);
+    }
+
     private AuditEsReplicationWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {
-        return worker(queue, null);
+        return worker(queue, null, Runnable::run);
     }
 
     @SuppressWarnings("unchecked")
     private AuditEsReplicationWorkQueueWorker worker(
             FakeRuntimeWorkQueue queue,
             com.prodigalgal.ircs.search.support.SystemConfigRepository configRepository) throws Exception {
+        return worker(queue, configRepository, Runnable::run);
+    }
+
+    @SuppressWarnings("unchecked")
+    private AuditEsReplicationWorkQueueWorker worker(
+            FakeRuntimeWorkQueue queue,
+            com.prodigalgal.ircs.search.support.SystemConfigRepository configRepository,
+            Executor executor) throws Exception {
         ObjectProvider<com.prodigalgal.ircs.search.support.SystemConfigRepository> provider =
                 org.mockito.Mockito.mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(configRepository);
@@ -153,7 +183,8 @@ class AuditEsReplicationWorkQueueWorkerTest {
                 objectMapper,
                 repository,
                 searchIndexService,
-                provider);
+                provider,
+                executor);
         set(worker, "enabledByDeployment", true);
         set(worker, "replicationEnabledByDeployment", true);
         set(worker, "batchSize", 100);
@@ -254,5 +285,18 @@ class AuditEsReplicationWorkQueueWorkerTest {
     }
 
     private record Failure(RuntimeWorkItem item, boolean retryable, Duration retryDelay, String reason) {
+    }
+
+    private static class RecordingExecutor implements Executor {
+        private final List<Runnable> tasks = new ArrayList<>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
+        }
+
+        private void runNext() {
+            tasks.removeFirst().run();
+        }
     }
 }

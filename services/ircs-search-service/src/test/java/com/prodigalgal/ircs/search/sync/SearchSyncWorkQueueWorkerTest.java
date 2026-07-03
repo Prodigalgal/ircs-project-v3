@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
 
 class SearchSyncWorkQueueWorkerTest {
@@ -133,14 +134,38 @@ class SearchSyncWorkQueueWorkerTest {
         assertThat(queue.heartbeats).doesNotContain(SearchSyncWorkTypes.UNIFIED);
     }
 
+    @Test
+    void scheduledTriggerSubmitsWorkWithoutRunningOnSchedulerThread() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        RuntimeWorkItem item = item(SearchSyncWorkTypes.UNIFIED, UUID.randomUUID(), 1,
+                SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        queue.unifiedItems.add(item);
+        RecordingExecutor executor = new RecordingExecutor();
+        SearchSyncWorkQueueWorker worker = worker(queue, executor);
+
+        worker.runUnifiedScheduled();
+
+        assertThat(executor.tasks).hasSize(1);
+        assertThat(queue.completed).isEmpty();
+
+        executor.runNext();
+
+        assertThat(queue.completed).containsExactly(item);
+    }
+
     private SearchSyncWorkQueueWorker worker(FakeRuntimeWorkQueue queue) throws Exception {
+        return worker(queue, Runnable::run);
+    }
+
+    private SearchSyncWorkQueueWorker worker(FakeRuntimeWorkQueue queue, Executor executor) throws Exception {
         SearchSyncWorkQueueWorker worker = new SearchSyncWorkQueueWorker(
                 queue,
                 objectMapper,
                 syncProcessor,
                 auditWriter,
                 new SearchSyncWorkQueueMetrics(new SimpleMeterRegistry()),
-                null);
+                null,
+                executor);
         set(worker, "batchSize", 10);
         set(worker, "maxRetries", 5);
         set(worker, "visibilitySeconds", 60L);
@@ -256,5 +281,18 @@ class SearchSyncWorkQueueWorkerTest {
     }
 
     private record Failure(RuntimeWorkItem item, boolean retryable, Duration retryDelay, String reason) {
+    }
+
+    private static class RecordingExecutor implements Executor {
+        private final List<Runnable> tasks = new ArrayList<>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
+        }
+
+        private void runNext() {
+            tasks.removeFirst().run();
+        }
     }
 }

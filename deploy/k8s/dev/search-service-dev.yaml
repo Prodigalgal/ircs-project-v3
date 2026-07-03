@@ -97,7 +97,7 @@ spec:
               value: "50"
             - name: APP_SEARCH_WORK_QUEUE_INITIAL_DELAY_MS
               value: "10000"
-            - name: APP_SEARCH_WORK_QUEUE_FIXED_DELAY_MS
+            - name: APP_SEARCH_WORK_QUEUE_FIXED_RATE_MS
               value: "2000"
             - name: APP_SEARCH_WORK_QUEUE_WORKER_ID
               valueFrom:
