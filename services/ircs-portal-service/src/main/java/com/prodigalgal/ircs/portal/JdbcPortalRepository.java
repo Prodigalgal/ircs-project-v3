@@ -59,6 +59,13 @@ public class JdbcPortalRepository {
               LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
             """;
+    private static final String SITEMAP_LAST_MODIFIED = """
+            GREATEST(
+                COALESCE(uv.published_at, TIMESTAMP '1970-01-01'),
+                COALESCE(uv.updated_at, TIMESTAMP '1970-01-01'),
+                COALESCE(uv.last_trend_at, TIMESTAMP '1970-01-01')
+            )
+            """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final PortalCoverImageUrlResolver coverImageUrlResolver;
@@ -255,6 +262,49 @@ public class JdbcPortalRepository {
         return PageResponse.of(content, total, page, size);
     }
 
+    public PageResponse<PortalSitemapMovie> findSitemapMovies(
+            IrcsRequestPrincipal principal,
+            int page,
+            int size) {
+        Map<String, Object> params = new HashMap<>();
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        appendScopeFilters(where, params, principal);
+        params.put("limit", size);
+        params.put("offset", (long) page * size);
+
+        List<PortalSitemapMovie> content = jdbcTemplate.query(
+                """
+                SELECT uv.id,
+                       uv.title,
+                       ci.storage_type AS cover_storage_type,
+                       ci.original_url AS cover_original_url,
+                       ci.storage_path AS cover_storage_path,
+                       sd.domain_value AS cover_source_domain,
+                       """ + SITEMAP_LAST_MODIFIED + """
+                       AS last_modified
+                  FROM unified_videos uv
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
+                  LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
+                """ + where + """
+                 ORDER BY last_modified DESC NULLS LAST,
+                          uv.id ASC
+                 LIMIT :limit OFFSET :offset
+                """,
+                params,
+                (rs, rowNum) -> new PortalSitemapMovie(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("title"),
+                        coverImageUrlResolver.resolve(
+                                rs.getString("cover_storage_type"),
+                                rs.getString("cover_original_url"),
+                                rs.getString("cover_storage_path"),
+                                rs.getString("cover_source_domain")),
+                        getInstant(rs, "last_modified")));
+        long total = sitemapMovieTotal(where, params);
+        return PageResponse.of(content, total, page, size);
+    }
+
     public Optional<PortalMovieDetailResponse> findMovieDetail(IrcsRequestPrincipal principal, UUID id) {
         DetailBase base;
         try {
@@ -427,6 +477,14 @@ public class JdbcPortalRepository {
     }
 
     private long exactExploreTotal(String where, Map<String, Object> params) {
+        Long total = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
+                params,
+                Long.class);
+        return total == null ? 0 : total;
+    }
+
+    private long sitemapMovieTotal(StringBuilder where, Map<String, Object> params) {
         Long total = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
                 params,

@@ -100,6 +100,20 @@ class PortalControllerTest {
     }
 
     @Test
+    void returnsSitemapMoviesWithPublicCacheHeaderAndSafeBounds() {
+        PortalSitemapMovie movie = sampleSitemapMovie();
+        PageResponse<PortalSitemapMovie> page = PageResponse.of(List.of(movie), 1, 2, 1000);
+        when(portalQueryService.sitemapMovies(2, 1000)).thenReturn(page);
+
+        var response = controller.sitemapMovies(2, 5000);
+
+        assertPageEquals(page, response.getBody());
+        assertEquals("public, max-age=0, s-maxage=300",
+                response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
+        verify(portalQueryService).sitemapMovies(2, 1000);
+    }
+
+    @Test
     void returnsMovieDetailWithPublicCacheHeader() {
         UUID movieId = UUID.randomUUID();
         PortalMovieDetailResponse detail = sampleDetail(movieId);
@@ -141,6 +155,14 @@ class PortalControllerTest {
                 "中国大陆",
                 "简介",
                 List.of("剧情"),
+                Instant.parse("2026-06-04T00:00:00Z"));
+    }
+
+    private PortalSitemapMovie sampleSitemapMovie() {
+        return new PortalSitemapMovie(
+                UUID.randomUUID(),
+                "Codex Movie",
+                "https://example.invalid/covers/a.webp",
                 Instant.parse("2026-06-04T00:00:00Z"));
     }
 

@@ -184,6 +184,22 @@ class PortalQueryServiceTest {
     }
 
     @Test
+    void sitemapMoviesAlwaysUsesPublicPrincipal() {
+        PortalSitemapMovie movie = new PortalSitemapMovie(
+                UUID.randomUUID(),
+                "Codex Series",
+                "https://example.invalid/covers/a.webp",
+                null);
+        PageResponse<PortalSitemapMovie> page = PageResponse.of(List.of(movie), 1, 0, 1000);
+        when(portalRepository.findSitemapMovies(principal, 0, 1000)).thenReturn(page);
+
+        PageResponse<PortalSitemapMovie> response = service.sitemapMovies(0, 1000);
+
+        assertEquals(page, response);
+        verify(portalRepository).findSitemapMovies(principal, 0, 1000);
+    }
+
+    @Test
     void movieDetailDelegatesToRepository() {
         UUID movieId = UUID.randomUUID();
         PortalMovieDetailResponse detail = sampleDetail(movieId);

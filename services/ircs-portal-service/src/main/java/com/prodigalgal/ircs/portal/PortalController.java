@@ -26,7 +26,10 @@ public class PortalController {
     private static final String CACHE_PUBLIC_METADATA = "public, max-age=0, s-maxage=3600";
     private static final String CACHE_PUBLIC_DETAIL = "public, max-age=0, s-maxage=900";
     private static final String CACHE_PUBLIC_EXPLORE = "public, max-age=0, s-maxage=60";
+    private static final String CACHE_PUBLIC_SITEMAP = "public, max-age=0, s-maxage=300";
     private static final String CACHE_NO_STORE = "no-store";
+    private static final int MAX_EXPLORE_SIZE = 70;
+    private static final int MAX_SITEMAP_SIZE = 1000;
 
     private final PortalQueryService portalQueryService;
 
@@ -59,7 +62,7 @@ public class PortalController {
             @RequestParam(required = false) String language,
             @RequestParam(required = false) String sort) {
         int safePage = Math.max(page, 0);
-        int safeSize = Math.min(Math.max(size <= 0 ? 20 : size, 1), 70);
+        int safeSize = Math.min(Math.max(size <= 0 ? 20 : size, 1), MAX_EXPLORE_SIZE);
         if ((long) safePage * safeSize > 10000) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pagination depth exceeded limit (10000)");
         }
@@ -79,6 +82,17 @@ public class PortalController {
                         year,
                         language,
                         sort)));
+    }
+
+    @GetMapping("/sitemap/movies")
+    public ResponseEntity<PageEnvelope<PortalSitemapMovie>> sitemapMovies(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1000") int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size <= 0 ? MAX_SITEMAP_SIZE : size, 1), MAX_SITEMAP_SIZE);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, CACHE_PUBLIC_SITEMAP)
+                .body(pageEnvelope(portalQueryService.sitemapMovies(safePage, safeSize)));
     }
 
     @GetMapping("/movies/{id}")

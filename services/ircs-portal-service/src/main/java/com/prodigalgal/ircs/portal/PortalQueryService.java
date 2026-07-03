@@ -102,6 +102,11 @@ public class PortalQueryService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<PortalSitemapMovie> sitemapMovies(int page, int size) {
+        return portalRepository.findSitemapMovies(IrcsRequestPrincipal.publicPrincipal(), page, size);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<PortalMovieDetailResponse> getMovieDetail(IrcsRequestPrincipal principal, UUID id) {
         return readModelCache.detail(principal, id, () -> portalRepository.findMovieDetail(principal, id));
     }
