@@ -301,7 +301,7 @@ public class SystemConfigDefaults {
             cfg("app.task.media-request.end-page", "1", "求片采集结束页"),
             cfg("app.task.media-request.request-fixed-delay-ms", "0", "求片采集任务内部固定延迟(毫秒)"),
             cfg("app.task.media-request.max-data-sources", "0", "求片采集最大数据源数，0 表示不限制"),
-            cfg("app.task.scheduler.enabled", "false", "是否启用任务调度器"),
+            cfg("app.task.scheduler.enabled", "true", "是否启用任务调度器"),
             cfg("app.aggregation.work-queue.batch-size", "100", "聚合运行队列基准批次"),
             cfg("app.aggregation.work-queue.batch-size.min", "20", "聚合运行队列最小批次"),
             cfg("app.aggregation.work-queue.batch-size.max", "500", "聚合运行队列最大批次"),

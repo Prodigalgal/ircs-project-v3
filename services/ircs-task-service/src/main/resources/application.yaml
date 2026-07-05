@@ -43,7 +43,7 @@ app:
       initial-delay-ms: ${APP_TASK_DEFAULT_SEED_INITIAL_DELAY_MS:30000}
       fixed-delay-ms: ${APP_TASK_DEFAULT_SEED_FIXED_DELAY_MS:60000}
     scheduler:
-      enabled: ${APP_TASK_SCHEDULER_ENABLED:false}
+      enabled: ${APP_TASK_SCHEDULER_ENABLED:true}
     watchdog:
       enabled: ${APP_TASK_WATCHDOG_ENABLED:false}
     runner:

@@ -17,7 +17,7 @@ class TaskAutoStartGateHealthConfiguration {
                 new AutoStartGate("task-default-seed", "app.task.default-seed.enabled",
                         "APP_TASK_DEFAULT_SEED_ENABLED", true),
                 new AutoStartGate("task-scheduler", "app.task.scheduler.enabled",
-                        "APP_TASK_SCHEDULER_ENABLED", false),
+                        "APP_TASK_SCHEDULER_ENABLED", true),
                 new AutoStartGate("task-watchdog", "app.task.watchdog.enabled",
                         "APP_TASK_WATCHDOG_ENABLED", false),
                 new AutoStartGate("task-queue-listener", "app.task.queue.listener-enabled",

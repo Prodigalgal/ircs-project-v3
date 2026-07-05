@@ -71,7 +71,7 @@ spec:
             - name: APP_TASK_DEFAULT_SEED_ENABLED
               value: "true"
             - name: APP_TASK_SCHEDULER_ENABLED
-              value: "false"
+              value: "true"
             - name: APP_TASK_WATCHDOG_ENABLED
               value: "false"
             - name: APP_TASK_RUNNER_QUEUE_CAPACITY

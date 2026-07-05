@@ -136,6 +136,7 @@ class SystemConfigDefaultsTest {
         assertEquals("5", defaults.staticDefaultValue("member.media-request.daily-limit").orElseThrow());
         assertEquals("3", defaults.staticDefaultValue("member.media-request.point-cost").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("member.oauth.enabled").orElseThrow());
+        assertEquals("true", defaults.staticDefaultValue("app.task.scheduler.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.search.work-queue.worker.enabled").orElseThrow());
         assertEquals("false", defaults.staticDefaultValue("app.storage.r2.work-queue.worker.enabled").orElseThrow());
         assertEquals("false",

@@ -37,7 +37,7 @@ class CollectionTaskCronScheduler {
             JdbcCollectionTaskRepository taskRepository,
             TaskCommandService taskCommandService,
             @Qualifier("collectionTaskSchedulerExecutor") TaskScheduler scheduler,
-            @Value("${app.task.scheduler.enabled:false}") boolean enabled) {
+            @Value("${app.task.scheduler.enabled:true}") boolean enabled) {
         this.taskRepository = taskRepository;
         this.taskCommandService = taskCommandService;
         this.scheduler = scheduler;

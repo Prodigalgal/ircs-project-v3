@@ -30,7 +30,7 @@ class TaskAutoStartGateHealthConfigurationTest {
                 .satisfies(gate -> assertThat(gate.enabled()).isTrue());
         assertThat(gates).filteredOn(gate -> gate.name().equals("task-scheduler"))
                 .singleElement()
-                .satisfies(gate -> assertThat(gate.blocked()).isTrue());
+                .satisfies(gate -> assertThat(gate.enabled()).isTrue());
         assertThat(gates).filteredOn(gate -> gate.name().equals("task-watchdog"))
                 .singleElement()
                 .satisfies(gate -> assertThat(gate.blocked()).isTrue());
