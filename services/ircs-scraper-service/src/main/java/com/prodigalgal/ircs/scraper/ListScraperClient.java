@@ -348,7 +348,15 @@ class ListScraperClient {
         if (params.isEmpty() && page != null) {
             builder.queryParam("ac", "list").queryParam("pg", page);
         }
-        params.forEach((key, value) -> builder.queryParam(key, replaceTokens(value, page, sourceVid, config.keyword())));
+        params.forEach((key, value) -> builder.queryParam(
+                key,
+                replaceTokens(value, page, sourceVid, config.keyword(), config.filterType(), config.filterHours())));
+        if (page != null && StringUtils.hasText(config.filterType()) && !params.containsKey("t")) {
+            builder.queryParam("t", config.filterType());
+        }
+        if (page != null && config.filterHours() != null && config.filterHours() > 0 && !params.containsKey("h")) {
+            builder.queryParam("h", config.filterHours());
+        }
         if (page != null && StringUtils.hasText(config.keyword()) && !params.containsKey("wd")) {
             builder.queryParam("wd", config.keyword());
         }
@@ -386,7 +394,13 @@ class ListScraperClient {
         }
     }
 
-    private String replaceTokens(String value, Integer page, String sourceVid, String keyword) {
+    private String replaceTokens(
+            String value,
+            Integer page,
+            String sourceVid,
+            String keyword,
+            String filterType,
+            Integer filterHours) {
         String result = value;
         if (page != null) {
             result = result.replace("{page}", String.valueOf(page));
@@ -399,6 +413,15 @@ class ListScraperClient {
         }
         if (keyword != null) {
             result = result.replace("{keyword}", keyword);
+        }
+        if (filterType != null) {
+            result = result.replace("{type}", filterType)
+                    .replace("{filterType}", filterType);
+        }
+        if (filterHours != null) {
+            String hours = String.valueOf(filterHours);
+            result = result.replace("{hours}", hours)
+                    .replace("{filterHours}", hours);
         }
         return result;
     }

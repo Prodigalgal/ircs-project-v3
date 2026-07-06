@@ -32,7 +32,7 @@ class TaskQueuePublisherTest {
                 7,
                 false,
                 0,
-                new TaskScrapeOptions("codex", null, true, false, null, null, null, null, null, null, 0, false),
+                new TaskScrapeOptions("codex", null, null, null, true, false, null, null, null, null, null, null, 0, false),
                 masterTaskId.toString(),
                 Instant.parse("2026-06-13T00:00:00Z")));
 

@@ -102,6 +102,31 @@ class ListScraperClientTest {
     }
 
     @Test
+    void fetchListAddsSourceApiFilterParamsWhenConfigured() {
+        transport.enqueue(new OutboundHttpResponse(
+                200,
+                Map.of(),
+                """
+                        {"items":[{"vod_id":"v1","updated":"2026-06-08"}]}
+                        """.getBytes(StandardCharsets.UTF_8)));
+
+        client.fetchList(source("https://provider.example.test"), config(
+                null,
+                false,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "movie",
+                48), 3);
+
+        assertThat(transport.requests.getFirst().uri().toString())
+                .isEqualTo("https://provider.example.test/api.php?ac=list&pg=3&t=movie&h=48&wd=codex");
+    }
+
+    @Test
     void fetchListDetectsGbkResponseBeforeStreamingParse() {
         transport.enqueue(new OutboundHttpResponse(
                 200,
@@ -393,8 +418,25 @@ class ListScraperClientTest {
             String proxyUsername,
             String proxyPassword,
             String headers) {
+        return config(userAgent, enableRandomUa, useCustomProxy, proxyHost, proxyPort, proxyUsername, proxyPassword,
+                headers, null, null);
+    }
+
+    private ManualScrapeConfigRequest config(
+            String userAgent,
+            boolean enableRandomUa,
+            boolean useCustomProxy,
+            String proxyHost,
+            Integer proxyPort,
+            String proxyUsername,
+            String proxyPassword,
+            String headers,
+            String filterType,
+            Integer filterHours) {
         return new ManualScrapeConfigRequest(
                 "codex",
+                filterType,
+                filterHours,
                 1,
                 1,
                 userAgent,

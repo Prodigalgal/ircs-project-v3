@@ -21,7 +21,9 @@ import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ListItem;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ListPage;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ScrapedVideoDraft;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,6 +44,8 @@ class TaskQueueScraperServiceTest {
                     ? true
                     : org.mockito.Mockito.RETURNS_DEFAULTS.answer(invocation));
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
+    private final ScrapeUpdateWindowFilter updateWindowFilter = new ScrapeUpdateWindowFilter(
+            Clock.fixed(Instant.parse("2026-06-13T12:00:00Z"), ZoneOffset.UTC));
     private final TaskQueueScraperService service = new TaskQueueScraperService(
             dataSourceRepository,
             listScraperClient,
@@ -49,7 +53,8 @@ class TaskQueueScraperServiceTest {
             ingestionPublisher,
             queuePublisher,
             runtimeControlService,
-            auditWriter);
+            auditWriter,
+            updateWindowFilter);
 
     @Test
     void pageTaskSplitsDetailTasksWithoutFetchingDetailsInline() {
@@ -119,6 +124,38 @@ class TaskQueueScraperServiceTest {
         verify(queuePublisher, never()).publishDetail(any());
         verify(queuePublisher, never()).publishPageDiscovered(any());
         assertAudit("scraper.task-page", "skipped");
+    }
+
+    @Test
+    void pageTaskStopsExpansionWhenUpdateWindowIsExhausted() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        DataSourceRecord source = source(dataSourceId);
+        when(dataSourceRepository.findById(dataSourceId)).thenReturn(Optional.of(source));
+        when(listScraperClient.fetchListPage(eq(source), any(), eq(4))).thenReturn(new ListPage(
+                List.of(new ListItem("v-old", "2026-06-09", Map.of())),
+                9,
+                88));
+
+        service.processPage(new TaskPageMessage(
+                masterTaskId,
+                pageTaskId,
+                dataSourceId,
+                4,
+                false,
+                0,
+                options(false, 48),
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z")));
+
+        verify(queuePublisher, never()).publishDetail(any());
+        ArgumentCaptor<TaskPageDiscoveredMessage> discoveredCaptor =
+                ArgumentCaptor.forClass(TaskPageDiscoveredMessage.class);
+        verify(queuePublisher).publishPageDiscovered(discoveredCaptor.capture());
+        assertThat(discoveredCaptor.getValue().detailScheduled()).isZero();
+        assertThat(discoveredCaptor.getValue().totalPages()).isEqualTo(4);
+        assertAudit("scraper.task-page", "succeeded");
     }
 
     @Test
@@ -237,8 +274,14 @@ class TaskQueueScraperServiceTest {
     }
 
     private TaskScrapeOptions options(boolean forceIngest) {
+        return options(forceIngest, null);
+    }
+
+    private TaskScrapeOptions options(boolean forceIngest, Integer filterHours) {
         return new TaskScrapeOptions(
                 "codex",
+                null,
+                filterHours,
                 null,
                 true,
                 false,

@@ -313,6 +313,8 @@ class TaskQueueConsumerTest {
         return new TaskScrapeOptions(
                 "codex",
                 null,
+                null,
+                null,
                 true,
                 false,
                 null,

@@ -203,6 +203,8 @@ public class TaskQueueDispatchService {
     private TaskScrapeOptions scrapeOptions(TaskExecutionPlan plan) {
         return new TaskScrapeOptions(
                 blankToNull(plan.filterKeywords()),
+                blankToNull(plan.filterType()),
+                plan.filterHours(),
                 plan.userAgent(),
                 Boolean.TRUE.equals(plan.enableRandomUa()),
                 Boolean.TRUE.equals(plan.useCustomProxy()),

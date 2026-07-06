@@ -78,6 +78,8 @@ class ScraperTaskExecutionClientTest {
         assertThat(body.path("taskId").asText()).isEqualTo(plan.id().toString());
         assertThat(body.path("dataSourceId").asText()).isEqualTo(plan.dataSourceId().toString());
         assertThat(body.path("keyword").asText()).isEqualTo("matrix");
+        assertThat(body.path("filterType").asText()).isEqualTo("movie");
+        assertThat(body.path("filterHours").asInt()).isEqualTo(48);
         assertThat(body.path("startPage").asInt()).isEqualTo(3);
         assertThat(body.path("endPage").asInt()).isEqualTo(5);
         assertThat(body.path("userAgent").asText()).isEqualTo("task-ua");
@@ -172,6 +174,8 @@ class ScraperTaskExecutionClientTest {
                 1,
                 5,
                 3,
+                "movie",
+                48,
                 "matrix",
                 25,
                 "task-ua",

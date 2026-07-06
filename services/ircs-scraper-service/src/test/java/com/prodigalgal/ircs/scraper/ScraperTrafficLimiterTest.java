@@ -186,6 +186,8 @@ class ScraperTrafficLimiterTest {
     private ManualScrapeConfigRequest config(Integer fixedDelayMs) {
         return new ManualScrapeConfigRequest(
                 "codex",
+                null,
+                null,
                 1,
                 1,
                 null,

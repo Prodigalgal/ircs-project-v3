@@ -37,6 +37,7 @@ class TaskQueueScraperService {
     private final ScraperTaskQueuePublisher queuePublisher;
     private final TaskRuntimeControlService runtimeControlService;
     private final WorkerJobAuditWriter auditWriter;
+    private final ScrapeUpdateWindowFilter updateWindowFilter;
 
     void processPage(TaskPageMessage message) {
         Instant startedAt = Instant.now();
@@ -47,7 +48,11 @@ class TaskQueueScraperService {
         try {
             DataSourceRecord source = source(message.dataSourceId());
             ManualScrapeConfigRequest config = config(message.options(), message.pageNumber(), false);
-            ListPage page = listScraperClient.fetchListPage(source, config, message.pageNumber());
+            ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
+                    listScraperClient.fetchListPage(source, config, message.pageNumber()),
+                    message.pageNumber(),
+                    filterHours(message.options()));
+            ListPage page = filteredPage.page();
             for (ListItem item : page.items()) {
                 queuePublisher.publishDetail(new TaskDetailMessage(
                         message.masterTaskId(),
@@ -118,6 +123,8 @@ class TaskQueueScraperService {
         TaskScrapeOptions safe = options == null ? defaults() : options;
         return new ManualScrapeConfigRequest(
                 blankToNull(safe.keyword()),
+                blankToNull(safe.filterType()),
+                safe.filterHours(),
                 page,
                 page,
                 safe.userAgent(),
@@ -138,6 +145,8 @@ class TaskQueueScraperService {
         return new TaskScrapeOptions(
                 null,
                 null,
+                null,
+                null,
                 true,
                 false,
                 null,
@@ -152,6 +161,10 @@ class TaskQueueScraperService {
 
     private boolean forceIngest(TaskScrapeOptions options) {
         return options != null && options.forceIngest();
+    }
+
+    private Integer filterHours(TaskScrapeOptions options) {
+        return options == null ? null : options.filterHours();
     }
 
     private String blankToNull(String keyword) {

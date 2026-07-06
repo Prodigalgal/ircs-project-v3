@@ -11,6 +11,8 @@ public record TaskExecutionPlan(
         Integer startPage,
         Integer endPage,
         Integer currentPage,
+        String filterType,
+        Integer filterHours,
         String filterKeywords,
         Integer fixedDelayMs,
         String userAgent,

@@ -52,6 +52,7 @@ class ManualScraperService {
     private final RawVideoRefetchRepository rawVideoRefetchRepository;
     private final Executor scraperExecutor;
     private final WorkerJobAuditWriter auditWriter;
+    private final ScrapeUpdateWindowFilter updateWindowFilter;
     private final Map<UUID, ManualScrapeConfigRequest> sessions = new ConcurrentHashMap<>();
 
     @Value("${app.scraper.direct-items-enabled:true}")
@@ -84,6 +85,8 @@ class ManualScraperService {
                 });
         ManualScrapeConfigRequest request = new ManualScrapeConfigRequest(
                 "refetch",
+                null,
+                null,
                 1,
                 1,
                 null,
@@ -222,7 +225,11 @@ class ManualScraperService {
             throws IOException {
         send(emitter, ScrapeEvent.log("[" + source.name() + "] 开始搜索..."));
         for (int page = request.effectiveStartPage(); page <= request.effectiveEndPage(); page++) {
-            ListPage pageResult = listScraperClient.fetchListPage(source, request, page);
+            ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
+                    listScraperClient.fetchListPage(source, request, page),
+                    page,
+                    request.filterHours());
+            ListPage pageResult = filteredPage.page();
             List<ListItem> items = pageResult.items();
             if (pageResult.hasPagination()) {
                 send(emitter, ScrapeEvent.log("[" + source.name() + "] 第 " + page
@@ -230,7 +237,10 @@ class ManualScraperService {
                         + ", totalItems=" + valueOrUnknown(pageResult.totalItems())));
             }
             if (items.isEmpty()) {
-                send(emitter, ScrapeEvent.log("[" + source.name() + "] 第 " + page + " 页未找到数据，停止该源。"));
+                String message = filteredPage.exhausted()
+                        ? "[" + source.name() + "] 最近更新窗口已结束，停止该源。"
+                        : "[" + source.name() + "] 第 " + page + " 页未找到数据，停止该源。";
+                send(emitter, ScrapeEvent.log(message));
                 break;
             }
             for (ListItem item : items) {
@@ -245,6 +255,13 @@ class ManualScraperService {
                 }
                 delay(request.fixedDelayMs());
             }
+            if (filteredPage.exhausted()) {
+                send(emitter, ScrapeEvent.log("[" + source.name() + "] 最近更新窗口已结束，停止该源。"));
+                break;
+            }
+            if (pageResult.totalPages() != null && page >= pageResult.totalPages()) {
+                break;
+            }
         }
         send(emitter, ScrapeEvent.log("[" + source.name() + "] 处理完成。"));
     }
@@ -257,14 +274,21 @@ class ManualScraperService {
         int failed = 0;
         logs.add(log("INFO", "SYSTEM", "[" + source.name() + "] start"));
         for (int page = request.effectiveStartPage(); page <= request.effectiveEndPage(); page++) {
-            ListPage pageResult = listScraperClient.fetchListPage(source, request, page);
+            ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
+                    listScraperClient.fetchListPage(source, request, page),
+                    page,
+                    request.filterHours());
+            ListPage pageResult = filteredPage.page();
             List<ListItem> items = pageResult.items();
             if (pageResult.hasPagination()) {
                 logs.add(log("INFO", "PAGE-" + page, "[" + source.name() + "] pagination totalPages="
                         + valueOrUnknown(pageResult.totalPages()) + ", totalItems=" + valueOrUnknown(pageResult.totalItems())));
             }
             if (items.isEmpty()) {
-                logs.add(log("INFO", "PAGE-" + page, "[" + source.name() + "] empty page, stop source"));
+                String message = filteredPage.exhausted()
+                        ? "[" + source.name() + "] update window exhausted, stop source"
+                        : "[" + source.name() + "] empty page, stop source";
+                logs.add(log("INFO", "PAGE-" + page, message));
                 break;
             }
             for (ListItem item : items) {
@@ -280,6 +304,13 @@ class ManualScraperService {
                     logs.add(log("ERROR", item.id(), "Task item failed: " + e.getMessage()));
                 }
                 delay(request.fixedDelayMs());
+            }
+            if (filteredPage.exhausted()) {
+                logs.add(log("INFO", "PAGE-" + page, "[" + source.name() + "] update window exhausted, stop source"));
+                break;
+            }
+            if (pageResult.totalPages() != null && page >= pageResult.totalPages()) {
+                break;
             }
         }
         logs.add(log("INFO", "SYSTEM", "[" + source.name() + "] done"));

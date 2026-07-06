@@ -66,6 +66,8 @@ class TaskQueueDispatchServiceTest {
                     assertThat(message.correlationId()).isEqualTo(taskId.toString());
                     assertThat(message.attempt()).isZero();
                     assertThat(message.options().keyword()).isEqualTo("codex");
+                    assertThat(message.options().filterType()).isEqualTo("movie");
+                    assertThat(message.options().filterHours()).isEqualTo(48);
                 });
     }
 
@@ -206,6 +208,8 @@ class TaskQueueDispatchServiceTest {
                 startPage,
                 endPage,
                 currentPage,
+                "movie",
+                48,
                 "codex",
                 0,
                 null,

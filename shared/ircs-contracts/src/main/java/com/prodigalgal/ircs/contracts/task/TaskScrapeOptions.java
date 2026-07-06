@@ -2,6 +2,8 @@ package com.prodigalgal.ircs.contracts.task;
 
 public record TaskScrapeOptions(
         String keyword,
+        String filterType,
+        Integer filterHours,
         String userAgent,
         boolean enableRandomUa,
         boolean useCustomProxy,

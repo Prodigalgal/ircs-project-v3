@@ -42,7 +42,8 @@ class ManualScraperServiceTaskExecutionTest {
             ingestionPublisher,
             rawVideoRefetchRepository,
             Runnable::run,
-            auditWriter);
+            auditWriter,
+            new ScrapeUpdateWindowFilter((java.time.Clock) null));
 
     @Test
     void scraperExecutorRunsTasksOnVirtualThreads() throws Exception {
@@ -98,6 +99,8 @@ class ManualScraperServiceTaskExecutionTest {
                 taskId,
                 dataSourceId,
                 "codex",
+                null,
+                null,
                 1,
                 1,
                 null,
@@ -202,6 +205,8 @@ class ManualScraperServiceTaskExecutionTest {
                 taskId,
                 dataSourceId,
                 "codex",
+                null,
+                null,
                 1,
                 1,
                 null,
@@ -272,6 +277,8 @@ class ManualScraperServiceTaskExecutionTest {
                 taskId,
                 dataSourceId,
                 "codex",
+                null,
+                null,
                 1,
                 1,
                 null,

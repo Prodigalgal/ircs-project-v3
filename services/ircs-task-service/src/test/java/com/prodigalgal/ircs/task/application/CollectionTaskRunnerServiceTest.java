@@ -174,6 +174,8 @@ class CollectionTaskRunnerServiceTest {
                 1,
                 1,
                 1,
+                null,
+                null,
                 "codex",
                 0,
                 null,

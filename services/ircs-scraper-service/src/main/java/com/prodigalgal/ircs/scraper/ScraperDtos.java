@@ -18,6 +18,8 @@ public final class ScraperDtos {
 
     public record ManualScrapeConfigRequest(
             @NotBlank(message = "Keyword cannot be empty") String keyword,
+            String filterType,
+            Integer filterHours,
             @Min(1) Integer startPage,
             @Min(1) Integer endPage,
             String userAgent,
@@ -72,6 +74,8 @@ public final class ScraperDtos {
             UUID taskId,
             UUID dataSourceId,
             String keyword,
+            String filterType,
+            Integer filterHours,
             Integer startPage,
             Integer endPage,
             String userAgent,
@@ -90,6 +94,8 @@ public final class ScraperDtos {
         ManualScrapeConfigRequest toManualRequest() {
             return new ManualScrapeConfigRequest(
                     keyword == null || keyword.isBlank() ? "task-runner" : keyword,
+                    filterType,
+                    filterHours,
                     startPage,
                     endPage,
                     userAgent,
