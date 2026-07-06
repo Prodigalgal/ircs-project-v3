@@ -40,10 +40,6 @@ class ScrapeUpdateWindowFilter {
         this.clock = provided == null ? Clock.systemUTC() : provided;
     }
 
-    ScrapeUpdateWindowFilter(Clock clock) {
-        this.clock = clock == null ? Clock.systemUTC() : clock;
-    }
-
     FilteredListPage filter(ListPage page, int pageNumber, Integer filterHours) {
         if (page == null || filterHours == null || filterHours <= 0 || page.items().isEmpty()) {
             return new FilteredListPage(page, false);

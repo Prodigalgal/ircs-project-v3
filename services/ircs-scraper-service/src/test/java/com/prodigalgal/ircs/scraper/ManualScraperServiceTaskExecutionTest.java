@@ -43,7 +43,7 @@ class ManualScraperServiceTaskExecutionTest {
             rawVideoRefetchRepository,
             Runnable::run,
             auditWriter,
-            new ScrapeUpdateWindowFilter((java.time.Clock) null));
+            new ScrapeUpdateWindowFilter(null));
 
     @Test
     void scraperExecutorRunsTasksOnVirtualThreads() throws Exception {

@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 
 class TaskQueueScraperServiceTest {
 
@@ -45,7 +46,7 @@ class TaskQueueScraperServiceTest {
                     : org.mockito.Mockito.RETURNS_DEFAULTS.answer(invocation));
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final ScrapeUpdateWindowFilter updateWindowFilter = new ScrapeUpdateWindowFilter(
-            Clock.fixed(Instant.parse("2026-06-13T12:00:00Z"), ZoneOffset.UTC));
+            clockProvider(Clock.fixed(Instant.parse("2026-06-13T12:00:00Z"), ZoneOffset.UTC)));
     private final TaskQueueScraperService service = new TaskQueueScraperService(
             dataSourceRepository,
             listScraperClient,
@@ -293,6 +294,13 @@ class TaskQueueScraperServiceTest {
                 "{}",
                 0,
                 forceIngest);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<Clock> clockProvider(Clock clock) {
+        ObjectProvider<Clock> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(clock);
+        return provider;
     }
 
     private ScrapedVideoDraft draft(UUID dataSourceId, String sourceVid) {
