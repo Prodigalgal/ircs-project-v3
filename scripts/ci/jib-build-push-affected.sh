@@ -4,6 +4,7 @@ set -euo pipefail
 REGISTRY="${REGISTRY:-registry.mnnu.eu.org/ircs}"
 TARGET_ARCH="${TARGET_ARCH:-arm64}"
 TARGET_OS="${TARGET_OS:-linux}"
+TARGET_PLATFORMS="${TARGET_PLATFORMS:-${TARGET_OS}/${TARGET_ARCH}}"
 JIB_BASE_IMAGE="${JIB_BASE_IMAGE:-registry.mnnu.eu.org/ircs/base/eclipse-temurin:25-jre-alpine}"
 TAG="${IMAGE_TAG:-sha-$(git rev-parse --short=12 HEAD)}"
 BUILD_SCOPE="${BUILD_SCOPE:-affected}"
@@ -187,7 +188,7 @@ esac
 
 echo "IRCS image build scope: ${BUILD_SCOPE}"
 echo "IRCS image tag: ${TAG}"
-echo "IRCS target platform: ${TARGET_OS}/${TARGET_ARCH}"
+echo "IRCS target platforms: ${TARGET_PLATFORMS}"
 echo "IRCS Jib base image: ${JIB_BASE_IMAGE}"
 echo "IRCS selected module count: ${#selected[@]}"
 
@@ -196,6 +197,7 @@ mkdir -p build
 {
   echo "registry=${REGISTRY}"
   echo "tag=${TAG}"
+  echo "target_platforms=${TARGET_PLATFORMS}"
   echo "target_os=${TARGET_OS}"
   echo "target_arch=${TARGET_ARCH}"
   echo "jib_base_image=${JIB_BASE_IMAGE}"
@@ -223,7 +225,7 @@ for entry in "${selected[@]}"; do
     docker buildx use ircs-builder
     docker buildx inspect --bootstrap >/dev/null
     docker buildx build \
-      --platform "${TARGET_OS}/${TARGET_ARCH}" \
+      --platform "${TARGET_PLATFORMS}" \
       --file "${service_dir}/Dockerfile" \
       --tag "${target}" \
       --provenance=false \
@@ -233,8 +235,7 @@ for entry in "${selected[@]}"; do
     ./gradlew --no-daemon ":${module}:jib" \
       "-PjibToImage=${target}" \
       "-PjibBaseImage=${JIB_BASE_IMAGE}" \
-      "-PjibTargetArch=${TARGET_ARCH}" \
-      "-PjibTargetOs=${TARGET_OS}" \
+      "-PjibTargetPlatforms=${TARGET_PLATFORMS}" \
       "-Djib.to.auth.username=${REGISTRY_USERNAME}" \
       "-Djib.to.auth.password=${REGISTRY_PASSWORD}"
   fi

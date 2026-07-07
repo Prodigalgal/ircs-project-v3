@@ -31,8 +31,7 @@ jobs:
       REGISTRY: registry.mnnu.eu.org/ircs
       PROD_CONFIG_REPO_URL: https://gitea.mnnu.eu.org/admin/ircs-prod-config.git
       PROD_CONFIG_REPO_BRANCH: main
-      TARGET_ARCH: arm64
-      TARGET_OS: linux
+      TARGET_PLATFORMS: linux/arm64,linux/amd64
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
       PUSH_USERNAME: ${{ secrets.PUSH_USERNAME }}
@@ -52,6 +51,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+
+      - name: Set up Docker multi-platform builder
+        shell: bash
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64,amd64
+          docker buildx inspect ircs-builder >/dev/null 2>&1 || docker buildx create --name ircs-builder --use
+          docker buildx use ircs-builder
+          docker buildx inspect --bootstrap
 
       - name: Sync Jib base image
         shell: bash
