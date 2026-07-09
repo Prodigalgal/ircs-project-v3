@@ -111,7 +111,7 @@ class ApiGatewayAuthGateTest {
 
         mvc(proxyClient, authenticator)
                 .perform(get("/api/v1/dashboard/metrics")
-                        .header(AdminApiTokenService.HEADER_API_TOKEN, "ircs_pat_test"))
+                        .header(AdminApiTokenService.HEADER_API_TOKEN, "test-admin-api-token"))
                 .andExpect(status().isOk());
 
         verify(authenticator).requireRoleAndPermission(
@@ -133,7 +133,7 @@ class ApiGatewayAuthGateTest {
 
         mvc(proxyClient, authenticator)
                 .perform(get("/api/v1/dashboard/metrics")
-                        .header("Authorization", "Bearer ircs_pat_invalid"))
+                        .header("Authorization", "Bearer test-invalid-admin-api-token"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("auth.token.invalid"));
 
@@ -211,7 +211,7 @@ class ApiGatewayAuthGateTest {
 
     private static IrcsRequestPrincipal apiTokenPrincipal() {
         return new IrcsRequestPrincipal(
-                "api-token:ircs_pat_test",
+                "api-token:test-admin-api-token",
                 IrcsPermissions.ROLE_ADMIN,
                 Set.of(IrcsPermissions.ALL),
                 Set.of(IrcsPermissions.SCOPE_ADMIN_ALL, IrcsPermissions.SCOPE_DATA_ALL),

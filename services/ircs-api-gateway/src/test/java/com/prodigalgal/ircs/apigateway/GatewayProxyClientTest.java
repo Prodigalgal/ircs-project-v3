@@ -69,8 +69,8 @@ class GatewayProxyClientTest {
         request.addHeader("Connection", "keep-alive");
         request.addHeader("Host", "api-gateway");
         request.addHeader("Proxy-Authorization", "Basic secret");
-        request.addHeader("Authorization", "Bearer ircs_pat_should_not_forward");
-        request.addHeader(AdminApiTokenService.HEADER_API_TOKEN, "ircs_pat_header_should_not_forward");
+        request.addHeader("Authorization", "Bearer test-admin-token-should-not-forward");
+        request.addHeader(AdminApiTokenService.HEADER_API_TOKEN, "test-header-token-should-not-forward");
         request.addHeader("X-Authenticated-User", "spoof@example.com");
         request.addHeader("X-IRCS-Auth-Role", "ROLE_MEMBER");
         request.addHeader("X-Trace-Id", "trace-1");

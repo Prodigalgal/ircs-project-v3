@@ -35,7 +35,7 @@ class AdminApiTokenControllerTest {
         when(tokenService.list()).thenReturn(List.of(new AdminApiTokenDtos.Summary(
                 UUID.fromString("019ec176-0619-7000-8000-000000000001"),
                 "deploy",
-                "ircs_pat_abcd",
+                "test-token-prefix-abcd",
                 "ACTIVE",
                 "admin",
                 Instant.parse("2026-06-19T10:00:00Z"),
@@ -47,7 +47,7 @@ class AdminApiTokenControllerTest {
         mvc(tokenService, authenticator)
                 .perform(get("/api/v1/auth/api-tokens"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].tokenPrefix").value("ircs_pat_abcd"))
+                .andExpect(jsonPath("$[0].tokenPrefix").value("test-token-prefix-abcd"))
                 .andExpect(jsonPath("$[0].token").doesNotExist());
     }
 
@@ -60,8 +60,8 @@ class AdminApiTokenControllerTest {
         when(tokenService.create("deploy", "admin")).thenReturn(new AdminApiTokenDtos.CreatedResponse(
                 UUID.fromString("019ec176-0619-7000-8000-000000000002"),
                 "deploy",
-                "ircs_pat_abcd",
-                "ircs_pat_abcd_secret",
+                "test-token-prefix-abcd",
+                "test-token-secret-abcd",
                 Instant.parse("2026-06-19T10:00:00Z")));
 
         mvc(tokenService, authenticator)
@@ -69,7 +69,7 @@ class AdminApiTokenControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"deploy\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("ircs_pat_abcd_secret"));
+                .andExpect(jsonPath("$.token").value("test-token-secret-abcd"));
     }
 
     @Test
