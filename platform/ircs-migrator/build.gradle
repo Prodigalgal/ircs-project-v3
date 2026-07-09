@@ -20,6 +20,24 @@ bootJar {
     mainClass = 'com.prodigalgal.ircs.migrator.IrcsMigratorApplication'
 }
 
+def parseJibPlatforms() {
+    def configured = providers.gradleProperty('jibTargetPlatforms')
+            .orElse(providers.gradleProperty('jibTargetOs')
+                    .zip(providers.gradleProperty('jibTargetArch')) { os, arch -> "${os}/${arch}" })
+            .orElse('linux/arm64')
+            .get()
+    configured.split(',')
+            .collect { it.trim() }
+            .findAll { !it.isBlank() }
+            .collect { platform ->
+                def parts = platform.split('/')
+                if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                    throw new GradleException("Invalid jibTargetPlatforms entry '${platform}', expected os/architecture")
+                }
+                [os: parts[0], architecture: parts[1]]
+            }
+}
+
 jib {
     containerizingMode = 'packaged'
     from {
@@ -27,9 +45,11 @@ jib {
                 .orElse('registry.mnnu.eu.org/ircs/base/eclipse-temurin:25-jre-alpine')
                 .get()
         platforms {
-            platform {
-                architecture = providers.gradleProperty('jibTargetArch').orElse('arm64').get()
-                os = providers.gradleProperty('jibTargetOs').orElse('linux').get()
+            parseJibPlatforms().each { targetPlatform ->
+                platform {
+                    architecture = targetPlatform.architecture
+                    os = targetPlatform.os
+                }
             }
         }
     }
