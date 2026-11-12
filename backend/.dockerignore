@@ -10,3 +10,7 @@ build
 **/__pycache__
 **/*.pyc
 build-image-manifest.txt
+docs
+deploy
+README.md
+**/logs

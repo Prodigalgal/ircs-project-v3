@@ -259,8 +259,8 @@ for entry in "${selected[@]}"; do
       --build-arg "MODULE_DIR=${module//:/\/}" \
       --build-arg "IMAGE_NAME=${image}" \
       --build-arg "NATIVE_TARGET_MACHINE=${native_target_machine}" \
-      --build-arg "NATIVE_BUILD_MEMORY=${NATIVE_BUILD_MEMORY:-4g}" \
-      --build-arg "NATIVE_BUILD_PARALLELISM=${NATIVE_BUILD_PARALLELISM:-2}" \
+      --build-arg "NATIVE_BUILD_MEMORY=${NATIVE_BUILD_MEMORY:-8g}" \
+      --build-arg "NATIVE_BUILD_PARALLELISM=${NATIVE_BUILD_PARALLELISM:-4}" \
       --tag "${target}" \
       --provenance=false \
       --push \

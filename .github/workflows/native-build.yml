@@ -118,8 +118,8 @@ jobs:
             MODULE_DIR=${{ matrix.directory }}
             IMAGE_NAME=${{ matrix.image }}
             NATIVE_TARGET_MACHINE=${{ matrix.machine }}
-            NATIVE_BUILD_MEMORY=4g
-            NATIVE_BUILD_PARALLELISM=2
+            NATIVE_BUILD_MEMORY=8g
+            NATIVE_BUILD_PARALLELISM=4
           cache-from: type=gha,scope=native-${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=native-${{ matrix.image }}-${{ matrix.arch }}
       - name: Native HTTP and migration smoke

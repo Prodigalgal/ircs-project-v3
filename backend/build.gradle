@@ -150,8 +150,8 @@ configure(serviceProjects + project(':platform:ircs-migrator')) {
                         '-H:+AddAllCharsets',
                         '-H:+ReportExceptionStackTraces',
                         '--gc=serial',
-                        "-J-Xmx${providers.gradleProperty('nativeBuildMemory').orElse('4g').get()}",
-                        "--parallelism=${providers.gradleProperty('nativeBuildParallelism').orElse('2').get()}",
+                        "-J-Xmx${providers.gradleProperty('nativeBuildMemory').orElse('8g').get()}",
+                        "--parallelism=${providers.gradleProperty('nativeBuildParallelism').orElse('4').get()}",
                         "-march=${providers.gradleProperty('nativeTargetMachine').orElse('compatibility').get()}",
                         '--no-fallback'
                 ])
