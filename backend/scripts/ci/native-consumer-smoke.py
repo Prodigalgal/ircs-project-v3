@@ -45,7 +45,10 @@ def wait_for(description, condition):
 
 def queue(name):
     try:
-        return request('/api/queues/%2F/' + name, broker=True)
+        result = request('/api/queues/%2F/' + name, broker=True)
+        if 'consumers' not in result or 'messages' not in result:
+            raise ValueError(f'Broker statistics for {name} are not initialized yet')
+        return result
     except HTTPError as error:
         if error.code == 404:
             return {'consumers': 0, 'messages': 0}
@@ -128,7 +131,7 @@ try:
                 if service == 'ircs-ingestion-worker':
                     ingestion_round_trip()
             else:
-                assert all(queue(q)['consumers'] == 0 for q in queues)
+                wait_for(f'{service} consumers disabled', lambda: all(queue(q)['consumers'] == 0 for q in queues))
             print(f'{service}: runtime {flag}={enabled} verified', flush=True)
             stop()
             wait_for('consumer shutdown', lambda: all(queue(q)['consumers'] == 0 for q in queues))

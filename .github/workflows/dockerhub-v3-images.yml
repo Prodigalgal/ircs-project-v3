@@ -139,7 +139,7 @@ jobs:
     needs: [backend-images, python-tests]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: v3-backend-image-manifest-*
           path: manifests
