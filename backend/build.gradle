@@ -156,6 +156,8 @@ configure(serviceProjects + project(':platform:ircs-migrator')) {
                 imageName = project.name
                 buildArgs.addAll([
                         '--enable-url-protocols=http,https',
+                        '-H:+UnlockExperimentalVMOptions',
+                        '-H:+SharedArenaSupport',
                         '-H:+AddAllCharsets',
                         '-H:+ReportExceptionStackTraces',
                         '--gc=serial',

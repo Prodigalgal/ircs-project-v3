@@ -1,5 +1,7 @@
 """Exercise Native listener switches and ingestion against disposable infrastructure."""
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -15,6 +17,19 @@ password = os.environ['CI_PASSWORD']
 authorization = 'Basic ' + base64.b64encode(f'ircs:{password}'.encode()).decode()
 
 
+def token_part(value):
+    return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
+
+
+claims = {'sub': 'native-smoke', 'role': 'ROLE_ADMIN', 'permissions': ['*'], 'scopes': ['admin:*', 'data:*'],
+          'contentVisibility': ['PUBLIC', 'MEMBER', 'ADMIN', 'DRAFT', 'HIDDEN'],
+          'dataCategories': ['*'], 'dataGenres': ['*'], 'dataTags': ['*'],
+          'iat': int(time.time()), 'exp': int(time.time()) + 3600}
+signed_part = token_part({'alg': 'HS384', 'typ': 'JWT'}) + '.' + token_part(claims)
+signature = base64.urlsafe_b64encode(hmac.new(password.encode(), signed_part.encode(), hashlib.sha384).digest()).decode().rstrip('=')
+admin_authorization = 'Bearer ' + signed_part + '.' + signature
+
+
 def docker(*args):
     return subprocess.check_output(['docker', *args], text=True).strip()
 
@@ -23,11 +38,13 @@ def image(service):
     return f'{registry}/{service}:sha-{revision}-{arch}'
 
 
-def request(path, data=None, broker=False):
+def request(path, data=None, broker=False, authenticated=False):
     url = ('http://127.0.0.1:15672' if broker else 'http://127.0.0.1:18080') + path
     headers = {'Content-Type': 'application/json'}
     if broker:
         headers['Authorization'] = authorization
+    elif authenticated:
+        headers['Authorization'] = admin_authorization
     payload = json.dumps(data, ensure_ascii=False).encode() if data is not None else None
     with urlopen(Request(url, data=payload, headers=headers), timeout=5) as response:
         return json.load(response)
@@ -94,12 +111,55 @@ def start(service, values):
     with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
     maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
+    assert maxima or service == 'ircs-content-safety-service', (service, 'Missing datasource pool metrics')
     assert all(float(value) == 2 for value in maxima), (service, maxima)
 
 
 def stop():
-    subprocess.run(['docker', 'logs', '--tail', '60', 'ircs-native-consumer'], check=False)
+    subprocess.run(['docker', 'stop', '--time', '10', 'ircs-native-consumer'], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(['docker', 'logs', 'ircs-native-consumer'], check=False, text=True, capture_output=True)
+    logs = result.stdout + result.stderr
+    if result.returncode == 0:
+        print('\n'.join(logs.splitlines()[-60:]), flush=True)
     subprocess.run(['docker', 'rm', '-f', 'ircs-native-consumer'], check=False, stdout=subprocess.DEVNULL)
+    return [failure for failure in ('UnsupportedFeatureError', 'NumberFormatException', 'Unknown redis exception',
+                                    'Redis command timed out', 'Invalid runtime queue claim response')
+            if failure in logs]
+
+
+def runtime_queue_buffer_probe():
+    task_type = 'normalization.llm-cleaning'
+    prefix = 'ircs:work:v1:' + task_type
+    task_id = 'native-buffer-probe'
+    task_key = prefix + ':task:' + task_id
+    now = str(int(time.time() * 1000))
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HSET', task_key,
+           'taskType', task_type, 'taskId', task_id, 'submissionId', 'native-smoke',
+           'aggregateId', 'native-smoke', 'version', 'native-smoke', 'status', 'PERMANENT_FAILURE',
+           'attempt', '1', 'createdAt', now, 'updatedAt', now)
+    subprocess.run(['docker', 'exec', '-i', 'ircs-native-key-value', 'valkey-cli', '-x', 'HSET', task_key, 'payload'],
+                   input='n' * (2 * 1024 * 1024), text=True, check=True, stdout=subprocess.DEVNULL)
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZADD', prefix + ':dlq', now, task_id)
+    pending_ids = ['native-probe-pending-' + str(index) for index in range(3)]
+    inflight_ids = ['native-probe-inflight-' + str(index) for index in range(2)]
+    for item in pending_ids:
+        docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZADD', prefix + ':pending', now, item)
+    for item in inflight_ids:
+        docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZADD', prefix + ':inflight', str(int(now) + 3600000), item)
+    try:
+        for _ in range(10):
+            queues = request('/api/v1/ops/runtime-dlq?sampleLimit=1', authenticated=True)
+            result = next(queue for queue in queues if queue['taskType'] == task_type)
+            assert (result['pending'], result['inflight'], result['dlq']) == (3, 2, 1), result
+            assert len(result['samples']) == 1 and result['samples'][0]['taskId'] == task_id, result
+            time.sleep(2)
+        print('Native 384 MiB heap: repeated 2 MiB queue reads preserved exact counts and buffer cleanup.', flush=True)
+    finally:
+        docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZREM', prefix + ':pending', *pending_ids)
+        docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZREM', prefix + ':inflight', *inflight_ids)
+        docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZREM', prefix + ':dlq', task_id)
+        docker('exec', 'ircs-native-key-value', 'valkey-cli', 'DEL', task_key)
 
 
 def ingestion_round_trip():
@@ -153,7 +213,7 @@ try:
             else:
                 wait_for(f'{service} consumers disabled', lambda: all(queue(q)['consumers'] == 0 for q in queues))
             print(f'{service}: runtime {flag}={enabled} verified', flush=True)
-            stop()
+            assert not stop(), f'{service}: Native transport errors'
             wait_for('consumer shutdown', lambda: all(queue(q)['consumers'] == 0 for q in queues))
     checked = {case[0] for case in cases}
     failures = []
@@ -165,14 +225,18 @@ try:
             values = {'APP_STORAGE_R2_ENABLED': 'true', 'APP_STORAGE_R2_ACCOUNT_ID': 'native-smoke',
                       'APP_STORAGE_R2_ACCESS_KEY': password, 'APP_STORAGE_R2_SECRET_KEY': password,
                       'APP_STORAGE_R2_ENDPOINT': 'http://127.0.0.1:9'}
+        if service == 'ircs-ops-service':
+            values['APP_OPS_RUNTIME_DLQ_REPLAY_WORKER_ENABLED'] = 'false'
         try:
             start(service, values)
+            if service == 'ircs-ops-service':
+                runtime_queue_buffer_probe()
             print(f'{service}: Native application startup and pool budget verified', flush=True)
         except Exception as error:
             failures.append(f'{service}: {error}')
             print(f'Native startup failed: {service}: {error}', flush=True)
         finally:
-            stop()
+            failures.extend(f'{service}: {error}' for error in stop())
     assert not failures, failures
 finally:
     stop()
