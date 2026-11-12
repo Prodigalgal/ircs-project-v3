@@ -36,4 +36,11 @@
 - 死信人工重试使用手动确认，重发得到 broker confirm 后才 ACK 原消息；发送失败 NACK/requeue 原消息。人工重放重置本轮有限重试额度并记录次数，保留原 payload，禁止先删原消息再尝试发送。
 - Native 资源清单包含搜索索引设置和目录国家/语言预设 JSON。云端使用空索引启动搜索服务，验证首次建索引路径，避免现有生产索引掩盖资源遗漏。剩余服务逐个检查，即使一个服务失败也收集后续启动结果，最终仍整体失败并阻止发布。
 - JDK 25 的 Netty 共享内存清理路径需要 Native 编译参数 `-H:+SharedArenaSupport`。生产日志已发现缺少该能力引发的 `UnsupportedFeatureError`，随后出现键值连接响应错位和超时。双架构 CI 在 384 MiB 堆下反复读取 2 MiB 工作记录，断言 pending/inflight/DLQ 实际值，并检查启动、读写及优雅关闭的完整日志；禁止只凭 readiness 放行。参考 [Netty 17172](https://github.com/netty/netty/issues/17172) 和 [GraalVM FFM 支持](https://github.com/oracle/graal/issues/8113)。
-- 网关 JWT 配置查询复用现有 DataSource，成功与异常路径均归还连接，不再为每次鉴权绕过池上限新建连接。保留数据库撤销时间的即时读取和环境变量优先级，不引入撤销状态缓存窗口。
+- 网关 JWT 配置查询复用既有 L1 本地、L2 Valkey、L3 数据库加载组件；冷未命中的并发读取按 key 合并回源，回填使用 SET NX，避免覆盖写入方较新的共享值。L3 使用现有 DataSource，成功与异常路径均归还连接。环境变量优先级不变。
+- JWT 撤销时间绕过 L1，三个网关副本直接读取 L2；事务提交后同步更新共享值，写入未确认不得报告成功。新写入该 key 的远端 TTL 最长 30 秒，发布后将生产既有该 key 的 TTL 收敛到相同上限；缓存不可用时在连接池预算内读取数据库，整个撤销来源不可用则返回 503，不能默认为 0 后放行。普通配置保留 L1 命中和本地空值缓存。增加按层、结果、安全/运行配置分类的低基数缓存指标，不以配置 key 或内容作为指标标签。
+
+## 统一版本与不可变候选
+
+- 本轮统一业务版本为 `3.1.0`，替代 Backend、管理端、门户和 Python 的历史占位版本。新增 Native 交付能力在 V3 架构内保持 API/数据兼容，使用 minor 版本；版本通过根 `VERSION`、NPM/lock、Backend build info、Python service version、WEB `/version.json` 以及 OCI 标签核对。
+- 构建前先验证版本契约，并要求不可变 Git tag `v3.1.0` 指向本候选源码。镜像使用 `YYYYMMDD-v3.1.0-production-test.1-<sha12>` 及架构后缀，GitOps 仅引用全量检查后的多架构标签；已有镜像只复用，不覆盖，网络/权限错误不能视作不存在。后续候选改代码或配置必须占用新的三段式业务版本。
+- Native migrator 成功后记录业务版本 Liquibase tag，同版本重复执行幂等，保留旧版本标记。迁移 hook 设置 600 秒截止时间和完成回收时间，不能将共享凭据或业务卷挂入临时 Job 的回收链。

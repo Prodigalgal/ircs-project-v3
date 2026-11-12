@@ -24,14 +24,23 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       images: ${{ steps.matrix.outputs.images }}
       registry: ${{ steps.matrix.outputs.registry }}
+      version: ${{ steps.release.outputs.version }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify unified release version
+        run: python3 .github/scripts/check-version.py
+      - id: release
+        run: python3 .github/scripts/release-info.py
       - id: matrix
         env:
           BUILD_SCOPE: ${{ inputs.build_scope || 'all' }}
         run: python3 backend/scripts/ci/native-matrix.py
 
   java-tests:
+    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -63,6 +72,7 @@ jobs:
           retention-days: 7
 
   python-tests:
+    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -94,7 +104,8 @@ jobs:
       max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
-      IMAGE: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:sha-${{ github.sha }}-${{ matrix.arch }}
+      IMAGE: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:${{ needs.prepare.outputs.release_tag }}-${{ matrix.arch }}
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -103,7 +114,18 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: published
+        name: Check immutable candidate image
+        run: |
+          if bash .github/scripts/image-exists.sh "$IMAGE"; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            test "$result" = 1
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Build Native image on matching architecture
+        if: steps.published.outputs.exists != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: backend
@@ -112,8 +134,13 @@ jobs:
           push: true
           tags: ${{ env.IMAGE }}
           provenance: false
-          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
+            APP_VERSION=${{ needs.prepare.outputs.version }}
             GRADLE_PROJECT=${{ matrix.module }}
             MODULE_DIR=${{ matrix.directory }}
             IMAGE_NAME=${{ matrix.image }}
@@ -143,6 +170,8 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+    env:
+      IMAGE: ${{ needs.prepare.outputs.registry }}/ircs-adult-classifier-service:${{ needs.prepare.outputs.release_tag }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -151,20 +180,36 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: published
+        run: |
+          if bash .github/scripts/image-exists.sh "$IMAGE"; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            test "$result" = 1
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Build CPU classifier image
+        if: steps.published.outputs.exists != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: backend
           file: backend/services/ircs-adult-classifier-service/Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ needs.prepare.outputs.registry }}/ircs-adult-classifier-service:sha-${{ github.sha }}-${{ matrix.arch }}
+          tags: ${{ env.IMAGE }}
           provenance: false
-          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: APP_VERSION=${{ needs.prepare.outputs.version }}
           cache-from: type=gha,scope=python-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=python-${{ matrix.arch }}
 
   frontend-tests:
+    needs: prepare
     name: Frontend ${{ matrix.frontend }} checks
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -234,6 +279,8 @@ jobs:
             image: ircs-huawai-frontend
             arch: arm64
             runner: ubuntu-24.04-arm
+    env:
+      IMAGE: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:${{ needs.prepare.outputs.release_tag }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -242,16 +289,32 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: published
+        run: |
+          if bash .github/scripts/image-exists.sh "$IMAGE"; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            test "$result" = 1
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: steps.published.outputs.exists != 'true'
         with:
           context: frontends/${{ matrix.frontend }}
           file: frontends/${{ matrix.frontend }}/Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:sha-${{ github.sha }}-${{ matrix.arch }}
+          tags: ${{ env.IMAGE }}
           provenance: false
-          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          build-args: API_INTERNAL_URL=http://127.0.0.1:9/api/portal
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            API_INTERNAL_URL=http://127.0.0.1:9/api/portal
+            APP_VERSION=${{ needs.prepare.outputs.version }}
           cache-from: type=gha,scope=frontend-${{ matrix.frontend }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=frontend-${{ matrix.frontend }}-${{ matrix.arch }}
 
@@ -280,6 +343,8 @@ jobs:
         env:
           REGISTRY: ${{ needs.prepare.outputs.registry }}
           SOURCE_REVISION: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          APP_VERSION: ${{ needs.prepare.outputs.version }}
           NATIVE_ARCH: ${{ matrix.arch }}
           JAVA_IMAGES: ${{ needs.prepare.outputs.images }}
         run: bash backend/scripts/ci/native-consumer-smoke.sh
@@ -292,6 +357,7 @@ jobs:
       contents: read
       packages: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -302,13 +368,20 @@ jobs:
         env:
           IMAGES: ${{ needs.prepare.outputs.images }}
           REGISTRY: ${{ needs.prepare.outputs.registry }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
         run: |
           python3 - <<'PY' > images.txt
           import json, os
           print('\n'.join(json.loads(os.environ['IMAGES']) + ['ircs-adult-classifier-service', 'ircs-admin-frontend', 'ircs-huawai-frontend']))
           PY
           while IFS= read -r image; do
-            target="${REGISTRY}/${image}:sha-${GITHUB_SHA}"
+            target="${REGISTRY}/${image}:${RELEASE_TAG}"
+            if bash .github/scripts/image-exists.sh "$target"; then
+              continue
+            else
+              result=$?
+              test "$result" = 1
+            fi
             docker buildx imagetools create --tag "$target" "${target}-amd64" "${target}-arm64"
             echo "- \`$target\` (linux/amd64, linux/arm64)" >> "$GITHUB_STEP_SUMMARY"
           done < images.txt
@@ -326,6 +399,8 @@ jobs:
           GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
           GH_TOKEN: ${{ github.token }}
           SOURCE_REVISION: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          APP_VERSION: ${{ needs.prepare.outputs.version }}
           JAVA_IMAGES: ${{ needs.prepare.outputs.images }}
         run: |
           set -euo pipefail
@@ -344,13 +419,13 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$hosts_file"
           git clone --depth 1 git@github.com:Prodigalgal/k8s-gitops-config.git gitops
           python3 .github/scripts/update-gitops.py gitops
-          git -C gitops add ircs-prod/core/kustomization.yaml
+          git -C gitops add ircs-prod/core/kustomization.yaml ircs-prod/core/manifests/migrator-job.yaml
           if git -C gitops diff --cached --quiet; then
             echo 'GitOps already references this revision.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git -C gitops -c user.name=ircs-v3-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-            commit -m "deploy(ircs-v3): ${SOURCE_REVISION}"
+            commit -m "deploy(ircs-v3): ${APP_VERSION} ${SOURCE_REVISION}"
           for attempt in 1 2 3 4; do
             if git -C gitops push origin HEAD:main; then
               echo "Promoted V3 \`${SOURCE_REVISION}\` to production GitOps." >> "$GITHUB_STEP_SUMMARY"

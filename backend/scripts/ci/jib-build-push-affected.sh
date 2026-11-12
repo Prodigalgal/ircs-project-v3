@@ -7,9 +7,21 @@ TARGET_OS="${TARGET_OS:-linux}"
 TARGET_PLATFORMS="${TARGET_PLATFORMS:-${TARGET_OS}/${TARGET_ARCH}}"
 JIB_BASE_IMAGE="${JIB_BASE_IMAGE:-registry.mnnu.eu.org/ircs/base/eclipse-temurin:25-jre-alpine}"
 TAG="${IMAGE_TAG:-sha-$(git rev-parse --short=12 HEAD)}"
+APP_VERSION="${APP_VERSION:-}"
+RELEASE_TAG="${RELEASE_TAG:-}"
+REVISION="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 BUILD_SCOPE="${BUILD_SCOPE:-affected}"
 IMAGE_MODE="${IMAGE_MODE:-jvm}"
 DRY_RUN="${DRY_RUN:-false}"
+
+if [[ -z "${APP_VERSION}" || -z "${RELEASE_TAG}" ]]; then
+  echo "APP_VERSION and RELEASE_TAG from the version-checked prepare job are required." >&2
+  exit 2
+fi
+if [[ "${TAG}" != "${RELEASE_TAG}-fallback-${IMAGE_MODE}-${TARGET_ARCH}" ]]; then
+  echo "IMAGE_TAG must be the immutable fallback tag for this mode and architecture." >&2
+  exit 2
+fi
 
 case "${IMAGE_MODE}" in
   jvm|native) ;;
@@ -215,6 +227,10 @@ mkdir -p build
   echo "jib_base_image=${JIB_BASE_IMAGE}"
   echo "scope=${BUILD_SCOPE}"
   echo "image_mode=${IMAGE_MODE}"
+  echo "app_version=${APP_VERSION}"
+  echo "release_tag=${RELEASE_TAG}"
+  echo "revision=${REVISION}"
+  echo "manifest_tag=${RELEASE_TAG}-fallback-${IMAGE_MODE}"
   echo "modules=${#selected[@]}"
 } >> build-image-manifest.txt
 
@@ -223,7 +239,7 @@ if [[ "${#selected[@]}" -eq 0 ]]; then
   exit 0
 fi
 
-if [[ "${DRY_RUN}" != "true" && ( "${IMAGE_MODE}" == "native" || "${selected[*]}" == *"python:"* ) ]]; then
+if [[ "${DRY_RUN}" != "true" ]]; then
   echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY%%/*}" -u "${REGISTRY_USERNAME}" --password-stdin >/dev/null
   docker buildx inspect ircs-builder >/dev/null 2>&1 || docker buildx create --name ircs-builder --use >/dev/null
   docker buildx use ircs-builder
@@ -235,6 +251,18 @@ for entry in "${selected[@]}"; do
   image="${entry##*=}"
   target="${REGISTRY}/${image}:${TAG}"
   echo "${module}=${target}" >> build-image-manifest.txt
+  if [[ "${DRY_RUN}" != "true" ]]; then
+    if bash ../.github/scripts/image-exists.sh "${target}"; then
+      echo "${module}: existing immutable image reused"
+      continue
+    else
+      image_status=$?
+      if [[ "${image_status}" -ne 1 ]]; then
+        echo "Image existence check failed for ${target} (status ${image_status})." >&2
+        exit "${image_status}"
+      fi
+    fi
+  fi
   echo "::group::${module} -> ${target}"
   if [[ "${DRY_RUN}" == "true" ]]; then
     echo "DRY_RUN=true, skipping image push for ${target}"
@@ -244,6 +272,9 @@ for entry in "${selected[@]}"; do
       --platform "${TARGET_PLATFORMS}" \
       --file "${service_dir}/Dockerfile" \
       --tag "${target}" \
+      --label "org.opencontainers.image.version=${APP_VERSION}" \
+      --label "org.opencontainers.image.revision=${REVISION}" \
+      --build-arg "APP_VERSION=${APP_VERSION}" \
       --provenance=false \
       --push \
       .
@@ -267,7 +298,10 @@ for entry in "${selected[@]}"; do
       --build-arg "NATIVE_TARGET_MACHINE=${native_target_machine}" \
       --build-arg "NATIVE_BUILD_MEMORY=${native_memory}" \
       --build-arg "NATIVE_BUILD_PARALLELISM=${native_parallelism}" \
+      --build-arg "APP_VERSION=${APP_VERSION}" \
       --tag "${target}" \
+      --label "org.opencontainers.image.version=${APP_VERSION}" \
+      --label "org.opencontainers.image.revision=${REVISION}" \
       --provenance=false \
       --push \
       .
@@ -276,6 +310,9 @@ for entry in "${selected[@]}"; do
       "-PjibToImage=${target}" \
       "-PjibBaseImage=${JIB_BASE_IMAGE}" \
       "-PjibTargetPlatforms=${TARGET_PLATFORMS}" \
+      "-PappVersion=${APP_VERSION}" \
+      "-Djib.container.format=OCI" \
+      "-Djib.container.labels=org.opencontainers.image.version=${APP_VERSION},org.opencontainers.image.revision=${REVISION}" \
       "-Djib.to.auth.username=${REGISTRY_USERNAME}" \
       "-Djib.to.auth.password=${REGISTRY_PASSWORD}"
   fi

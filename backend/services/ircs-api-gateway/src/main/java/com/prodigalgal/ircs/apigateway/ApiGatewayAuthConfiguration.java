@@ -13,7 +13,8 @@ class ApiGatewayAuthConfiguration {
     @Bean
     IrcsJwtRequestAuthenticator apiGatewayJwtRequestAuthenticator(
             Environment environment,
-            DataSource dataSource) {
-        return new IrcsJwtRequestAuthenticator(new IrcsJwtRuntimeConfigResolver(environment, dataSource));
+            DataSource dataSource,
+            GatewaySystemConfigRepository configRepository) {
+        return new IrcsJwtRequestAuthenticator(new IrcsJwtRuntimeConfigResolver(environment, dataSource, configRepository));
     }
 }

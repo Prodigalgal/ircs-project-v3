@@ -8,6 +8,7 @@ RUN npm ci
 
 # 2. 构建阶段
 FROM node:26.13-alpine AS builder
+ARG APP_VERSION=3.1.0
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -19,13 +20,15 @@ ARG API_INTERNAL_URL=https://huawai.mnnu.eu.org/api/portal
 ENV API_INTERNAL_URL=${API_INTERNAL_URL}
 
 # 开始构建
-RUN npm run build
+RUN npm run build && printf '{"version":"%s"}\n' "$APP_VERSION" > public/version.json
 
 # 3. 运行阶段 (生产环境)
 FROM node:26.13-alpine AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
+ARG APP_VERSION=3.1.0
+ENV NODE_ENV production \
+    APP_VERSION=${APP_VERSION}
 ENV NEXT_TELEMETRY_DISABLED 1
 
 # 创建非 root 用户 (安全最佳实践)

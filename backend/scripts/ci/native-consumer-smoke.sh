@@ -41,5 +41,5 @@ done
 docker run --name ircs-native-migrator --network ircs-native-consumers \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://ircs-native-postgres:5432/ircs \
   -e SPRING_DATASOURCE_USERNAME=ircs -e SPRING_DATASOURCE_PASSWORD="$CI_PASSWORD" \
-  "${REGISTRY}/ircs-migrator:sha-${SOURCE_REVISION}-${NATIVE_ARCH}" -Xmx256m
+  "${REGISTRY}/ircs-migrator:${RELEASE_TAG}-${NATIVE_ARCH}" -Xmx256m
 python3 backend/scripts/ci/native-consumer-smoke.py

@@ -12,6 +12,8 @@ from urllib.request import Request, urlopen
 
 registry = os.environ['REGISTRY']
 revision = os.environ['SOURCE_REVISION']
+release_tag = os.environ['RELEASE_TAG']
+app_version = os.environ['APP_VERSION']
 arch = os.environ['NATIVE_ARCH']
 password = os.environ['CI_PASSWORD']
 authorization = 'Basic ' + base64.b64encode(f'ircs:{password}'.encode()).decode()
@@ -35,7 +37,7 @@ def docker(*args):
 
 
 def image(service):
-    return f'{registry}/{service}:sha-{revision}-{arch}'
+    return f'{registry}/{service}:{release_tag}-{arch}'
 
 
 def request(path, data=None, broker=False, authenticated=False):
@@ -108,6 +110,7 @@ def start(service, values):
         return request('/actuator/health/readiness')['status'] == 'UP'
 
     wait_for(f'{service} health', ready)
+    assert request('/actuator/info')['build']['version'] == app_version, service
     with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
     maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
@@ -160,6 +163,44 @@ def runtime_queue_buffer_probe():
         docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZREM', prefix + ':inflight', *inflight_ids)
         docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZREM', prefix + ':dlq', task_id)
         docker('exec', 'ircs-native-key-value', 'valkey-cli', 'DEL', task_key)
+
+
+def gateway_config_cache_probe():
+    cache_key = 'ircs:system-config:v1:security.jwt.iat-floor'
+    docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-v', 'ON_ERROR_STOP=1', '-c',
+           "INSERT INTO system_configs(id,created_at,updated_at,version,config_key,config_value) "
+           "VALUES(gen_random_uuid(),now(),now(),1,'security.jwt.iat-floor','0') "
+           "ON CONFLICT(config_key) DO UPDATE SET config_value='0'")
+
+    def status():
+        try:
+            request('/api/v1/ops/runtime-dlq?sampleLimit=0', authenticated=True)
+            return 200
+        except HTTPError as error:
+            return error.code
+
+    def database_loads():
+        with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
+            lines = response.read().decode().splitlines()
+        return sum(float(line.rsplit(' ', 1)[1]) for line in lines
+                   if line.startswith('ircs_system_config_cache_requests_total{')
+                   and 'category="security"' in line and 'level="L3"' in line and 'outcome="load"' in line)
+
+    before = database_loads()
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'SET', cache_key, str(int(time.time()) + 60), 'PX', '30000')
+    assert status() == 401, 'A shared revocation must reject the old token'
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'SET', cache_key, '0', 'PX', '30000')
+    # The configured upstream is intentionally unavailable. Reaching its 502
+    # response proves authorization passed after observing the updated L2 value.
+    assert status() == 502, 'A newer shared value must be observed without waiting for L1 expiry'
+    assert database_loads() == before, 'L2 hits must not load database configuration'
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'DEL', cache_key)
+    for _ in range(5):
+        assert status() == 502
+    assert database_loads() == before + 1, 'One cold miss must fill L2 for subsequent authorizations'
+    remaining_ttl = int(docker('exec', 'ircs-native-key-value', 'valkey-cli', 'PTTL', cache_key))
+    assert 0 < remaining_ttl <= 30000, remaining_ttl
+    print('Native JWT cache: shared revocation observed, hot authorizations used no L3 reads, one cold miss loaded once.', flush=True)
 
 
 def ingestion_round_trip():
@@ -227,10 +268,14 @@ try:
                       'APP_STORAGE_R2_ENDPOINT': 'http://127.0.0.1:9'}
         if service == 'ircs-ops-service':
             values['APP_OPS_RUNTIME_DLQ_REPLAY_WORKER_ENABLED'] = 'false'
+        if service == 'ircs-api-gateway':
+            values['APP_GATEWAY_OPS_BASE_URL'] = 'http://127.0.0.1:9'
         try:
             start(service, values)
             if service == 'ircs-ops-service':
                 runtime_queue_buffer_probe()
+            if service == 'ircs-api-gateway':
+                gateway_config_cache_probe()
             print(f'{service}: Native application startup and pool budget verified', flush=True)
         except Exception as error:
             failures.append(f'{service}: {error}')

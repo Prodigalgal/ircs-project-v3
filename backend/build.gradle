@@ -8,9 +8,13 @@ ext {
     springAiVersion = '2.0.2'
 }
 
+def appVersion = providers.gradleProperty('appVersion')
+        .orElse(providers.fileContents(layout.projectDirectory.file('../VERSION')).asText.map { it.trim() })
+        .get()
+
 allprojects {
     group = 'com.prodigalgal'
-    version = '0.1.0-SNAPSHOT'
+    version = appVersion
 
     repositories {
         mavenCentral()
@@ -85,6 +89,9 @@ def parseJibPlatforms(Project project) {
 
 configure(serviceProjects) {
     apply plugin: 'org.springframework.boot'
+    springBoot {
+        buildInfo()
+    }
     apply plugin: 'com.google.cloud.tools.jib'
     apply plugin: 'org.graalvm.buildtools.native'
 
@@ -138,7 +145,8 @@ configure(serviceProjects) {
             ports = ['8080']
             creationTime = 'USE_CURRENT_TIMESTAMP'
             jvmFlags = ['-Dspring.threads.virtual.enabled=true', '-XX:+ExitOnOutOfMemoryError']
-            environment = [SPRING_THREADS_VIRTUAL_ENABLED: 'true']
+            environment = [SPRING_THREADS_VIRTUAL_ENABLED: 'true', APP_VERSION: project.version.toString()]
+            labels = ['org.opencontainers.image.version': project.version.toString()]
         }
     }
 }

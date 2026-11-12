@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
@@ -20,12 +21,16 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="IRCS Adult Classifier Service", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="IRCS Adult Classifier Service",
+    version=os.getenv("APP_VERSION", "3.1.0"),
+    lifespan=lifespan,
+)
 
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    return {"status": "UP", "model": settings.model_name, "ready": classifier is not None}
+    return {"status": "UP", "version": app.version, "model": settings.model_name, "ready": classifier is not None}
 
 
 @app.get("/actuator/health/liveness")

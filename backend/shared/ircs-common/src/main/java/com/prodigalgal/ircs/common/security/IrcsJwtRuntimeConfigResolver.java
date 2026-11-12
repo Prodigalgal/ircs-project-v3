@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.common.security;
 
+import com.prodigalgal.ircs.common.config.RuntimeConfigValueSource;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -11,7 +12,9 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 public class IrcsJwtRuntimeConfigResolver {
 
@@ -27,17 +30,23 @@ public class IrcsJwtRuntimeConfigResolver {
     private final String username;
     private final String password;
     private final DataSource dataSource;
+    private final RuntimeConfigValueSource valueSource;
 
     public IrcsJwtRuntimeConfigResolver(
             Environment environment,
             String datasourceUrl,
             String username,
             String password) {
-        this(environment, datasourceUrl, username, password, null);
+        this(environment, datasourceUrl, username, password, null, null);
     }
 
     public IrcsJwtRuntimeConfigResolver(Environment environment, DataSource dataSource) {
-        this(environment, null, null, null, dataSource);
+        this(environment, dataSource, null);
+    }
+
+    public IrcsJwtRuntimeConfigResolver(
+            Environment environment, DataSource dataSource, RuntimeConfigValueSource valueSource) {
+        this(environment, null, null, null, dataSource, valueSource);
     }
 
     private IrcsJwtRuntimeConfigResolver(
@@ -45,12 +54,14 @@ public class IrcsJwtRuntimeConfigResolver {
             String datasourceUrl,
             String username,
             String password,
-            DataSource dataSource) {
+            DataSource dataSource,
+            RuntimeConfigValueSource valueSource) {
         this.environment = environment;
         this.datasourceUrl = normalize(datasourceUrl);
         this.username = normalize(username);
         this.password = password == null ? "" : password;
         this.dataSource = dataSource;
+        this.valueSource = valueSource;
     }
 
     public String jwtSecret() {
@@ -79,7 +90,21 @@ public class IrcsJwtRuntimeConfigResolver {
                 return value;
             }
         }
-        return findDbValue(dbKey).orElse(fallback);
+        return findStoredValue(dbKey).orElse(fallback);
+    }
+
+    private Optional<String> findStoredValue(String key) {
+        if (valueSource != null) {
+            try {
+                return valueSource.findValue(key).map(IrcsJwtRuntimeConfigResolver::normalize);
+            } catch (RuntimeException ex) {
+                log.warn("JWT runtime config lookup failed for [{}]: {}", key, ex.getMessage());
+                // An unavailable revocation source must not silently become floor=0.
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "Authentication configuration is temporarily unavailable", ex);
+            }
+        }
+        return findDbValue(key);
     }
 
     private Optional<String> findDbValue(String key) {
