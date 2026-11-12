@@ -83,7 +83,14 @@ def start(service, values):
     for key, value in common.items():
         args += ['-e', f'{key}={value}']
     docker(*args, image(service), '-Xmx384m')
-    wait_for(f'{service} health', lambda: request('/actuator/health/readiness')['status'] == 'UP')
+
+    def ready():
+        state = json.loads(docker('inspect', '--format', '{{json .State}}', 'ircs-native-consumer'))
+        if not state['Running']:
+            raise RuntimeError(f'{service} exited before readiness: exit code {state["ExitCode"]}')
+        return request('/actuator/health/readiness')['status'] == 'UP'
+
+    wait_for(f'{service} health', ready)
     with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
     maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
@@ -149,6 +156,7 @@ try:
             stop()
             wait_for('consumer shutdown', lambda: all(queue(q)['consumers'] == 0 for q in queues))
     checked = {case[0] for case in cases}
+    failures = []
     for service in json.loads(os.environ['JAVA_IMAGES']):
         if service in checked or service == 'ircs-migrator':
             continue
@@ -157,8 +165,14 @@ try:
             values = {'APP_STORAGE_R2_ENABLED': 'true', 'APP_STORAGE_R2_ACCOUNT_ID': 'native-smoke',
                       'APP_STORAGE_R2_ACCESS_KEY': password, 'APP_STORAGE_R2_SECRET_KEY': password,
                       'APP_STORAGE_R2_ENDPOINT': 'http://127.0.0.1:9'}
-        start(service, values)
-        print(f'{service}: Native application startup and pool budget verified', flush=True)
-        stop()
+        try:
+            start(service, values)
+            print(f'{service}: Native application startup and pool budget verified', flush=True)
+        except Exception as error:
+            failures.append(f'{service}: {error}')
+            print(f'Native startup failed: {service}: {error}', flush=True)
+        finally:
+            stop()
+    assert not failures, failures
 finally:
     stop()

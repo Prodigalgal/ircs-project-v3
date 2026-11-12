@@ -36,7 +36,8 @@ public final class IrcsRuntimeHints implements RuntimeHintsRegistrar {
         for (String pattern : new String[] {
                 "*.properties", "*.yml", "*.yaml", "log4j2*.xml", "META-INF/services/*",
                 "**/Log4j2Plugins.dat", "**/*.sql", "**/*.lua", "data/dictionary/**",
-                "**/*.txt", "templates/**", "static/**", "org/apache/tika/**", "org/apache/pdfbox/**"
+                "**/*.txt", "templates/**", "static/**", "elasticsearch/*.json", "presets/*.json",
+                "org/apache/tika/**", "org/apache/pdfbox/**"
         }) {
             hints.resources().registerPattern(pattern);
         }

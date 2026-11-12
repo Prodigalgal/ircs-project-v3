@@ -34,3 +34,4 @@
 - Boot 4 的 RestClient 自动配置使用专用 `spring-boot-starter-restclient`，不能仅依赖 Web MVC starter。云端启动验证覆盖全部 21 个 Java 服务，包含真实数据库、消息代理、键值存储、带分词插件的搜索服务及启用 R2 客户端的初始化路径。
 - 连接池和消息并发的环境变量使用 Spring 规范形式，例如 `SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`、`SPRING_DATASOURCE_HIKARI_CONNECTIONTIMEOUT`。不得把连接参数错误拆为 `connection.*`，导致绑定阶段调用连接 getter 提前启动并锁定 Hikari。Native 检查读取实际连接池上限，不能仅检查 YAML 数字。
 - 死信人工重试使用手动确认，重发得到 broker confirm 后才 ACK 原消息；发送失败 NACK/requeue 原消息。人工重放重置本轮有限重试额度并记录次数，保留原 payload，禁止先删原消息再尝试发送。
+- Native 资源清单包含搜索索引设置和目录国家/语言预设 JSON。云端使用空索引启动搜索服务，验证首次建索引路径，避免现有生产索引掩盖资源遗漏。剩余服务逐个检查，即使一个服务失败也收集后续启动结果，最终仍整体失败并阻止发布。
