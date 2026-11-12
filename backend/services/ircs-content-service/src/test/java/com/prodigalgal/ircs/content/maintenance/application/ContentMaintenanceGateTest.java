@@ -61,7 +61,7 @@ class ContentMaintenanceGateTest {
     @Test
     void cachesBlockedDbDecisionToRedisAndLocalCache() {
         Fixture fixture = fixture("redis_write");
-        RedisFixture redis = redis();
+        KeyValueFixture redis = redis();
         UUID rawId = UUID.randomUUID();
         String resourceScope = rawId.toString();
         ContentMaintenanceGate gate = new ContentMaintenanceGate(
@@ -81,7 +81,7 @@ class ContentMaintenanceGateTest {
     @Test
     void readsBlockedDecisionFromRedisBeforeDbFallback() throws Exception {
         Fixture fixture = fixture("redis_read");
-        RedisFixture redis = redis();
+        KeyValueFixture redis = redis();
         UUID rawId = UUID.randomUUID();
         String resourceScope = rawId.toString();
         ContentMaintenanceGate gate = new ContentMaintenanceGate(
@@ -111,7 +111,7 @@ class ContentMaintenanceGateTest {
     @Test
     void invalidationClearsLocalAndRedisBlockedDecision() {
         Fixture fixture = fixture("redis_evict");
-        RedisFixture redis = redis();
+        KeyValueFixture redis = redis();
         UUID rawId = UUID.randomUUID();
         String resourceScope = rawId.toString();
         ContentMaintenanceGate gate = new ContentMaintenanceGate(
@@ -171,11 +171,11 @@ class ContentMaintenanceGateTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static RedisFixture redis() {
+    private static KeyValueFixture redis() {
         StringRedisTemplate redisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
         ValueOperations<String, String> values = org.mockito.Mockito.mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(values);
-        return new RedisFixture(redisTemplate, values);
+        return new KeyValueFixture(redisTemplate, values);
     }
 
     private static ObjectProvider<StringRedisTemplate> redisProvider(StringRedisTemplate redisTemplate) {
@@ -210,6 +210,6 @@ class ContentMaintenanceGateTest {
         }
     }
 
-    private record RedisFixture(StringRedisTemplate template, ValueOperations<String, String> values) {
+    private record KeyValueFixture(StringRedisTemplate template, ValueOperations<String, String> values) {
     }
 }

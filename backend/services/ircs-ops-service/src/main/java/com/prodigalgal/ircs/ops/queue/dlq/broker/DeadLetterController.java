@@ -14,25 +14,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/ops/rabbit-dlq")
 public class DeadLetterController {
 
-    private final DeadLetterService rabbitDlqService;
+    private final DeadLetterService deadLetterService;
 
     @GetMapping
     public ResponseEntity<List<DeadLetterQueueResponse>> listQueues(
             @RequestParam(defaultValue = "0") int sampleLimit) {
-        return ResponseEntity.ok(rabbitDlqService.listQueues(sampleLimit));
+        return ResponseEntity.ok(deadLetterService.listQueues(sampleLimit));
     }
 
     @PostMapping("/retry")
     public ResponseEntity<DeadLetterActionResponse> retry(
             @RequestParam String queueName,
             @RequestParam(defaultValue = "1") int limit) {
-        return ResponseEntity.ok(rabbitDlqService.retry(queueName, limit));
+        return ResponseEntity.ok(deadLetterService.retry(queueName, limit));
     }
 
     @PostMapping("/discard")
     public ResponseEntity<DeadLetterActionResponse> discard(
             @RequestParam String queueName,
             @RequestParam(defaultValue = "1") int limit) {
-        return ResponseEntity.ok(rabbitDlqService.discard(queueName, limit));
+        return ResponseEntity.ok(deadLetterService.discard(queueName, limit));
     }
 }

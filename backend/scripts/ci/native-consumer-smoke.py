@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import re
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
@@ -59,12 +60,20 @@ def start(service, values):
     common = {
         'SPRING_DATASOURCE_URL': 'jdbc:postgresql://ircs-native-postgres:5432/ircs',
         'SPRING_DATASOURCE_USERNAME': 'ircs', 'SPRING_DATASOURCE_PASSWORD': password,
-        'SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE': '2', 'SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE': '0',
+        'SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE': '2', 'SPRING_DATASOURCE_HIKARI_MINIMUMIDLE': '0',
+        'SPRING_DATASOURCE_HIKARI_CONNECTIONTIMEOUT': '10000', 'SPRING_DATASOURCE_HIKARI_IDLETIMEOUT': '30000',
         'SPRING_RABBITMQ_HOST': 'ircs-native-broker', 'SPRING_RABBITMQ_USERNAME': 'ircs',
         'SPRING_RABBITMQ_PASSWORD': password, 'SPRING_DATA_REDIS_HOST': 'ircs-native-key-value',
         'APP_IDENTITY_JWT_SECRET': password,
         'MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED': 'false', 'MANAGEMENT_TRACING_EXPORT_ENABLED': 'false',
+        'MANAGEMENT_OPENTELEMETRY_TRACING_SAMPLER': 'always-off',
+        'SPRING_ELASTICSEARCH_URIS': 'http://ircs-native-search:9200',
+        'APP_CREDENTIAL_SERVICE_TOKEN': password, 'APP_CREDENTIAL_INITIALIZER_ENABLED': 'false',
         'APP_TASK_SCHEDULER_ENABLED': 'false', 'APP_TASK_MEDIA_REQUEST_ENABLED': 'false',
+        'APP_TASK_DEFAULT_SEED_ENABLED': 'false', 'APP_MAGNET_AUTO_SEARCH_ENABLED': 'false',
+        'APP_SCRAPER_TREND_SYNC_ENABLED': 'false', 'APP_SCRAPER_TREND_DISCOVERY_ENABLED': 'false',
+        'APP_STORAGE_R2_WORK_QUEUE_WORKER_ENABLED': 'false',
+        'OPS_ALERT_NOTIFICATION_MAIL_ENABLED': 'false', 'APP_OPS_MAINTENANCE_NOTIFICATION_MAIL_ENABLED': 'false',
         'APP_TASK_TREND_DISCOVERY_ENABLED': 'false', 'APP_MAIL_ENABLED': 'false',
         'APP_CONTENT_RESOLVER_PRESET_SEED_ENABLED': 'false',
     }
@@ -75,6 +84,10 @@ def start(service, values):
         args += ['-e', f'{key}={value}']
     docker(*args, image(service), '-Xmx384m')
     wait_for(f'{service} health', lambda: request('/actuator/health/readiness')['status'] == 'UP')
+    with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
+        metrics = response.read().decode()
+    maxima = re.findall(r'^hikaricp_connections_max(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
+    assert all(float(value) == 2 for value in maxima), (service, maxima)
 
 
 def stop():
@@ -135,5 +148,17 @@ try:
             print(f'{service}: runtime {flag}={enabled} verified', flush=True)
             stop()
             wait_for('consumer shutdown', lambda: all(queue(q)['consumers'] == 0 for q in queues))
+    checked = {case[0] for case in cases}
+    for service in json.loads(os.environ['JAVA_IMAGES']):
+        if service in checked or service == 'ircs-migrator':
+            continue
+        values = {}
+        if service == 'ircs-storage-service':
+            values = {'APP_STORAGE_R2_ENABLED': 'true', 'APP_STORAGE_R2_ACCOUNT_ID': 'native-smoke',
+                      'APP_STORAGE_R2_ACCESS_KEY': password, 'APP_STORAGE_R2_SECRET_KEY': password,
+                      'APP_STORAGE_R2_ENDPOINT': 'http://127.0.0.1:9'}
+        start(service, values)
+        print(f'{service}: Native application startup and pool budget verified', flush=True)
+        stop()
 finally:
     stop()

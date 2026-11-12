@@ -3,11 +3,13 @@ package com.prodigalgal.ircs.ops.queue.dlq.broker;
 import com.prodigalgal.ircs.ops.queue.domain.QueueTopicDescriptor;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementMessageSample;
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueClient;
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueSnapshot;
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueues;
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -25,6 +27,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.support.DefaultMessagePropertiesConverter;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -35,7 +38,6 @@ public class DeadLetterService {
     private static final int MAX_SAMPLE_LIMIT = 5;
     private static final int DEFAULT_SAMPLED_QUEUE_LIMIT = 3;
     private static final int MAX_SAMPLED_QUEUE_LIMIT = 20;
-    private static final int RECEIVE_TIMEOUT_MS = 100;
     private static final int BODY_PREVIEW_LIMIT = 500;
     private static final Duration DEFAULT_QUEUE_SNAPSHOT_CACHE_TTL = Duration.ofSeconds(3);
     private static final Duration DEFAULT_SAMPLE_CACHE_TTL = Duration.ofSeconds(5);
@@ -48,12 +50,15 @@ public class DeadLetterService {
     private static final String HEADER_ERROR_MESSAGE = "x-ircs-error-message";
     private static final String HEADER_MANUAL_ACTION = "x-ircs-manual-dlq-action";
     private static final String HEADER_MANUAL_ACTION_AT = "x-ircs-manual-dlq-action-at";
+    private static final String HEADER_MANUAL_REPLAY_COUNT = "x-ircs-manual-dlq-replay-count";
     private static final String OPS_CONFIG_CHANGED_QUEUE = "q.ops.config_changed";
 
     private final RabbitAdmin rabbitAdmin;
     private final RabbitTemplate rabbitTemplate;
     private final BrokerManagementQueueClient queueClient;
     private final RuntimeConfigService runtimeConfig;
+    private final MessagePublisher messagePublisher;
+    private final DefaultMessagePropertiesConverter messagePropertiesConverter = new DefaultMessagePropertiesConverter();
     private final Map<SampleCacheKey, CachedSamples> sampleCache = new ConcurrentHashMap<>();
     private volatile CachedQueueSnapshots cachedQueueSnapshots;
 
@@ -71,8 +76,8 @@ public class DeadLetterService {
     private List<DeadLetterQueueResponse> listNativeQueues(
             Map<String, BrokerManagementQueueSnapshot> brokerQueues,
             int sampleLimit) {
-        Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
-        List<RabbitDlqDefinition> dlqDefinitions = brokerQueues.keySet().stream()
+        Map<String, DeadLetterDefinition> definitions = knownDefinitions();
+        List<DeadLetterDefinition> dlqDefinitions = brokerQueues.keySet().stream()
                 .filter(DeadLetterService::isDlqQueue)
                 .sorted()
                 .map(queueName -> definitions.getOrDefault(queueName, unmanagedDefinition(queueName)))
@@ -89,9 +94,9 @@ public class DeadLetterService {
 
     private List<DeadLetterQueueResponse> listKnownQueues() {
         Map<String, BrokerManagementQueueSnapshot> brokerQueues = Map.of();
-        Map<String, RabbitDlqDefinition> definitions = knownDefinitions();
+        Map<String, DeadLetterDefinition> definitions = knownDefinitions();
         return definitions.values().stream()
-                .sorted(Comparator.comparing(RabbitDlqDefinition::queueName))
+                .sorted(Comparator.comparing(DeadLetterDefinition::queueName))
                 .map(definition -> queueResponse(definition, brokerQueues, 0))
                 .toList();
     }
@@ -109,16 +114,13 @@ public class DeadLetterService {
         List<DeadLetterMessageSample> samples = new ArrayList<>();
         int affected = 0;
         for (int i = 0; i < requested; i++) {
-            Message message = rabbitTemplate.receive(topic.dlqName(), RECEIVE_TIMEOUT_MS);
+            Message message = receiveAndMove(topic, action);
             if (message == null) {
                 break;
             }
             affected++;
             if (samples.size() < 5) {
                 samples.add(sample(message));
-            }
-            if ("retry".equals(action)) {
-                rabbitTemplate.send(topic.exchange(), topic.routingKey(), markManualAction(message, action));
             }
         }
         if (affected > 0) {
@@ -131,6 +133,33 @@ public class DeadLetterService {
                 affected,
                 queueResponse(knownDefinition(topic), nativeQueueSnapshots().orElse(Map.of()), 0),
                 samples);
+    }
+
+    private Message receiveAndMove(QueueTopic topic, String action) {
+        return rabbitTemplate.execute(channel -> {
+            var delivery = channel.basicGet(topic.dlqName(), false);
+            if (delivery == null) {
+                return null;
+            }
+            long deliveryTag = delivery.getEnvelope().getDeliveryTag();
+            try {
+                Message message = new Message(delivery.getBody(), messagePropertiesConverter.toMessageProperties(
+                        delivery.getProps(), delivery.getEnvelope(), StandardCharsets.UTF_8.name()));
+                if ("retry".equals(action)) {
+                    messagePublisher.publish(topic.exchange(), topic.routingKey(), markManualAction(message, action));
+                }
+                // A failed or ambiguous publish must leave the original delivery available.
+                channel.basicAck(deliveryTag, false);
+                return message;
+            } catch (RuntimeException | IOException failure) {
+                try {
+                    channel.basicNack(deliveryTag, false, true);
+                } catch (IOException requeueFailure) {
+                    failure.addSuppressed(requeueFailure);
+                }
+                throw failure;
+            }
+        });
     }
 
     private QueueTopic resolveTopic(String queueName) {
@@ -158,14 +187,14 @@ public class DeadLetterService {
     }
 
     private DeadLetterQueueResponse queueResponse(
-            RabbitDlqDefinition definition,
+            DeadLetterDefinition definition,
             Map<String, BrokerManagementQueueSnapshot> brokerQueues,
             int sampleLimit) {
         return queueResponse(definition, brokerQueues, sampleLimit, sampleLimit > 0);
     }
 
     private DeadLetterQueueResponse queueResponse(
-            RabbitDlqDefinition definition,
+            DeadLetterDefinition definition,
             Map<String, BrokerManagementQueueSnapshot> brokerQueues,
             int sampleLimit,
             boolean includeSamples) {
@@ -219,7 +248,7 @@ public class DeadLetterService {
     }
 
     private Set<String> sampledQueueNames(
-            List<RabbitDlqDefinition> definitions,
+            List<DeadLetterDefinition> definitions,
             Map<String, BrokerManagementQueueSnapshot> brokerQueues,
             int sampleLimit) {
         int queueLimit = sampledQueueLimit();
@@ -229,16 +258,16 @@ public class DeadLetterService {
         return definitions.stream()
                 .filter(definition -> messagesTotal(definition, brokerQueues) > 0)
                 .sorted(Comparator.comparingInt(
-                                (RabbitDlqDefinition definition) -> messagesTotal(definition, brokerQueues))
+                                (DeadLetterDefinition definition) -> messagesTotal(definition, brokerQueues))
                         .reversed()
-                        .thenComparing(RabbitDlqDefinition::queueName))
+                        .thenComparing(DeadLetterDefinition::queueName))
                 .limit(queueLimit)
-                .map(RabbitDlqDefinition::queueName)
+                .map(DeadLetterDefinition::queueName)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private int messagesTotal(
-            RabbitDlqDefinition definition,
+            DeadLetterDefinition definition,
             Map<String, BrokerManagementQueueSnapshot> brokerQueues) {
         BrokerManagementQueueSnapshot snapshot = brokerQueues.get(definition.queueName());
         return snapshot == null ? 0 : snapshot.messagesTotal();
@@ -293,12 +322,12 @@ public class DeadLetterService {
         sampleCache.keySet().removeIf(key -> key.queueName().equals(queueName));
     }
 
-    private Map<String, RabbitDlqDefinition> knownDefinitions() {
-        Map<String, RabbitDlqDefinition> definitions = new LinkedHashMap<>();
+    private Map<String, DeadLetterDefinition> knownDefinitions() {
+        Map<String, DeadLetterDefinition> definitions = new LinkedHashMap<>();
         Arrays.stream(QueueTopic.values())
                 .map(this::knownDefinition)
                 .forEach(definition -> definitions.put(definition.queueName(), definition));
-        RabbitDlqDefinition configChangedDefinition = new RabbitDlqDefinition(
+        DeadLetterDefinition configChangedDefinition = new DeadLetterDefinition(
                 "OPS_CONFIG_CHANGED",
                 "系统配置变更 DLQ",
                 OPS_CONFIG_CHANGED_QUEUE + ".dlq",
@@ -310,9 +339,9 @@ public class DeadLetterService {
         return definitions;
     }
 
-    private RabbitDlqDefinition knownDefinition(QueueTopic topic) {
+    private DeadLetterDefinition knownDefinition(QueueTopic topic) {
         QueueTopicDescriptor descriptor = QueueTopicDescriptor.from(topic);
-        return new RabbitDlqDefinition(
+        return new DeadLetterDefinition(
                 topic.name(),
                 descriptor.displayName() + " DLQ",
                 topic.dlqName(),
@@ -322,8 +351,8 @@ public class DeadLetterService {
                 true);
     }
 
-    private static RabbitDlqDefinition unmanagedDefinition(String queueName) {
-        return new RabbitDlqDefinition(
+    private static DeadLetterDefinition unmanagedDefinition(String queueName) {
+        return new DeadLetterDefinition(
                 queueName,
                 queueName,
                 queueName,
@@ -358,9 +387,13 @@ public class DeadLetterService {
     }
 
     private Message markManualAction(Message message, String action) {
+        Integer replayCount = numberHeader(message, HEADER_MANUAL_REPLAY_COUNT);
+        int nextReplay = replayCount == null ? 1 : Math.min(Integer.MAX_VALUE - 1, Math.max(0, replayCount)) + 1;
         return MessageBuilder.fromMessage(message)
                 .setHeader(HEADER_MANUAL_ACTION, action)
                 .setHeader(HEADER_MANUAL_ACTION_AT, Instant.now().toString())
+                .setHeader(HEADER_MANUAL_REPLAY_COUNT, nextReplay)
+                .setHeader(HEADER_RETRY_COUNT, 0)
                 .build();
     }
 
@@ -447,7 +480,7 @@ public class DeadLetterService {
         }
     }
 
-    private record RabbitDlqDefinition(
+    private record DeadLetterDefinition(
             String topic,
             String displayName,
             String queueName,

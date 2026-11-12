@@ -390,8 +390,8 @@ class SystemMetricsServiceTest {
         stubRateBucket(Map.of(
                 BrokerManagementRateProbe.metricKey(
                         QueueTopic.INGEST_VIDEO,
-                        BrokerManagementRateProbe.RabbitQueueRole.MAIN,
-                        BrokerManagementRateProbe.RabbitRateAction.ACKED),
+                        BrokerManagementRateProbe.QueueRole.MAIN,
+                        BrokerManagementRateProbe.QueueRateAction.ACKED),
                 "4"));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 

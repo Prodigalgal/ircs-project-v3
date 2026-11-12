@@ -61,15 +61,15 @@ class BrokerManagementRateProbeTest {
                 anyString(),
                 eq(BrokerManagementRateProbe.metricKey(
                         QueueTopic.INGEST_VIDEO,
-                        BrokerManagementRateProbe.RabbitQueueRole.MAIN,
-                        BrokerManagementRateProbe.RabbitRateAction.PUBLISHED)),
+                        BrokerManagementRateProbe.QueueRole.MAIN,
+                        BrokerManagementRateProbe.QueueRateAction.PUBLISHED)),
                 eq(4L));
         verify(hashOps).increment(
                 anyString(),
                 eq(BrokerManagementRateProbe.metricKey(
                         QueueTopic.INGEST_VIDEO,
-                        BrokerManagementRateProbe.RabbitQueueRole.MAIN,
-                        BrokerManagementRateProbe.RabbitRateAction.ACKED)),
+                        BrokerManagementRateProbe.QueueRole.MAIN,
+                        BrokerManagementRateProbe.QueueRateAction.ACKED)),
                 eq(6L));
         verify(zSetOps, atLeastOnce()).removeRangeByScore(anyString(), anyDouble(), anyDouble());
     }

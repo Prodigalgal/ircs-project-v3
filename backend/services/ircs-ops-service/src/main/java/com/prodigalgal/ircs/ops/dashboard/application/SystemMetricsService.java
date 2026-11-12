@@ -168,7 +168,7 @@ public class SystemMetricsService {
                     topic.name(),
                     descriptor.color(),
                     topic,
-                    BrokerManagementRateProbe.RabbitQueueRole.MAIN,
+                    BrokerManagementRateProbe.QueueRole.MAIN,
                     topic.queueName(),
                     true,
                     context);
@@ -179,7 +179,7 @@ public class SystemMetricsService {
                     "DLQ_" + topic.name(),
                     "#dc2626",
                     topic,
-                    BrokerManagementRateProbe.RabbitQueueRole.DLQ,
+                    BrokerManagementRateProbe.QueueRole.DLQ,
                     topic.dlqName(),
                     false,
                     context));
@@ -263,12 +263,12 @@ public class SystemMetricsService {
             String key,
             String color,
             QueueTopic topic,
-            BrokerManagementRateProbe.RabbitQueueRole role,
+            BrokerManagementRateProbe.QueueRole role,
             String queueName,
             boolean checkConsumers,
             MetricsReadContext context) {
         QueueState state = context.queueState(queueName);
-        RabbitRateDescriptor rateDescriptor = rabbitRate(topic, role, context.rateSnapshot());
+        BrokerRateDescriptor rateDescriptor = rabbitRate(topic, role, context.rateSnapshot());
         return new QueueMetricResponse(
                 name,
                 key,
@@ -336,44 +336,44 @@ public class SystemMetricsService {
         };
     }
 
-    private RabbitRateDescriptor rabbitRate(
+    private BrokerRateDescriptor rabbitRate(
             QueueTopic topic,
-            BrokerManagementRateProbe.RabbitQueueRole role,
+            BrokerManagementRateProbe.QueueRole role,
             RateMetricSnapshot rateSnapshot) {
         BrokerManagementRateProbe probe = rabbitRateProbeProvider == null
                 ? null
                 : rabbitRateProbeProvider.getIfAvailable();
         boolean managementAvailable = probe != null && probe.rateAvailable();
-        if (role == BrokerManagementRateProbe.RabbitQueueRole.DLQ) {
+        if (role == BrokerManagementRateProbe.QueueRole.DLQ) {
             RateMetricResponse published = rateSnapshot.metric(
                     BrokerManagementRateProbe.metricKey(
                             topic,
                             role,
-                            BrokerManagementRateProbe.RabbitRateAction.PUBLISHED),
+                            BrokerManagementRateProbe.QueueRateAction.PUBLISHED),
                     "入死信速率");
             return managementAvailable || blockedReasonResolver.recentlyActive(published)
-                    ? new RabbitRateDescriptor(RateKind.PUBLISH, published)
-                    : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
+                    ? new BrokerRateDescriptor(RateKind.PUBLISH, published)
+                    : new BrokerRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
         }
 
         RateMetricResponse acked = rateSnapshot.metric(
                 BrokerManagementRateProbe.metricKey(
                         topic,
                         role,
-                        BrokerManagementRateProbe.RabbitRateAction.ACKED),
+                        BrokerManagementRateProbe.QueueRateAction.ACKED),
                 "确认速率");
         RateMetricResponse delivered = rateSnapshot.metric(
                 BrokerManagementRateProbe.metricKey(
                         topic,
                         role,
-                        BrokerManagementRateProbe.RabbitRateAction.DELIVERED),
+                        BrokerManagementRateProbe.QueueRateAction.DELIVERED),
                 "投递速率");
         if (blockedReasonResolver.recentlyActive(delivered) && !blockedReasonResolver.recentlyActive(acked)) {
-            return new RabbitRateDescriptor(RateKind.DELIVER, delivered);
+            return new BrokerRateDescriptor(RateKind.DELIVER, delivered);
         }
         return managementAvailable || blockedReasonResolver.recentlyActive(acked)
-                ? new RabbitRateDescriptor(RateKind.ACK, acked)
-                : new RabbitRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
+                ? new BrokerRateDescriptor(RateKind.ACK, acked)
+                : new BrokerRateDescriptor(RateKind.NONE, rateSnapshot.empty(topic.name(), "Rabbit 速率不可用"));
     }
 
     private int safeInt(long value) {
@@ -396,7 +396,7 @@ public class SystemMetricsService {
     private record RateDescriptor(RateKind kind, String metricKey, String label) {
     }
 
-    private record RabbitRateDescriptor(RateKind kind, RateMetricResponse rate) {
+    private record BrokerRateDescriptor(RateKind kind, RateMetricResponse rate) {
     }
 
     private final class MetricsReadContext {

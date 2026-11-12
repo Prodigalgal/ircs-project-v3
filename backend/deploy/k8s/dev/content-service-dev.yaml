@@ -60,11 +60,11 @@ spec:
                 secretKeyRef:
                   name: ircs-dev-secrets
                   key: DB_PASSWORD
-            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE
               value: "2"
-            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUMIDLE
               value: "0"
-            - name: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
+            - name: SPRING_DATASOURCE_HIKARI_IDLETIMEOUT
               value: "30000"
             - name: APP_CONTENT_LISTENER_ENABLED
               value: "true"

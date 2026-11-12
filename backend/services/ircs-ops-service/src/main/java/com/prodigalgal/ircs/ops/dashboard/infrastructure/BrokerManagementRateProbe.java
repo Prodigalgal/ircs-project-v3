@@ -109,7 +109,7 @@ public class BrokerManagementRateProbe {
         return lastError;
     }
 
-    public static String metricKey(QueueTopic topic, RabbitQueueRole role, RabbitRateAction action) {
+    public static String metricKey(QueueTopic topic, QueueRole role, QueueRateAction action) {
         return "rabbit.%s.%s.%s".formatted(
                 topic.name().toLowerCase(java.util.Locale.ROOT),
                 role.metricPart(),
@@ -128,15 +128,15 @@ public class BrokerManagementRateProbe {
                 continue;
             }
             JsonNode stats = node.path("message_stats");
-            recorded += recordDelta(binding, RabbitRateAction.PUBLISHED, stats.path("publish").asLong(0L));
-            recorded += recordDelta(binding, RabbitRateAction.DELIVERED, stats.path("deliver_get").asLong(0L));
-            recorded += recordDelta(binding, RabbitRateAction.ACKED, stats.path("ack").asLong(0L));
-            recorded += recordDelta(binding, RabbitRateAction.REDELIVERED, stats.path("redeliver").asLong(0L));
+            recorded += recordDelta(binding, QueueRateAction.PUBLISHED, stats.path("publish").asLong(0L));
+            recorded += recordDelta(binding, QueueRateAction.DELIVERED, stats.path("deliver_get").asLong(0L));
+            recorded += recordDelta(binding, QueueRateAction.ACKED, stats.path("ack").asLong(0L));
+            recorded += recordDelta(binding, QueueRateAction.REDELIVERED, stats.path("redeliver").asLong(0L));
         }
         return recorded;
     }
 
-    private int recordDelta(QueueBinding binding, RabbitRateAction action, long value) {
+    private int recordDelta(QueueBinding binding, QueueRateAction action, long value) {
         String counterKey = binding.queueName() + ":" + action.metricPart();
         Long previous = counters.put(counterKey, value);
         if (previous == null || value < previous) {
@@ -230,24 +230,24 @@ public class BrokerManagementRateProbe {
     private static Map<String, QueueBinding> queueBindings() {
         Map<String, QueueBinding> bindings = new HashMap<>();
         for (QueueTopic topic : QueueTopic.values()) {
-            bindings.put(topic.queueName(), new QueueBinding(topic.queueName(), topic, RabbitQueueRole.MAIN));
-            bindings.put(topic.retryName(), new QueueBinding(topic.retryName(), topic, RabbitQueueRole.RETRY));
-            bindings.put(topic.dlqName(), new QueueBinding(topic.dlqName(), topic, RabbitQueueRole.DLQ));
+            bindings.put(topic.queueName(), new QueueBinding(topic.queueName(), topic, QueueRole.MAIN));
+            bindings.put(topic.retryName(), new QueueBinding(topic.retryName(), topic, QueueRole.RETRY));
+            bindings.put(topic.dlqName(), new QueueBinding(topic.dlqName(), topic, QueueRole.DLQ));
         }
         return Map.copyOf(bindings);
     }
 
-    private record QueueBinding(String queueName, QueueTopic topic, RabbitQueueRole role) {
+    private record QueueBinding(String queueName, QueueTopic topic, QueueRole role) {
     }
 
-    public enum RabbitQueueRole {
+    public enum QueueRole {
         MAIN("main"),
         RETRY("retry"),
         DLQ("dlq");
 
         private final String metricPart;
 
-        RabbitQueueRole(String metricPart) {
+        QueueRole(String metricPart) {
             this.metricPart = metricPart;
         }
 
@@ -256,7 +256,7 @@ public class BrokerManagementRateProbe {
         }
     }
 
-    public enum RabbitRateAction {
+    public enum QueueRateAction {
         PUBLISHED("published"),
         DELIVERED("delivered"),
         ACKED("acked"),
@@ -264,7 +264,7 @@ public class BrokerManagementRateProbe {
 
         private final String metricPart;
 
-        RabbitRateAction(String metricPart) {
+        QueueRateAction(String metricPart) {
             this.metricPart = metricPart;
         }
 

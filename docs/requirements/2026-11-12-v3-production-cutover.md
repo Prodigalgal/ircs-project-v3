@@ -28,3 +28,9 @@
 - 消费者 Bean 不再依赖构建期默认关闭的 `@ConditionalOnProperty`；监听容器通过运行期 `autoStartup` 控制。任务快照、watchdog、媒体请求和搜索对账的定时入口使用运行期布尔开关。
 - 云端在真实 PostgreSQL、消息代理和键值存储上运行双架构 Native 检查，验证消费者关闭/开启、入库、播放列表消费和下游工作去重，全部通过才发布聚合标签。
 - 发布方通过 `MessagePublisher` 接口依赖确认发布能力，具体传输与确认逻辑保留在 `ConfirmedMessagePublisher` 适配器。
+
+## 首次生产 Native 启动检查补充
+
+- Boot 4 的 RestClient 自动配置使用专用 `spring-boot-starter-restclient`，不能仅依赖 Web MVC starter。云端启动验证覆盖全部 21 个 Java 服务，包含真实数据库、消息代理、键值存储、带分词插件的搜索服务及启用 R2 客户端的初始化路径。
+- 连接池和消息并发的环境变量使用 Spring 规范形式，例如 `SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`、`SPRING_DATASOURCE_HIKARI_CONNECTIONTIMEOUT`。不得把连接参数错误拆为 `connection.*`，导致绑定阶段调用连接 getter 提前启动并锁定 Hikari。Native 检查读取实际连接池上限，不能仅检查 YAML 数字。
+- 死信人工重试使用手动确认，重发得到 broker confirm 后才 ACK 原消息；发送失败 NACK/requeue 原消息。人工重放重置本轮有限重试额度并记录次数，保留原 payload，禁止先删原消息再尝试发送。
