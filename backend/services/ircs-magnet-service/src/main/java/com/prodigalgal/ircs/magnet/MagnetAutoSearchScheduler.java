@@ -1,11 +1,13 @@
 package com.prodigalgal.ircs.magnet;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.lock.DistributedLockService;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -25,6 +27,8 @@ class MagnetAutoSearchScheduler {
     private final JdbcMagnetRepository magnetRepository;
     private final MagnetQueryService magnetQueryService;
     private final RuntimeConfigService runtimeConfig;
+    private final DistributedLockService locks;
+    private final String lockOwner = UUID.randomUUID().toString();
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-magnet-auto-search-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -41,7 +45,9 @@ class MagnetAutoSearchScheduler {
     MagnetAutoSearchScheduler(
             JdbcMagnetRepository magnetRepository,
             MagnetQueryService magnetQueryService,
-            ObjectProvider<RuntimeConfigService> runtimeConfigProvider) {
+            ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
+            DistributedLockService locks) {
+        this.locks = locks;
         this.magnetRepository = magnetRepository;
         this.magnetQueryService = magnetQueryService;
         this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
@@ -64,7 +70,7 @@ class MagnetAutoSearchScheduler {
             return;
         }
         try {
-            runBatch();
+            locks.runWithLock("lock:magnet:auto-search", lockOwner, Duration.ofMinutes(10), this::runBatch);
         } catch (RuntimeException ex) {
             log.warn("Magnet auto search batch failed: {}", ex.getMessage());
         } finally {
@@ -78,6 +84,7 @@ class MagnetAutoSearchScheduler {
                 Instant.now().minus(cooldown()));
         int triggered = 0;
         for (UUID unifiedVideoId : candidates) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             try {
                 magnetQueryService.enqueueAutomaticSearch(unifiedVideoId);
                 triggered++;

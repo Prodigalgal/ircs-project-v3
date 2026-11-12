@@ -133,4 +133,15 @@ class ClusterLockManagerTest {
         assertThat(reservation.rejected()).isTrue();
         assertThat(reservation.retryAfter()).isEqualTo(Duration.ofSeconds(6));
     }
+    @Test
+    void missingScriptResultsFailClosedForBothLimiterTypes() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> manager.reserveTimeSlice(
+                new TimeSliceReservationRequest("test:time", Duration.ofSeconds(1), Duration.ZERO, Duration.ofMinutes(1))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Invalid time-slice");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> manager.reserveTokenBucket(
+                new TokenBucketReservationRequest("test:bucket", 1, 1, Duration.ofSeconds(1), 1,
+                        Duration.ZERO, Duration.ofMinutes(1))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Invalid token-bucket");
+    }
+
 }

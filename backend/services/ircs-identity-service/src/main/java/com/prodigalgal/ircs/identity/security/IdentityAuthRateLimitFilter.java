@@ -4,6 +4,7 @@ package com.prodigalgal.ircs.identity.security;
 import com.prodigalgal.ircs.identity.IdentityCacheKeys;
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.security.SecurityRequestPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,7 +17,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
@@ -57,13 +57,13 @@ public class IdentityAuthRateLimitFilter extends OncePerRequestFilter {
         if (!enabled() || !"POST".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
-        return !RATE_LIMITED_POST_PATHS.contains(request.getRequestURI());
+        return !RATE_LIMITED_POST_PATHS.contains(SecurityRequestPaths.canonicalPath(request));
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String bucket = request.getRequestURI() + ":" + clientIp(request);
+        String bucket = SecurityRequestPaths.canonicalPath(request) + ":" + clientIp(request);
         String key = IdentityCacheKeys.authRateLimit(bucket);
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1L) {
@@ -83,12 +83,8 @@ public class IdentityAuthRateLimitFilter extends OncePerRequestFilter {
     }
 
     private String clientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwardedFor)) {
-            return forwardedFor.split(",", 2)[0].trim();
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        return StringUtils.hasText(realIp) ? realIp.trim() : request.getRemoteAddr();
+        Object signedIp = request.getAttribute(com.prodigalgal.ircs.common.security.GatewayIdentitySignature.CLIENT_IP_ATTRIBUTE);
+        return signedIp instanceof String value && !value.isBlank() ? value : request.getRemoteAddr();
     }
 
     private boolean enabled() {

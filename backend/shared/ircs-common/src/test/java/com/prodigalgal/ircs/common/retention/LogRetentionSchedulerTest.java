@@ -82,7 +82,14 @@ class LogRetentionSchedulerTest {
         ObjectProvider<Clock> clockProvider = org.mockito.Mockito.mock(ObjectProvider.class);
         when(targetProvider.orderedStream()).thenReturn(java.util.stream.Stream.of(target));
         when(clockProvider.getIfAvailable()).thenReturn(clock);
-        return new LogRetentionScheduler(targetProvider, runtimeConfig, clockProvider);
+        com.prodigalgal.ircs.common.lock.DistributedLockService locks =
+                org.mockito.Mockito.mock(com.prodigalgal.ircs.common.lock.DistributedLockService.class);
+        org.mockito.Mockito.lenient().when(locks.callWithLock(
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> java.util.Optional.ofNullable(
+                        ((java.util.function.Supplier<?>) invocation.getArgument(3)).get()));
+        return new LogRetentionScheduler(targetProvider, runtimeConfig, clockProvider, locks);
     }
 
     private Clock fixedClock() {

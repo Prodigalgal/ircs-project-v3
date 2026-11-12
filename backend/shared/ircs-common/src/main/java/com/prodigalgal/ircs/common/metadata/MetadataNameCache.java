@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 public class MetadataNameCache {
 
@@ -23,6 +24,18 @@ public class MetadataNameCache {
     private static final Logger log = LoggerFactory.getLogger(MetadataNameCache.class);
     private static final String EMPTY_SENTINEL = "";
     private static final String DELIMITER = "\u001F";
+    private static final DefaultRedisScript<Long> WRITE_NAMES = new DefaultRedisScript<>("""
+            if (#ARGV - 2) % 2 ~= 0 then
+                return redis.error_reply('Invalid metadata name pairs')
+            end
+            if ARGV[1] == 'replace' then redis.call('DEL', KEYS[1]) end
+            for index = 3, #ARGV, 2 do
+                redis.call('HSET', KEYS[1], ARGV[index], ARGV[index + 1])
+            end
+            local ttl = tonumber(ARGV[2])
+            if ttl > 0 then redis.call('PEXPIRE', KEYS[1], ttl) end
+            return 1
+            """, Long.class);
 
     private final ObjectProvider<StringRedisTemplate> redisTemplateProvider;
     private final String keyPrefix;
@@ -73,13 +86,7 @@ public class MetadataNameCache {
         if (values == null || values.isEmpty()) {
             return;
         }
-        Map<String, String> payload = new LinkedHashMap<>();
-        for (Map.Entry<UUID, Set<String>> entry : values.entrySet()) {
-            if (entry.getKey() != null) {
-                payload.put(entry.getKey().toString(), serialize(entry.getValue()));
-            }
-        }
-        putAll(ownerType, relation, payload);
+        writeNames(ownerType, relation, payload(values), false);
     }
 
     public void putEmpty(
@@ -94,25 +101,14 @@ public class MetadataNameCache {
         for (UUID id : ids) {
             payload.put(id.toString(), EMPTY_SENTINEL);
         }
-        putAll(ownerType, relation, payload);
+        writeNames(ownerType, relation, payload, false);
     }
 
     public void replaceNames(
             MetadataNameOwnerType ownerType,
             MetadataNameRelation relation,
             Map<UUID, Set<String>> values) {
-        StringRedisTemplate redisTemplate = redisTemplate();
-        if (redisTemplate == null) {
-            return;
-        }
-        String key = hashKey(ownerType, relation);
-        try {
-            redisTemplate.delete(key);
-        } catch (RuntimeException ex) {
-            log.warn("Delete metadata name Valkey cache failed: ownerType={}, relation={}", ownerType, relation, ex);
-            return;
-        }
-        putNames(ownerType, relation, values);
+        writeNames(ownerType, relation, payload(values), true);
     }
 
     public void evictOwner(MetadataNameOwnerType ownerType, Collection<UUID> ownerIds) {
@@ -159,11 +155,12 @@ public class MetadataNameCache {
         }
     }
 
-    private void putAll(
+    private void writeNames(
             MetadataNameOwnerType ownerType,
             MetadataNameRelation relation,
-            Map<String, String> payload) {
-        if (payload.isEmpty()) {
+            Map<String, String> payload,
+            boolean replace) {
+        if (!replace && payload.isEmpty()) {
             return;
         }
         StringRedisTemplate redisTemplate = redisTemplate();
@@ -172,13 +169,30 @@ public class MetadataNameCache {
         }
         String key = hashKey(ownerType, relation);
         try {
-            redisTemplate.opsForHash().putAll(key, payload);
-            if (!ttl.isZero() && !ttl.isNegative()) {
-                redisTemplate.expire(key, ttl);
+            List<String> arguments = new ArrayList<>(2 + payload.size() * 2);
+            arguments.add(replace ? "replace" : "merge");
+            arguments.add(Long.toString(Math.max(0, ttl.toMillis())));
+            payload.forEach((ownerId, names) -> {
+                arguments.add(ownerId);
+                arguments.add(names);
+            });
+            Long written = redisTemplate.execute(WRITE_NAMES, List.of(key), arguments.toArray());
+            if (!Long.valueOf(1).equals(written)) {
+                throw new IllegalStateException("Metadata name cache write was not acknowledged");
             }
         } catch (RuntimeException ex) {
             log.warn("Write metadata name Valkey cache failed: ownerType={}, relation={}", ownerType, relation, ex);
         }
+    }
+
+    private static Map<String, String> payload(Map<UUID, Set<String>> values) {
+        Map<String, String> payload = new LinkedHashMap<>();
+        if (values != null) {
+            values.forEach((ownerId, names) -> {
+                if (ownerId != null) payload.put(ownerId.toString(), serialize(names));
+            });
+        }
+        return payload;
     }
 
     private String hashKey(MetadataNameOwnerType ownerType, MetadataNameRelation relation) {

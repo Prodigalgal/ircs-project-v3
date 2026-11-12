@@ -106,7 +106,9 @@ public class TaskCommandService {
         if (taskRepository.existsActiveTaskForDataSource(task.dataSourceId(), id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "DataSource busy");
         }
-        taskRepository.markQueued(task, resume);
+        if (!taskRepository.markQueued(task, resume)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task state changed; retry the request");
+        }
         dispatchQueuedMasterAfterCommit(id, resume);
     }
 
@@ -117,7 +119,9 @@ public class TaskCommandService {
         if (!Boolean.TRUE.equals(task.enabled()) || isBusy(task.status())) {
             return false;
         }
-        taskRepository.markQueued(task, resume);
+        if (!taskRepository.markQueued(task, resume)) {
+            return false;
+        }
         dispatchQueuedMasterAfterCommit(id, resume);
         return true;
     }

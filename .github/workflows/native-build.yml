@@ -44,12 +44,23 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ircs
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: ircs_test
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U ircs -d ircs_test" --health-interval 5s --health-timeout 3s --health-retries 10
       valkey:
         image: valkey/valkey:8
         ports: ['6379:6379']
         options: --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     env:
       IRCS_TEST_KEY_VALUE_PORT: '6379'
+      IRCS_TEST_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5432/ircs_test
+      IRCS_TEST_POSTGRES_USER: ircs
+      IRCS_TEST_POSTGRES_PASSWORD: ci-disposable-password
     defaults:
       run:
         working-directory: backend
@@ -233,6 +244,7 @@ jobs:
           cache-dependency-path: frontends/${{ matrix.frontend }}/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test --if-present
       - run: npm run build
       - name: Package compiled frontend
         run: |
@@ -419,7 +431,9 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$hosts_file"
           git clone --depth 1 git@github.com:Prodigalgal/k8s-gitops-config.git gitops
           python3 .github/scripts/update-gitops.py gitops
-          git -C gitops add ircs-prod/core/kustomization.yaml ircs-prod/core/manifests/migrator-job.yaml
+          kubectl kustomize gitops/ircs-prod/core > /dev/null
+          kubectl kustomize gitops/ircs-prod/edge > /dev/null
+          git -C gitops add ircs-prod/core
           if git -C gitops diff --cached --quiet; then
             echo 'GitOps already references this revision.' >> "$GITHUB_STEP_SUMMARY"
             exit 0

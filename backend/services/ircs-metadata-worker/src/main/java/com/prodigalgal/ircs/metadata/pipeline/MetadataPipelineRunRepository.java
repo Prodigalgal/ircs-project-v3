@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Repository
@@ -22,6 +23,7 @@ public class MetadataPipelineRunRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
+    @Transactional
     public List<ProviderType> prepareDispatch(UUID rawVideoId, String pipelineVersion, List<ProviderType> providers) {
         if (providers == null || providers.isEmpty()) {
             return List.of();
@@ -69,6 +71,36 @@ public class MetadataPipelineRunRepository {
                 """,
                 batch);
 
+        // Reset only retryable failures. Deduct their previous terminal contribution so a
+        // successful retry can finish the same durable run without stale failure counters.
+        jdbcTemplate.update(
+                """
+                with retried as (
+                    update raw_video_enrichment_provider_runs
+                    set status = 'PENDING', retryable = false,
+                        error_code = null, error_message = null,
+                        completed_at = null, dispatched_at = now(), updated_at = now()
+                    where raw_video_id = :rawVideoId
+                      and pipeline_version = :pipelineVersion
+                      and provider_type in (:providers)
+                      and status = 'FAILED' and retryable = true
+                    returning provider_type
+                )
+                update raw_video_pipeline_runs
+                set status = 'PENDING',
+                    completed_count = greatest(0, completed_count - (select count(*) from retried)),
+                    failure_count = greatest(0, failure_count - (select count(*) from retried)),
+                    retryable_failure_count = greatest(0, retryable_failure_count - (select count(*) from retried)),
+                    updated_at = now()
+                where raw_video_id = :rawVideoId and pipeline_version = :pipelineVersion
+                  and step = :step and exists (select 1 from retried)
+                """,
+                new MapSqlParameterSource()
+                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("pipelineVersion", version)
+                        .addValue("step", STEP)
+                        .addValue("providers", providers.stream().map(Enum::name).toList()));
+
         List<String> pendingProviderNames = jdbcTemplate.queryForList(
                 """
                 select provider_type
@@ -88,6 +120,21 @@ public class MetadataPipelineRunRepository {
                 .toList();
     }
 
+    public Optional<Integer> findPendingProviderAttempt(UUID rawVideoId, String pipelineVersion, ProviderType providerType) {
+        return jdbcTemplate.queryForList(
+                """
+                select attempt_count from raw_video_enrichment_provider_runs
+                where raw_video_id = :rawVideoId and pipeline_version = :pipelineVersion
+                  and provider_type = :providerType and status = 'PENDING'
+                """,
+                new MapSqlParameterSource()
+                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("pipelineVersion", normalizeVersion(pipelineVersion))
+                        .addValue("providerType", providerType.name()),
+                Integer.class).stream().findFirst();
+    }
+
+    @Transactional
     public ProviderCompletion completeProvider(
             UUID rawVideoId,
             String pipelineVersion,
@@ -95,7 +142,11 @@ public class MetadataPipelineRunRepository {
             boolean success,
             boolean retryable,
             String errorCode,
-            String errorMessage) {
+            String errorMessage,
+            int expectedAttempt) {
+        if (expectedAttempt < 0) {
+            throw new IllegalArgumentException("provider attempt must be non-negative");
+        }
         if (providerType == null) {
             return ProviderCompletion.untracked();
         }
@@ -115,6 +166,7 @@ public class MetadataPipelineRunRepository {
                   and pipeline_version = :pipelineVersion
                   and provider_type = :providerType
                   and status = 'PENDING'
+                  and attempt_count = :expectedAttempt
                 """,
                 new MapSqlParameterSource()
                         .addValue("rawVideoId", rawVideoId)
@@ -123,7 +175,8 @@ public class MetadataPipelineRunRepository {
                         .addValue("status", providerStatus)
                         .addValue("retryable", retryable)
                         .addValue("errorCode", errorCode)
-                        .addValue("errorMessage", errorMessage));
+                        .addValue("errorMessage", errorMessage)
+                        .addValue("expectedAttempt", expectedAttempt));
         if (changed == 0) {
             return findCompletion(rawVideoId, version, false).orElse(ProviderCompletion.untracked());
         }

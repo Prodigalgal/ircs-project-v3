@@ -56,6 +56,20 @@ class TmdbRateLimiterTest {
                 .hasMessageContaining("TMDB credential pool saturated");
     }
 
+    @Test
+    void repeatedWaitingResponsesCannotResetTheOverallWaitBudget() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager(TokenBucketReservation.waiting(
+                "test:tmdb", 0, Duration.ofMillis(8), Instant.now()));
+        TmdbProviderProperties properties = new TmdbProviderProperties();
+        properties.setMaxWait(Duration.ofMillis(25));
+        TmdbRateLimiter limiter = new TmdbRateLimiter(lockManager, properties);
+
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1), () ->
+                assertThatThrownBy(() -> limiter.acquire(new TmdbCredential(UUID.randomUUID(), "secret", 30, "MINUTE", 0)))
+                        .isInstanceOf(MetadataProviderRetryableException.class)
+                        .hasMessageContaining("TMDB credential pool saturated"));
+    }
+
     private static class FakeDistributedLockManager implements DistributedLockManager {
 
         private final TokenBucketReservation tokenBucketReservation;

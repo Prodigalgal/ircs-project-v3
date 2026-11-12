@@ -12,6 +12,7 @@ import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -124,6 +125,7 @@ class SearchReconciliationRunner {
         int effectiveBatchSize = Math.max(1, batchSize);
         int effectiveMaxBatches = Math.max(1, maxBatches);
         while (batches < effectiveMaxBatches) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             List<UUID> ids = entityType == SearchEntityType.RAW_VIDEO
                     ? documentRepository.findNextRawVideoIds(cursor, effectiveBatchSize)
                     : documentRepository.findNextUnifiedVideoIds(cursor, effectiveBatchSize);
@@ -141,6 +143,7 @@ class SearchReconciliationRunner {
                     .toList();
             missing += missingIds.size();
             if (!missingIds.isEmpty() && !dryRun && executeGate) {
+                ClusterLeaseGuard.checkCurrentOwnership();
                 enqueued += workPublisher.enqueueBatch(
                         missingIds,
                         entityType,

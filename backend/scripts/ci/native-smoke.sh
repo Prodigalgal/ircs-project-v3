@@ -65,6 +65,7 @@ else
   docker run -d --network ircs-native-smoke --name ircs-native-dependency valkey/valkey:8 >/dev/null
   docker run -d --name ircs-native-smoke --network ircs-native-smoke -p 127.0.0.1:18080:8080 \
     -e SPRING_DATA_REDIS_HOST=ircs-native-dependency \
+    -e APP_CONTENT_SAFETY_INTERNAL_ACCESS_TOKEN=ci-disposable-internal-token \
     -e MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED=false \
     "$image" >/dev/null
   ready=false
@@ -74,7 +75,12 @@ else
   done
   test "$ready" = true
   curl --fail --silent --show-error http://127.0.0.1:18080/actuator/info > "$tmp_dir/native-info.json"
+  test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/api/v1/native-unsigned-probe)" = 503
+  test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Content-Type: application/json' \
+    --data '{"items":[]}' http://127.0.0.1:18080/internal/v1/content-safety/adult-assessments:batch)" = 401
   curl --fail --silent --show-error -H 'Content-Type: application/json' \
+    -H 'X-IRCS-SERVICE-ID: native-smoke' -H 'X-IRCS-SERVICE-TOKEN: ci-disposable-internal-token' \
+    -H 'X-IRCS-SERVICE-SCOPES: content-safety:assess' \
     --data '{"items":[{"id":"00000000-0000-0000-0000-000000000001","title":"普通电影","subtitle":"成人色情影片"}]}' \
     http://127.0.0.1:18080/internal/v1/content-safety/adult-assessments:batch > "$tmp_dir/native-assessment.json"
   export NATIVE_SMOKE_TMP_DIR="$tmp_dir"

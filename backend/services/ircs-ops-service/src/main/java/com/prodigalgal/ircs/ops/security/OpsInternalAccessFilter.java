@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -23,7 +22,7 @@ class OpsInternalAccessFilter extends OncePerRequestFilter {
     private final String runScope;
 
     OpsInternalAccessFilter(
-            @Value("${app.ops.internal-access.require-token:false}") boolean requireToken,
+            @Value("${app.ops.internal-access.require-token:true}") boolean requireToken,
             @Value("${app.ops.internal-access.token:${APP_OPS_SERVICE_TOKEN:}}") String configuredToken,
             @Value("${app.ops.internal-access.read-scope:ops:read}") String readScope,
             @Value("${app.ops.internal-access.run-scope:ops:run}") String runScope) {
@@ -44,10 +43,6 @@ class OpsInternalAccessFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        if (!requireToken && !StringUtils.hasText(configuredToken)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
         try {
             InternalServiceAccessPolicy.require(
                     "Ops",

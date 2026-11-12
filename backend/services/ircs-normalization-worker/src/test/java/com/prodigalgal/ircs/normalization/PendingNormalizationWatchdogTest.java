@@ -48,6 +48,7 @@ class PendingNormalizationWatchdogTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(clusterLeaseService.renew(any(), any())).thenReturn(true);
         lease = new ClusterLease(
                 PendingNormalizationWatchdog.LEASE_NAME,
                 "worker-a",
@@ -148,6 +149,18 @@ class PendingNormalizationWatchdogTest {
 
         assertEquals(0, submitted);
         verify(repository, never()).findPendingNormalizationQueueItems(any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void unavailableLeaseSkipsDatabaseAndQueueInsteadOfRunningLocally() {
+        when(configValues.pendingWatchdogEnabled()).thenReturn(true);
+        when(configValues.pendingWatchdogLeaseTtl()).thenReturn(Duration.ofSeconds(30));
+        when(clusterLeaseService.tryAcquire(any(), any(), any()))
+                .thenThrow(new IllegalStateException("Valkey unavailable"));
+
+        assertEquals(0, watchdog.reconcilePending());
+        verify(repository, never()).findPendingNormalizationQueueItems(any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(workQueue, never()).submit(any(RuntimeWorkItemRequest.class));
     }
 
     private static ObjectProvider<ClusterLeaseService> provider(ClusterLeaseService leaseService) {

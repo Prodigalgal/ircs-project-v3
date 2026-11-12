@@ -271,7 +271,7 @@ public class SystemConfigDefaults {
             cfg("app.task.cluster-lock.ttl", "PT30S", "任务服务集群锁 TTL"),
             cfg("app.task.cluster-lock.worker-id", "", "任务服务集群锁 Worker 标识，留空自动生成"),
             cfg("app.task.default-seed.enabled", "true", "是否启用任务默认种子初始化"),
-            cfg("app.task.internal-access.require-token", "false", "任务内部接口是否要求 Token"),
+            cfg("app.task.internal-access.require-token", "true", "任务内部接口始终要求 Token（保留历史配置键）"),
             cfg("app.task.internal-access.token", "", "任务内部接口访问 Token"),
             cfg("app.task.internal-access.required-scope", "task:maintenance", "任务内部接口所需权限范围"),
             cfg("app.task.queue.enabled", "true", "是否启用任务运行队列"),

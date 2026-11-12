@@ -81,6 +81,49 @@ class PoWServiceTest {
         }
     }
 
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void scopedHeaderProofIsConsumedOnceAndCannotBeReplayed() {
+        var stored = new java.util.concurrent.atomic.AtomicReference<>(
+                "portal.register|0|server-nonce||" + java.time.Instant.now().plusSeconds(60).toEpochMilli());
+        org.mockito.Mockito.doAnswer(call -> stored.getAndSet(null)).when(redisTemplate)
+                .execute(org.mockito.ArgumentMatchers.any(org.springframework.data.redis.core.script.RedisScript.class),
+                        org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.<Object[]>any());
+        PoWService service = new PoWService(redisTemplate, configService, new SecureRandom());
+        var request = proof("id", "portal.register", "server-nonce", "1");
+        service.verifyHeaders(request, "portal.register", false);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyHeaders(request, "portal.register", false))
+                .isInstanceOf(com.prodigalgal.ircs.identity.api.ApiException.class).hasMessageContaining("expired or invalid");
+        org.mockito.Mockito.verify(redisTemplate, org.mockito.Mockito.never()).opsForValue();
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void rejectsCrossScopeProofAndLegacyBodyEvenAtZeroDifficulty() {
+        org.mockito.Mockito.doReturn("portal.register|0|server-nonce||" + java.time.Instant.now().plusSeconds(60).toEpochMilli())
+                .when(redisTemplate).execute(org.mockito.ArgumentMatchers.any(org.springframework.data.redis.core.script.RedisScript.class),
+                        org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.<Object[]>any());
+        PoWService service = new PoWService(redisTemplate, configService, new SecureRandom());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyHeaders(
+                proof("id", "portal.register", "server-nonce", "1"), "admin.login", true))
+                .isInstanceOf(com.prodigalgal.ircs.identity.api.ApiException.class).hasMessageContaining("scope mismatch");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verify(
+                new com.prodigalgal.ircs.identity.dto.IdentityDtos.PoWVerification("id", "legacy-solution")))
+                .isInstanceOf(com.prodigalgal.ircs.identity.api.ApiException.class).hasMessageContaining("scoped PoW verification headers");
+    }
+
+    private org.springframework.mock.web.MockHttpServletRequest proof(String id, String scope, String nonce, String counter) {
+        var request = new org.springframework.mock.web.MockHttpServletRequest("POST", "/api/portal/auth/register");
+        request.addHeader("X-IRCS-POW-Challenge", id);
+        request.addHeader("X-IRCS-POW-Counter", counter);
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((id + ":" + scope + ":" + nonce + ":" + counter).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            request.addHeader("X-IRCS-POW-Digest", java.util.HexFormat.of().formatHex(digest));
+        } catch (Exception ex) { throw new IllegalStateException(ex); }
+        return request;
+    }
+
     private String answer(String question) {
         Matcher matcher = CAPTCHA_PATTERN.matcher(question);
         assertThat(matcher.matches()).isTrue();

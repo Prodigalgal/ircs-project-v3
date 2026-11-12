@@ -73,16 +73,14 @@ class AdminApiTokenServiceTest {
     }
 
     @Test
-    void authenticatesQueryTokenForNativeEventSource() {
+    void ignoresQueryTokenEvenForEventStreams() {
         AdminApiTokenDtos.CreatedResponse created = service.create("stream", "admin");
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
         request.addHeader("Accept", "text/event-stream");
         request.setParameter("token", created.token());
 
-        var principal = service.authenticateIfPresent(request).orElseThrow();
-
-        assertThat(principal.role()).isEqualTo(IrcsPermissions.ROLE_ADMIN);
-        assertThat(principal.subject()).isEqualTo("api-token:" + created.tokenPrefix());
+        assertThat(service.authenticateIfPresent(request)).isEmpty();
+        assertThat(repository.findCount).isZero();
     }
 
     @Test

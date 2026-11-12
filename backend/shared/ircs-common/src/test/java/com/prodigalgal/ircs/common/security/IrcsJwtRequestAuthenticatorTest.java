@@ -14,13 +14,23 @@ class IrcsJwtRequestAuthenticatorTest {
     private static final String SECRET = "01234567890123456789012345678901";
 
     @Test
-    void authenticatesQueryTokenForNativeEventSource() {
+    void ignoresQueryTokenEvenForEventStreams() {
         IrcsJwtRequestAuthenticator authenticator = new IrcsJwtRequestAuthenticator(
                 new StaticConfigResolver(SECRET, 0));
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
         request.addHeader("Accept", "text/event-stream");
         request.setParameter("token", token());
 
+        assertThat(authenticator.authenticateIfPresent(request)).isEmpty();
+    }
+
+    @Test
+    void authenticatesEventStreamWithAuthorizationHeader() {
+        IrcsJwtRequestAuthenticator authenticator = new IrcsJwtRequestAuthenticator(
+                new StaticConfigResolver(SECRET, 0));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/dashboard/stream/metrics");
+        request.addHeader("Accept", "text/event-stream");
+        request.addHeader("Authorization", "Bearer " + token());
         IrcsRequestPrincipal principal = authenticator.authenticateIfPresent(request).orElseThrow();
 
         assertThat(principal.subject()).isEqualTo("admin");

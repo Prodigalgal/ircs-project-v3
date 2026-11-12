@@ -39,6 +39,12 @@ class MetadataPipelineRunRepositoryTest {
                 argThat(sql -> sql.contains("raw_video_pipeline_runs")
                         && sql.contains("on conflict (raw_video_id, pipeline_version, step) do nothing")),
                 any(MapSqlParameterSource.class));
+        org.mockito.Mockito.verify(jdbcTemplate).update(
+                argThat(sql -> sql.contains("with retried as")
+                        && sql.contains("status = 'FAILED' and retryable = true")
+                        && sql.contains("completed_count - (select count(*) from retried)")
+                        && sql.contains("failure_count - (select count(*) from retried)")),
+                any(MapSqlParameterSource.class));
         org.mockito.Mockito.verify(jdbcTemplate).batchUpdate(
                 argThat(sql -> sql.contains("raw_video_enrichment_provider_runs")
                         && sql.contains("on conflict (raw_video_id, pipeline_version, provider_type) do nothing")),
@@ -81,11 +87,30 @@ class MetadataPipelineRunRepositoryTest {
                 true,
                 false,
                 null,
-                null);
+                null, 0);
 
         assertTrue(completion.tracked());
         assertTrue(completion.newlyCompleted());
         assertEquals(2, completion.expectedCount());
         assertEquals(1, completion.completedCount());
     }
+    @Test
+    void oldAttemptCannotCompleteTheNewPendingRetryOrIncrementItsCounters() {
+        NamedParameterJdbcTemplate jdbc = org.mockito.Mockito.mock(NamedParameterJdbcTemplate.class);
+        MetadataPipelineRunRepository repository = new MetadataPipelineRunRepository(jdbc);
+        UUID id = UUID.randomUUID();
+        when(jdbc.update(argThat(sql -> sql.contains("update raw_video_enrichment_provider_runs")
+                        && sql.contains("attempt_count = :expectedAttempt")),
+                argThat((MapSqlParameterSource parameters) -> Integer.valueOf(0).equals(parameters.getValue("expectedAttempt")))))
+                .thenReturn(0);
+
+        ProviderCompletion completion = repository.completeProvider(id, "v1", ProviderType.TMDB,
+                true, false, null, null, 0);
+
+        org.junit.jupiter.api.Assertions.assertFalse(completion.newlyCompleted());
+        org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.never()).query(
+                argThat(sql -> sql.contains("update raw_video_pipeline_runs")),
+                any(MapSqlParameterSource.class), any(RowMapper.class));
+    }
+
 }

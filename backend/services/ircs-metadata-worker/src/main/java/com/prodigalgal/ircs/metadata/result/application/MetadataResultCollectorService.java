@@ -41,7 +41,10 @@ public class MetadataResultCollectorService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public MetadataResultProcessingResult process(EnrichmentResultMsg message) {
+    public MetadataResultProcessingResult process(EnrichmentResultMsg message, int expectedAttempt) {
+        if (expectedAttempt < 0) {
+            throw new IllegalArgumentException("provider attempt is required");
+        }
         Optional<RawVideoMetadataRecord> recordOpt = repository.findById(message.getVideoId());
         if (recordOpt.isEmpty()) {
             log.warn("Metadata result references missing raw video: {}", message.getVideoId());
@@ -71,7 +74,8 @@ public class MetadataResultCollectorService {
                 message.isSuccess(),
                 message.isRetryable(),
                 message.getErrorCode(),
-                message.getErrorMessage());
+                message.getErrorMessage(),
+                expectedAttempt);
         if (!completion.tracked()) {
             log.warn(
                     "Metadata result has no durable provider run: videoId={}, provider={}, pipelineVersion={}",

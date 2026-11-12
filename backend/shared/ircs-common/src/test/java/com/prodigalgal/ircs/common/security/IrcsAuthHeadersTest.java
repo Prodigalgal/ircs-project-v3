@@ -62,6 +62,9 @@ class IrcsAuthHeadersTest {
         request.addHeader(IrcsAuthHeaders.DATA_TAGS, "*");
         request.addHeader(IrcsAuthHeaders.CONTENT_VISIBILITY, "PUBLIC,MEMBER");
 
+        assertThat(IrcsAuthHeaders.fromTrustedHeaders(request)).isEmpty();
+        assertThat(IrcsAuthHeaders.principalOrPublic(request).isAnonymous()).isTrue();
+        request.setAttribute(GatewayIdentitySignature.VERIFIED_ATTRIBUTE, Boolean.TRUE);
         IrcsRequestPrincipal principal = IrcsAuthHeaders.fromTrustedHeaders(request).orElseThrow();
 
         assertThat(principal.subject()).isEqualTo("member-1");

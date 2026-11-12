@@ -65,7 +65,7 @@ class AggregationMatchKeyLockTest {
         @Override
         public Optional<ClusterLease> tryAcquire(String name, String ownerId, Duration ttl) {
             acquiredNames.add(name);
-            Instant now = Instant.parse("2026-06-11T00:00:00Z");
+            Instant now = Instant.now();
             return Optional.of(new ClusterLease(name, ownerId, "token-" + acquiredNames.size(), now, now.plus(ttl)));
         }
 

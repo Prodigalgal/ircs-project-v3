@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.task.job;
 
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
+
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
@@ -82,6 +84,7 @@ class TaskSnapshotFlushScheduler {
             TaskSnapshotFlushResult result = flushService.flushDirtyMasters(
                     Instant.now().minus(minDirtyAge),
                     batchSize);
+            ClusterLeaseGuard.checkCurrentOwnership();
             TaskRuntimeRepairResult repairResult = repairService.repairStuckActiveMasters(repairBatchSize);
             if (result.discovered() > 0 || result.failed() > 0 || repairResult.repaired() > 0
                     || repairResult.finalized() > 0 || repairResult.failed() > 0) {

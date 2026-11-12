@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useInitManualSessionMutation } from '../scraperApi';
+import { AuthenticatedEventStream } from '../../../utils/AuthenticatedEventStream';
 
 const DEFAULT_FORM_DATA = {
     keyword: '',
@@ -26,15 +27,14 @@ export function useManualScraper() {
     const [initSession, { isLoading: isInitializing }] = useInitManualSessionMutation();
 
     const connectSSE = useCallback((sessionId) => {
-        const token = localStorage.getItem('ircs_token');
-        const url = `/api/v1/scraper/manual/stream/${sessionId}?token=${token}`;
+        const url = `/api/v1/scraper/manual/stream/${sessionId}`;
 
         // 关闭旧连接（如果有）
         if (eventSourceRef.current) {
             eventSourceRef.current.close();
         }
 
-        const eventSource = new EventSource(url);
+        const eventSource = new AuthenticatedEventStream(url, { reconnect: false });
         eventSourceRef.current = eventSource;
 
         eventSource.onmessage = (event) => {
@@ -88,6 +88,8 @@ export function useManualScraper() {
             eventSourceRef.current = null;
         }
     }, []);
+
+    useEffect(() => stopScraping, [stopScraping]);
 
     const reset = useCallback(() => {
         stopScraping();

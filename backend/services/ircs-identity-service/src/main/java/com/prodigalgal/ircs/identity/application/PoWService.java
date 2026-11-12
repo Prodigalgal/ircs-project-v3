@@ -118,18 +118,7 @@ public class PoWService {
         if (verification == null) {
             throw ApiException.badRequest("Missing PoW verification data", "security", "pow.missing");
         }
-        String key = IdentityCacheKeys.powChallenge(verification.id());
-        String difficultyValue = redisTemplate.opsForValue().get(key);
-        if (difficultyValue == null) {
-            throw ApiException.badRequest("PoW challenge expired or invalid", "security", "pow.expired");
-        }
-        redisTemplate.delete(key);
-
-        int difficulty = legacyDifficulty(difficultyValue);
-        String hash = sha256(verification.id() + verification.nonce());
-        if (!hash.startsWith("0".repeat(difficulty))) {
-            throw ApiException.badRequest("PoW validation failed", "security", "pow.invalid");
-        }
+        throw ApiException.badRequest("Use scoped PoW verification headers", "security", "pow.legacy.unsupported");
     }
 
     private ChallengeState consumeChallenge(String id) {
@@ -138,7 +127,8 @@ public class PoWService {
             throw ApiException.badRequest("PoW challenge expired or invalid", "security", "pow.expired");
         }
         String[] parts = raw.split("\\|", -1);
-        if (parts.length < 5) {
+        if (parts.length != 5 || parseLong(parts[4], 0L) <= Instant.now().toEpochMilli()
+                || parseInt(parts[1], -1) < 0 || parseInt(parts[1], -1) > 8) {
             throw ApiException.badRequest("PoW challenge expired or invalid", "security", "pow.expired");
         }
         return new ChallengeState(
@@ -165,13 +155,6 @@ public class PoWService {
             throw ApiException.badRequest("Unsupported PoW challenge scope", "security", "pow.scope.unsupported");
         }
         return normalized;
-    }
-
-    private int legacyDifficulty(String raw) {
-        if (raw != null && raw.contains("|")) {
-            return parseInt(raw.split("\\|", -1)[1], 4);
-        }
-        return parseInt(raw, 4);
     }
 
     private int clampDifficulty(int value) {

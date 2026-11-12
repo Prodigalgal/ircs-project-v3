@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import com.prodigalgal.ircs.common.worker.WorkerInstanceIds;
 import com.prodigalgal.ircs.ops.config.OpsConfigValues;
@@ -101,11 +102,23 @@ public class MaintenanceSchedulerService {
                 return status(snapshot, false);
             }
             List<MaintenanceSchedulerRunResult> results = new ArrayList<>();
-            for (String taskName : configValues.maintenanceSchedulerTasks()) {
-                results.add(runTask(taskName, correlationId));
+            try {
+                try (ClusterLeaseGuard guard = clusterLease == null ? null : new ClusterLeaseGuard(
+                        clusterLeaseService, clusterLease, configValues.maintenanceSchedulerClusterLeaseTtl())) {
+                    for (String taskName : configValues.maintenanceSchedulerTasks()) {
+                        ClusterLeaseGuard.checkCurrentOwnership();
+                        results.add(runTask(taskName, correlationId));
+                        ClusterLeaseGuard.checkCurrentOwnership();
+                    }
+                    ClusterLeaseGuard.checkCurrentOwnership();
+                }
+                notificationPublisher.publishSchedulerRun(correlationId, results);
+                snapshot = new Snapshot(correlationId, startedAt, Instant.now(), results);
+            } catch (RuntimeException ex) {
+                auditWriter.record(WorkerJobAuditEvent.failed(
+                        JOB_TYPE_MAINTENANCE_SCHEDULER, "scheduler", correlationId, elapsedSince(startedAt), ex));
+                snapshot = snapshot(correlationId, startedAt, "failed: " + ex.getMessage());
             }
-            notificationPublisher.publishSchedulerRun(correlationId, results);
-            snapshot = new Snapshot(correlationId, startedAt, Instant.now(), results);
             lastSnapshot.set(snapshot);
         } finally {
             releaseClusterLease(clusterLease);
@@ -143,7 +156,9 @@ public class MaintenanceSchedulerService {
         }
 
         try {
+            ClusterLeaseGuard.checkCurrentOwnership();
             MaintenanceRunnerExecution execution = runnerService.run(taskName, correlationId);
+            ClusterLeaseGuard.checkCurrentOwnership();
             if (execution.refused()) {
                 auditWriter.record(WorkerJobAuditEvent.failed(
                         JOB_TYPE_MAINTENANCE_SCHEDULER,

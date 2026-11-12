@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.common.retention;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.lock.DistributedLockService;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import jakarta.annotation.PreDestroy;
 import java.time.Clock;
@@ -27,6 +28,8 @@ public class LogRetentionScheduler {
     private final ObjectProvider<LogRetentionTarget> targetProvider;
     private final RuntimeConfigService runtimeConfig;
     private final Clock clock;
+    private final DistributedLockService locks;
+    private final String lockOwner = java.util.UUID.randomUUID().toString();
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-log-retention-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -34,7 +37,9 @@ public class LogRetentionScheduler {
     public LogRetentionScheduler(
             ObjectProvider<LogRetentionTarget> targetProvider,
             RuntimeConfigService runtimeConfig,
-            ObjectProvider<Clock> clockProvider) {
+            ObjectProvider<Clock> clockProvider,
+            DistributedLockService locks) {
+        this.locks = locks;
         this.targetProvider = targetProvider;
         this.runtimeConfig = runtimeConfig;
         Clock providedClock = clockProvider == null ? null : clockProvider.getIfAvailable();
@@ -80,7 +85,17 @@ public class LogRetentionScheduler {
         Duration retention = retention(normalizedTargetId);
         Instant cutoff = clock.instant().minus(retention);
         try {
-            LogRetentionResult result = target.deleteOlderThan(cutoff, retention);
+            java.util.Optional<LogRetentionResult> acquired = locks.callWithLock(
+                    "lock:log-retention:" + normalizedTargetId, lockOwner, Duration.ofMinutes(10),
+                    () -> {
+                        LogRetentionResult result = target.deleteOlderThan(cutoff, retention);
+                        return result == null
+                                ? new LogRetentionResult(normalizedTargetId, cutoff, retention, 0L) : result;
+                    });
+            if (acquired.isEmpty()) {
+                return java.util.Optional.empty();
+            }
+            LogRetentionResult result = acquired.orElseThrow();
             LogRetentionResult effective = result == null
                     ? new LogRetentionResult(normalizedTargetId, cutoff, retention, 0L)
                     : result;

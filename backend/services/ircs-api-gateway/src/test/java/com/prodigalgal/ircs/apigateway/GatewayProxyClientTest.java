@@ -35,25 +35,24 @@ import org.springframework.web.server.ResponseStatusException;
 class GatewayProxyClientTest {
 
     private final FakeStreamingTransport transport = new FakeStreamingTransport();
-    private final GatewayProxyClient proxyClient = new GatewayProxyClient(
-            Duration.ofSeconds(5),
-            Duration.ofSeconds(2),
-            Duration.ofMinutes(30),
-            "api-gateway-proxy-test",
-            false,
-            5,
-            Duration.ofSeconds(30),
-            1,
-            "api-gateway",
-            "",
-            "ops:read ops:run",
-            "",
-            "ops-alert:read ops-alert:run",
-            new ProxyRequestAuditWriter(false, null, null, null, "ircs-api-gateway"),
-            provider(new OutboundStreamingHttpClient(
-                    new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                    transport)),
-            provider(new OutboundUrlPolicy(new DefaultOutboundAddressResolver())));
+    private static final String TEST_PRIVATE_KEY = testSigningKey();
+    private final GatewayProxyClient proxyClient = client(TEST_PRIVATE_KEY);
+
+    private GatewayProxyClient client(String signingKey) {
+        return new GatewayProxyClient(Duration.ofSeconds(5), Duration.ofSeconds(2), Duration.ofMinutes(30),
+                "api-gateway-proxy-test", false, 5, Duration.ofSeconds(30), 1,
+                "api-gateway", "", "ops:read ops:run", "", "ops-alert:read ops-alert:run", signingKey, "",
+                new ProxyRequestAuditWriter(false, null, null, null, "ircs-api-gateway"),
+                provider(new OutboundStreamingHttpClient(new OutboundUrlPolicy(new DefaultOutboundAddressResolver()), transport)),
+                provider(new OutboundUrlPolicy(new DefaultOutboundAddressResolver())));
+    }
+
+    private static String testSigningKey() {
+        try {
+            return java.util.Base64.getEncoder().encodeToString(
+                    java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPrivate().getEncoded());
+        } catch (Exception ex) { throw new IllegalStateException(ex); }
+    }
 
     @Test
     void forwardsWhitelistedRouteQueryAndFiltersHopByHopHeaders() throws Exception {
@@ -74,6 +73,9 @@ class GatewayProxyClientTest {
         request.addHeader("X-Authenticated-User", "spoof@example.com");
         request.addHeader("X-IRCS-Auth-Role", "ROLE_MEMBER");
         request.addHeader("X-Trace-Id", "trace-1");
+        request.addHeader("X-Forwarded-For", "198.51.100.199");
+        request.addHeader("X-IRCS-Gateway-Signature", "forged");
+        request.addHeader("X-IRCS-Client-IP", "198.51.100.200");
         IrcsAuthHeaders.setRequestAttribute(request, adminPrincipal());
         MockHttpServletResponse response = new MockHttpServletResponse();
         GatewayRouteTable routes = new GatewayRouteTable(List.of(
@@ -89,6 +91,9 @@ class GatewayProxyClientTest {
         assertThat(sent.policy().circuitBreakerKey()).isEqualTo("api-gateway-proxy-test");
         assertThat(sent.policy().timeout()).isEqualTo(Duration.ofSeconds(2));
         assertThat(sent.headers()).containsEntry("X-Trace-Id", "trace-1");
+        assertThat(sent.headers()).doesNotContainKey("X-Forwarded-For");
+        assertThat(sent.headers()).containsEntry("X-IRCS-Client-IP", request.getRemoteAddr());
+        assertThat(sent.headers().get("X-IRCS-Gateway-Signature")).isNotBlank().isNotEqualTo("forged");
         assertThat(sent.headers()).containsEntry(IrcsAuthHeaders.AUTHENTICATED_USER, "admin");
         assertThat(sent.headers()).containsEntry(IrcsAuthHeaders.AUTH_ROLE, IrcsPermissions.ROLE_ADMIN);
         assertThat(sent.headers()).containsEntry(IrcsAuthHeaders.AUTH_PERMISSIONS, IrcsPermissions.ALL);
@@ -103,6 +108,18 @@ class GatewayProxyClientTest {
         assertThat(response.getHeader("X-Upstream")).isEqualTo("content");
         assertThat(response.getHeader("Transfer-Encoding")).isNull();
         assertThat(response.getContentAsString()).isEqualTo("redirect-body");
+    }
+
+    @Test
+    void failsClosedWhenGatewaySigningKeyIsNotConfigured() {
+        GatewayProxyClient missingKeyClient = client("");
+        var request = new MockHttpServletRequest("GET", "/api/v1/raw-videos");
+        var routes = new GatewayRouteTable(List.of(
+                new GatewayRoute("/api/v1/raw-videos", "http://content-service", "/api/v1/raw-videos")));
+        assertThatThrownBy(() -> missingKeyClient.proxy(request, new MockHttpServletResponse(), routes))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        assertThat(transport.requests).isEmpty();
     }
 
     @Test
@@ -122,6 +139,8 @@ class GatewayProxyClientTest {
                 "ops:read ops:run",
                 "ops-alert-secret",
                 "ops-alert:read ops-alert:run",
+                TEST_PRIVATE_KEY,
+                "",
                 new ProxyRequestAuditWriter(false, null, null, null, "ircs-api-gateway"),
                 provider(new OutboundStreamingHttpClient(
                         new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
@@ -157,6 +176,8 @@ class GatewayProxyClientTest {
                 "ops:read ops:run",
                 "",
                 "ops-alert:read ops-alert:run",
+                TEST_PRIVATE_KEY,
+                "",
                 new ProxyRequestAuditWriter(false, null, null, null, "ircs-api-gateway"),
                 provider(new OutboundStreamingHttpClient(
                         new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),

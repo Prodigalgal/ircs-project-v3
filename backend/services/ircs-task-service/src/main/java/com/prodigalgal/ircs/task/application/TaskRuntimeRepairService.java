@@ -11,6 +11,7 @@ import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import com.prodigalgal.ircs.task.domain.TaskRuntimeStatus;
 import com.prodigalgal.ircs.task.runtime.MasterProgressState;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class TaskRuntimeRepairService {
         int skipped = 0;
         int failed = 0;
         for (UUID taskId : taskIds) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             try {
                 RepairOutcome outcome = repairOne(taskId);
                 switch (outcome) {
@@ -61,6 +63,7 @@ public class TaskRuntimeRepairService {
         if (completedPage < 1) {
             return RepairOutcome.SKIPPED;
         }
+        ClusterLeaseGuard.checkCurrentOwnership();
         DispatchNextPageResult result = dispatchService.dispatchNextPageIfNeeded(
                 taskId,
                 completedPage,

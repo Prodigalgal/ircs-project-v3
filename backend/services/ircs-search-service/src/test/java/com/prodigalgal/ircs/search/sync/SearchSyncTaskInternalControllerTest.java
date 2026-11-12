@@ -18,7 +18,7 @@ class SearchSyncTaskInternalControllerTest {
 
     private final SearchSyncWorkPublisher publisher = org.mockito.Mockito.mock(SearchSyncWorkPublisher.class);
     private final SearchSyncTaskInternalController controller =
-            new SearchSyncTaskInternalController(publisher, new SearchInternalAccessPolicy(), 100);
+            new SearchSyncTaskInternalController(publisher, org.mockito.Mockito.mock(SearchInternalAccessPolicy.class), 100);
 
     @Test
     void enqueuesSingleInternalRequest() {

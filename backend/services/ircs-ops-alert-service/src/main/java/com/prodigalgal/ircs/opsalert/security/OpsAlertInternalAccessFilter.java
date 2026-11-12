@@ -11,7 +11,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -35,11 +34,6 @@ class OpsAlertInternalAccessFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String configuredToken = runtimeConfig.stringValue(TOKEN_KEY, "");
-        boolean requireToken = runtimeConfig.booleanValue(REQUIRE_TOKEN_KEY, false);
-        if (!requireToken && !StringUtils.hasText(configuredToken)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
         try {
             InternalServiceAccessPolicy.require(
                     "Ops alert",

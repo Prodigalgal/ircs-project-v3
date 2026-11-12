@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ops.maintenance.application;
 
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.ops.config.OpsConfigValues;
 import com.prodigalgal.ircs.ops.maintenance.domain.MaintenanceOwnerStep;
@@ -287,8 +288,11 @@ public class MaintenanceRunnerService {
     }
 
     private MaintenanceRunResult runAggregationReset(String correlationId) {
+        ClusterLeaseGuard.checkCurrentOwnership();
         MaintenanceRunResult prepare = aggregationClient.prepareAggregationReset(correlationId);
+        ClusterLeaseGuard.checkCurrentOwnership();
         MaintenanceRunResult searchReset = reindexCommand.hardResetUnifiedIndex(correlationId);
+        ClusterLeaseGuard.checkCurrentOwnership();
         MaintenanceRunResult markPending = aggregationClient.markAggregationResetRawPending(correlationId);
         return new MaintenanceRunResult(
                 TASK_AGGREGATION_RESET,
@@ -303,7 +307,9 @@ public class MaintenanceRunnerService {
             Instant startedAt,
             Supplier<MaintenanceRunResult> command) {
         try {
+            ClusterLeaseGuard.checkCurrentOwnership();
             MaintenanceRunResult result = command.get();
+            ClusterLeaseGuard.checkCurrentOwnership();
             auditWriter.record(WorkerJobAuditEvent.succeeded(
                     JOB_TYPE_MAINTENANCE_RUNNER,
                     metadata.taskName(),

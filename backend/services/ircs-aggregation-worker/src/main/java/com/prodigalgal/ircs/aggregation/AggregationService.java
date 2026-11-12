@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunResponse;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
 import java.util.ArrayList;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,6 +16,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Slf4j
@@ -28,9 +32,11 @@ public class AggregationService {
     private final AggregationPipelineRuntime aggregationPipelineRuntime;
     private final AggregationMatchKeyLock matchKeyLock;
     private final AggregationWorkPublisher workPublisher;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public AggregationResult aggregateOne(UUID rawVideoId) {
+        repository.lockAggregationShared();
         return aggregateOneInternal(rawVideoId);
     }
 
@@ -44,6 +50,7 @@ public class AggregationService {
 
     @Transactional
     public List<AggregationResult> aggregateRuntimeWorkBatch(List<UUID> rawVideoIds) {
+        repository.lockAggregationShared();
         List<UUID> orderedIds = rawVideoIds == null
                 ? List.of()
                 : rawVideoIds.stream()
@@ -140,14 +147,17 @@ public class AggregationService {
                 .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public int recalculateUnified(UUID unifiedVideoId) {
         List<UUID> rawVideoIds = repository.findRawIdsForUnified(unifiedVideoId);
         int processed = 0;
         boolean allSucceeded = true;
         boolean dirtyAlreadyMarked = false;
         for (UUID rawVideoId : rawVideoIds) {
-            AggregationResult result = aggregateOne(rawVideoId);
+            AggregationResult result = new TransactionTemplate(transactionManager).execute(status -> {
+                repository.lockAggregationShared();
+                return aggregateOneInternal(rawVideoId);
+            });
             if ("BOUND".equals(result.status())) {
                 publisher.publishRawIndex(rawVideoId);
                 result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
@@ -169,7 +179,7 @@ public class AggregationService {
         return processed;
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AggregationMaintenanceRunResponse recalculateDirtyUnified(int limit) {
         List<UUID> unifiedVideoIds = repository.findDirtyUnifiedIds(Math.max(1, limit));
         int processed = 0;
@@ -198,6 +208,7 @@ public class AggregationService {
 
     @Transactional
     public AggregationMaintenanceRunResponse backfillUnifiedCovers(int limit) {
+        repository.lockAggregationShared();
         List<UnifiedCoverBackfillResult> backfilled = repository.backfillUnifiedCoverImagesFromRaw(Math.max(1, limit));
         for (UnifiedCoverBackfillResult result : backfilled) {
             if (result.shouldPromoteToR2()) {
@@ -221,6 +232,7 @@ public class AggregationService {
 
     @Transactional
     public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit, boolean publishSearch) {
+        repository.lockAggregationShared();
         List<UUID> unifiedVideoIds = repository.findAdultAssessmentBackfillIds(Math.max(1, limit));
         List<UUID> processedIds = repository.rebuildUnifiedAdultAssessments(unifiedVideoIds);
         if (publishSearch) {
@@ -235,6 +247,7 @@ public class AggregationService {
 
     @Transactional
     public ManualUnifiedMergeResponse mergeUnifiedVideos(List<UUID> unifiedVideoIds) {
+        repository.lockAggregationShared();
         List<UUID> orderedIds = normalizeManualMergeIds(unifiedVideoIds);
         UUID rootUnifiedVideoId = orderedIds.getFirst();
         List<UUID> victimUnifiedVideoIds = orderedIds.subList(1, orderedIds.size());
@@ -247,6 +260,7 @@ public class AggregationService {
             publisher.publishUnifiedIndex(rootUnifiedVideoId);
             rawVideoIds.forEach(publisher::publishRawIndex);
             victimUnifiedVideoIds.forEach(publisher::publishUnifiedDelete);
+            ClusterLeaseGuard.checkCurrentOwnership();
             execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
             return new ManualUnifiedMergeResponse(
                     rootUnifiedVideoId,
@@ -272,6 +286,7 @@ public class AggregationService {
 
     @Transactional
     public AggregationResetStepResponse prepareAggregationReset(int sampleLimit) {
+        repository.lockAggregationMaintenance();
         int safeLimit = Math.max(1, sampleLimit);
         List<UUID> sampleRawVideoIds = repository.sampleRawVideoIds(safeLimit);
         long rawVideoCount = repository.countRawVideos();
@@ -290,6 +305,7 @@ public class AggregationService {
 
     @Transactional
     public AggregationResetStepResponse markAllRawAggregationPending(int sampleLimit) {
+        repository.lockAggregationMaintenance();
         int safeLimit = Math.max(1, sampleLimit);
         List<UUID> sampleRawVideoIds = repository.sampleRawVideoIds(safeLimit);
         long rawVideoCount = repository.countRawVideos();
@@ -317,6 +333,7 @@ public class AggregationService {
         }
 
         try (AggregationMatchKeyLock.MatchLockScope ignored = lockScope.orElseThrow()) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             AggregationMatchPlan matchPlan = repository.findExistingBinding(rawVideo.id())
                     .map(AggregationMatchPlan::rootOnly)
                     .orElseGet(() -> repository.findMatchPlan(rawVideo));
@@ -327,6 +344,7 @@ public class AggregationService {
 
             repository.upsertUnifiedFields(unifiedVideoId, rawVideo);
             repository.bindRawToUnified(rawVideo.id(), unifiedVideoId);
+            ClusterLeaseGuard.checkCurrentOwnership();
             AggregationPipelineExecution execution = aggregationPipelineRuntime.run(unifiedVideoId);
             if (!execution.successful()) {
                 repository.markUnifiedDirty(unifiedVideoId);
@@ -338,6 +356,7 @@ public class AggregationService {
                         execution.failures());
                 return AggregationResult.pipelineFailed(rawVideo.id(), unifiedVideoId, matchPlan.victimUnifiedVideoIds());
             }
+            ClusterLeaseGuard.checkCurrentOwnership();
             execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
             repository.markBound(rawVideo.id());
 
@@ -365,6 +384,7 @@ public class AggregationService {
         }
 
         try (AggregationMatchKeyLock.MatchLockScope ignored = lockScope.orElseThrow()) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             AggregationMatchPlan matchPlan = findClusterMatchPlan(cluster, rawVideos);
             UUID unifiedVideoId = matchPlan.hasRoot()
                     ? matchPlan.rootUnifiedVideoId()
@@ -377,6 +397,7 @@ public class AggregationService {
                 repository.upsertUnifiedFields(unifiedVideoId, rawVideo);
                 repository.bindRawToUnified(rawVideo.id(), unifiedVideoId);
             }
+            ClusterLeaseGuard.checkCurrentOwnership();
             AggregationPipelineExecution execution = aggregationPipelineRuntime.run(unifiedVideoId);
             if (!execution.successful()) {
                 repository.markUnifiedDirty(unifiedVideoId);
@@ -391,6 +412,7 @@ public class AggregationService {
                         unifiedVideoId,
                         matchPlan.victimUnifiedVideoIds());
             }
+            ClusterLeaseGuard.checkCurrentOwnership();
             execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
             for (RawVideoAggregationRecord rawVideo : rawVideos) {
                 repository.markBound(rawVideo.id());

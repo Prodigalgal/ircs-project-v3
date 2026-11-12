@@ -114,7 +114,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             HttpServletRequest request,
             HttpServletResponse response,
             FilterChain filterChain) throws IOException, ServletException {
-        var principal = IrcsAuthHeaders.fromTrustedHeaders(request);
+        var principal = IrcsAuthHeaders.fromRequestAttribute(request);
         if (principal.isEmpty()) {
             return false;
         }
@@ -124,6 +124,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
         if (IrcsPermissions.ROLE_MEMBER.equals(trustedPrincipal.role())
                 && !validateMemberStatus(trustedPrincipal.subject(), request, response)) {
+            return true;
+        }
+        if (!IrcsPermissions.ROLE_MEMBER.equals(trustedPrincipal.role())
+                && (!IrcsPermissions.ROLE_ADMIN.equals(trustedPrincipal.role())
+                || (!trustedPrincipal.subject().startsWith("api-token:")
+                && !trustedPrincipal.subject().equals(configService.value(IdentityConfigKey.ADMIN_USERNAME))))) {
+            sendJsonError(request, response, HttpServletResponse.SC_UNAUTHORIZED, "无效的身份标识");
             return true;
         }
         SecurityContextHolder.getContext().setAuthentication(authentication(

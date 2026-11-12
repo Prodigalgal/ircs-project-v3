@@ -9,8 +9,14 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 class DistributedLockServiceTest {
+
+    @AfterEach
+    void clearCancellationFlag() {
+        Thread.interrupted();
+    }
 
     @Test
     void runWithLockSkipsActionWhenLockIsHeldElsewhere() {
@@ -61,10 +67,23 @@ class DistributedLockServiceTest {
         assertThat(service.releaseAttempts).isEqualTo(1);
     }
 
+    @Test
+    void ownershipLossAtFinalValidationCannotReturnSuccessfulResult() {
+        FakeDistributedLockService service = new FakeDistributedLockService(true);
+
+        assertThatThrownBy(() -> service.callWithLock("ops:maintenance", "worker", Duration.ofSeconds(10), () -> {
+            service.renewalAllowed = false;
+            return "would-have-looked-successful";
+        })).isInstanceOf(IllegalStateException.class).hasMessageContaining("ownership lost");
+
+        assertThat(service.releaseAttempts).isEqualTo(1);
+    }
+
     private static class FakeDistributedLockService implements DistributedLockService {
 
         private final boolean acquire;
         private int releaseAttempts;
+        private boolean renewalAllowed = true;
 
         private FakeDistributedLockService(boolean acquire) {
             this.acquire = acquire;
@@ -75,13 +94,13 @@ class DistributedLockServiceTest {
             if (!acquire) {
                 return Optional.empty();
             }
-            Instant now = Instant.parse("2026-06-11T12:00:00Z");
+            Instant now = Instant.now();
             return Optional.of(new ClusterLease(name, ownerId, ownerId + ":token", now, now.plus(ttl)));
         }
 
         @Override
         public boolean renew(ClusterLease lease, Duration ttl) {
-            return true;
+            return renewalAllowed;
         }
 
         @Override

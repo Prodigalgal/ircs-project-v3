@@ -485,6 +485,16 @@ public class JdbcVideoAdminRepository {
                 UUID.class);
     }
 
+    public List<UUID> findRawIdsForUnifiedVideos(Collection<UUID> unifiedVideoIds) {
+        if (CollectionUtils.isEmpty(unifiedVideoIds)) {
+            return List.of();
+        }
+        return jdbcTemplate.queryForList(
+                "select distinct raw_video_id from raw_video_unified_video where unified_video_id in (:ids)",
+                new MapSqlParameterSource("ids", unifiedVideoIds),
+                UUID.class);
+    }
+
     public List<UUID> recalculateUnifiedFromSources(UUID unifiedVideoId) {
         ensureExists("unified_videos", unifiedVideoId, "Unified video not found: " + unifiedVideoId);
         List<UUID> rawIds = findRawIdsForUnified(unifiedVideoId);

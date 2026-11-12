@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 
 class MetadataNameCacheTest {
 
@@ -68,11 +70,30 @@ class MetadataNameCacheTest {
                 Map.of(ownerId, Set.of("Director")));
         cache.evictOwner(MetadataNameOwnerType.UNIFIED, List.of(ownerId));
 
-        verify(hashOperations).putAll(eq(PREFIX + ":unified:directors"), any(Map.class));
-        verify(redisTemplate).expire(PREFIX + ":unified:directors", Duration.ofHours(1));
+        verify(redisTemplate).execute(any(RedisScript.class), eq(List.of(PREFIX + ":unified:directors")),
+                eq("merge"), eq("3600000"), eq(ownerId.toString()), eq("Director"));
         verify(hashOperations).delete(PREFIX + ":unified:actors", ownerId.toString());
         verify(hashOperations).delete(PREFIX + ":unified:directors", ownerId.toString());
         verify(hashOperations).delete(PREFIX + ":unified:areas", ownerId.toString());
+    }
+
+    @Test
+    void replacesNamesAndExpirationInOneAtomicScript() {
+        UUID ownerId = UUID.randomUUID();
+        cache.replaceNames(MetadataNameOwnerType.RAW, MetadataNameRelation.ACTORS,
+                Map.of(ownerId, Set.of("Bob", "Alice")));
+
+        verify(redisTemplate).execute(any(RedisScript.class), eq(List.of(PREFIX + ":raw:actors")),
+                eq("replace"), eq("3600000"), eq(ownerId.toString()), eq("Alice\u001FBob"));
+        verify(redisTemplate, never()).delete(PREFIX + ":raw:actors");
+        verify(hashOperations, never()).putAll(any(), any());
+    }
+
+    @Test
+    void emptyReplacementClearsPreviousNamesAtomically() {
+        cache.replaceNames(MetadataNameOwnerType.RAW, MetadataNameRelation.ACTORS, Map.of());
+        verify(redisTemplate).execute(any(RedisScript.class), eq(List.of(PREFIX + ":raw:actors")),
+                eq("replace"), eq("3600000"));
     }
 
     private static ObjectProvider<StringRedisTemplate> provider(StringRedisTemplate redisTemplate) {

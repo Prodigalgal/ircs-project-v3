@@ -26,7 +26,7 @@ public class ContentSafetyProperties {
     }
 
     public static class InternalAccess {
-        private boolean requireToken;
+        private boolean requireToken = true;
         private String token = "";
         private String requiredScope = "content-safety:assess";
 

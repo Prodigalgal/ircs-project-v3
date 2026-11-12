@@ -672,6 +672,15 @@ public class JdbcAggregationRepository {
         return count("raw_video_unified_video");
     }
 
+    // Transaction-scoped advisory locks coordinate every replica and release on rollback.
+    public void lockAggregationMaintenance() {
+        jdbcTemplate.getJdbcTemplate().execute("select pg_advisory_xact_lock(194223, 1)");
+    }
+
+    public void lockAggregationShared() {
+        jdbcTemplate.getJdbcTemplate().execute("select pg_advisory_xact_lock_shared(194223, 1)");
+    }
+
     public int deleteAllAggregationResetOwnedRows() {
         int changedRows = 0;
         changedRows += updateIfTableExists("""

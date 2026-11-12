@@ -13,7 +13,7 @@ import org.springframework.http.HttpStatus;
 class TrendSyncInternalControllerTest {
 
     private final TrendSyncService service = org.mockito.Mockito.mock(TrendSyncService.class);
-    private final ScraperInternalAccessPolicy accessPolicy = new ScraperInternalAccessPolicy();
+    private final ScraperInternalAccessPolicy accessPolicy = org.mockito.Mockito.mock(ScraperInternalAccessPolicy.class);
     private final TrendSyncInternalController controller =
             new TrendSyncInternalController(service, accessPolicy);
 

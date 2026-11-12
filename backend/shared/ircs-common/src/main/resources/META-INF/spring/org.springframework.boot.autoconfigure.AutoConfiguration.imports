@@ -1,1 +1,2 @@
 com.prodigalgal.ircs.common.lock.DistributedLockAutoConfiguration
+com.prodigalgal.ircs.common.security.GatewayIdentityAutoConfiguration

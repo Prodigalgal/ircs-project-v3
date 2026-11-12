@@ -1,9 +1,10 @@
-"""Promote a fully verified V3 image set without changing runtime/data settings."""
+"""Promote verified images and the idempotent gateway trust-boundary migration together."""
 import json
 import os
 from pathlib import Path
 import re
 import sys
+import subprocess
 
 root = Path(sys.argv[1])
 revision = os.environ['SOURCE_REVISION']
@@ -16,6 +17,13 @@ if not re.fullmatch(r'\d{8}-v' + re.escape(version) + r'-production-test\.1-' + 
 images = set(json.loads(os.environ['JAVA_IMAGES'])) | {
     'ircs-adult-classifier-service', 'ircs-admin-frontend', 'ircs-huawai-frontend'
 }
+patch = Path(__file__).resolve().with_name('gateway-identity-v1.patch')
+apply = ['git', '-C', str(root.resolve()), 'apply', '--unidiff-zero']
+already_applied = subprocess.run([*apply, '--reverse', '--check', str(patch)], capture_output=True).returncode == 0
+if not already_applied:
+    subprocess.run([*apply, '--check', str(patch)], check=True)
+    subprocess.run([*apply, str(patch)], check=True)
+    print('Applied the gateway public-key, rollout order and application ingress migration')
 path = root / 'ircs-prod/core/kustomization.yaml'
 source = path.read_text(encoding='utf-8')
 updated = set()

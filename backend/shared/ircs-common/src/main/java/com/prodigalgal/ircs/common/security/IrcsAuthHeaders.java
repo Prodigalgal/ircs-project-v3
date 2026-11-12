@@ -68,7 +68,7 @@ public final class IrcsAuthHeaders {
     }
 
     public static Optional<IrcsRequestPrincipal> fromTrustedHeaders(HttpServletRequest request) {
-        if (request == null) {
+        if (request == null || !Boolean.TRUE.equals(request.getAttribute(GatewayIdentitySignature.VERIFIED_ATTRIBUTE))) {
             return Optional.empty();
         }
         String subject = firstText(request.getHeader(AUTH_SUBJECT), request.getHeader(AUTHENTICATED_USER));
@@ -102,7 +102,6 @@ public final class IrcsAuthHeaders {
 
     public static IrcsRequestPrincipal principalOrPublic(HttpServletRequest request) {
         return fromRequestAttribute(request)
-                .or(() -> fromTrustedHeaders(request))
                 .orElseGet(IrcsRequestPrincipal::publicPrincipal);
     }
 

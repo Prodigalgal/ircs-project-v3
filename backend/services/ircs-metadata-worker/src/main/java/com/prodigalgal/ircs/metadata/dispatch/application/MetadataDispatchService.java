@@ -59,6 +59,9 @@ public class MetadataDispatchService {
         MetadataSearchContext context = toContext(record);
         List<ProviderType> pendingProviders =
                 pipelineRunRepository.prepareDispatch(videoId, record.getDataHash(), providers);
+        if (pendingProviders.isEmpty()) {
+            throw new IllegalStateException("Metadata providers require enrichment but no provider run is dispatchable: " + videoId);
+        }
         pendingProviders.forEach(provider -> providerTaskPublisher.publish(provider, context));
         log.info("Dispatched metadata provider Valkey tasks: videoId={}, providers={}", videoId, pendingProviders);
         return new MetadataDispatchResult(videoId, true, "DISPATCHED", pendingProviders);

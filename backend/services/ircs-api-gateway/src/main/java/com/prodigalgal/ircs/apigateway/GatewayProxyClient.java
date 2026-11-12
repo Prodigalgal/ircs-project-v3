@@ -11,6 +11,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundStreamingHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundStreamingHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.security.IrcsAuthHeaders;
+import com.prodigalgal.ircs.common.security.GatewayIdentitySignature;
 import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -65,6 +66,10 @@ class GatewayProxyClient {
     private final String opsServiceScopes;
     private final String opsAlertServiceToken;
     private final String opsAlertServiceScopes;
+    private final String identitySigningKey;
+    private final String trustedProxyCidrs;
+    private volatile java.security.PrivateKey signingKey;
+
 
     GatewayProxyClient(
             @Value("${app.gateway.proxy.connect-timeout:PT5S}") Duration connectTimeout,
@@ -80,11 +85,15 @@ class GatewayProxyClient {
             @Value("${app.gateway.service-identity.ops-scopes:ops:read ops:run}") String opsServiceScopes,
             @Value("${app.gateway.service-identity.ops-alert-token:${APP_GATEWAY_OPS_ALERT_SERVICE_TOKEN:}}") String opsAlertServiceToken,
             @Value("${app.gateway.service-identity.ops-alert-scopes:ops-alert:read ops-alert:run}") String opsAlertServiceScopes,
+            @Value("${ircs.gateway.identity.signing-key:${IRCS_GATEWAY_IDENTITY_SIGNING_KEY:}}") String identitySigningKey,
+            @Value("${ircs.gateway.identity.trusted-proxy-cidrs:${IRCS_GATEWAY_IDENTITY_TRUSTED_PROXY_CIDRS:}}") String trustedProxyCidrs,
             ProxyRequestAuditWriter auditWriter,
             ObjectProvider<OutboundStreamingHttpClient> outboundClientProvider,
             ObjectProvider<OutboundUrlPolicy> targetUrlPolicyProvider) {
         this.outboundClient = outboundClient(outboundClientProvider, connectTimeout);
         this.auditWriter = auditWriter;
+        this.identitySigningKey = identitySigningKey;
+        this.trustedProxyCidrs = trustedProxyCidrs;
         this.targetUrlPolicy = targetUrlPolicy(targetUrlPolicyProvider);
         this.requestTimeout = requestTimeout;
         this.streamRequestTimeout = normalizePositive(streamRequestTimeout, Duration.ofHours(1));
@@ -196,6 +205,9 @@ class GatewayProxyClient {
 
     private OutboundHttpRequest outboundRequest(HttpServletRequest request, URI target) throws IOException {
         Map<String, String> headers = requestHeaders(request);
+        String targetPath = target.getRawPath() + (target.getRawQuery() == null ? "" : "?" + target.getRawQuery());
+        GatewayIdentitySignature.sign(headers, request.getMethod(), targetPath,
+                GatewayClientAddress.resolve(request, trustedProxyCidrs), signingKey());
         String method = request.getMethod();
         OutboundHttpPolicy policy = OutboundHttpPolicy.apiGatewayProxy(timeoutFor(request))
                 .withCircuitBreaker(circuitBreakerConfig)
@@ -221,6 +233,9 @@ class GatewayProxyClient {
             }
         }
         IrcsAuthHeaders.removeTrustedIdentityHeaders(headers);
+        headers.keySet().removeIf(name -> GatewayIdentitySignature.isEnvelopeHeader(name)
+                || name.equalsIgnoreCase("Forwarded") || name.equalsIgnoreCase("X-Forwarded-For")
+                || name.equalsIgnoreCase("X-Real-IP"));
         removeExternalAuthHeaders(headers);
         removeInternalServiceHeaders(headers);
         IrcsAuthHeaders.fromRequestAttribute(request)
@@ -235,6 +250,21 @@ class GatewayProxyClient {
             headers.put(InternalServiceAuthHeaders.SERVICE_SCOPES, opsServiceScopes);
         }
         return headers;
+    }
+
+    private java.security.PrivateKey signingKey() {
+        java.security.PrivateKey value = signingKey;
+        if (value != null) return value;
+        if (!StringUtils.hasText(identitySigningKey)) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Gateway identity signing is not configured");
+        }
+        try {
+            value = GatewayIdentitySignature.privateKey(identitySigningKey);
+            signingKey = value;
+            return value;
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Gateway identity signing is unavailable");
+        }
     }
 
     private boolean shouldAttachOpsAlertIdentity(String path) {

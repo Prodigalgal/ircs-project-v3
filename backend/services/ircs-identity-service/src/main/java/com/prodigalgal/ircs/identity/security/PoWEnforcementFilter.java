@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.identity.application.PoWService;
 import com.prodigalgal.ircs.identity.api.ApiException;
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
+import com.prodigalgal.ircs.common.security.SecurityRequestPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,13 +51,13 @@ class PoWEnforcementFilter extends OncePerRequestFilter {
         if (!"POST".equalsIgnoreCase(request.getMethod()) || !enabled()) {
             return true;
         }
-        return !REQUIREMENTS.containsKey(request.getRequestURI());
+        return !REQUIREMENTS.containsKey(SecurityRequestPaths.canonicalPath(request));
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        Requirement requirement = REQUIREMENTS.get(request.getRequestURI());
+        Requirement requirement = REQUIREMENTS.get(SecurityRequestPaths.canonicalPath(request));
         try {
             poWService.verifyHeaders(request, requirement.scope(), requirement.captchaRequired());
         } catch (ApiException ex) {

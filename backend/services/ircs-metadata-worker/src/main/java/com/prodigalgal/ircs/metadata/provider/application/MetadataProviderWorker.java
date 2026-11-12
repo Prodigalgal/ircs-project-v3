@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
@@ -33,13 +34,16 @@ public class MetadataProviderWorker {
     private final MetadataProviderResultPublisher resultPublisher;
     private final MetadataConfigValues configValues;
     private final WorkerJobAuditWriter auditWriter;
+    private final MetadataPipelineRunRepository pipelineRunRepository;
 
     public MetadataProviderWorker(
             List<MetadataProvider> providers,
             MetadataSearchContextMessageParser messageParser,
             MetadataProviderResultPublisher resultPublisher,
             MetadataConfigValues configValues,
-            WorkerJobAuditWriter auditWriter) {
+            WorkerJobAuditWriter auditWriter,
+            MetadataPipelineRunRepository pipelineRunRepository) {
+        this.pipelineRunRepository = pipelineRunRepository;
         this.providers = List.copyOf(providers);
         this.messageParser = messageParser;
         this.resultPublisher = resultPublisher;
@@ -76,9 +80,23 @@ public class MetadataProviderWorker {
     }
 
     private void execute(MetadataSearchContext context, ProviderType providerType, Instant startedAt) {
+        Optional<Integer> expectedAttempt = pipelineRunRepository.findPendingProviderAttempt(
+                context.getVideoId(), context.getPipelineVersion(), providerType);
+        if (expectedAttempt.isEmpty()) {
+            recordSkipped(startedAt, providerType, correlationId(context), "PROVIDER_RUN_NOT_PENDING");
+            return;
+        }
+        if (expectedAttempt.orElseThrow() < 0) {
+            throw new IllegalStateException("Invalid durable provider attempt");
+        }
+        executeAttempt(context, providerType, startedAt, expectedAttempt.orElseThrow());
+    }
+
+    private void executeAttempt(
+            MetadataSearchContext context, ProviderType providerType, Instant startedAt, int expectedAttempt) {
         try {
             if (!isProviderEnabled(providerType)) {
-                sendFinalFailure(context, providerType, "Provider disabled by configuration", "PROVIDER_DISABLED");
+                sendFinalFailure(context, providerType, "Provider disabled by configuration", "PROVIDER_DISABLED", expectedAttempt);
                 recordSkipped(startedAt, providerType, correlationId(context), "PROVIDER_DISABLED");
                 return;
             }
@@ -87,41 +105,41 @@ public class MetadataProviderWorker {
                     .filter(provider -> provider.getType() == providerType)
                     .findFirst();
             if (providerOpt.isEmpty()) {
-                sendFinalFailure(context, providerType, "Provider implementation not found", "PROVIDER_NOT_FOUND");
+                sendFinalFailure(context, providerType, "Provider implementation not found", "PROVIDER_NOT_FOUND", expectedAttempt);
                 recordSkipped(startedAt, providerType, correlationId(context), "PROVIDER_NOT_FOUND");
                 return;
             }
 
             MetadataProvider provider = providerOpt.get();
             if (!provider.supports(context)) {
-                sendFinalFailure(context, providerType, "Provider does not support context", "UNSUPPORTED_CONTEXT");
+                sendFinalFailure(context, providerType, "Provider does not support context", "UNSUPPORTED_CONTEXT", expectedAttempt);
                 recordSkipped(startedAt, providerType, correlationId(context), "UNSUPPORTED_CONTEXT");
                 return;
             }
 
             Optional<EnrichedMetadataDTO> result = provider.enrich(context);
             if (result.isPresent()) {
-                resultPublisher.publishSuccess(context, providerType, result.get());
+                resultPublisher.publishSuccess(context, providerType, result.get(), expectedAttempt);
                 recordSucceeded(startedAt, providerType, correlationId(context));
                 return;
             }
 
-            sendFinalFailure(context, providerType, "Not Found (Empty result)", "NOT_FOUND");
+            sendFinalFailure(context, providerType, "Not Found (Empty result)", "NOT_FOUND", expectedAttempt);
             recordSucceeded(startedAt, providerType, correlationId(context));
         } catch (MetadataProviderRetryableException ex) {
             log.info("Retryable metadata provider failure. provider={}, videoId={}, code={}",
                     providerType, context.getVideoId(), ex.getErrorCode());
-            sendRetryableFailure(context, providerType, ex.getMessage(), ex.getErrorCode());
+            sendRetryableFailure(context, providerType, ex.getMessage(), ex.getErrorCode(), expectedAttempt);
             recordFailed(startedAt, providerType, correlationId(context), ex.getErrorCode(), ex);
         } catch (MetadataProviderTerminalException ex) {
             log.warn("Terminal metadata provider failure. provider={}, videoId={}, code={}",
                     providerType, context.getVideoId(), ex.getErrorCode());
-            sendFinalFailure(context, providerType, ex.getMessage(), ex.getErrorCode());
+            sendFinalFailure(context, providerType, ex.getMessage(), ex.getErrorCode(), expectedAttempt);
             recordFailed(startedAt, providerType, correlationId(context), ex.getErrorCode(), ex);
         } catch (Exception ex) {
             if (isRetryable(ex)) {
                 sendRetryableFailure(context, providerType, "Retryable exception: " + rootCause(ex).getMessage(),
-                        classifyRetryable(rootCause(ex)));
+                        classifyRetryable(rootCause(ex)), expectedAttempt);
                 recordFailed(startedAt, providerType, correlationId(context), classifyRetryable(rootCause(ex)), ex);
                 return;
             }
@@ -138,16 +156,18 @@ public class MetadataProviderWorker {
             MetadataSearchContext context,
             ProviderType providerType,
             String reason,
-            String errorCode) {
-        resultPublisher.publishFailure(context, providerType, reason, true, errorCode);
+            String errorCode,
+            int expectedAttempt) {
+        resultPublisher.publishFailure(context, providerType, reason, true, errorCode, expectedAttempt);
     }
 
     private void sendFinalFailure(
             MetadataSearchContext context,
             ProviderType providerType,
             String reason,
-            String errorCode) {
-        resultPublisher.publishFailure(context, providerType, reason, false, errorCode);
+            String errorCode,
+            int expectedAttempt) {
+        resultPublisher.publishFailure(context, providerType, reason, false, errorCode, expectedAttempt);
     }
 
     private boolean isRetryable(Exception ex) {

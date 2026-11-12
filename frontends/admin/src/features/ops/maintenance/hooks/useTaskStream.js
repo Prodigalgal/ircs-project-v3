@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { AuthenticatedEventStream } from '../../../../utils/AuthenticatedEventStream';
 
 export function useTaskStream() {
     const [status, setStatus] = useState('IDLE');
@@ -27,10 +28,7 @@ export function useTaskStream() {
 
         setStatus('RUNNING');
 
-        const token = localStorage.getItem('ircs_token');
-        const finalUrl = token ? `${url}?token=${token}` : url;
-
-        const es = new EventSource(finalUrl);
+        const es = new AuthenticatedEventStream(url);
         eventSourceRef.current = es;
 
         es.onmessage = (event) => {
@@ -58,19 +56,19 @@ export function useTaskStream() {
         };
 
         es.onerror = () => {
-            if (es.readyState === EventSource.CONNECTING) {
+            if (es.readyState === AuthenticatedEventStream.CONNECTING) {
                 addLog('连接中断，正在尝试自动恢复...', 'warning');
                 return;
             }
 
-            if (status === 'RUNNING') {
-                setStatus('ERROR');
-                addLog('会话超时或任务已过期。', 'error');
-            }
+            setStatus(previous => previous === 'RUNNING' ? 'ERROR' : previous);
+            addLog('会话超时或任务已过期。', 'error');
             es.close();
         };
 
-    }, [disconnect, status]);
+    }, [disconnect]);
+
+    useEffect(() => disconnect, [disconnect]);
 
     const stopStream = useCallback(() => {
         disconnect();

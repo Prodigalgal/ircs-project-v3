@@ -75,7 +75,42 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    void acceptsTrustedGatewayAdminHeadersAndGrantsRoleAdmin() throws Exception {
+    void ignoresUnsignedAdminHeaders() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/members");
+        request.addHeader(IrcsAuthHeaders.AUTH_SUBJECT, "admin");
+        request.addHeader(IrcsAuthHeaders.AUTH_ROLE, IrcsPermissions.ROLE_ADMIN);
+        for (String header : java.util.List.of(IrcsAuthHeaders.AUTH_PERMISSIONS, IrcsAuthHeaders.AUTH_SCOPES,
+                IrcsAuthHeaders.DATA_CATEGORIES, IrcsAuthHeaders.DATA_GENRES, IrcsAuthHeaders.DATA_TAGS,
+                IrcsAuthHeaders.CONTENT_VISIBILITY)) request.addHeader(header, "*");
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+        org.junit.jupiter.api.Assertions.assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void retainsVerifiedGatewayPersonalAccessTokenIdentity() throws Exception {
+        var request = new MockHttpServletRequest("GET", "/api/v1/members");
+        IrcsAuthHeaders.setRequestAttribute(request, new com.prodigalgal.ircs.common.security.IrcsRequestPrincipal(
+                "api-token:ircs_pat_123", IrcsPermissions.ROLE_ADMIN,
+                Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*")));
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+        assertEquals("api-token:ircs_pat_123", SecurityContextHolder.getContext().getAuthentication().getPrincipal());
+    }
+
+    @Test
+    void rejectsVerifiedAdminWithUnboundUsername() throws Exception {
+        when(configService.value(IdentityConfigKey.ADMIN_USERNAME)).thenReturn("admin");
+        var request = new MockHttpServletRequest("GET", "/api/v1/members");
+        IrcsAuthHeaders.setRequestAttribute(request, new com.prodigalgal.ircs.common.security.IrcsRequestPrincipal(
+                "someone-else", IrcsPermissions.ROLE_ADMIN,
+                Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*")));
+        var response = new MockHttpServletResponse();
+        filter.doFilter(request, response, new MockFilterChain());
+        assertEquals(401, response.getStatus());
+        org.junit.jupiter.api.Assertions.assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void acceptsVerifiedGatewayAdminPrincipalAndGrantsRoleAdmin() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/members");
         request.addHeader(IrcsAuthHeaders.AUTH_SUBJECT, "admin");
         request.addHeader(IrcsAuthHeaders.AUTH_ROLE, IrcsPermissions.ROLE_ADMIN);
@@ -85,6 +120,9 @@ class JwtAuthenticationFilterTest {
         request.addHeader(IrcsAuthHeaders.DATA_GENRES, IrcsPermissions.ALL);
         request.addHeader(IrcsAuthHeaders.DATA_TAGS, IrcsPermissions.ALL);
         request.addHeader(IrcsAuthHeaders.CONTENT_VISIBILITY, IrcsPermissions.ALL);
+        IrcsAuthHeaders.setRequestAttribute(request, new com.prodigalgal.ircs.common.security.IrcsRequestPrincipal(
+                "admin", IrcsPermissions.ROLE_ADMIN, Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*"), Set.of("*")));
+        when(configService.value(IdentityConfigKey.ADMIN_USERNAME)).thenReturn("admin");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());

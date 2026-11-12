@@ -161,3 +161,5 @@ databaseChangeLog:
       file: db/changelog/2026/07/add-portal-home-read-indexes.sql
   - include:
       file: db/changelog/2026/07/add-adult-content-assessment.sql
+  - include:
+      file: db/changelog/2026/11/12-01-add-audit-poll-read-indexes.sql

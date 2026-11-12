@@ -32,7 +32,9 @@ class NormalizationMaintenanceInternalControllerTest {
                         0,
                         List.of(rawVideoId)));
 
-        var response = controller.resetNormalization(7, false, 500, null, null, null);
+        ReflectionTestUtils.setField(accessPolicy, "configuredToken", "internal-token");
+        ReflectionTestUtils.setField(accessPolicy, "requiredScope", "normalization:maintenance");
+        var response = controller.resetNormalization(7, false, 500, "ops-service", "internal-token", "normalization:maintenance");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody().taskName()).isEqualTo("sanitize");

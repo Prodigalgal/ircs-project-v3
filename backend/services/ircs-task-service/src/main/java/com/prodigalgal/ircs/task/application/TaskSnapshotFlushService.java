@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -50,6 +51,7 @@ public class TaskSnapshotFlushService {
         int flushed = 0;
         int failed = 0;
         for (String value : dirtyMasters) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             UUID masterTaskId = parseUuid(value);
             if (masterTaskId == null) {
                 failed++;
@@ -85,6 +87,7 @@ public class TaskSnapshotFlushService {
         }
 
         TaskDbRuntimeSnapshot ledger = ledger(masterTaskId, task.orElseThrow(), snapshot.orElse(null), masterState, pages);
+        ClusterLeaseGuard.checkCurrentOwnership();
         taskRepository.flushRuntimeLedger(ledger);
         snapshotService.markClean(masterTaskId);
         if (isTerminal(ledger.status())) {

@@ -713,11 +713,11 @@ public class JdbcCollectionTaskRepository {
         return Boolean.TRUE.equals(exists);
     }
 
-    public void markQueued(TaskRuntimeState task, boolean resume) {
+    public boolean markQueued(TaskRuntimeState task, boolean resume) {
         Timestamp now = Timestamp.from(Instant.now());
         if (resume) {
             int currentPage = effectiveCurrentPage(task.currentPage(), task.startPage());
-            jdbcTemplate.update(
+            return jdbcTemplate.update(
                     """
                     update collection_tasks
                     set status = 'QUEUED',
@@ -727,14 +727,17 @@ public class JdbcCollectionTaskRepository {
                         stat_end_time = null,
                         updated_at = ?
                     where id = ?
+                      and enabled = true
+                      and status is not distinct from ?
                     """,
                     now,
                     currentPage,
                     now,
-                    task.id());
+                    task.id(),
+                    task.status()) > 0;
         } else {
             int currentPage = effectiveStartPage(task.startPage());
-            jdbcTemplate.update(
+            return jdbcTemplate.update(
                     """
                     update collection_tasks
                     set status = 'QUEUED',
@@ -752,12 +755,15 @@ public class JdbcCollectionTaskRepository {
                         current_page = ?,
                         updated_at = ?
                     where id = ?
+                      and enabled = true
+                      and status is not distinct from ?
                     """,
                     now,
                     now,
                     currentPage,
                     now,
-                    task.id());
+                    task.id(),
+                    task.status()) > 0;
         }
     }
 

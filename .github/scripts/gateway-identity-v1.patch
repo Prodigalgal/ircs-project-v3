@@ -1,0 +1,183 @@
+diff --git a/ircs-prod/core/01-app-config.yaml b/ircs-prod/core/01-app-config.yaml
+index 627f8fb..bede219 100644
+--- a/ircs-prod/core/01-app-config.yaml
++++ b/ircs-prod/core/01-app-config.yaml
+@@ -11,0 +12,2 @@ data:
++  # Replace before rollout; this is an Ed25519 X.509 public key (base64 DER), never a private key.
++  GATEWAY_IDENTITY_PUBLIC_KEY: MCowBQYDK2VwAyEAZfSkdxlvV8Ku82xO8LF9rM4ZINXTTmPcRmr4321wDVM=
+diff --git a/ircs-prod/core/05-application-network-policy.yaml b/ircs-prod/core/05-application-network-policy.yaml
+new file mode 100644
+index 0000000..9a19c16
+--- /dev/null
++++ b/ircs-prod/core/05-application-network-policy.yaml
+@@ -0,0 +1,123 @@
++# Restrict ingress only for IRCS application pods. Datastores, egress and other namespaces are unchanged.
++apiVersion: networking.k8s.io/v1
++kind: NetworkPolicy
++metadata:
++  name: ircs-application-ingress
++  namespace: ircs-prod
++  labels:
++    app.kubernetes.io/part-of: ircs
++  annotations:
++    argocd.argoproj.io/sync-wave: '-20'
++spec:
++  podSelector:
++    matchLabels:
++      app.kubernetes.io/part-of: ircs
++      ircs.prodigalgal.com/workload: application
++    matchExpressions:
++    - key: app
++      operator: NotIn
++      values: [ircs-api-gateway]
++  policyTypes: [Ingress]
++  ingress:
++  # Service-to-service /internal calls retain their token and scope checks.
++  # API paths additionally require the gateway's Ed25519 signature at the servlet boundary.
++  - from:
++    - podSelector:
++        matchLabels:
++          app.kubernetes.io/part-of: ircs
++          ircs.prodigalgal.com/workload: application
++    ports:
++    - {protocol: TCP, port: 8080}
++    - {protocol: TCP, port: 80}
++    - {protocol: TCP, port: 3000}
++  - from:
++    - namespaceSelector:
++        matchLabels:
++          kubernetes.io/metadata.name: monitoring
++      podSelector:
++        matchLabels:
++          app.kubernetes.io/name: prometheus
++    ports:
++    - {protocol: TCP, port: 8080}
++---
++# Only actual ingress proxies, portal SSR and Prometheus may reach the API gateway.
++apiVersion: networking.k8s.io/v1
++kind: NetworkPolicy
++metadata:
++  name: ircs-api-gateway-ingress
++  namespace: ircs-prod
++  labels:
++    app.kubernetes.io/part-of: ircs
++  annotations:
++    argocd.argoproj.io/sync-wave: '-20'
++spec:
++  podSelector:
++    matchLabels:
++      app: ircs-api-gateway
++      app.kubernetes.io/part-of: ircs
++  policyTypes: [Ingress]
++  ingress:
++  - from:
++    - podSelector:
++        matchLabels:
++          app.kubernetes.io/part-of: ircs
++        matchExpressions:
++        - key: app
++          operator: In
++          values: [ircs-portal-frontend, ircs-admin-frontend, ircs-frontend-gateway]
++    ports:
++    - {protocol: TCP, port: 8080}
++  - from:
++    - namespaceSelector:
++        matchLabels:
++          kubernetes.io/metadata.name: envoy-gateway-system
++      podSelector:
++        matchLabels:
++          app.kubernetes.io/name: envoy
++          gateway.envoyproxy.io/owning-gateway-name: mnnu-gateway
++          gateway.envoyproxy.io/owning-gateway-namespace: gateway-system
++    ports:
++    - {protocol: TCP, port: 8080}
++  - from:
++    - namespaceSelector:
++        matchLabels:
++          kubernetes.io/metadata.name: monitoring
++      podSelector:
++        matchLabels:
++          app.kubernetes.io/name: prometheus
++    ports:
++    - {protocol: TCP, port: 8080}
++---
++# Public /media is deliberately routed straight to storage; frontend pages also bypass the API gateway.
++apiVersion: networking.k8s.io/v1
++kind: NetworkPolicy
++metadata:
++  name: ircs-public-edge-ingress
++  namespace: ircs-prod
++  labels:
++    app.kubernetes.io/part-of: ircs
++  annotations:
++    argocd.argoproj.io/sync-wave: '-20'
++spec:
++  podSelector:
++    matchLabels:
++      app.kubernetes.io/part-of: ircs
++    matchExpressions:
++    - key: app
++      operator: In
++      values: [ircs-storage-service, ircs-admin-frontend, ircs-portal-frontend, ircs-frontend-gateway]
++  policyTypes: [Ingress]
++  ingress:
++  - from:
++    - namespaceSelector:
++        matchLabels:
++          kubernetes.io/metadata.name: envoy-gateway-system
++      podSelector:
++        matchLabels:
++          app.kubernetes.io/name: envoy
++          gateway.envoyproxy.io/owning-gateway-name: mnnu-gateway
++          gateway.envoyproxy.io/owning-gateway-namespace: gateway-system
++    ports:
++    - {protocol: TCP, port: 8080}
++    - {protocol: TCP, port: 80}
++    - {protocol: TCP, port: 3000}
+diff --git a/ircs-prod/core/kustomization.yaml b/ircs-prod/core/kustomization.yaml
+index 44aa6b2..1cf1a93 100644
+--- a/ircs-prod/core/kustomization.yaml
++++ b/ircs-prod/core/kustomization.yaml
+@@ -37,0 +38 @@ resources:
++- 05-application-network-policy.yaml
+@@ -88,0 +90,23 @@ images:
++
++patches:
++- target:
++    group: apps
++    version: v1
++    kind: Deployment
++    name: (ircs-aggregation-worker|ircs-api-gateway|ircs-catalog-service|ircs-config-service|ircs-content-safety-service|ircs-content-service|ircs-credential-service|ircs-identity-service|ircs-ingestion-worker|ircs-interaction-service|ircs-magnet-service|ircs-metadata-worker|ircs-normalization-worker|ircs-notification-worker|ircs-ops-alert-service|ircs-ops-service|ircs-portal-service|ircs-scraper-service|ircs-search-service|ircs-storage-service|ircs-task-service)
++  patch: |-
++    apiVersion: apps/v1
++    kind: Deployment
++    metadata:
++      name: gateway-identity-verifier
++    spec:
++      template:
++        spec:
++          containers:
++          - name: app
++            env:
++            - name: IRCS_GATEWAY_IDENTITY_VERIFICATION_KEY
++              valueFrom:
++                configMapKeyRef:
++                  name: ircs-prod-app-config
++                  key: GATEWAY_IDENTITY_PUBLIC_KEY
+diff --git a/ircs-prod/core/manifests/api-gateway.yaml b/ircs-prod/core/manifests/api-gateway.yaml
+index 8878bdf..65a05a6 100644
+--- a/ircs-prod/core/manifests/api-gateway.yaml
++++ b/ircs-prod/core/manifests/api-gateway.yaml
+@@ -11 +11 @@ metadata:
+-    argocd.argoproj.io/sync-wave: '4'
++    argocd.argoproj.io/sync-wave: '-5'
+@@ -44,0 +45,9 @@ spec:
++        - name: IRCS_GATEWAY_IDENTITY_SIGNING_KEY
++          valueFrom:
++            secretKeyRef:
++              name: ircs-prod-secrets
++              key: GATEWAY_IDENTITY_PRIVATE_KEY
++        # CIDR is restricted to the actual Envoy ingress by 05-application-network-policy.yaml.
++        # Never enable generic forwarded-header rewriting in the servlet container.
++        - name: IRCS_GATEWAY_IDENTITY_TRUSTED_PROXY_CIDRS
++          value: 10.244.0.0/16

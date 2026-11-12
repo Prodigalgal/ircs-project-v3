@@ -5,18 +5,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
-import java.util.ArrayDeque;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 @Component
 @Slf4j
@@ -29,14 +25,39 @@ class MailSendRateLimiter {
     private final MailCredentialUsageRepository usageRepository;
     private final Clock clock;
     private final Sleeper sleeper;
-    private final Object monitor = new Object();
-    private final Map<UUID, Deque<Long>> credentialWindows = new HashMap<>();
-    private long nextGlobalPermitAtMs;
+    private static final String GLOBAL_KEY = "traffic:limit:mail:global";
+    private static final DefaultRedisScript<Long> RESERVE = new DefaultRedisScript<>(
+            """
+            local time = redis.call('TIME')
+            local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+            local gap = tonumber(ARGV[1])
+            local limit = tonumber(ARGV[2])
+            local window = tonumber(ARGV[3])
+            local wait = math.max(0, tonumber(redis.call('GET', KEYS[1]) or '0') - now)
+            if limit > 0 then
+              redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now - window)
+              if redis.call('ZCARD', KEYS[2]) >= limit then
+                local oldest = redis.call('ZRANGE', KEYS[2], 0, 0, 'WITHSCORES')
+                wait = math.max(wait, tonumber(oldest[2]) + window - now)
+              end
+            end
+            if wait > 0 then return wait end
+            if gap > 0 then redis.call('SET', KEYS[1], now + gap, 'PX', gap + 60000) end
+            if limit > 0 then
+              redis.call('ZADD', KEYS[2], now, ARGV[4])
+              redis.call('PEXPIRE', KEYS[2], window + 60000)
+            end
+            return 0
+            """, Long.class);
+    private final StringRedisTemplate redisTemplate;
+
     MailSendRateLimiter(
             NotificationMailConfigValues configValues,
             MailCredentialUsageRepository usageRepository,
             ObjectProvider<Clock> clockProvider,
-            ObjectProvider<Sleeper> sleeperProvider) {
+            ObjectProvider<Sleeper> sleeperProvider,
+            StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
         this.configValues = configValues;
         this.usageRepository = usageRepository;
         Clock providedClock = clockProvider == null ? null : clockProvider.getIfAvailable();
@@ -46,82 +67,55 @@ class MailSendRateLimiter {
     }
 
     void awaitGlobalPermit() {
-        awaitPermit(null);
+        long started = System.nanoTime();
+        while (true) {
+            long waitMs = reservePermit(null);
+            if (waitMs == 0L) {
+                return;
+            }
+            sleepWithinConfiguredBound(waitMs, started);
+        }
     }
 
     MailCredential selectCredential(List<MailCredential> candidates) {
         if (candidates == null || candidates.isEmpty()) {
             throw new MailCredentialLeaseException("MAIL credential is not available");
         }
+        long started = System.nanoTime();
         while (true) {
-            long now = clock.millis();
-            CredentialPermit best = candidates.stream()
-                    .map(credential -> evaluate(credential, now))
-                    .filter(CredentialPermit::available)
-                    .min(Comparator.comparingLong(CredentialPermit::waitMs))
-                    .orElseThrow(() -> new MailCredentialLeaseException("MAIL credential quota exhausted"));
-            long waitMs = Math.max(globalWaitMs(now), best.waitMs());
-            if (waitMs <= 0) {
-                synchronized (monitor) {
-                    long lockedNow = clock.millis();
-                    CredentialPermit locked = evaluate(best.credential(), lockedNow);
-                    long lockedWaitMs = Math.max(globalWaitMs(lockedNow), locked.waitMs());
-                    if (locked.available() && lockedWaitMs <= 0) {
-                        markPermit(best.credential(), lockedNow);
-                        return best.credential();
-                    }
-                    if (!locked.available()) {
-                        throw new MailCredentialLeaseException("MAIL credential quota exhausted");
-                    }
-                    waitMs = lockedWaitMs;
+            long shortestWait = Long.MAX_VALUE;
+            for (MailCredential credential : candidates) {
+                if (isDailyQuotaExhausted(credential) || isMonthlyQuotaExhausted(credential)) {
+                    continue;
                 }
+                long waitMs = reservePermit(credential);
+                if (waitMs == 0L) {
+                    return credential;
+                }
+                shortestWait = Math.min(shortestWait, waitMs);
             }
-            sleepWithinConfiguredBound(waitMs);
+            if (shortestWait == Long.MAX_VALUE) {
+                throw new MailCredentialLeaseException("MAIL credential quota exhausted");
+            }
+            sleepWithinConfiguredBound(shortestWait, started);
         }
     }
 
-    private void awaitPermit(MailCredential credential) {
-        while (true) {
-            long now = clock.millis();
-            long waitMs = globalWaitMs(now);
-            if (credential != null) {
-                CredentialPermit permit = evaluate(credential, now);
-                if (!permit.available()) {
-                    throw new MailCredentialLeaseException("MAIL credential quota exhausted");
-                }
-                waitMs = Math.max(waitMs, permit.waitMs());
-            }
-            if (waitMs <= 0) {
-                synchronized (monitor) {
-                    long lockedNow = clock.millis();
-                    long lockedWaitMs = globalWaitMs(lockedNow);
-                    if (credential != null) {
-                        CredentialPermit permit = evaluate(credential, lockedNow);
-                        if (!permit.available()) {
-                            throw new MailCredentialLeaseException("MAIL credential quota exhausted");
-                        }
-                        lockedWaitMs = Math.max(lockedWaitMs, permit.waitMs());
-                    }
-                    if (lockedWaitMs <= 0) {
-                        markPermit(credential, lockedNow);
-                        return;
-                    }
-                    waitMs = lockedWaitMs;
-                }
-            }
-            sleepWithinConfiguredBound(waitMs);
+    private long reservePermit(MailCredential credential) {
+        int limit = credential == null || credential.id() == null ? 0 : positiveInt(credential.rateLimit());
+        long gap = nextGlobalDelayMs();
+        if (limit == 0 && gap == 0) {
+            return 0L;
         }
-    }
-
-    private CredentialPermit evaluate(MailCredential credential, long nowMs) {
-        if (credential == null) {
-            return new CredentialPermit(null, true, 0L);
+        String credentialKey = limit == 0 ? GLOBAL_KEY : "traffic:limit:mail:credential:" + credential.id();
+        Long wait = redisTemplate.execute(RESERVE, List.of(GLOBAL_KEY, credentialKey),
+                String.valueOf(gap), String.valueOf(limit),
+                String.valueOf(credential == null ? MINUTE_WINDOW_MS : rateLimitWindowMs(credential.rateLimitUnit())),
+                java.util.UUID.randomUUID().toString());
+        if (wait == null || wait < 0L) {
+            throw new MailCredentialLeaseException("MAIL rate limiter returned an invalid response");
         }
-        if (isDailyQuotaExhausted(credential) || isMonthlyQuotaExhausted(credential)) {
-            return new CredentialPermit(credential, false, Long.MAX_VALUE);
-        }
-        long waitMs = credentialWindowWaitMs(credential, nowMs);
-        return new CredentialPermit(credential, true, waitMs);
+        return wait;
     }
 
     private boolean isDailyQuotaExhausted(MailCredential credential) {
@@ -147,43 +141,6 @@ class MailSendRateLimiter {
         return usageRepository.countSentSince(credential.id(), monthStart) >= limit;
     }
 
-    private long credentialWindowWaitMs(MailCredential credential, long nowMs) {
-        int limit = positiveInt(credential.rateLimit());
-        if (limit <= 0 || credential.id() == null) {
-            return 0L;
-        }
-        long windowMs = rateLimitWindowMs(credential.rateLimitUnit());
-        synchronized (monitor) {
-            Deque<Long> window = credentialWindows.computeIfAbsent(credential.id(), ignored -> new ArrayDeque<>());
-            purgeExpired(window, nowMs, windowMs);
-            if (window.size() < limit) {
-                return 0L;
-            }
-            Long oldest = window.peekFirst();
-            if (oldest == null) {
-                return 0L;
-            }
-            return Math.max(0L, oldest + windowMs - nowMs);
-        }
-    }
-
-    private void markPermit(MailCredential credential, long nowMs) {
-        nextGlobalPermitAtMs = nowMs + nextGlobalDelayMs();
-        if (credential == null || credential.id() == null || positiveInt(credential.rateLimit()) <= 0) {
-            return;
-        }
-        long windowMs = rateLimitWindowMs(credential.rateLimitUnit());
-        Deque<Long> window = credentialWindows.computeIfAbsent(credential.id(), ignored -> new ArrayDeque<>());
-        purgeExpired(window, nowMs, windowMs);
-        window.addLast(nowMs);
-    }
-
-    private long globalWaitMs(long nowMs) {
-        synchronized (monitor) {
-            return Math.max(0L, nextGlobalPermitAtMs - nowMs);
-        }
-    }
-
     private long nextGlobalDelayMs() {
         int min = configValues.rateLimitMinMs();
         int max = configValues.rateLimitMaxMs();
@@ -196,12 +153,13 @@ class MailSendRateLimiter {
         return ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 
-    private void sleepWithinConfiguredBound(long waitMs) {
+    private void sleepWithinConfiguredBound(long waitMs, long started) {
         if (waitMs <= 0) {
             return;
         }
         int maxWaitMs = configValues.rateLimitMaxWaitMs();
-        if (maxWaitMs > 0 && waitMs > maxWaitMs) {
+        long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(Math.max(0L, System.nanoTime() - started));
+        if (maxWaitMs > 0 && waitMs > Math.max(0L, maxWaitMs - elapsedMs)) {
             throw new MailCredentialLeaseException("MAIL credential rate limit wait exceeds configured max wait");
         }
         try {
@@ -209,12 +167,6 @@ class MailSendRateLimiter {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new MailCredentialLeaseException("MAIL rate limit wait interrupted", ex);
-        }
-    }
-
-    private static void purgeExpired(Deque<Long> timestamps, long nowMs, long windowMs) {
-        while (!timestamps.isEmpty() && timestamps.peekFirst() <= nowMs - windowMs) {
-            timestamps.removeFirst();
         }
     }
 
@@ -242,6 +194,4 @@ class MailSendRateLimiter {
         void sleep(long millis) throws InterruptedException;
     }
 
-    private record CredentialPermit(MailCredential credential, boolean available, long waitMs) {
-    }
 }

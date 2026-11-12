@@ -1,6 +1,9 @@
 package com.prodigalgal.ircs.storage.image;
 
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
+import com.prodigalgal.ircs.common.lock.DistributedLockService;
+import java.time.Duration;
+import java.util.UUID;
 import jakarta.annotation.PreDestroy;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -16,6 +19,8 @@ import org.springframework.stereotype.Component;
 class CoverImageDownloadBackfillScheduler {
 
     private final CoverImageAdminService service;
+    private final DistributedLockService locks;
+    private final String lockOwner = UUID.randomUUID().toString();
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-cover-download-backfill-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -43,10 +48,12 @@ class CoverImageDownloadBackfillScheduler {
             return;
         }
         try {
-            int queued = service.enqueueDownloadBackfill(Math.max(1, batchSize));
-            if (queued > 0) {
-                log.info("Queued cover image download backfill: count={}", queued);
-            }
+            locks.runWithLock("lock:storage:cover-download-backfill", lockOwner, Duration.ofMinutes(10), () -> {
+                int queued = service.enqueueDownloadBackfill(Math.max(1, batchSize));
+                if (queued > 0) {
+                    log.info("Queued cover image download backfill: count={}", queued);
+                }
+            });
         } catch (RuntimeException ex) {
             log.warn("Cover image download backfill failed: {}", ex.getMessage());
         } finally {

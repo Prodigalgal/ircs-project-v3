@@ -41,17 +41,24 @@ class MetadataProviderWorkerTest {
     @Mock
     private WorkerJobAuditWriter auditWriter;
 
+    @Mock
+    private com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository pipelineRunRepository;
+
     private MetadataProviderWorker worker;
 
     @BeforeEach
     void setUp() {
         org.mockito.Mockito.lenient().when(configValues.isProviderEnabled(ProviderType.TMDB)).thenReturn(true);
+        org.mockito.Mockito.lenient().when(pipelineRunRepository.findPendingProviderAttempt(
+                        org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any()))
+                .thenReturn(Optional.of(0));
         worker = new MetadataProviderWorker(
                 List.of(provider),
                 new MetadataSearchContextMessageParser(new ObjectMapper()),
                 resultPublisher,
                 configValues,
-                auditWriter);
+                auditWriter,
+                pipelineRunRepository);
     }
 
     @Test
@@ -65,10 +72,15 @@ class MetadataProviderWorkerTest {
 
         worker.execute(context, ProviderType.TMDB);
 
-        verify(resultPublisher).publishSuccess(context, ProviderType.TMDB, metadata);
+        verify(resultPublisher).publishSuccess(context, ProviderType.TMDB, metadata, 0);
+        var executionOrder = org.mockito.Mockito.inOrder(pipelineRunRepository, provider, resultPublisher);
+        executionOrder.verify(pipelineRunRepository).findPendingProviderAttempt(
+                context.getVideoId(), context.getPipelineVersion(), ProviderType.TMDB);
+        executionOrder.verify(provider).enrich(context);
+        executionOrder.verify(resultPublisher).publishSuccess(context, ProviderType.TMDB, metadata, 0);
         verify(resultPublisher, never()).publishFailure(
                 org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.anyBoolean(),
-                org.mockito.Mockito.any());
+                org.mockito.Mockito.any(), org.mockito.Mockito.anyInt());
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.jobType()).isEqualTo("queue-consumer");
         org.assertj.core.api.Assertions.assertThat(event.jobName()).isEqualTo("metadata.provider.tmdb");
@@ -85,7 +97,7 @@ class MetadataProviderWorkerTest {
 
         worker.execute(context, ProviderType.TMDB);
 
-        verify(resultPublisher).publishFailure(context, ProviderType.TMDB, "no keys", true, "POOL_EXHAUSTED");
+        verify(resultPublisher).publishFailure(context, ProviderType.TMDB, "no keys", true, "POOL_EXHAUSTED", 0);
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.status()).isEqualTo("failed");
         org.assertj.core.api.Assertions.assertThat(event.error().getMessage()).isEqualTo("POOL_EXHAUSTED");
@@ -104,7 +116,7 @@ class MetadataProviderWorkerTest {
                 ProviderType.TMDB,
                 "Provider does not support context",
                 false,
-                "UNSUPPORTED_CONTEXT");
+                "UNSUPPORTED_CONTEXT", 0);
         verify(provider, never()).enrich(context);
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.status()).isEqualTo("skipped");
@@ -123,7 +135,7 @@ class MetadataProviderWorkerTest {
                 ProviderType.TMDB,
                 "Provider disabled by configuration",
                 false,
-                "PROVIDER_DISABLED");
+                "PROVIDER_DISABLED", 0);
         verify(provider, never()).supports(org.mockito.Mockito.any());
         verify(provider, never()).enrich(org.mockito.Mockito.any());
         WorkerJobAuditEvent event = captureAuditEvent();
@@ -144,7 +156,7 @@ class MetadataProviderWorkerTest {
                 org.mockito.Mockito.eq(ProviderType.DOUBAN),
                 org.mockito.Mockito.eq("Provider implementation not found"),
                 org.mockito.Mockito.eq(false),
-                org.mockito.Mockito.eq("PROVIDER_NOT_FOUND"));
+                org.mockito.Mockito.eq("PROVIDER_NOT_FOUND"), org.mockito.Mockito.anyInt());
         verify(provider, never()).supports(org.mockito.Mockito.any());
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.jobName()).isEqualTo("metadata.provider.douban");
@@ -164,11 +176,22 @@ class MetadataProviderWorkerTest {
                 org.mockito.Mockito.eq(ProviderType.ROTTEN_TOMATOES),
                 org.mockito.Mockito.eq("Provider implementation not found"),
                 org.mockito.Mockito.eq(false),
-                org.mockito.Mockito.eq("PROVIDER_NOT_FOUND"));
+                org.mockito.Mockito.eq("PROVIDER_NOT_FOUND"), org.mockito.Mockito.anyInt());
         verify(provider, never()).supports(org.mockito.Mockito.any());
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.jobName()).isEqualTo("metadata.provider.rotten-tomatoes");
         org.assertj.core.api.Assertions.assertThat(event.status()).isEqualTo("skipped");
+    }
+
+    @Test
+    void missingPendingAttemptSkipsProviderIoAndResultPublication() {
+        when(pipelineRunRepository.findPendingProviderAttempt(
+                        org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any()))
+                .thenReturn(Optional.empty());
+
+        worker.execute(context(), ProviderType.TMDB);
+
+        org.mockito.Mockito.verifyNoInteractions(provider, resultPublisher);
     }
 
     private MetadataSearchContext context() {

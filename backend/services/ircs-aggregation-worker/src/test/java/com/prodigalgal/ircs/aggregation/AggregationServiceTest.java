@@ -47,11 +47,16 @@ class AggregationServiceTest {
     @Mock
     private AggregationWorkPublisher workPublisher;
 
+    @Mock
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     @InjectMocks
     private AggregationService service;
 
     @BeforeEach
     void setUp() {
+        lenient().when(transactionManager.getTransaction(any()))
+                .thenAnswer(ignored -> new org.springframework.transaction.support.SimpleTransactionStatus());
         lenient().when(matchKeyLock.tryAcquire(any()))
                 .thenReturn(Optional.of(AggregationMatchKeyLock.MatchLockScope.noop()));
     }
@@ -441,6 +446,29 @@ class AggregationServiceTest {
     }
 
     @Test
+    void recalculationCommitsEachRawBeforePublishingAndStartingTheNextRaw() {
+        UUID unifiedId = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        when(repository.findRawIdsForUnified(unifiedId)).thenReturn(List.of(first, second));
+        for (UUID rawId : List.of(first, second)) {
+            when(repository.findRawVideo(rawId)).thenReturn(Optional.of(readyRawVideo(rawId)));
+            when(repository.findExistingBinding(rawId)).thenReturn(Optional.of(unifiedId));
+        }
+        when(aggregationPipelineRuntime.run(unifiedId)).thenReturn(pipelineExecution(unifiedId, List.of()));
+
+        assertEquals(2, service.recalculateUnified(unifiedId));
+
+        InOrder order = inOrder(transactionManager, publisher);
+        order.verify(transactionManager).getTransaction(any());
+        order.verify(transactionManager).commit(any());
+        order.verify(publisher).publishRawIndex(first);
+        order.verify(transactionManager).getTransaction(any());
+        order.verify(transactionManager).commit(any());
+        order.verify(publisher).publishRawIndex(second);
+    }
+
+    @Test
     void recalculateDirtyUnifiedUsesCappedDirtySelection() {
         UUID firstUnifiedId = UUID.randomUUID();
         UUID secondUnifiedId = UUID.randomUUID();
@@ -480,7 +508,9 @@ class AggregationServiceTest {
         assertEquals(7L, result.bindingCount());
         assertEquals(19L, result.changedRows());
         assertEquals(List.of(rawVideoId), result.sampleRawVideoIds());
-        verify(repository).deleteAllAggregationResetOwnedRows();
+        InOrder resetOrder = inOrder(repository);
+        resetOrder.verify(repository).lockAggregationMaintenance();
+        resetOrder.verify(repository).deleteAllAggregationResetOwnedRows();
     }
 
     @Test
@@ -499,7 +529,9 @@ class AggregationServiceTest {
         assertEquals(0L, result.bindingCount());
         assertEquals(8L, result.changedRows());
         assertEquals(List.of(rawVideoId), result.sampleRawVideoIds());
-        verify(repository).markAllRawAggregationPending();
+        InOrder resetOrder = inOrder(repository);
+        resetOrder.verify(repository).lockAggregationMaintenance();
+        resetOrder.verify(repository).markAllRawAggregationPending();
     }
 
     @Test

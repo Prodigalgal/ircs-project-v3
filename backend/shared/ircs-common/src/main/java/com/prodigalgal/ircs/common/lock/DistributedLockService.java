@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.common.lock;
 
 import com.prodigalgal.ircs.common.lease.ClusterLease;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import java.time.Duration;
 import java.util.Optional;
@@ -25,12 +26,13 @@ public interface DistributedLockService extends ClusterLeaseService {
         if (lock.isEmpty()) {
             return false;
         }
-        try {
+        try (ClusterLeaseGuard renewal = new ClusterLeaseGuard(this, lock.orElseThrow(), ttl)) {
+            renewal.checkOwnership();
             action.run();
-            return true;
         } finally {
             unlock(lock.orElseThrow());
         }
+        return true;
     }
 
     default <T> Optional<T> callWithLock(String name, String ownerId, Duration ttl, Supplier<T> action) {
@@ -38,7 +40,8 @@ public interface DistributedLockService extends ClusterLeaseService {
         if (lock.isEmpty()) {
             return Optional.empty();
         }
-        try {
+        try (ClusterLeaseGuard renewal = new ClusterLeaseGuard(this, lock.orElseThrow(), ttl)) {
+            renewal.checkOwnership();
             return Optional.ofNullable(action.get());
         } finally {
             unlock(lock.orElseThrow());

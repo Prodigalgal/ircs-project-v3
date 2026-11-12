@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.mockito.ArgumentCaptor;
 
 class MaintenanceSchedulerServiceTest {
@@ -54,6 +55,11 @@ class MaintenanceSchedulerServiceTest {
         when(configValues.maintenanceSchedulerClusterLeaseEnabled()).thenReturn(true);
         when(configValues.maintenanceSchedulerClusterLeaseTtl()).thenReturn(Duration.ofMinutes(10));
         when(runnerService.metadata("search-reindex-unified")).thenReturn(Optional.of(metadata()));
+    }
+
+    @AfterEach
+    void clearCancellationFlag() {
+        Thread.interrupted();
     }
 
     @Test
@@ -160,6 +166,31 @@ class MaintenanceSchedulerServiceTest {
         assertThat(clusterLeaseService.releaseAttempts).isEqualTo(1);
     }
 
+    @Test
+    void losingLeaseStopsFollowingTasksAndDoesNotPublishSuccessNotification() {
+        when(configValues.maintenanceSchedulerEnabled()).thenReturn(true);
+        when(configValues.maintenanceSchedulerDryRun()).thenReturn(false);
+        when(configValues.maintenanceSchedulerClusterLeaseTtl()).thenReturn(Duration.ofMillis(600));
+        when(configValues.maintenanceSchedulerTasks()).thenReturn(List.of("search-reindex-unified", "second-task"));
+        when(runnerService.run(eq("search-reindex-unified"), anyString())).thenAnswer(invocation -> {
+            clusterLeaseService.renewalAllowed = false;
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ignored) {
+                // The runner deliberately swallows cancellation: the scheduler must still stop.
+            }
+            return MaintenanceRunnerExecution.executed(metadata(),
+                    new MaintenanceRunResult("search-reindex-unified", 0, 0, List.of()));
+        });
+
+        MaintenanceSchedulerStatusResponse status = schedulerService.runOnce();
+
+        assertThat(status.lastResults().getFirst().reason()).contains("ownership lost");
+        verify(runnerService, never()).run(eq("second-task"), anyString());
+        verify(notificationPublisher, never()).publishSchedulerRun(anyString(), org.mockito.Mockito.anyList());
+        assertThat(clusterLeaseService.releaseAttempts).isEqualTo(1);
+    }
+
     private WorkerJobAuditEvent captureAuditEvent() {
         ArgumentCaptor<WorkerJobAuditEvent> captor = ArgumentCaptor.forClass(WorkerJobAuditEvent.class);
         verify(auditWriter).record(captor.capture());
@@ -181,6 +212,7 @@ class MaintenanceSchedulerServiceTest {
     private static class FakeClusterLeaseService implements ClusterLeaseService {
 
         boolean acquire = true;
+        volatile boolean renewalAllowed = true;
         int acquireAttempts;
         int releaseAttempts;
 
@@ -190,13 +222,13 @@ class MaintenanceSchedulerServiceTest {
             if (!acquire) {
                 return Optional.empty();
             }
-            Instant now = Instant.parse("2026-06-11T12:00:00Z");
+            Instant now = Instant.now();
             return Optional.of(new ClusterLease(name, ownerId, ownerId + ":token", now, now.plus(ttl)));
         }
 
         @Override
         public boolean renew(ClusterLease lease, Duration ttl) {
-            return true;
+            return renewalAllowed;
         }
 
         @Override

@@ -74,7 +74,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.TMDB)
                 .success(true)
                 .metadata(metadata)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -103,7 +103,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.ROTTEN_TOMATOES)
                 .success(true)
                 .metadata(metadata)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -146,7 +146,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.TMDB)
                 .success(true)
                 .metadata(metadata)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -185,7 +185,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.TMDB)
                 .success(true)
                 .metadata(metadata)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -207,7 +207,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.DOUBAN)
                 .success(false)
                 .retryable(true)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -229,7 +229,7 @@ class MetadataResultCollectorServiceTest {
                 .retryable(false)
                 .errorCode("PROVIDER_NOT_FOUND")
                 .errorMessage("Provider implementation not found")
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -249,7 +249,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.TMDB)
                 .success(true)
                 .metadata(new EnrichedMetadataDTO())
-                .build());
+                .build(), 0);
 
         assertEquals("STALE", result.enrichmentStatus());
         verify(repository, never()).save(any());
@@ -265,7 +265,7 @@ class MetadataResultCollectorServiceTest {
                 .videoId(id)
                 .pipelineVersion("hash-v1")
                 .success(true)
-                .build());
+                .build(), 0);
 
         assertEquals(false, result.videoFound());
         verify(repository, never()).save(any());
@@ -286,7 +286,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.TMDB)
                 .success(true)
                 .metadata(metadata)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -310,7 +310,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.TMDB)
                 .success(true)
                 .metadata(metadata)
-                .build());
+                .build(), 0);
 
         assertEquals("PENDING", result.enrichmentStatus());
         verify(repository, never()).save(any());
@@ -330,7 +330,7 @@ class MetadataResultCollectorServiceTest {
                 .providerType(ProviderType.DOUBAN)
                 .success(false)
                 .retryable(false)
-                .build());
+                .build(), 0);
 
         ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
         verify(repository).save(record.capture());
@@ -338,6 +338,22 @@ class MetadataResultCollectorServiceTest {
         assertEquals("SUCCESS", record.getValue().getEnrichmentStatus());
         verify(pipelineRunRepository).markRunFinished(id, "hash-v1", "SUCCESS");
         verify(searchSyncPublisher).publishIndex(id);
+    }
+
+    @Test
+    void lateOldAttemptDoesNotSaveItsMetadataIntoANewPendingRetry() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.of(record(id)));
+        EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
+        metadata.setTmdbId("old-attempt-result");
+        MetadataResultCollectorService service = newService(ProviderCompletion.tracked(false, 1, 0, 0, 0, 0, 0));
+
+        service.process(EnrichmentResultMsg.builder().videoId(id).pipelineVersion("hash-v1")
+                .providerType(ProviderType.TMDB).success(true).metadata(metadata).build(), 0);
+
+        verify(repository, never()).save(any());
+        verify(searchSyncPublisher, never()).publishIndex(id);
+        verify(pipelineRunRepository, never()).markRunFinished(any(), any(), any());
     }
 
     private MetadataResultCollectorService newService(ProviderCompletion completion) {
@@ -348,7 +364,7 @@ class MetadataResultCollectorServiceTest {
                         anyBoolean(),
                         anyBoolean(),
                         any(),
-                        any()))
+                        any(), org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(completion);
         return newService();
     }

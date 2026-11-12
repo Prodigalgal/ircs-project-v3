@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.ops.config.OpsConfigValues;
 import com.prodigalgal.ircs.ops.maintenance.domain.MaintenanceRunResult;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -148,6 +149,7 @@ public class MaintenanceReindexCommand {
         List<UUID> sample = new java.util.ArrayList<>();
 
         while (true) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             List<UUID> ids = jdbcTemplate.query(
                     cursor == null ? firstBatchSql : nextBatchSql,
                     new MapSqlParameterSource()
@@ -158,6 +160,7 @@ public class MaintenanceReindexCommand {
                 break;
             }
             selected = safeSum(selected, ids.size());
+            ClusterLeaseGuard.checkCurrentOwnership();
             accepted = safeSum(accepted, searchSyncClient.enqueueIndex(ids, entityType, correlationId));
             collectSample(sample, ids);
             cursor = ids.getLast();

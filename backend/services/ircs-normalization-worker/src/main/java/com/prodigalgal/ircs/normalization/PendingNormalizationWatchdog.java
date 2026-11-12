@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.normalization;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditEvent;
 import com.prodigalgal.ircs.common.audit.WorkerJobAuditWriter;
 import com.prodigalgal.ircs.common.lease.ClusterLease;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseService;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
@@ -80,7 +81,12 @@ class PendingNormalizationWatchdog {
             }
             Instant startedAt = Instant.now();
             try {
-                int submitted = submitMissingPendingTasks();
+                int submitted;
+                try (ClusterLeaseGuard guard = new ClusterLeaseGuard(
+                        clusterLeaseServiceProvider.getIfAvailable(), lease.orElseThrow(), configValues.pendingWatchdogLeaseTtl())) {
+                    guard.checkOwnership();
+                    submitted = submitMissingPendingTasks();
+                }
                 recordSucceeded(startedAt, submitted);
                 return submitted;
             } catch (RuntimeException ex) {
@@ -100,10 +106,12 @@ class PendingNormalizationWatchdog {
                 repository.findPendingNormalizationQueueItems(updatedBefore, configValues.pendingWatchdogBatchSize());
         int submitted = 0;
         for (RawVideoNormalizationRepository.RawVideoQueueItem item : items) {
+            ClusterLeaseGuard.checkCurrentOwnership();
             RuntimeWorkItemRequest request = normalizeRequest(item);
             if (workQueue.hasOpenTask(request.taskType(), request.taskId())) {
                 continue;
             }
+            ClusterLeaseGuard.checkCurrentOwnership();
             workQueue.submit(request);
             submitted++;
         }
@@ -131,30 +139,18 @@ class PendingNormalizationWatchdog {
                 ? null
                 : clusterLeaseServiceProvider.getIfAvailable();
         if (leaseService == null) {
-            return Optional.of(new ClusterLease(
-                    LEASE_NAME,
-                    workerId,
-                    "local",
-                    Instant.now(),
-                    Instant.now().plus(configValues.pendingWatchdogLeaseTtl())));
+            log.warn("Pending normalization watchdog lease service unavailable; skipping round");
+            return Optional.empty();
         }
         try {
             return leaseService.tryAcquire(LEASE_NAME, workerId, configValues.pendingWatchdogLeaseTtl());
         } catch (RuntimeException ex) {
-            log.warn("Pending normalization watchdog lease unavailable, falling back to local run: {}", ex.getMessage());
-            return Optional.of(new ClusterLease(
-                    LEASE_NAME,
-                    workerId,
-                    "local",
-                    Instant.now(),
-                    Instant.now().plus(configValues.pendingWatchdogLeaseTtl())));
+            log.warn("Pending normalization watchdog lease unavailable; skipping round: {}", ex.getMessage());
+            return Optional.empty();
         }
     }
 
     private void releaseLease(ClusterLease lease) {
-        if ("local".equals(lease.token())) {
-            return;
-        }
         ClusterLeaseService leaseService = clusterLeaseServiceProvider == null
                 ? null
                 : clusterLeaseServiceProvider.getIfAvailable();

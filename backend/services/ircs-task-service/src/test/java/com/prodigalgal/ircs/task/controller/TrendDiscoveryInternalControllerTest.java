@@ -16,7 +16,7 @@ import org.springframework.http.HttpStatus;
 class TrendDiscoveryInternalControllerTest {
 
     private final TrendDiscoveryTaskService service = org.mockito.Mockito.mock(TrendDiscoveryTaskService.class);
-    private final TaskInternalAccessPolicy accessPolicy = new TaskInternalAccessPolicy();
+    private final TaskInternalAccessPolicy accessPolicy = org.mockito.Mockito.mock(TaskInternalAccessPolicy.class);
     private final TrendDiscoveryInternalController controller =
             new TrendDiscoveryInternalController(service, accessPolicy);
 

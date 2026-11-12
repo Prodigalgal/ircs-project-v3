@@ -21,10 +21,13 @@ class MagnetAutoSearchSchedulerTest {
     private final JdbcMagnetRepository repository = org.mockito.Mockito.mock(JdbcMagnetRepository.class);
     private final MagnetQueryService queryService = org.mockito.Mockito.mock(MagnetQueryService.class);
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final com.prodigalgal.ircs.common.lock.DistributedLockService locks =
+            org.mockito.Mockito.mock(com.prodigalgal.ircs.common.lock.DistributedLockService.class);
     private final MagnetAutoSearchScheduler scheduler = new MagnetAutoSearchScheduler(
             repository,
             queryService,
-            runtimeConfigProvider(runtimeConfig));
+            runtimeConfigProvider(runtimeConfig),
+            locks);
 
     @Test
     void scheduledRunSkipsWhenDisabled() {
@@ -51,6 +54,18 @@ class MagnetAutoSearchSchedulerTest {
         assertEquals(2, triggered);
         verify(queryService).enqueueAutomaticSearch(first);
         verify(queryService).enqueueAutomaticSearch(second);
+    }
+
+    @Test
+    void anotherReplicaHoldingTheLeasePreventsCandidateQueryAndEnqueue() {
+        when(runtimeConfig.booleanValue("app.magnet.auto-search.enabled", false)).thenReturn(true);
+
+        scheduler.runScheduledBatch();
+
+        verify(locks).runWithLock(eq("lock:magnet:auto-search"), org.mockito.ArgumentMatchers.anyString(),
+                any(), any());
+        verify(repository, never()).findAutoSearchCandidates(anyInt(), any());
+        verify(queryService, never()).enqueueAutomaticSearch(any());
     }
 
     @SuppressWarnings("unchecked")

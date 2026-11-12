@@ -18,6 +18,7 @@ class AdultAssessmentControllerPathTest {
     @Test
     void registersColonBatchPathWithoutExtraSlash() throws Exception {
         ContentSafetyProperties properties = new ContentSafetyProperties();
+        properties.internalAccess().setToken("test-internal-token");
         JsonMapper objectMapper = JsonMapper.builder().build();
         AdultAssessmentService service = new AdultAssessmentService(
                 properties,
@@ -43,6 +44,9 @@ class AdultAssessmentControllerPathTest {
         MockMvcBuilders.standaloneSetup(controller)
                 .build()
                 .perform(post("/internal/v1/content-safety/adult-assessments:batch")
+                        .header("X-IRCS-Service-Id", "metadata-worker")
+                        .header("X-IRCS-Service-Token", "test-internal-token")
+                        .header("X-IRCS-Service-Scopes", "content-safety:assess")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(request)))
                 .andExpect(status().isOk())

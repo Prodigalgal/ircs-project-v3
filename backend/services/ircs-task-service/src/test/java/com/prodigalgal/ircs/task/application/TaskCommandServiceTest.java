@@ -38,6 +38,7 @@ class TaskCommandServiceTest {
         UUID dataSourceId = UUID.randomUUID();
         TaskRuntimeState runtimeState = new TaskRuntimeState(taskId, dataSourceId, "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(runtimeState));
+        when(taskRepository.markQueued(runtimeState, false)).thenReturn(true);
         when(taskRepository.existsActiveTaskForDataSource(dataSourceId, taskId)).thenReturn(false);
 
         assertThatCode(() -> service.start(taskId, false)).doesNotThrowAnyException();
@@ -57,6 +58,7 @@ class TaskCommandServiceTest {
         UUID dataSourceId = UUID.randomUUID();
         TaskRuntimeState runtimeState = new TaskRuntimeState(taskId, dataSourceId, "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(runtimeState));
+        when(taskRepository.markQueued(runtimeState, false)).thenReturn(true);
         when(taskRepository.existsActiveTaskForDataSource(dataSourceId, taskId)).thenReturn(false);
         doThrow(new IllegalStateException("rabbit unavailable"))
                 .when(taskQueueDispatchService).dispatchQueuedMaster(taskId, false);
@@ -66,6 +68,18 @@ class TaskCommandServiceTest {
         assertThatCode(taskQueueDispatchExecutor::runPending).doesNotThrowAnyException();
         verify(taskRepository).markQueued(runtimeState, false);
         verify(taskQueueDispatchService).dispatchQueuedMaster(taskId, false);
+    }
+
+    @Test
+    void concurrentStartLosingCasDoesNotDispatch() {
+        UUID taskId = UUID.randomUUID();
+        TaskRuntimeState state = new TaskRuntimeState(taskId, UUID.randomUUID(), "IDLE", true, 1, 1);
+        when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(state));
+        when(taskRepository.markQueued(state, false)).thenReturn(false);
+
+        assertThat(service.startInternal(taskId, false)).isFalse();
+        assertThat(taskQueueDispatchExecutor.pending).isNull();
+        verify(taskQueueDispatchService, never()).dispatchQueuedMaster(taskId, false);
     }
 
     @Test

@@ -14,10 +14,10 @@ import org.springframework.mock.web.MockHttpServletResponse;
 class OpsAlertInternalAccessFilterTest {
 
     @Test
-    void passesThroughWhenTokenIsNotRequiredAndNotConfigured() throws Exception {
+    void failsClosedEvenWhenTokenIsNotRequiredAndNotConfigured() throws Exception {
         RuntimeConfigService runtimeConfig = mock(RuntimeConfigService.class);
         when(runtimeConfig.stringValue(OpsAlertInternalAccessFilter.TOKEN_KEY, "")).thenReturn("");
-        when(runtimeConfig.booleanValue(OpsAlertInternalAccessFilter.REQUIRE_TOKEN_KEY, false)).thenReturn(false);
+        when(runtimeConfig.booleanValue(OpsAlertInternalAccessFilter.REQUIRE_TOKEN_KEY, true)).thenReturn(false);
         OpsAlertInternalAccessFilter filter = new OpsAlertInternalAccessFilter(runtimeConfig);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/ops-alert/incidents");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -25,8 +25,8 @@ class OpsAlertInternalAccessFilterTest {
 
         filter.doFilter(request, response, chain);
 
-        assertThat(response.getStatus()).isEqualTo(200);
-        assertThat(chain.count()).isEqualTo(1);
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(chain.count()).isZero();
     }
 
     @Test
@@ -66,7 +66,7 @@ class OpsAlertInternalAccessFilterTest {
     private static RuntimeConfigService securedRuntimeConfig() {
         RuntimeConfigService runtimeConfig = mock(RuntimeConfigService.class);
         when(runtimeConfig.stringValue(OpsAlertInternalAccessFilter.TOKEN_KEY, "")).thenReturn("secret");
-        when(runtimeConfig.booleanValue(OpsAlertInternalAccessFilter.REQUIRE_TOKEN_KEY, false)).thenReturn(true);
+        when(runtimeConfig.booleanValue(OpsAlertInternalAccessFilter.REQUIRE_TOKEN_KEY, true)).thenReturn(true);
         when(runtimeConfig.stringValue(OpsAlertInternalAccessFilter.READ_SCOPE_KEY, "ops-alert:read"))
                 .thenReturn("ops-alert:read");
         when(runtimeConfig.stringValue(OpsAlertInternalAccessFilter.RUN_SCOPE_KEY, "ops-alert:run"))

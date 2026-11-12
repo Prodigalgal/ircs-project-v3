@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -30,6 +31,50 @@ claims = {'sub': 'native-smoke', 'role': 'ROLE_ADMIN', 'permissions': ['*'], 'sc
 signed_part = token_part({'alg': 'HS384', 'typ': 'JWT'}) + '.' + token_part(claims)
 signature = base64.urlsafe_b64encode(hmac.new(password.encode(), signed_part.encode(), hashlib.sha384).digest()).decode().rstrip('=')
 admin_authorization = 'Bearer ' + signed_part + '.' + signature
+current_service = None
+current_port = 18080
+
+
+def signed_identity_headers(path, issued_at=None):
+    headers = {
+        'X-Authenticated-User': 'api-token:native-smoke',
+        'X-IRCS-Auth-Subject': 'api-token:native-smoke',
+        'X-IRCS-Auth-Role': 'ROLE_ADMIN', 'X-IRCS-Auth-Permissions': '*',
+        'X-IRCS-Auth-Scopes': 'admin:*,data:*', 'X-IRCS-Data-Categories': '*',
+        'X-IRCS-Data-Genres': '*', 'X-IRCS-Data-Tags': '*',
+        'X-IRCS-Content-Visibility': 'PUBLIC,MEMBER,ADMIN,DRAFT,HIDDEN',
+        'X-IRCS-Client-IP': '127.0.0.1',
+        'X-IRCS-Gateway-Timestamp': str(int(time.time()) if issued_at is None else issued_at),
+    }
+    values = ['GET', path, *headers.values()]
+    canonical = 'IRCS-GATEWAY-IDENTITY-V1\n' + ''.join(
+        base64.urlsafe_b64encode(value.encode()).decode().rstrip('=') + '\n' for value in values)
+    key_file = Path(os.environ['CI_GATEWAY_SIGNING_KEY_FILE'])
+    message_file = key_file.with_name('message.bin')
+    message_file.write_bytes(canonical.encode())
+    signed = subprocess.check_output(['openssl', 'pkeyutl', '-sign', '-rawin', '-keyform', 'DER',
+                                      '-inkey', str(key_file), '-in', str(message_file)])
+    headers['X-IRCS-Gateway-Signature'] = base64.urlsafe_b64encode(signed).decode().rstrip('=')
+    return headers
+
+
+def gateway_envelope_probe():
+    path = '/api/v1/native-gateway-boundary-probe'
+
+    def status(headers, target=path):
+        try:
+            with urlopen(Request('http://127.0.0.1:18080' + target, headers=headers), timeout=5) as response:
+                return response.status
+        except HTTPError as error:
+            return error.code
+
+    assert status({}) == 401, 'Unsigned direct API request must be denied'
+    assert status({'Authorization': admin_authorization, 'X-IRCS-Auth-Subject': 'admin',
+                   'X-IRCS-Auth-Role': 'ROLE_ADMIN'}) == 401, 'Bearer/raw headers must not bypass gateway boundary'
+    headers = signed_identity_headers(path)
+    assert status(headers) == 404, 'Valid Ed25519 envelope must reach application routing'
+    assert status(headers, path + '?tampered=1') == 401, 'Signature must bind the exact query'
+    assert status(signed_identity_headers(path, int(time.time()) - 60)) == 401, 'Expired envelope must fail'
 
 
 def docker(*args):
@@ -41,12 +86,17 @@ def image(service):
 
 
 def request(path, data=None, broker=False, authenticated=False):
-    url = ('http://127.0.0.1:15672' if broker else 'http://127.0.0.1:18080') + path
+    url = ('http://127.0.0.1:15672' if broker else f'http://127.0.0.1:{current_port}') + path
     headers = {'Content-Type': 'application/json'}
     if broker:
         headers['Authorization'] = authorization
     elif authenticated:
         headers['Authorization'] = admin_authorization
+        if current_service != 'ircs-api-gateway':
+            assert data is None, 'Direct signed smoke helper currently covers GET only'
+            headers.update(signed_identity_headers(path))
+            headers.update({'X-IRCS-SERVICE-ID': 'native-smoke', 'X-IRCS-SERVICE-TOKEN': password,
+                            'X-IRCS-SERVICE-SCOPES': 'ops:read,ops:run'})
     payload = json.dumps(data, ensure_ascii=False).encode() if data is not None else None
     with urlopen(Request(url, data=payload, headers=headers), timeout=5) as response:
         return json.load(response)
@@ -75,7 +125,10 @@ def queue(name):
         raise
 
 
-def start(service, values):
+def start(service, values, container_name='ircs-native-consumer', listen_port=18080):
+    global current_service, current_port
+    current_service = service
+    current_port = listen_port
     common = {
         'SPRING_DATASOURCE_URL': 'jdbc:postgresql://ircs-native-postgres:5432/ircs',
         'SPRING_DATASOURCE_USERNAME': 'ircs', 'SPRING_DATASOURCE_PASSWORD': password,
@@ -84,6 +137,8 @@ def start(service, values):
         'SPRING_RABBITMQ_HOST': 'ircs-native-broker', 'SPRING_RABBITMQ_USERNAME': 'ircs',
         'SPRING_RABBITMQ_PASSWORD': password, 'SPRING_DATA_REDIS_HOST': 'ircs-native-key-value',
         'APP_IDENTITY_JWT_SECRET': password,
+        'IRCS_GATEWAY_IDENTITY_VERIFICATION_KEY': os.environ['CI_GATEWAY_VERIFICATION_KEY'],
+        'APP_OPS_SERVICE_TOKEN': password,
         'MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED': 'false', 'MANAGEMENT_TRACING_EXPORT_ENABLED': 'false',
         'MANAGEMENT_OPENTELEMETRY_TRACING_SAMPLER': 'always-off',
         'SPRING_ELASTICSEARCH_URIS': 'http://ircs-native-search:9200',
@@ -97,38 +152,76 @@ def start(service, values):
         'APP_CONTENT_RESOLVER_PRESET_SEED_ENABLED': 'false',
     }
     common.update(values)
-    args = ['run', '-d', '--name', 'ircs-native-consumer', '--network', 'ircs-native-consumers',
-            '-p', '127.0.0.1:18080:8080', '--memory', '1g']
+    if service == 'ircs-api-gateway':
+        common['IRCS_GATEWAY_IDENTITY_SIGNING_KEY'] = os.environ['CI_GATEWAY_SIGNING_KEY']
+    args = ['run', '-d', '--name', container_name, '--network', 'ircs-native-consumers',
+            '-p', f'127.0.0.1:{listen_port}:8080', '--memory', '1g']
     for key, value in common.items():
         args += ['-e', f'{key}={value}']
     docker(*args, image(service), '-Xmx384m')
 
     def ready():
-        state = json.loads(docker('inspect', '--format', '{{json .State}}', 'ircs-native-consumer'))
+        state = json.loads(docker('inspect', '--format', '{{json .State}}', container_name))
         if not state['Running']:
             raise RuntimeError(f'{service} exited before readiness: exit code {state["ExitCode"]}')
         return request('/actuator/health/readiness')['status'] == 'UP'
 
     wait_for(f'{service} health', ready)
     assert request('/actuator/info')['build']['version'] == app_version, service
-    with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
+    with urlopen(f'http://127.0.0.1:{listen_port}/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
     maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
     assert maxima or service == 'ircs-content-safety-service', (service, 'Missing datasource pool metrics')
     assert all(float(value) == 2 for value in maxima), (service, maxima)
+    if service != 'ircs-api-gateway':
+        gateway_envelope_probe()
 
 
-def stop():
-    subprocess.run(['docker', 'stop', '--time', '10', 'ircs-native-consumer'], check=False,
+def stop(container_name='ircs-native-consumer'):
+    subprocess.run(['docker', 'stop', '--time', '10', container_name], check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    result = subprocess.run(['docker', 'logs', 'ircs-native-consumer'], check=False, text=True, capture_output=True)
+    result = subprocess.run(['docker', 'logs', container_name], check=False, text=True, capture_output=True)
     logs = result.stdout + result.stderr
     if result.returncode == 0:
         print('\n'.join(logs.splitlines()[-60:]), flush=True)
-    subprocess.run(['docker', 'rm', '-f', 'ircs-native-consumer'], check=False, stdout=subprocess.DEVNULL)
+    subprocess.run(['docker', 'rm', '-f', container_name], check=False, stdout=subprocess.DEVNULL)
     return [failure for failure in ('UnsupportedFeatureError', 'NumberFormatException', 'Unknown redis exception',
                                     'Redis command timed out', 'Invalid runtime queue claim response')
             if failure in logs]
+
+
+def gateway_forwarding_probe(backend):
+    global current_service, current_port
+    try:
+        start('ircs-api-gateway', {
+            'APP_GATEWAY_OPS_BASE_URL': 'http://ircs-native-consumer:8080',
+            'APP_GATEWAY_IDENTITY_BASE_URL': 'http://ircs-native-consumer:8080',
+            'APP_GATEWAY_OPS_SERVICE_TOKEN': password,
+        }, container_name='ircs-native-gateway', listen_port=18081)
+        if backend == 'ircs-ops-service':
+            path = '/api/v1/ops/runtime-dlq?sampleLimit=0'
+            assert isinstance(request(path, authenticated=True), list)
+            try:
+                request(path)
+            except HTTPError as error:
+                assert error.code == 401
+            else:
+                raise AssertionError('Gateway must reject unauthenticated ops access')
+            try:
+                request(path + '&token=' + admin_authorization.removeprefix('Bearer '))
+            except HTTPError as error:
+                assert error.code == 401
+            else:
+                raise AssertionError('Query credentials must not authenticate an API request')
+        else:
+            for path in ('/api/v1/auth/pow', '/api/portal/auth/pow'):
+                challenge = request(path)
+                assert challenge.get('id') and challenge.get('scope'), challenge
+        print(f'Native Gateway -> {backend}: signed upstream request and authorization verified.', flush=True)
+    finally:
+        failures = stop('ircs-native-gateway')
+        current_service, current_port = backend, 18080
+        assert not failures, failures
 
 
 def runtime_queue_buffer_probe():
@@ -274,6 +367,9 @@ try:
             start(service, values)
             if service == 'ircs-ops-service':
                 runtime_queue_buffer_probe()
+                gateway_forwarding_probe(service)
+            if service == 'ircs-identity-service':
+                gateway_forwarding_probe(service)
             if service == 'ircs-api-gateway':
                 gateway_config_cache_probe()
             print(f'{service}: Native application startup and pool budget verified', flush=True)

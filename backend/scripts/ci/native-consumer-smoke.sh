@@ -3,16 +3,26 @@ set -euo pipefail
 CI_PASSWORD="$(openssl rand -hex 24)"
 export CI_PASSWORD
 printf '::add-mask::%s\n' "$CI_PASSWORD"
+key_dir="$(mktemp -d)"
 
 cleanup() {
   if [[ "$?" != 0 ]]; then
     docker logs --tail 80 ircs-native-broker 2>&1 || true
     docker logs --tail 80 ircs-native-migrator 2>&1 || true
   fi
-  docker rm -f ircs-native-consumer ircs-native-migrator ircs-native-postgres ircs-native-broker ircs-native-key-value ircs-native-search >/dev/null 2>&1 || true
+  docker rm -f ircs-native-consumer ircs-native-gateway ircs-native-migrator ircs-native-postgres ircs-native-broker ircs-native-key-value ircs-native-search >/dev/null 2>&1 || true
   docker network rm ircs-native-consumers >/dev/null 2>&1 || true
+  rm -rf "$key_dir"
 }
 trap cleanup EXIT
+openssl genpkey -algorithm ED25519 -outform DER -out "$key_dir/private.der"
+chmod 600 "$key_dir/private.der"
+openssl pkey -inform DER -in "$key_dir/private.der" -pubout -outform DER -out "$key_dir/public.der"
+CI_GATEWAY_SIGNING_KEY_FILE="$key_dir/private.der"
+CI_GATEWAY_SIGNING_KEY="$(base64 -w0 "$key_dir/private.der")"
+CI_GATEWAY_VERIFICATION_KEY="$(base64 -w0 "$key_dir/public.der")"
+export CI_GATEWAY_SIGNING_KEY_FILE CI_GATEWAY_SIGNING_KEY CI_GATEWAY_VERIFICATION_KEY
+printf '::add-mask::%s\n' "$CI_GATEWAY_SIGNING_KEY"
 docker network create ircs-native-consumers >/dev/null
 docker run -d --network ircs-native-consumers --name ircs-native-postgres \
   -e POSTGRES_USER=ircs -e POSTGRES_PASSWORD="$CI_PASSWORD" -e POSTGRES_DB=ircs postgres:18 >/dev/null

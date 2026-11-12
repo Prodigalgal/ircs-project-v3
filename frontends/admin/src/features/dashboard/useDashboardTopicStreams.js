@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AuthenticatedEventStream } from '../../utils/AuthenticatedEventStream';
 
 const TOPICS = [
     { key: 'metrics', stateKey: 'metrics', url: '/api/v1/dashboard/stream/metrics' },
@@ -23,12 +24,6 @@ const INITIAL_STATE = {
     aggregationOps: null,
     topics: TOPICS.reduce((acc, topic) => ({ ...acc, [topic.key]: INITIAL_TOPIC_STATE }), {})
 };
-
-function appendToken(url, token) {
-    if (!token) return url;
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}token=${encodeURIComponent(token)}`;
-}
 
 export function useDashboardTopicStreams(enabled) {
     const [state, setState] = useState(INITIAL_STATE);
@@ -72,13 +67,11 @@ export function useDashboardTopicStreams(enabled) {
         }
 
         let disposed = false;
-        const token = localStorage.getItem('ircs_token');
-
         const connectTopic = (topicConfig) => {
             if (disposed) return;
             const { key, stateKey, url } = topicConfig;
             setTopicState(key, prev => ({ ...prev, connecting: true, error: null }));
-            const source = new EventSource(appendToken(url, token));
+            const source = new AuthenticatedEventStream(url, { reconnect: false });
             sourcesRef.current.set(key, source);
 
             source.addEventListener(key, event => {
@@ -110,7 +103,7 @@ export function useDashboardTopicStreams(enabled) {
                 }
             });
 
-            source.onerror = () => {
+            source.onerror = (event) => {
                 source.close();
                 sourcesRef.current.delete(key);
                 if (disposed) return;
@@ -121,9 +114,10 @@ export function useDashboardTopicStreams(enabled) {
                     ...prev,
                     connected: false,
                     connecting: false,
-                    fallback: attempt >= 2,
-                    error: 'Topic stream disconnected'
+                    fallback: !event.error.retryable || attempt >= 2,
+                    error: event.error.message
                 }));
+                if (!event.error.retryable) return;
                 const timer = setTimeout(() => connectTopic(topicConfig), delay);
                 reconnectTimersRef.current.set(key, timer);
             };

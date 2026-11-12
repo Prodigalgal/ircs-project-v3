@@ -1,7 +1,6 @@
 package com.prodigalgal.ircs.common.security;
 
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.Locale;
 import java.util.Optional;
 import org.springframework.util.StringUtils;
 
@@ -68,21 +67,6 @@ public class IrcsJwtRequestAuthenticator {
                 return Optional.of(token);
             }
         }
-        if (shouldResolveQueryToken(request)) {
-            String queryToken = request.getParameter("token");
-            if (StringUtils.hasText(queryToken)) {
-                return Optional.of(queryToken.trim());
-            }
-        }
         return Optional.empty();
-    }
-
-    private static boolean shouldResolveQueryToken(HttpServletRequest request) {
-        String accept = request.getHeader("Accept");
-        if (accept != null && accept.toLowerCase(Locale.ROOT).contains("text/event-stream")) {
-            return true;
-        }
-        String path = request.getRequestURI();
-        return path != null && (path.endsWith("/stream") || path.contains("/stream/"));
     }
 }

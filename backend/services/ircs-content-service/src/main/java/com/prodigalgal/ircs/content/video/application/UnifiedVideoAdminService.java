@@ -13,7 +13,6 @@ import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoDetailR
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoUpdateRequest;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -107,8 +106,7 @@ public class UnifiedVideoAdminService {
             return;
         }
         ids.forEach(maintenanceGate::assertUnifiedVideoWrite);
-        List<UUID> rawIds = new ArrayList<>();
-        ids.forEach(id -> rawIds.addAll(repository.findRawIdsForUnified(id)));
+        List<UUID> rawIds = repository.findRawIdsForUnifiedVideos(ids);
         repository.deleteUnifiedVideos(ids);
         ids.forEach(id -> publisher.publishUnifiedSearch(id, SyncOperation.DELETE));
         rawIds.forEach(id -> publisher.publishRawSearch(id, SyncOperation.INDEX));

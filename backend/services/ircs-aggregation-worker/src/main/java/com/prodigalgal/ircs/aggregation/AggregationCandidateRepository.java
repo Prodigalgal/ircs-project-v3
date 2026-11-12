@@ -4,6 +4,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,6 +18,7 @@ final class AggregationCandidateRepository {
 
     private static final double TITLE_RECALL_THRESHOLD = 0.35;
     private static final int TITLE_RECALL_LIMIT = 20;
+    private static final int CONTEXT_BATCH_SIZE = 100;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final AggregationMatchingStrategy matchingStrategy;
@@ -58,18 +60,95 @@ final class AggregationCandidateRepository {
             return List.of();
         }
         Map<UUID, UnifiedVideoAggregationCandidate> candidates = new LinkedHashMap<>();
-        for (RawVideoAggregationRecord rawVideo : rawVideos) {
-            if (hasContextExternalId(rawVideo)) {
-                for (UnifiedVideoAggregationCandidate candidate : findContextExternalIdCandidates(rawVideo)) {
-                    candidates.putIfAbsent(candidate.id(), candidate);
-                }
-            } else {
-                for (UnifiedVideoAggregationCandidate candidate : findContextSearchCandidates(rawVideo)) {
+        for (int start = 0; start < rawVideos.size(); start += CONTEXT_BATCH_SIZE) {
+            List<RawVideoAggregationRecord> batch = rawVideos.subList(
+                    start, Math.min(start + CONTEXT_BATCH_SIZE, rawVideos.size()));
+            Map<Integer, List<UnifiedVideoAggregationCandidate>> external = findContextExternalIdBatch(batch);
+            for (int index = 0; index < batch.size(); index++) {
+                RawVideoAggregationRecord rawVideo = batch.get(index);
+                List<UnifiedVideoAggregationCandidate> recalled = hasContextExternalId(rawVideo)
+                        ? external.getOrDefault(index, List.of())
+                        : findContextSearchCandidates(rawVideo);
+                for (UnifiedVideoAggregationCandidate candidate : recalled) {
                     candidates.putIfAbsent(candidate.id(), candidate);
                 }
             }
         }
-        return List.copyOf(candidates.values());
+        return metadataNameRepository.populateUnifiedMetadata(List.copyOf(candidates.values()));
+    }
+
+    private Map<Integer, List<UnifiedVideoAggregationCandidate>> findContextExternalIdBatch(
+            List<RawVideoAggregationRecord> rawVideos) {
+        if (rawVideos.stream().filter(this::hasContextExternalId).count() <= 1) {
+            for (int index = 0; index < rawVideos.size(); index++) {
+                if (hasContextExternalId(rawVideos.get(index))) {
+                    return Map.of(index, findContextExternalIdCandidates(rawVideos.get(index)));
+                }
+            }
+            return Map.of();
+        }
+        List<String> queries = new ArrayList<>();
+        LinkedHashSet<String> doubanIds = new LinkedHashSet<>();
+        LinkedHashSet<String> tmdbIds = new LinkedHashSet<>();
+        MapSqlParameterSource params = new MapSqlParameterSource("limit", TITLE_RECALL_LIMIT);
+        for (int index = 0; index < rawVideos.size(); index++) {
+            RawVideoAggregationRecord rawVideo = rawVideos.get(index);
+            List<String> clauses = new ArrayList<>();
+            addExternalIdClause(clauses, params, "uv.douban_id", "doubanId" + index, rawVideo.doubanId());
+            addExternalIdClause(clauses, params, "uv.tmdb_id", "tmdbId" + index, rawVideo.tmdbId());
+            if (isValidExternalId(rawVideo.doubanId())) {
+                doubanIds.add(rawVideo.doubanId().trim());
+            }
+            if (isValidExternalId(rawVideo.tmdbId())) {
+                tmdbIds.add(rawVideo.tmdbId().trim());
+            }
+            if (!clauses.isEmpty()) {
+                queries.add("""
+                        (select %d as context_index, uv.id, uv.title, uv.alias_title, uv.subtitle, uv.year,
+                                uv.total_episodes, uv.duration, uv.remarks, sc.name as category_name,
+                                uv.douban_id, uv.tmdb_id, uv.imdb_id, uv.rotten_tomatoes_id, uv.season,
+                                uv.updated_at as context_updated_at
+                           from context_candidates uv
+                           left join standard_category sc on sc.slug = uv.category_code
+                          where %s
+                          order by uv.updated_at desc
+                          limit :limit)
+                        """.formatted(index, String.join(" or ", clauses)));
+            }
+        }
+        if (queries.isEmpty()) {
+            return Map.of();
+        }
+        // Each input retains its own top-20 recall; a global LIMIT would silently lose matches.
+        List<String> batchClauses = new ArrayList<>();
+        if (!doubanIds.isEmpty()) {
+            batchClauses.add("douban_id in (:contextDoubanIds)");
+            params.addValue("contextDoubanIds", doubanIds);
+        }
+        if (!tmdbIds.isEmpty()) {
+            batchClauses.add("tmdb_id in (:contextTmdbIds)");
+            params.addValue("contextTmdbIds", tmdbIds);
+        }
+        List<ContextCandidate> rows = jdbcTemplate.query(
+                """
+                with context_candidates as materialized (
+                    select id, title, alias_title, subtitle, year, total_episodes, duration, remarks,
+                           category_code, douban_id, tmdb_id, imdb_id, rotten_tomatoes_id, season, updated_at
+                      from unified_videos
+                     where %s
+                )
+                """.formatted(String.join(" or ", batchClauses))
+                        + String.join(" union all ", queries) + " order by context_index, context_updated_at desc",
+                params,
+                (rs, rowNum) -> new ContextCandidate(rs.getInt("context_index"), mapUnifiedCandidate(rs, rowNum)));
+        Map<Integer, List<UnifiedVideoAggregationCandidate>> byInput = new LinkedHashMap<>();
+        for (ContextCandidate row : rows) {
+            byInput.computeIfAbsent(row.index(), ignored -> new ArrayList<>()).add(row.candidate());
+        }
+        return byInput;
+    }
+
+    private record ContextCandidate(int index, UnifiedVideoAggregationCandidate candidate) {
     }
 
     private boolean hasContextExternalId(RawVideoAggregationRecord rawVideo) {
@@ -91,14 +170,15 @@ final class AggregationCandidateRepository {
                 order by updated_at desc
                 limit :limit
                 """.formatted(String.join(" or ", clauses)),
-                params.addValue("limit", TITLE_RECALL_LIMIT));
+                params.addValue("limit", TITLE_RECALL_LIMIT),
+                false);
     }
 
     private List<UnifiedVideoAggregationCandidate> findContextSearchCandidates(RawVideoAggregationRecord rawVideo) {
         AggregationContextSearchClient.ContextSearchResult searchResult =
                 contextSearchClient.findCandidateUnifiedVideoIds(rawVideo.title(), rawVideo.year());
         if (!searchResult.attempted()) {
-            return findTitleYearCandidates(rawVideo);
+            return findTitleYearCandidates(rawVideo, false);
         }
         if (searchResult.unifiedVideoIds().isEmpty()) {
             return List.of();
@@ -127,6 +207,11 @@ final class AggregationCandidateRepository {
     }
 
     private List<UnifiedVideoAggregationCandidate> findTitleYearCandidates(RawVideoAggregationRecord rawVideo) {
+        return findTitleYearCandidates(rawVideo, true);
+    }
+
+    private List<UnifiedVideoAggregationCandidate> findTitleYearCandidates(
+            RawVideoAggregationRecord rawVideo, boolean populateMetadata) {
         if (!StringUtils.hasText(rawVideo.title())) {
             return List.of();
         }
@@ -155,12 +240,20 @@ final class AggregationCandidateRepository {
                 ) desc, updated_at desc
                 limit :limit
                 """.formatted(year == null ? "" : "year = :year and"),
-                params);
+                params,
+                populateMetadata);
     }
 
     private List<UnifiedVideoAggregationCandidate> queryUnifiedCandidates(
             String whereAndOrderBy,
             MapSqlParameterSource params) {
+        return queryUnifiedCandidates(whereAndOrderBy, params, true);
+    }
+
+    private List<UnifiedVideoAggregationCandidate> queryUnifiedCandidates(
+            String whereAndOrderBy,
+            MapSqlParameterSource params,
+            boolean populateMetadata) {
         List<UnifiedVideoAggregationCandidate> candidates = jdbcTemplate.query(
                 """
                 select id, title, alias_title, subtitle, year,
@@ -178,7 +271,7 @@ final class AggregationCandidateRepository {
                 """.formatted(whereAndOrderBy),
                 params,
                 this::mapUnifiedCandidate);
-        return metadataNameRepository.populateUnifiedMetadata(candidates);
+        return populateMetadata ? metadataNameRepository.populateUnifiedMetadata(candidates) : candidates;
     }
 
     private List<UnifiedVideoAggregationCandidate> queryUnifiedCandidatesByIds(List<UUID> ids) {
@@ -189,7 +282,8 @@ final class AggregationCandidateRepository {
                 """
                 where id in (:ids)
                 """,
-                new MapSqlParameterSource("ids", ids));
+                new MapSqlParameterSource("ids", ids),
+                false);
         Map<UUID, UnifiedVideoAggregationCandidate> byId = new LinkedHashMap<>();
         for (UnifiedVideoAggregationCandidate candidate : candidates) {
             byId.putIfAbsent(candidate.id(), candidate);

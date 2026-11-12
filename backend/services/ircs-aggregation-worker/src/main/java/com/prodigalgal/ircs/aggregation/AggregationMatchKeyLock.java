@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.aggregation;
 
 import com.prodigalgal.ircs.common.lease.ClusterLease;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import com.prodigalgal.ircs.common.lock.DistributedLockBusinessType;
 import com.prodigalgal.ircs.common.lock.DistributedLockManager;
 import com.prodigalgal.ircs.common.lock.DistributedLockProfile;
@@ -71,9 +72,14 @@ class AggregationMatchKeyLock {
             }
             leases.add(lease.orElseThrow());
         }
-        MatchLockScope scope = new MatchLockScope(lockManager, leases);
-        registerTransactionRelease(scope);
-        return Optional.of(scope);
+        try {
+            MatchLockScope scope = new MatchLockScope(lockManager, leases, ttl);
+            registerTransactionRelease(scope);
+            return Optional.of(scope);
+        } catch (RuntimeException ex) {
+            releaseAll(leases);
+            throw ex;
+        }
     }
 
     private void registerTransactionRelease(MatchLockScope scope) {
@@ -82,6 +88,11 @@ class AggregationMatchKeyLock {
         }
         scope.transactionManaged = true;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void beforeCommit(boolean readOnly) {
+                scope.checkOwnership();
+            }
+
             @Override
             public void afterCompletion(int status) {
                 scope.release();
@@ -114,21 +125,44 @@ class AggregationMatchKeyLock {
     static final class MatchLockScope implements AutoCloseable {
         private final DistributedLockManager lockManager;
         private final List<ClusterLease> leases;
+        private final List<ClusterLeaseGuard> guards;
         private boolean transactionManaged;
         private boolean released;
 
-        private MatchLockScope(DistributedLockManager lockManager, List<ClusterLease> leases) {
+        private MatchLockScope(DistributedLockManager lockManager, List<ClusterLease> leases, Duration ttl) {
             this.lockManager = lockManager;
             this.leases = List.copyOf(leases);
+            List<ClusterLeaseGuard> started = new ArrayList<>();
+            try {
+                for (ClusterLease lease : leases) {
+                    started.add(new ClusterLeaseGuard(lockManager, lease, ttl));
+                }
+            } catch (RuntimeException ex) {
+                for (int i = started.size() - 1; i >= 0; i--) {
+                    try {
+                        started.get(i).close();
+                    } catch (RuntimeException cleanupFailure) {
+                        ex.addSuppressed(cleanupFailure);
+                    }
+                }
+                throw ex;
+            }
+            this.guards = List.copyOf(started);
+        }
+
+        private void checkOwnership() {
+            guards.forEach(ClusterLeaseGuard::checkOwnership);
         }
 
         static MatchLockScope noop() {
-            return new MatchLockScope(null, List.of());
+            return new MatchLockScope(null, List.of(), Duration.ofMinutes(10));
         }
 
         @Override
         public void close() {
-            if (!transactionManaged) {
+            if (transactionManaged) {
+                checkOwnership();
+            } else {
                 release();
             }
         }
@@ -138,8 +172,30 @@ class AggregationMatchKeyLock {
                 return;
             }
             released = true;
+            RuntimeException failure = null;
             for (int i = leases.size() - 1; i >= 0; i--) {
-                lockManager.release(leases.get(i));
+                try {
+                    guards.get(i).close();
+                } catch (RuntimeException ex) {
+                    if (failure == null) {
+                        failure = ex;
+                    } else {
+                        failure.addSuppressed(ex);
+                    }
+                } finally {
+                    try {
+                        lockManager.release(leases.get(i));
+                    } catch (RuntimeException ex) {
+                        if (failure == null) {
+                            failure = ex;
+                        } else {
+                            failure.addSuppressed(ex);
+                        }
+                    }
+                }
+            }
+            if (failure != null) {
+                throw failure;
             }
         }
     }

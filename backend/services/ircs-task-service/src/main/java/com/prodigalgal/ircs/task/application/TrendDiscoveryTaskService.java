@@ -19,6 +19,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
@@ -108,6 +109,7 @@ public class TrendDiscoveryTaskService {
 
         for (String keyword : keywords) {
             for (DataSourceSeedCandidate dataSource : dataSources) {
+                ClusterLeaseGuard.checkCurrentOwnership();
                 try {
                     EnsureTaskResult result = ensureTask(dataSource, keyword, startPage, endPage, fixedDelayMs, taskMetadata);
                     if (result.created()) {
@@ -115,6 +117,7 @@ public class TrendDiscoveryTaskService {
                     } else {
                         reused++;
                     }
+                    ClusterLeaseGuard.checkCurrentOwnership();
                     boolean accepted = autoStart && taskCommandService.startInternal(result.taskId(), false);
                     if (accepted) {
                         queued++;

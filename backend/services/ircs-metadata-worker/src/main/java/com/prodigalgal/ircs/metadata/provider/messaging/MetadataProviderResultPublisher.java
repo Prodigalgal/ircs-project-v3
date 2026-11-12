@@ -14,12 +14,12 @@ public class MetadataProviderResultPublisher {
 
     private final MetadataResultCollectorService collectorService;
 
-    public void publishSuccess(MetadataSearchContext context, ProviderType providerType, EnrichedMetadataDTO metadata) {
+    public void publishSuccess(MetadataSearchContext context, ProviderType providerType, EnrichedMetadataDTO metadata, int expectedAttempt) {
         publish(EnrichmentResultMsg.success(
                 context.getVideoId(),
                 context.getPipelineVersion(),
                 providerType,
-                metadata));
+                metadata), expectedAttempt);
     }
 
     public void publishFailure(
@@ -27,17 +27,18 @@ public class MetadataProviderResultPublisher {
             ProviderType providerType,
             String reason,
             boolean retryable,
-            String errorCode) {
+            String errorCode,
+            int expectedAttempt) {
         publish(EnrichmentResultMsg.failure(
                 context.getVideoId(),
                 context.getPipelineVersion(),
                 providerType,
                 reason,
                 retryable,
-                errorCode));
+                errorCode), expectedAttempt);
     }
 
-    private void publish(EnrichmentResultMsg message) {
-        collectorService.process(message);
+    private void publish(EnrichmentResultMsg message, int expectedAttempt) {
+        collectorService.process(message, expectedAttempt);
     }
 }

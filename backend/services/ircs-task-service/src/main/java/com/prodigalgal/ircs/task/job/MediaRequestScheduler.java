@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import jakarta.annotation.PreDestroy;
 import java.util.List;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -78,6 +79,7 @@ class MediaRequestScheduler {
             return;
         }
         try {
+            ClusterLeaseGuard.checkCurrentOwnership();
             Optional<UUID> batchId = batchService.createBatchFromPendingRequests(candidates);
             if (batchId.isPresent()) {
                 log.info("Created media request batch {}, claimedRequestCount={}", batchId.get(), candidates.size());

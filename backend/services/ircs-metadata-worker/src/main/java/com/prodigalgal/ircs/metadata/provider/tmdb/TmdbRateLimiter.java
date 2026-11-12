@@ -27,27 +27,35 @@ public class TmdbRateLimiter {
         Duration refillPeriod = refillPeriod(credential);
         DistributedLockProfile profile = lockManager.profileFor(DistributedLockBusinessType.CREDENTIAL_API_CALL);
         String key = profile.keyPrefix() + credential.id();
-        Duration maxWait = properties.getMaxWait();
+        Duration configuredMaxWait = properties.getMaxWait();
+        Duration maxWait = configuredMaxWait == null || configuredMaxWait.isNegative()
+                ? Duration.ZERO : configuredMaxWait;
+        long started = System.nanoTime();
         Duration ttl = max(MIN_TTL, refillPeriod.multipliedBy(2));
 
         while (true) {
+            Duration remaining = maxWait.minus(Duration.ofNanos(Math.max(0L, System.nanoTime() - started)));
+            if (remaining.isNegative()) {
+                remaining = Duration.ZERO;
+            }
             TokenBucketReservation reservation = lockManager.reserveTokenBucket(new TokenBucketReservationRequest(
                     key,
                     rateLimit,
                     rateLimit,
                     refillPeriod,
                     1,
-                    maxWait,
+                    remaining,
                     ttl));
             if (reservation.allowed()) {
                 return;
             }
-            if (reservation.rejected()) {
+            Duration wait = reservation.retryAfter().isPositive() ? reservation.retryAfter() : Duration.ofMillis(1);
+            if (reservation.rejected() || remaining.isZero() || wait.compareTo(remaining) > 0) {
                 throw new MetadataProviderRetryableException(
                         "POOL_EXHAUSTED",
                         "TMDB credential pool saturated. Min wait: " + reservation.retryAfter().toMillis() + "ms");
             }
-            sleep(Math.max(1L, reservation.retryAfter().toMillis()));
+            sleep(Math.max(1L, wait.toMillis()));
         }
     }
 

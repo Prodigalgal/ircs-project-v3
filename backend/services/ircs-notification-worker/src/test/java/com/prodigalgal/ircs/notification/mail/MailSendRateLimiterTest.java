@@ -28,7 +28,8 @@ class MailSendRateLimiterTest {
                 configValues,
                 usageRepository,
                 provider(clock),
-                provider((MailSendRateLimiter.Sleeper) clock::advance));
+                provider((MailSendRateLimiter.Sleeper) clock::advance),
+                redisLimiter(clock));
 
         MailCredential selected = limiter.selectCredential(List.of(limited, available));
 
@@ -45,7 +46,8 @@ class MailSendRateLimiterTest {
                 configValues,
                 new FakeUsageRepository(),
                 provider(clock),
-                provider((MailSendRateLimiter.Sleeper) clock::advance));
+                provider((MailSendRateLimiter.Sleeper) clock::advance),
+                redisLimiter(clock));
 
         assertEquals(credential.id(), limiter.selectCredential(List.of(credential)).id());
         assertEquals(credential.id(), limiter.selectCredential(List.of(credential)).id());
@@ -61,7 +63,8 @@ class MailSendRateLimiterTest {
                 configValues,
                 new FakeUsageRepository(),
                 provider(clock),
-                provider((MailSendRateLimiter.Sleeper) clock::advance));
+                provider((MailSendRateLimiter.Sleeper) clock::advance),
+                redisLimiter(clock));
 
         limiter.awaitGlobalPermit();
         limiter.awaitGlobalPermit();
@@ -81,8 +84,47 @@ class MailSendRateLimiterTest {
                                 NotificationMailConfigValues.class,
                                 MailCredentialUsageRepository.class,
                                 ObjectProvider.class,
-                                ObjectProvider.class)
+                                ObjectProvider.class,
+                                org.springframework.data.redis.core.StringRedisTemplate.class)
                         .getDeclaringClass());
+    }
+
+    @Test
+    void missingDistributedPermitResponseFailsClosed() {
+        MailSendRateLimiter limiter = new MailSendRateLimiter(configValues(500, 500, 1000),
+                new FakeUsageRepository(), null, null,
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(limiter::awaitGlobalPermit)
+                .isInstanceOf(MailCredentialLeaseException.class).hasMessageContaining("invalid response");
+    }
+
+    private static org.springframework.data.redis.core.StringRedisTemplate redisLimiter(MutableClock clock) {
+        org.springframework.data.redis.core.StringRedisTemplate redis =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        java.util.Map<String, Long> nextAllowed = new java.util.HashMap<>();
+        when(redis.execute(org.mockito.ArgumentMatchers.any(org.springframework.data.redis.core.script.RedisScript.class),
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> {
+                    java.util.List<String> keys = invocation.getArgument(1);
+                    long gap = Long.parseLong(invocation.getArgument(2));
+                    int limit = Integer.parseInt(invocation.getArgument(3));
+                    long window = Long.parseLong(invocation.getArgument(4));
+                    long now = clock.millis();
+                    long waitMs = Math.max(0L, nextAllowed.getOrDefault(keys.get(0), 0L) - now);
+                    if (limit > 0) {
+                        waitMs = Math.max(waitMs, nextAllowed.getOrDefault(keys.get(1), 0L) - now);
+                    }
+                    if (waitMs == 0L) {
+                        nextAllowed.put(keys.get(0), now + gap);
+                        if (limit > 0) {
+                            nextAllowed.put(keys.get(1), now + window);
+                        }
+                    }
+                    return waitMs;
+                });
+        return redis;
     }
 
     private static NotificationMailConfigValues configValues(int minMs, int maxMs, int maxWaitMs) {

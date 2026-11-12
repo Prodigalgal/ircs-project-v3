@@ -178,13 +178,18 @@ public class ClusterLockManager implements DistributedLockManager, DistributedLo
             TimeSliceReservation reservation;
             String metricResult;
             if (result == null || result.size() < 3) {
-                reservation = TimeSliceReservation.reserved(request.key(), Duration.ZERO, now, now.plus(request.gap()));
-                metricResult = "fallback_reserved";
+                throw new IllegalStateException("Invalid time-slice limiter response");
             } else {
                 long status = valueAt(result, 0);
-                long waitMs = Math.max(0L, valueAt(result, 1));
-                long nextAvailableMs = Math.max(now.toEpochMilli(), valueAt(result, 2));
+                long waitMs = valueAt(result, 1);
+                long nextAvailableMs = valueAt(result, 2);
+                if (waitMs < 0L || nextAvailableMs < now.toEpochMilli()) {
+                    throw new IllegalStateException("Invalid time-slice limiter values");
+                }
                 Instant nextAvailableAt = Instant.ofEpochMilli(nextAvailableMs);
+                if (status != 1L && status != -1L) {
+                    throw new IllegalStateException("Invalid time-slice limiter status");
+                }
                 if (status < 0) {
                     reservation = TimeSliceReservation.rejected(
                             request.key(), Duration.ofMillis(waitMs), now, nextAvailableAt);
@@ -231,13 +236,20 @@ public class ClusterLockManager implements DistributedLockManager, DistributedLo
             TokenBucketReservation reservation;
             String metricResult;
             if (result == null || result.size() < 3) {
-                reservation = TokenBucketReservation.allowed(
-                        request.key(), Math.max(0, request.capacity() - request.permits()), now);
-                metricResult = "fallback_allowed";
+                throw new IllegalStateException("Invalid token-bucket limiter response");
             } else {
-                boolean allowed = valueAt(result, 0) == 1L;
-                long remaining = Math.max(0L, valueAt(result, 1));
-                Duration retryAfter = Duration.ofMillis(Math.max(0L, valueAt(result, 2)));
+                long status = valueAt(result, 0);
+                if (status != 0L && status != 1L) {
+                    throw new IllegalStateException("Invalid token-bucket limiter status");
+                }
+                boolean allowed = status == 1L;
+                long remaining = valueAt(result, 1);
+                long retryAfterMs = valueAt(result, 2);
+                if (remaining < 0L || remaining > request.capacity() || retryAfterMs < 0L
+                        || (allowed && retryAfterMs != 0L) || (!allowed && retryAfterMs == 0L)) {
+                    throw new IllegalStateException("Invalid token-bucket limiter values");
+                }
+                Duration retryAfter = Duration.ofMillis(retryAfterMs);
                 if (allowed) {
                     reservation = TokenBucketReservation.allowed(request.key(), remaining, now);
                     metricResult = "allowed";
@@ -298,7 +310,10 @@ public class ClusterLockManager implements DistributedLockManager, DistributedLo
 
     private static long valueAt(List<Long> result, int index) {
         Long value = result.get(index);
-        return value == null ? 0L : value;
+        if (value == null) {
+            throw new IllegalStateException("Null limiter response value");
+        }
+        return value;
     }
 
     private void recordTrafficUsage(String trafficKey, String limiterType, String result, Duration ttl, Map<String, String> fields) {

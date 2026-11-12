@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.content.video.messaging.ContentCommandPublisher;
 import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository;
 import com.prodigalgal.ircs.content.video.api.ContentApiException;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.content.maintenance.application.ContentMaintenanceGate;
@@ -38,13 +39,20 @@ class UnifiedVideoAdminServiceTest {
     void batchDeleteDeletesUnifiedIndexAndReindexesUnboundRawVideos() {
         UUID unifiedId = UUID.randomUUID();
         UUID rawId = UUID.randomUUID();
-        when(repository.findRawIdsForUnified(unifiedId)).thenReturn(List.of(rawId));
+        UUID secondUnifiedId = UUID.randomUUID();
+        List<UUID> ids = List.of(unifiedId, secondUnifiedId);
+        when(repository.findRawIdsForUnifiedVideos(ids)).thenReturn(List.of(rawId));
 
-        service.batchDelete(List.of(unifiedId));
+        service.batchDelete(ids);
 
         verify(maintenanceGate).assertUnifiedVideoWrite(unifiedId);
-        verify(repository).deleteUnifiedVideos(List.of(unifiedId));
+        verify(maintenanceGate).assertUnifiedVideoWrite(secondUnifiedId);
+        verify(repository).findRawIdsForUnifiedVideos(ids);
+        verify(repository, never()).findRawIdsForUnified(unifiedId);
+        verify(repository, never()).findRawIdsForUnified(secondUnifiedId);
+        verify(repository).deleteUnifiedVideos(ids);
         verify(publisher).publishUnifiedSearch(unifiedId, SyncOperation.DELETE);
+        verify(publisher).publishUnifiedSearch(secondUnifiedId, SyncOperation.DELETE);
         verify(publisher).publishRawSearch(rawId, SyncOperation.INDEX);
     }
 
