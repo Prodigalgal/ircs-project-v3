@@ -44,7 +44,12 @@ def wait_for(description, condition):
 
 
 def queue(name):
-    return request('/api/queues/%2F/' + name, broker=True)
+    try:
+        return request('/api/queues/%2F/' + name, broker=True)
+    except HTTPError as error:
+        if error.code == 404:
+            return {'consumers': 0, 'messages': 0}
+        raise
 
 
 def start(service, values):
