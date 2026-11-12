@@ -2,7 +2,7 @@ package com.prodigalgal.ircs.identity.application;
 
 
 
-import com.prodigalgal.ircs.identity.IdentityRedisKeys;
+import com.prodigalgal.ircs.identity.IdentityCacheKeys;
 import com.prodigalgal.ircs.identity.api.ApiException;
 import com.prodigalgal.ircs.identity.dto.IdentityDtos.PoWChallenge;
 import com.prodigalgal.ircs.identity.dto.IdentityDtos.PoWVerification;
@@ -67,7 +67,7 @@ public class PoWService {
         Instant expiresAt = Instant.now().plus(ttl);
         MathCaptcha captcha = CAPTCHA_SCOPES.contains(scope) ? mathCaptcha() : MathCaptcha.none();
         redisTemplate.opsForValue().set(
-                IdentityRedisKeys.powChallenge(id),
+                IdentityCacheKeys.powChallenge(id),
                 String.join(
                         "|",
                         scope,
@@ -118,7 +118,7 @@ public class PoWService {
         if (verification == null) {
             throw ApiException.badRequest("Missing PoW verification data", "security", "pow.missing");
         }
-        String key = IdentityRedisKeys.powChallenge(verification.id());
+        String key = IdentityCacheKeys.powChallenge(verification.id());
         String difficultyValue = redisTemplate.opsForValue().get(key);
         if (difficultyValue == null) {
             throw ApiException.badRequest("PoW challenge expired or invalid", "security", "pow.expired");
@@ -133,7 +133,7 @@ public class PoWService {
     }
 
     private ChallengeState consumeChallenge(String id) {
-        String raw = redisTemplate.execute(CONSUME_SCRIPT, List.of(IdentityRedisKeys.powChallenge(id)));
+        String raw = redisTemplate.execute(CONSUME_SCRIPT, List.of(IdentityCacheKeys.powChallenge(id)));
         if (!StringUtils.hasText(raw)) {
             throw ApiException.badRequest("PoW challenge expired or invalid", "security", "pow.expired");
         }

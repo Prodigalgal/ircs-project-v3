@@ -7,7 +7,7 @@ package com.prodigalgal.ircs.task.application;
 
 import com.prodigalgal.ircs.task.messaging.TaskQueuePublisher;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import com.prodigalgal.ircs.task.domain.TaskRuntimeStatus;
 import tools.jackson.databind.JsonNode;
@@ -29,7 +29,7 @@ public class TaskQueueDispatchService {
 
     private final JdbcCollectionTaskRepository taskRepository;
     private final TaskMasterSnapshotService snapshotService;
-    private final TaskProgressRedisService progressService;
+    private final TaskProgressStore progressService;
     private final TaskQueuePublisher queuePublisher;
     private final TaskLogService taskLogService;
     private final ObjectMapper objectMapper;
@@ -39,7 +39,7 @@ public class TaskQueueDispatchService {
     public TaskQueueDispatchService(
             JdbcCollectionTaskRepository taskRepository,
             TaskMasterSnapshotService snapshotService,
-            TaskProgressRedisService progressService,
+            TaskProgressStore progressService,
             TaskQueuePublisher queuePublisher,
             TaskLogService taskLogService,
             ObjectMapper objectMapper,

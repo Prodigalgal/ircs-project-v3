@@ -14,7 +14,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.OutboundTransportRouter;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
-import com.prodigalgal.ircs.messaging.RabbitTaskHttpStatusException;
+import com.prodigalgal.ircs.messaging.TaskHttpStatusException;
 import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ListItem;
@@ -110,13 +110,13 @@ class ListScraperClient {
             }
             OutboundHttpResponse response = httpClient.execute(request);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new RabbitTaskHttpStatusException(response.statusCode(), source.name(), url);
+                throw new TaskHttpStatusException(response.statusCode(), source.name(), url);
             }
             return new FetchedBody(response.body(), response.firstHeader("Content-Type"));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("HTTP fetch failed: " + url + " - " + e.getMessage(), e);
-        } catch (RabbitTaskHttpStatusException e) {
+        } catch (TaskHttpStatusException e) {
             throw e;
         } catch (Exception e) {
             throw new IllegalStateException("HTTP fetch failed: " + url + " - " + e.getMessage(), e);

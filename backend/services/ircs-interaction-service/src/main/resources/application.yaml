@@ -43,6 +43,12 @@ app:
     r2-public-domain: ${APP_STORAGE_R2_PUBLIC_DOMAIN:${R2_PUBLIC_DOMAIN:}}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

@@ -88,6 +88,14 @@ configure(serviceProjects) {
     apply plugin: 'com.google.cloud.tools.jib'
     apply plugin: 'org.graalvm.buildtools.native'
 
+    tasks.named('processAot') {
+        // BuildKit exports its own collector settings into RUN processes. They must
+        // not decide which telemetry transport is frozen into the application.
+        environment = environment.findAll { key, value -> !key.startsWith('OTEL_') }
+        systemProperty 'management.opentelemetry.tracing.export.otlp.transport', 'http'
+        systemProperty 'management.opentelemetry.logging.export.otlp.transport', 'http'
+    }
+
     dependencies {
         implementation project(':shared:ircs-common')
         implementation project(':shared:ircs-contracts')

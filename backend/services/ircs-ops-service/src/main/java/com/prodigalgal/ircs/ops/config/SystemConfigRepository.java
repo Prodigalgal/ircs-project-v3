@@ -1,7 +1,7 @@
 package com.prodigalgal.ircs.ops.config;
 
 import com.prodigalgal.ircs.common.config.JdbcSystemConfigRepositorySupport;
-import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import com.prodigalgal.ircs.common.config.SystemConfigCache;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;

@@ -48,9 +48,9 @@ class JdbcSystemConfigRepositorySupportTest {
             super(
                     jdbcTemplate,
                     null,
-                    SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
-                    SystemConfigValkeyCache.DEFAULT_TTL,
-                    SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
+                    SystemConfigCache.DEFAULT_KEY_PREFIX,
+                    SystemConfigCache.DEFAULT_TTL,
+                    SystemConfigCache.DEFAULT_LOCAL_TTL);
         }
     }
 }

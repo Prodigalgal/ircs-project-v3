@@ -5,7 +5,7 @@ package com.prodigalgal.ircs.task.application;
 
 
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import com.prodigalgal.ircs.task.runtime.MasterProgressState;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 class TaskRuntimeRepairServiceTest {
 
     private final JdbcCollectionTaskRepository taskRepository = org.mockito.Mockito.mock(JdbcCollectionTaskRepository.class);
-    private final TaskProgressRedisService progressService = org.mockito.Mockito.mock(TaskProgressRedisService.class);
+    private final TaskProgressStore progressService = org.mockito.Mockito.mock(TaskProgressStore.class);
     private final TaskQueueDispatchService dispatchService = org.mockito.Mockito.mock(TaskQueueDispatchService.class);
     private final TaskSnapshotFlushService snapshotFlushService = org.mockito.Mockito.mock(TaskSnapshotFlushService.class);
     private final TaskRuntimeRepairService service = new TaskRuntimeRepairService(

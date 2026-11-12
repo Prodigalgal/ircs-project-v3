@@ -2,11 +2,11 @@ package com.prodigalgal.ircs.ops.dashboard.infrastructure;
 
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueueCounts;
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueSnapshot;
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueSnapshot;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueues;
 import com.prodigalgal.ircs.ops.queue.domain.QueueState;
-import com.prodigalgal.ircs.ops.dashboard.dto.RedisMetricResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.KeyValueMetricResponse;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,7 +31,7 @@ public class SystemMetricsDataReader {
     private final MeterRegistry meterRegistry;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
-    private final RabbitManagementQueueClient rabbitManagementQueueClient;
+    private final BrokerManagementQueueClient rabbitManagementQueueClient;
     private volatile CachedRabbitQueues cachedRabbitQueues;
 
     public void registerRabbitQueueGauges() {
@@ -58,7 +58,7 @@ public class SystemMetricsDataReader {
     }
 
     public QueueState queueState(String queueName) {
-        RabbitManagementQueueSnapshot snapshot = nativeQueueSnapshot(queueName);
+        BrokerManagementQueueSnapshot snapshot = nativeQueueSnapshot(queueName);
         if (snapshot != null) {
             return new QueueState(snapshot.messagesTotal(), snapshot.consumers());
         }
@@ -75,32 +75,32 @@ public class SystemMetricsDataReader {
         }
     }
 
-    private RabbitManagementQueueSnapshot nativeQueueSnapshot(String queueName) {
-        Map<String, RabbitManagementQueueSnapshot> snapshots = nativeQueueSnapshots();
+    private BrokerManagementQueueSnapshot nativeQueueSnapshot(String queueName) {
+        Map<String, BrokerManagementQueueSnapshot> snapshots = nativeQueueSnapshots();
         return snapshots.get(queueName);
     }
 
-    private Map<String, RabbitManagementQueueSnapshot> nativeQueueSnapshots() {
+    private Map<String, BrokerManagementQueueSnapshot> nativeQueueSnapshots() {
         long now = System.currentTimeMillis();
         CachedRabbitQueues cached = cachedRabbitQueues;
         if (cached != null && cached.expiresAtMillis() > now) {
             return cached.snapshots();
         }
-        Optional<RabbitManagementQueues> queues = rabbitManagementQueueClient.fetchQueueSnapshots();
-        Map<String, RabbitManagementQueueSnapshot> snapshots = queues
-                .map(RabbitManagementQueues::byName)
+        Optional<BrokerManagementQueues> queues = rabbitManagementQueueClient.fetchQueueSnapshots();
+        Map<String, BrokerManagementQueueSnapshot> snapshots = queues
+                .map(BrokerManagementQueues::byName)
                 .orElse(Collections.emptyMap());
         cachedRabbitQueues = new CachedRabbitQueues(snapshots, now + Duration.ofSeconds(1).toMillis());
         return snapshots;
     }
 
-    public RedisMetricResponse redisMetric() {
+    public KeyValueMetricResponse redisMetric() {
         try (RedisConnection connection = redisConnectionFactory.getConnection()) {
             Properties info = connection.serverCommands().info();
             if (info == null) {
                 return null;
             }
-            return new RedisMetricResponse(
+            return new KeyValueMetricResponse(
                     parseLong(info.getProperty("used_memory")),
                     (int) parseLong(info.getProperty("connected_clients")),
                     parseLong(info.getProperty("instantaneous_ops_per_sec")),
@@ -199,7 +199,7 @@ public class SystemMetricsDataReader {
     }
 
     private record CachedRabbitQueues(
-            Map<String, RabbitManagementQueueSnapshot> snapshots,
+            Map<String, BrokerManagementQueueSnapshot> snapshots,
             long expiresAtMillis
     ) {
     }

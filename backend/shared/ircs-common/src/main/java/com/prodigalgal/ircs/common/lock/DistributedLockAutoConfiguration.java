@@ -29,7 +29,7 @@ public class DistributedLockAutoConfiguration {
         if (template == null) {
             return new UnavailableClusterLeaseService("Redis StringRedisTemplate is unavailable for distributed locks");
         }
-        return new RedisDistributedLockManager(template, metrics);
+        return new ClusterLockManager(template, metrics);
     }
 
     @Bean

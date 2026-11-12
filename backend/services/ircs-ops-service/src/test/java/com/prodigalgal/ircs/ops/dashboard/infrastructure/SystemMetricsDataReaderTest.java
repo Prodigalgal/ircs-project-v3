@@ -5,9 +5,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueSnapshot;
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueues;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueSnapshot;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueues;
 import com.prodigalgal.ircs.ops.queue.domain.QueueState;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
@@ -28,7 +28,7 @@ class SystemMetricsDataReaderTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider =
             mock(ObjectProvider.class);
-    private final RabbitManagementQueueClient rabbitManagementQueueClient = mock(RabbitManagementQueueClient.class);
+    private final BrokerManagementQueueClient rabbitManagementQueueClient = mock(BrokerManagementQueueClient.class);
     private final SystemMetricsDataReader reader = new SystemMetricsDataReader(
             rabbitAdmin,
             redisConnectionFactory,
@@ -39,8 +39,8 @@ class SystemMetricsDataReaderTest {
 
     @Test
     void queueStatePrefersNativeRabbitTotalWhenManagementSnapshotIsAvailable() {
-        when(rabbitManagementQueueClient.fetchQueueSnapshots()).thenReturn(Optional.of(new RabbitManagementQueues(null, List.of(
-                new RabbitManagementQueueSnapshot("q.task.detail.dlq", 7, 5, 12, 0)
+        when(rabbitManagementQueueClient.fetchQueueSnapshots()).thenReturn(Optional.of(new BrokerManagementQueues(null, List.of(
+                new BrokerManagementQueueSnapshot("q.task.detail.dlq", 7, 5, 12, 0)
         ))));
 
         QueueState state = reader.queueState("q.task.detail.dlq");

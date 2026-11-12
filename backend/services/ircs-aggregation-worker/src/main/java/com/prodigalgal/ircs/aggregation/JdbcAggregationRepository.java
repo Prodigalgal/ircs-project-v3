@@ -8,7 +8,7 @@ import com.prodigalgal.ircs.common.adult.AdultContentAssessor;
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
-import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
+import com.prodigalgal.ircs.common.metadata.MetadataNameCache;
 import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 
 import java.sql.Date;
@@ -50,7 +50,7 @@ public class JdbcAggregationRepository {
             NamedParameterJdbcTemplate jdbcTemplate,
             AggregationMatchingStrategy matchingStrategy,
             AggregationContextSearchClient contextSearchClient,
-            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            ObjectProvider<MetadataNameCache> metadataNameCacheProvider,
             ObjectMapper objectMapper,
             AdultAssessmentEvaluator adultAssessmentEvaluator,
             @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {

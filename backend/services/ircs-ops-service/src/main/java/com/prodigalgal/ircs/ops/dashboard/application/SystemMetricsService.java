@@ -16,9 +16,9 @@ import com.prodigalgal.ircs.ops.dashboard.dto.QueueGroupResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.QueueMetricResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.RateKind;
 import com.prodigalgal.ircs.ops.dashboard.dto.RateMetricResponse;
-import com.prodigalgal.ircs.ops.dashboard.dto.RedisMetricResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.KeyValueMetricResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
-import com.prodigalgal.ircs.ops.dashboard.infrastructure.RabbitManagementRateProbe;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.BrokerManagementRateProbe;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SystemMetricsDataReader;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import jakarta.annotation.PreDestroy;
@@ -42,7 +42,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class SystemMetricsService {
 
-    private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider;
+    private final ObjectProvider<BrokerManagementRateProbe> rabbitRateProbeProvider;
     private final RuntimeConfigService runtimeConfig;
     private final SystemMetricsDataReader dataReader;
     private final RateMetricSnapshotReader rateMetricSnapshotReader;
@@ -168,7 +168,7 @@ public class SystemMetricsService {
                     topic.name(),
                     descriptor.color(),
                     topic,
-                    RabbitManagementRateProbe.RabbitQueueRole.MAIN,
+                    BrokerManagementRateProbe.RabbitQueueRole.MAIN,
                     topic.queueName(),
                     true,
                     context);
@@ -179,7 +179,7 @@ public class SystemMetricsService {
                     "DLQ_" + topic.name(),
                     "#dc2626",
                     topic,
-                    RabbitManagementRateProbe.RabbitQueueRole.DLQ,
+                    BrokerManagementRateProbe.RabbitQueueRole.DLQ,
                     topic.dlqName(),
                     false,
                     context));
@@ -263,7 +263,7 @@ public class SystemMetricsService {
             String key,
             String color,
             QueueTopic topic,
-            RabbitManagementRateProbe.RabbitQueueRole role,
+            BrokerManagementRateProbe.RabbitQueueRole role,
             String queueName,
             boolean checkConsumers,
             MetricsReadContext context) {
@@ -338,18 +338,18 @@ public class SystemMetricsService {
 
     private RabbitRateDescriptor rabbitRate(
             QueueTopic topic,
-            RabbitManagementRateProbe.RabbitQueueRole role,
+            BrokerManagementRateProbe.RabbitQueueRole role,
             RateMetricSnapshot rateSnapshot) {
-        RabbitManagementRateProbe probe = rabbitRateProbeProvider == null
+        BrokerManagementRateProbe probe = rabbitRateProbeProvider == null
                 ? null
                 : rabbitRateProbeProvider.getIfAvailable();
         boolean managementAvailable = probe != null && probe.rateAvailable();
-        if (role == RabbitManagementRateProbe.RabbitQueueRole.DLQ) {
+        if (role == BrokerManagementRateProbe.RabbitQueueRole.DLQ) {
             RateMetricResponse published = rateSnapshot.metric(
-                    RabbitManagementRateProbe.metricKey(
+                    BrokerManagementRateProbe.metricKey(
                             topic,
                             role,
-                            RabbitManagementRateProbe.RabbitRateAction.PUBLISHED),
+                            BrokerManagementRateProbe.RabbitRateAction.PUBLISHED),
                     "入死信速率");
             return managementAvailable || blockedReasonResolver.recentlyActive(published)
                     ? new RabbitRateDescriptor(RateKind.PUBLISH, published)
@@ -357,16 +357,16 @@ public class SystemMetricsService {
         }
 
         RateMetricResponse acked = rateSnapshot.metric(
-                RabbitManagementRateProbe.metricKey(
+                BrokerManagementRateProbe.metricKey(
                         topic,
                         role,
-                        RabbitManagementRateProbe.RabbitRateAction.ACKED),
+                        BrokerManagementRateProbe.RabbitRateAction.ACKED),
                 "确认速率");
         RateMetricResponse delivered = rateSnapshot.metric(
-                RabbitManagementRateProbe.metricKey(
+                BrokerManagementRateProbe.metricKey(
                         topic,
                         role,
-                        RabbitManagementRateProbe.RabbitRateAction.DELIVERED),
+                        BrokerManagementRateProbe.RabbitRateAction.DELIVERED),
                 "投递速率");
         if (blockedReasonResolver.recentlyActive(delivered) && !blockedReasonResolver.recentlyActive(acked)) {
             return new RabbitRateDescriptor(RateKind.DELIVER, delivered);

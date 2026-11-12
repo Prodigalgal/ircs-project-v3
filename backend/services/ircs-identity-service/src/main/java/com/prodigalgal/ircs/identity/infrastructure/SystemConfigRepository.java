@@ -1,7 +1,7 @@
 package com.prodigalgal.ircs.identity.infrastructure;
 
 import com.prodigalgal.ircs.common.config.JdbcSystemConfigRepositorySupport;
-import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import com.prodigalgal.ircs.common.config.SystemConfigCache;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,9 +25,9 @@ public class SystemConfigRepository extends JdbcSystemConfigRepositorySupport {
         return new SystemConfigRepository(
                 jdbcTemplate,
                 null,
-                SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
-                SystemConfigValkeyCache.DEFAULT_TTL,
-                SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
+                SystemConfigCache.DEFAULT_KEY_PREFIX,
+                SystemConfigCache.DEFAULT_TTL,
+                SystemConfigCache.DEFAULT_LOCAL_TTL);
     }
 
     public long upsertValue(String key, String value) {

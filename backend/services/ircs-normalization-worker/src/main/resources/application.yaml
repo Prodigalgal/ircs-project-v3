@@ -95,6 +95,12 @@ app:
       model: ${APP_AI_LLM_MODEL:gemma-4-31b-it}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

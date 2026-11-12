@@ -8,7 +8,7 @@ package com.prodigalgal.ircs.task.messaging;
 import com.prodigalgal.ircs.task.application.TaskSnapshotFlushService;
 import com.prodigalgal.ircs.task.application.TaskQueueDispatchService;
 import com.prodigalgal.ircs.task.runtime.PageProgressState;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import com.prodigalgal.ircs.task.application.DispatchNextPageResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,8 +28,8 @@ import com.prodigalgal.ircs.contracts.task.TaskDetailDoneMessage;
 import com.prodigalgal.ircs.contracts.task.TaskMasterDoneMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageDiscoveredMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageFailedMessage;
-import com.prodigalgal.ircs.messaging.RabbitTaskFailureClassifier;
-import com.prodigalgal.ircs.messaging.RabbitTaskRetryPublisher;
+import com.prodigalgal.ircs.messaging.TaskFailureClassifier;
+import com.prodigalgal.ircs.messaging.TaskRetryPublisher;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Optional;
@@ -44,11 +44,11 @@ class TaskQueueProgressConsumerTest {
     private static final long DELIVERY_TAG = 42L;
 
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-    private final TaskProgressRedisService progressService = org.mockito.Mockito.mock(TaskProgressRedisService.class);
+    private final TaskProgressStore progressService = org.mockito.Mockito.mock(TaskProgressStore.class);
     private final TaskQueueDispatchService dispatchService = org.mockito.Mockito.mock(TaskQueueDispatchService.class);
     private final TaskSnapshotFlushService snapshotFlushService = org.mockito.Mockito.mock(TaskSnapshotFlushService.class);
-    private final RabbitTaskRetryPublisher retryPublisher = org.mockito.Mockito.mock(RabbitTaskRetryPublisher.class);
-    private final RabbitTaskFailureClassifier failureClassifier = new RabbitTaskFailureClassifier();
+    private final TaskRetryPublisher retryPublisher = org.mockito.Mockito.mock(TaskRetryPublisher.class);
+    private final TaskFailureClassifier failureClassifier = new TaskFailureClassifier();
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final Channel channel = org.mockito.Mockito.mock(Channel.class);
     private final TaskQueueProgressConsumer consumer =

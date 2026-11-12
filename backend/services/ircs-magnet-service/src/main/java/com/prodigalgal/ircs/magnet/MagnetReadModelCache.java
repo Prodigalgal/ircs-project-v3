@@ -191,6 +191,6 @@ class MagnetReadModelCache {
             return TieredStringCacheStore.noop();
         }
         StringRedisTemplate template = redisTemplate.getIfAvailable();
-        return template == null ? TieredStringCacheStore.noop() : new MagnetRedisStringCacheStore(template);
+        return template == null ? TieredStringCacheStore.noop() : new MagnetStringCacheStore(template);
     }
 }

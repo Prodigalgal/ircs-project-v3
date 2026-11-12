@@ -6,7 +6,7 @@ package com.prodigalgal.ircs.task.messaging;
 
 import com.prodigalgal.ircs.task.application.TaskSnapshotFlushService;
 import com.prodigalgal.ircs.task.application.TaskQueueDispatchService;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import com.prodigalgal.ircs.task.application.DispatchNextPageResult;
 import com.rabbitmq.client.Channel;
 import tools.jackson.databind.ObjectMapper;
@@ -17,8 +17,8 @@ import com.prodigalgal.ircs.contracts.task.TaskDetailDoneMessage;
 import com.prodigalgal.ircs.contracts.task.TaskMasterDoneMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageDiscoveredMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageFailedMessage;
-import com.prodigalgal.ircs.messaging.RabbitTaskFailureClassifier;
-import com.prodigalgal.ircs.messaging.RabbitTaskRetryPublisher;
+import com.prodigalgal.ircs.messaging.TaskFailureClassifier;
+import com.prodigalgal.ircs.messaging.TaskRetryPublisher;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -42,21 +42,21 @@ class TaskQueueProgressConsumer {
     private static final String JOB_NAME_MASTER_DONE = "task.master-done";
 
     private final ObjectMapper objectMapper;
-    private final TaskProgressRedisService progressService;
+    private final TaskProgressStore progressService;
     private final TaskQueueDispatchService dispatchService;
     private final TaskSnapshotFlushService snapshotFlushService;
-    private final RabbitTaskRetryPublisher retryPublisher;
-    private final RabbitTaskFailureClassifier failureClassifier;
+    private final TaskRetryPublisher retryPublisher;
+    private final TaskFailureClassifier failureClassifier;
     private final WorkerJobAuditWriter auditWriter;
     private final int maxRetries;
 
     TaskQueueProgressConsumer(
             ObjectMapper objectMapper,
-            TaskProgressRedisService progressService,
+            TaskProgressStore progressService,
             TaskQueueDispatchService dispatchService,
             TaskSnapshotFlushService snapshotFlushService,
-            RabbitTaskRetryPublisher retryPublisher,
-            RabbitTaskFailureClassifier failureClassifier,
+            TaskRetryPublisher retryPublisher,
+            TaskFailureClassifier failureClassifier,
             WorkerJobAuditWriter auditWriter,
             @Value("${app.task.queue.retry.max-retries:3}") int maxRetries) {
         this.objectMapper = objectMapper;

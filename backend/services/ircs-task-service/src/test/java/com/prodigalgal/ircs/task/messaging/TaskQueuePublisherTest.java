@@ -11,11 +11,11 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import com.prodigalgal.ircs.messaging.RabbitConfirmedPublisher;
+import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
 
 class TaskQueuePublisherTest {
 
-    private final RabbitConfirmedPublisher rabbitTemplate = org.mockito.Mockito.mock(RabbitConfirmedPublisher.class);
+    private final ConfirmedMessagePublisher rabbitTemplate = org.mockito.Mockito.mock(ConfirmedMessagePublisher.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
     private final TaskQueuePublisher publisher = new TaskQueuePublisher(rabbitTemplate, objectMapper);
 

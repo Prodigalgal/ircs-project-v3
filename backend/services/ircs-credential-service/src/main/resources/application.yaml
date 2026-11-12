@@ -34,6 +34,12 @@ app:
       required-scope: ${APP_CREDENTIAL_SERVICE_REQUIRED_SCOPE:credential:lease}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

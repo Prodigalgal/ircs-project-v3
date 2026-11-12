@@ -34,6 +34,12 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:${VALKEY_PORT:6379}}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

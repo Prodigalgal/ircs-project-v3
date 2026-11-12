@@ -1,6 +1,6 @@
 package com.prodigalgal.ircs.config.infrastructure;
 
-import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import com.prodigalgal.ircs.common.config.SystemConfigCache;
 import com.prodigalgal.ircs.config.application.SystemConfigDefaults;
 import com.prodigalgal.ircs.config.domain.SystemConfigRecord;
 import com.prodigalgal.ircs.config.dto.SystemConfigWriteRequest;
@@ -30,7 +30,7 @@ public class JdbcConfigRepository {
     private static final int MAX_PAGE_SIZE = 1000;
 
     private final JdbcTemplate jdbcTemplate;
-    private final SystemConfigValkeyCache valkeyCache;
+    private final SystemConfigCache valkeyCache;
 
     public JdbcConfigRepository(
             JdbcTemplate jdbcTemplate,
@@ -39,16 +39,16 @@ public class JdbcConfigRepository {
             @Value("${app.system-config.valkey-cache.ttl:PT12H}") Duration ttl,
             @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localTtl) {
         this.jdbcTemplate = jdbcTemplate;
-        this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
+        this.valkeyCache = new SystemConfigCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
     }
 
     static JdbcConfigRepository forTest(JdbcTemplate jdbcTemplate) {
         return new JdbcConfigRepository(
                 jdbcTemplate,
                 null,
-                SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
-                SystemConfigValkeyCache.DEFAULT_TTL,
-                SystemConfigValkeyCache.DEFAULT_LOCAL_TTL);
+                SystemConfigCache.DEFAULT_KEY_PREFIX,
+                SystemConfigCache.DEFAULT_TTL,
+                SystemConfigCache.DEFAULT_LOCAL_TTL);
     }
 
     public Page<SystemConfigRecord> findAll(Pageable pageable, String keyword) {

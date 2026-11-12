@@ -2,7 +2,7 @@ package com.prodigalgal.ircs.common.work;
 
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
 import com.prodigalgal.ircs.common.audit.AuditReplicationWorkTypes;
-import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import com.prodigalgal.ircs.common.config.SystemConfigCache;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
 import com.prodigalgal.ircs.common.normalization.LlmCleaningWorkTypes;
 import com.prodigalgal.ircs.common.pipeline.PipelineRuntimeWorkTypes;
@@ -69,18 +69,18 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
 
     private final JdbcTemplate jdbcTemplate;
     private final Environment environment;
-    private final SystemConfigValkeyCache cache;
+    private final SystemConfigCache cache;
     public SystemConfigWorkSubmissionGate(
             JdbcTemplate jdbcTemplate,
             Environment environment,
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,
             @Value("${app.system-config.valkey-cache.key-prefix:"
-                    + SystemConfigValkeyCache.DEFAULT_KEY_PREFIX + "}") String cacheKeyPrefix,
+                    + SystemConfigCache.DEFAULT_KEY_PREFIX + "}") String cacheKeyPrefix,
             @Value("${app.system-config.valkey-cache.ttl:PT12H}") Duration cacheTtl,
             @Value("${app.system-config.local-cache.ttl:PT5M}") Duration localCacheTtl) {
         this.jdbcTemplate = jdbcTemplate;
         this.environment = environment;
-        this.cache = new SystemConfigValkeyCache(redisTemplateProvider, cacheKeyPrefix, cacheTtl, localCacheTtl);
+        this.cache = new SystemConfigCache(redisTemplateProvider, cacheKeyPrefix, cacheTtl, localCacheTtl);
     }
 
     @Override

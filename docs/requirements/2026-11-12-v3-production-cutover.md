@@ -5,15 +5,17 @@
 - 所有编译改在 GitHub Actions，停止本地编译。
 - 沿用 `Prodigalgal/ircs-project-v3`，整合当前 Java、Python、管理端和门户源代码至单一仓库。
 - 生产 Argo CD 继续监听 `Prodigalgal/k8s-gitops-config`，改用 V3，打通构建、镜像、GitOps 回写及同步链路，下架现有 V4 工作负载。
-- 必须保留生产数据、PVC、数据库和必需运行配置；先评估 V3/V4 schema 兼容性并备份，禁止通过重建空库、清空队列或删除 PVC 完成切换。
-- 用户明确不要求旧 Git 备份。当前版本整合并验证后删除三个唯一旧仓库：`ircs-huawai-frontend`、`ircs-admin-frontend`、`ircs-backend`，不创建其 Git mirror/bundle。
+- 必须保留生产数据、PVC、数据库和必需运行配置；评估 V3/V4 schema 兼容性后直接对齐，禁止通过重建空库、清空队列或删除 PVC 完成切换。
+- 用户后续明确不做旧 Git 备份和数据备份，直接对齐对接，需要扩容则先扩容。当前版本整合并验证后删除三个唯一旧仓库：`ircs-huawai-frontend`、`ircs-admin-frontend`、`ircs-backend`，不创建 Git mirror/bundle。
+- 三节点 K8S 尽量均衡：结合已有 CPU/内存占用，分散业务和 worker，数据卷保持可用。
+- 自有代码类和文件按队列、缓存、租约等职责命名，消除 Redis/Valkey/Rabbit 前缀；应用层依赖现有接口。命名调整不改变已有数据键、字段、旧 API 和消息契约。
 
 ## 范围与验收
 
 1. 单仓库云端 Java、Python、前端回归及 amd64/arm64 Native/容器构建通过，使用固定提交标签。
 2. GitHub Actions 对 GitOps 仓库使用专用最小写入权限，主分支仅在检查全部通过后回写镜像。
-3. 数据库备份可读取、传输校验通过；PVC 保留策略有效，数据迁移对现有 schema 和业务数据兼容。
-4. 处理现场 Valkey AOF 损坏：保留原始文件后检查恢复边界，尽可能完整恢复，不 FLUSH 或重建空数据目录。
+3. PVC 保留策略有效，数据迁移对现有 schema 和业务数据兼容，沿用现有数据库。
+4. 处理现场 Valkey AOF 损坏：先扩容满卷，校验并保留有效命令，修复非法填充，不 FLUSH 或重建空数据目录。
 5. V3 部署、真实进程/日志/探针、外部 API/页面、采集队列及 Hikari 状态有证据，V4 停止消费后退出生产入口。
 6. Argo CD 状态与 GitOps desired state 一致，旧仓库在无引用且当前源代码已经整合后删除。
 

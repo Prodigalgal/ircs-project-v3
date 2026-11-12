@@ -8,7 +8,7 @@ import com.prodigalgal.ircs.ops.audit.request.RequestAuditController;
 import com.prodigalgal.ircs.ops.audit.worker.WorkerJobAuditController;
 import com.prodigalgal.ircs.ops.maintenance.controller.MaintenanceController;
 import com.prodigalgal.ircs.ops.queue.dlq.persistence.DlqController;
-import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqController;
+import com.prodigalgal.ircs.ops.queue.dlq.broker.DeadLetterController;
 import com.prodigalgal.ircs.ops.selfhealing.LowRiskSelfHealingController;
 import com.prodigalgal.ircs.ops.selfhealing.ServiceSelfHealingController;
 import com.prodigalgal.ircs.ops.traffic.controller.TrafficMonitorController;
@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
         NotificationMailSendHistoryController.class,
         AuditGovernanceController.class,
         DlqController.class,
-        RabbitDlqController.class,
+        DeadLetterController.class,
         LowRiskSelfHealingController.class,
         ServiceSelfHealingController.class,
         TrafficMonitorController.class,

@@ -16,7 +16,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
-import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
+import com.prodigalgal.ircs.common.metadata.MetadataNameCache;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCreateRequest;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoDetailResponse;
@@ -56,7 +56,7 @@ public class JdbcVideoAdminRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-    private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
+    private final ObjectProvider<MetadataNameCache> metadataNameCacheProvider;
     private final VideoAdminCoverImageRepository coverImageRepository;
     private final VideoAdminTrendRepository trendRepository;
     private final VideoAdminQueryRepository queryRepository;
@@ -552,7 +552,7 @@ public class JdbcVideoAdminRepository {
     }
 
     private void evictMetadataNameCache(MetadataNameOwnerType ownerType, Collection<UUID> ownerIds) {
-        MetadataNameValkeyCache metadataNameCache = metadataNameCacheProvider == null
+        MetadataNameCache metadataNameCache = metadataNameCacheProvider == null
                 ? null
                 : metadataNameCacheProvider.getIfAvailable();
         if (metadataNameCache != null) {

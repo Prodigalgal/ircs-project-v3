@@ -4,7 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameRelation;
-import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
+import com.prodigalgal.ircs.common.metadata.MetadataNameCache;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,12 +24,12 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 final class AggregationMetadataNameRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
-    private final MetadataNameValkeyCache metadataNameCache;
+    private final MetadataNameCache metadataNameCache;
     private final ObjectMapper objectMapper;
 
     AggregationMetadataNameRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
-            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            ObjectProvider<MetadataNameCache> metadataNameCacheProvider,
             ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.metadataNameCache = metadataNameCacheProvider == null

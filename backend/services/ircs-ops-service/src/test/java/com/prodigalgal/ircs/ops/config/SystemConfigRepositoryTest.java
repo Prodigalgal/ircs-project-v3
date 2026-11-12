@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
-import com.prodigalgal.ircs.common.config.SystemConfigValkeyCache;
+import com.prodigalgal.ircs.common.config.SystemConfigCache;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
@@ -22,8 +22,8 @@ class SystemConfigRepositoryTest {
     private final SystemConfigRepository repository = new SystemConfigRepository(
             jdbcTemplate,
             redisTemplateProvider,
-            SystemConfigValkeyCache.DEFAULT_KEY_PREFIX,
-            SystemConfigValkeyCache.DEFAULT_TTL,
+            SystemConfigCache.DEFAULT_KEY_PREFIX,
+            SystemConfigCache.DEFAULT_TTL,
             Duration.ofHours(1));
 
     @Test

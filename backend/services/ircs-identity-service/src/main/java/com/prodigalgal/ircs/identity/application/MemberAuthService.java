@@ -12,7 +12,7 @@ import com.prodigalgal.ircs.identity.messaging.MailPublisher;
 import com.prodigalgal.ircs.identity.domain.IdentityConfigKey;
 import com.prodigalgal.ircs.identity.repository.MemberRepository;
 import com.prodigalgal.ircs.identity.security.JwtTokenService;
-import com.prodigalgal.ircs.identity.IdentityRedisKeys;
+import com.prodigalgal.ircs.identity.IdentityCacheKeys;
 import com.prodigalgal.ircs.identity.api.ApiException;
 import com.prodigalgal.ircs.identity.domain.MemberRecord;
 import com.prodigalgal.ircs.identity.domain.MemberStatus;
@@ -84,7 +84,7 @@ public class MemberAuthService {
     @Transactional
     public MemberTokenResponse activate(AccountActivateRequest request) {
         String email = normalizeEmail(request.email());
-        String key = IdentityRedisKeys.authActivate(email);
+        String key = IdentityCacheKeys.authActivate(email);
         String savedCode = redisTemplate.opsForValue().get(key);
         if (savedCode == null) {
             throw ApiException.badRequest("激活码已过期或不存在，请点击重新发送", "member", "code.expired");
@@ -140,7 +140,7 @@ public class MemberAuthService {
             throw ApiException.badRequest("该账号无需激活", "member", "status.invalid");
         }
 
-        String key = IdentityRedisKeys.authActivate(email);
+        String key = IdentityCacheKeys.authActivate(email);
         Long expire = redisTemplate.getExpire(key);
         long validitySeconds = configService.intValue(IdentityConfigKey.MEMBER_CODE_VALIDITY_SECONDS);
         long rateLimitSeconds = configService.intValue(IdentityConfigKey.MEMBER_RATE_LIMIT_SECONDS);
@@ -159,7 +159,7 @@ public class MemberAuthService {
         poWService.verifyIfPresent(request.powVerification());
         String email = normalizeEmail(request.email());
         enforceCounterLimit(
-                IdentityRedisKeys.authResetRequest(email),
+                IdentityCacheKeys.authResetRequest(email),
                 RESET_REQUEST_LIMIT,
                 RESET_REQUEST_WINDOW,
                 "请求太频繁，请稍后再试",
@@ -172,7 +172,7 @@ public class MemberAuthService {
         }
 
         String token = UUID.randomUUID().toString();
-        redisTemplate.opsForValue().set(IdentityRedisKeys.authResetToken(token), member.id().toString(), Duration.ofMinutes(15));
+        redisTemplate.opsForValue().set(IdentityCacheKeys.authResetToken(token), member.id().toString(), Duration.ofMinutes(15));
         String frontendUrl = requireFrontendUrl().replaceAll("/+$", "");
         mailPublisher.publish(MailMessageDTO.builder()
                 .to(member.email())
@@ -185,11 +185,11 @@ public class MemberAuthService {
 
     @Transactional
     public void resetPassword(ResetPasswordRequest request) {
-        String redisKey = IdentityRedisKeys.authResetToken(request.token());
+        String redisKey = IdentityCacheKeys.authResetToken(request.token());
         String memberIdValue = redisTemplate.opsForValue().get(redisKey);
         if (memberIdValue == null) {
             enforceCounterLimit(
-                    IdentityRedisKeys.authResetAttempt(sha256(request.token())),
+                    IdentityCacheKeys.authResetAttempt(sha256(request.token())),
                     RESET_TOKEN_ATTEMPT_LIMIT,
                     RESET_TOKEN_ATTEMPT_WINDOW,
                     "重置链接尝试过多，请稍后再试",
@@ -202,7 +202,7 @@ public class MemberAuthService {
                 .orElseThrow(() -> ApiException.notFound("用户不存在", "member", "not.found"));
         memberRepository.update(member.withPasswordHash(passwordEncoder.encode(request.newPassword())));
         redisTemplate.delete(redisKey);
-        redisTemplate.delete(IdentityRedisKeys.authResetAttempt(sha256(request.token())));
+        redisTemplate.delete(IdentityCacheKeys.authResetAttempt(sha256(request.token())));
     }
 
     private MemberTokenResponse tokenResponse(MemberRecord member) {
@@ -215,7 +215,7 @@ public class MemberAuthService {
         }
         String code = String.format("%06d", secureRandom.nextInt(1_000_000));
         long validitySeconds = configService.intValue(IdentityConfigKey.MEMBER_CODE_VALIDITY_SECONDS);
-        redisTemplate.opsForValue().set(IdentityRedisKeys.authActivate(email), code, Duration.ofSeconds(validitySeconds));
+        redisTemplate.opsForValue().set(IdentityCacheKeys.authActivate(email), code, Duration.ofSeconds(validitySeconds));
         mailPublisher.publish(MailMessageDTO.builder()
                 .to(email)
                 .subject("【画外 Huawai】注册激活验证码")

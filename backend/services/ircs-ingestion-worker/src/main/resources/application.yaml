@@ -51,6 +51,12 @@ app:
       enabled: ${APP_INGESTION_LISTENER_ENABLED:false}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

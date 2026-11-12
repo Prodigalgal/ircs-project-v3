@@ -9,7 +9,7 @@ import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.prodigalgal.ircs.search.portal.dto.PortalMovieCardResponse;
-import com.prodigalgal.ircs.search.portal.infrastructure.SearchRedisStringCacheStore;
+import com.prodigalgal.ircs.search.portal.infrastructure.SearchStringCacheStore;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -246,7 +246,7 @@ public class SearchPortalReadModelCache {
         if (redisTemplate == null) {
             return TieredStringCacheStore.noop();
         }
-        return new SearchRedisStringCacheStore(redisTemplate);
+        return new SearchStringCacheStore(redisTemplate);
     }
 
     private static long parseLong(String value) {

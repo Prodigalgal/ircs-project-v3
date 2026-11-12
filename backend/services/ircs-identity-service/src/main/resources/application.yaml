@@ -68,6 +68,12 @@ ircs:
         half-open-max-calls: ${IRCS_OUTBOUND_CIRCUIT_IDENTITY_AVATAR_STORAGE_HALF_OPEN_MAX_CALLS:${IRCS_OUTBOUND_CIRCUIT_HALF_OPEN_MAX_CALLS:1}}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

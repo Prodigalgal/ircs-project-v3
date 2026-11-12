@@ -19,9 +19,9 @@ import com.prodigalgal.ircs.contracts.task.TaskDetailMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageFailedMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageMessage;
 import com.prodigalgal.ircs.contracts.task.TaskScrapeOptions;
-import com.prodigalgal.ircs.messaging.RabbitTaskFailureClassifier;
-import com.prodigalgal.ircs.messaging.RabbitTaskHttpStatusException;
-import com.prodigalgal.ircs.messaging.RabbitTaskRetryPublisher;
+import com.prodigalgal.ircs.messaging.TaskFailureClassifier;
+import com.prodigalgal.ircs.messaging.TaskHttpStatusException;
+import com.prodigalgal.ircs.messaging.TaskRetryPublisher;
 import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -73,8 +73,8 @@ class TaskQueueConsumerTest {
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
     private final TaskQueueScraperService scraperService = org.mockito.Mockito.mock(TaskQueueScraperService.class);
     private final ScraperTaskQueuePublisher queuePublisher = org.mockito.Mockito.mock(ScraperTaskQueuePublisher.class);
-    private final RabbitTaskRetryPublisher retryPublisher = org.mockito.Mockito.mock(RabbitTaskRetryPublisher.class);
-    private final RabbitTaskFailureClassifier failureClassifier = new RabbitTaskFailureClassifier();
+    private final TaskRetryPublisher retryPublisher = org.mockito.Mockito.mock(TaskRetryPublisher.class);
+    private final TaskFailureClassifier failureClassifier = new TaskFailureClassifier();
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final Channel channel = org.mockito.Mockito.mock(Channel.class);
     private final TaskQueueConsumer consumer =
@@ -105,7 +105,7 @@ class TaskQueueConsumerTest {
     @Test
     void httpRateLimitSchedulesRetryWithoutTerminalProgress() throws Exception {
         TaskPageMessage pageMessage = pageMessage();
-        org.mockito.Mockito.doThrow(new RabbitTaskHttpStatusException(
+        org.mockito.Mockito.doThrow(new TaskHttpStatusException(
                         429,
                         "Fake",
                         "https://provider.example.test/api.php"))
@@ -124,7 +124,7 @@ class TaskQueueConsumerTest {
     @Test
     void retryableSourceHttpFailurePublishesPageFailedWithoutDlqAfterRetryLimit() throws Exception {
         TaskPageMessage pageMessage = pageMessage();
-        org.mockito.Mockito.doThrow(new RabbitTaskHttpStatusException(
+        org.mockito.Mockito.doThrow(new TaskHttpStatusException(
                         502,
                         "Fake",
                         "https://provider.example.test/api.php"))
@@ -166,7 +166,7 @@ class TaskQueueConsumerTest {
     @Test
     void terminalSourceHttpPageFailurePublishesPageFailedWithoutDlq() throws Exception {
         TaskPageMessage pageMessage = pageMessage();
-        org.mockito.Mockito.doThrow(new RabbitTaskHttpStatusException(
+        org.mockito.Mockito.doThrow(new TaskHttpStatusException(
                         404,
                         "Fake",
                         "https://provider.example.test/api.php"))
@@ -188,7 +188,7 @@ class TaskQueueConsumerTest {
     @Test
     void terminalSourceHttpDetailFailurePublishesDetailDoneWithoutDlq() throws Exception {
         TaskDetailMessage detailMessage = detailMessage();
-        org.mockito.Mockito.doThrow(new RabbitTaskHttpStatusException(
+        org.mockito.Mockito.doThrow(new TaskHttpStatusException(
                         403,
                         "Fake",
                         "https://provider.example.test/api.php"))

@@ -6,7 +6,7 @@ package com.prodigalgal.ircs.task.application;
 
 import com.prodigalgal.ircs.task.messaging.TaskQueuePublisher;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,7 +27,7 @@ class TaskQueueDispatchServiceTest {
 
     private final JdbcCollectionTaskRepository taskRepository = org.mockito.Mockito.mock(JdbcCollectionTaskRepository.class);
     private final TaskMasterSnapshotService snapshotService = org.mockito.Mockito.mock(TaskMasterSnapshotService.class);
-    private final TaskProgressRedisService progressService = org.mockito.Mockito.mock(TaskProgressRedisService.class);
+    private final TaskProgressStore progressService = org.mockito.Mockito.mock(TaskProgressStore.class);
     private final TaskQueuePublisher queuePublisher = org.mockito.Mockito.mock(TaskQueuePublisher.class);
     private final TaskLogService taskLogService = org.mockito.Mockito.mock(TaskLogService.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();

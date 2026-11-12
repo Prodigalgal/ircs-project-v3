@@ -10,7 +10,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
-import com.prodigalgal.ircs.messaging.RabbitTaskHttpStatusException;
+import com.prodigalgal.ircs.messaging.TaskHttpStatusException;
 import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ManualScrapeConfigRequest;
@@ -321,7 +321,7 @@ class ListScraperClientTest {
                 null,
                 null,
                 null), 1))
-                .isInstanceOf(RabbitTaskHttpStatusException.class)
+                .isInstanceOf(TaskHttpStatusException.class)
                 .hasMessageContaining("HTTP status 404");
     }
 

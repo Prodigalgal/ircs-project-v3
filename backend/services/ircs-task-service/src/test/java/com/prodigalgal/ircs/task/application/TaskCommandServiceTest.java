@@ -5,7 +5,7 @@ package com.prodigalgal.ircs.task.application;
 
 import com.prodigalgal.ircs.task.domain.TaskRuntimeState;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
@@ -26,7 +26,7 @@ class TaskCommandServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ApplicationEventPublisher eventPublisher = org.mockito.Mockito.mock(ApplicationEventPublisher.class);
     private final TaskQueueDispatchService taskQueueDispatchService = org.mockito.Mockito.mock(TaskQueueDispatchService.class);
-    private final TaskProgressRedisService progressService = org.mockito.Mockito.mock(TaskProgressRedisService.class);
+    private final TaskProgressStore progressService = org.mockito.Mockito.mock(TaskProgressStore.class);
     private final RecordingExecutor taskQueueDispatchExecutor = new RecordingExecutor();
     private final TaskCommandService service =
             new TaskCommandService(taskRepository, objectMapper, eventPublisher, taskQueueDispatchService,

@@ -2,8 +2,8 @@ package com.prodigalgal.ircs.ops.selfhealing;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardQueryService;
-import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqActionResponse;
-import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqService;
+import com.prodigalgal.ircs.ops.queue.dlq.broker.DeadLetterActionResponse;
+import com.prodigalgal.ircs.ops.queue.dlq.broker.DeadLetterService;
 import com.prodigalgal.ircs.ops.queue.dlq.runtime.RuntimeWorkDlqService;
 import com.prodigalgal.ircs.ops.queue.dlq.runtime.RuntimeWorkExpiredInflightReaper;
 import java.time.Clock;
@@ -22,7 +22,7 @@ public class LowRiskSelfHealingService {
 
     private final RuntimeWorkExpiredInflightReaper expiredInflightReaper;
     private final RuntimeWorkDlqService runtimeWorkDlqService;
-    private final RabbitDlqService rabbitDlqService;
+    private final DeadLetterService rabbitDlqService;
     private final DashboardQueryService dashboardQueryService;
     private final RuntimeConfigService runtimeConfig;
     private final Clock clock;
@@ -69,7 +69,7 @@ public class LowRiskSelfHealingService {
 
     private LowRiskHealingResponse retryRabbitDlq(LowRiskHealingRequest request) {
         String queueName = requireText(request.queueName(), "queueName");
-        RabbitDlqActionResponse result = rabbitDlqService.retry(queueName, 1);
+        DeadLetterActionResponse result = rabbitDlqService.retry(queueName, 1);
         Map<String, Object> evidence = evidence(request);
         evidence.put("queueName", result.queueName());
         evidence.put("affected", result.affected());

@@ -5,7 +5,7 @@ package com.prodigalgal.ircs.identity.application;
 
 
 import com.prodigalgal.ircs.identity.repository.MemberRepository;
-import com.prodigalgal.ircs.identity.IdentityRedisKeys;
+import com.prodigalgal.ircs.identity.IdentityCacheKeys;
 import com.prodigalgal.ircs.identity.domain.MemberRecord;
 import com.prodigalgal.ircs.identity.domain.MemberStatus;
 import java.time.Duration;
@@ -24,7 +24,7 @@ public class MemberStatusCacheService {
     private final MemberRepository memberRepository;
 
     public MemberStatus getStatus(UUID memberId) {
-        String key = IdentityRedisKeys.authStatus(memberId);
+        String key = IdentityCacheKeys.authStatus(memberId);
         String cached = redisTemplate.opsForValue().get(key);
         if (cached != null) {
             try {
@@ -46,12 +46,12 @@ public class MemberStatusCacheService {
         if (memberId == null || status == null) {
             return;
         }
-        redisTemplate.opsForValue().set(IdentityRedisKeys.authStatus(memberId), status.name(), TTL);
+        redisTemplate.opsForValue().set(IdentityCacheKeys.authStatus(memberId), status.name(), TTL);
     }
 
     public void evict(UUID memberId) {
         if (memberId != null) {
-            redisTemplate.delete(IdentityRedisKeys.authStatus(memberId));
+            redisTemplate.delete(IdentityCacheKeys.authStatus(memberId));
         }
     }
 }

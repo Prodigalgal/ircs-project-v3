@@ -83,6 +83,12 @@ app:
         request-timeout: ${APP_SCRAPER_CREDENTIAL_SERVICE_REQUEST_TIMEOUT:PT10S}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

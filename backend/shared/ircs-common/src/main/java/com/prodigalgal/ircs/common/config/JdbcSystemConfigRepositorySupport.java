@@ -12,7 +12,7 @@ public class JdbcSystemConfigRepositorySupport implements RuntimeConfigValueSour
     private static final String FIND_VALUE_SQL = "select config_value from system_configs where config_key = ?";
 
     private final JdbcTemplate jdbcTemplate;
-    private final SystemConfigValkeyCache valkeyCache;
+    private final SystemConfigCache valkeyCache;
 
     protected JdbcSystemConfigRepositorySupport(
             JdbcTemplate jdbcTemplate,
@@ -21,7 +21,7 @@ public class JdbcSystemConfigRepositorySupport implements RuntimeConfigValueSour
             Duration ttl,
             Duration localTtl) {
         this.jdbcTemplate = jdbcTemplate;
-        this.valkeyCache = new SystemConfigValkeyCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
+        this.valkeyCache = new SystemConfigCache(redisTemplateProvider, keyPrefix, ttl, localTtl);
     }
 
     @Override

@@ -1,7 +1,7 @@
 package com.prodigalgal.ircs.identity.security;
 
 
-import com.prodigalgal.ircs.identity.IdentityRedisKeys;
+import com.prodigalgal.ircs.identity.IdentityCacheKeys;
 import com.prodigalgal.ircs.common.web.ApiErrorResponses;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import jakarta.servlet.FilterChain;
@@ -64,7 +64,7 @@ public class IdentityAuthRateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String bucket = request.getRequestURI() + ":" + clientIp(request);
-        String key = IdentityRedisKeys.authRateLimit(bucket);
+        String key = IdentityCacheKeys.authRateLimit(bucket);
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1L) {
             redisTemplate.expire(key, window());

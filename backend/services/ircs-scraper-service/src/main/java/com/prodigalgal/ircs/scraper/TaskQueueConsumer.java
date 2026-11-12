@@ -10,9 +10,9 @@ import com.prodigalgal.ircs.contracts.task.TaskDetailDoneMessage;
 import com.prodigalgal.ircs.contracts.task.TaskDetailMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageFailedMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageMessage;
-import com.prodigalgal.ircs.messaging.RabbitTaskFailureClassifier;
-import com.prodigalgal.ircs.messaging.RabbitTaskHttpStatusException;
-import com.prodigalgal.ircs.messaging.RabbitTaskRetryPublisher;
+import com.prodigalgal.ircs.messaging.TaskFailureClassifier;
+import com.prodigalgal.ircs.messaging.TaskHttpStatusException;
+import com.prodigalgal.ircs.messaging.TaskRetryPublisher;
 import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -42,8 +42,8 @@ class TaskQueueConsumer {
     private final ObjectMapper objectMapper;
     private final TaskQueueScraperService scraperService;
     private final ScraperTaskQueuePublisher queuePublisher;
-    private final RabbitTaskRetryPublisher retryPublisher;
-    private final RabbitTaskFailureClassifier failureClassifier;
+    private final TaskRetryPublisher retryPublisher;
+    private final TaskFailureClassifier failureClassifier;
     private final WorkerJobAuditWriter auditWriter;
     private final int maxRetries;
     private final Duration processingTimeout;
@@ -54,8 +54,8 @@ class TaskQueueConsumer {
             ObjectMapper objectMapper,
             TaskQueueScraperService scraperService,
             ScraperTaskQueuePublisher queuePublisher,
-            RabbitTaskRetryPublisher retryPublisher,
-            RabbitTaskFailureClassifier failureClassifier,
+            TaskRetryPublisher retryPublisher,
+            TaskFailureClassifier failureClassifier,
             WorkerJobAuditWriter auditWriter,
             @Value("${app.scraper.task-queue.retry.max-retries:3}") int maxRetries,
             @Value("${app.scraper.task-queue.processing-timeout:PT5M}") Duration processingTimeout) {
@@ -277,7 +277,7 @@ class TaskQueueConsumer {
     private boolean isTerminalSourceFailure(RuntimeException error) {
         Throwable current = error;
         while (current != null) {
-            if (current instanceof RabbitTaskHttpStatusException
+            if (current instanceof TaskHttpStatusException
                     || current instanceof TaskSourceTerminalException) {
                 return true;
             }

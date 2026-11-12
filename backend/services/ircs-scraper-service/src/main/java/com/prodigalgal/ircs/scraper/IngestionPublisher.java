@@ -5,14 +5,14 @@ import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import lombok.RequiredArgsConstructor;
-import com.prodigalgal.ircs.messaging.RabbitConfirmedPublisher;
+import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 class IngestionPublisher {
 
-    private final RabbitConfirmedPublisher rabbitTemplate;
+    private final ConfirmedMessagePublisher rabbitTemplate;
     private final ObjectMapper objectMapper;
 
     void publish(IngestionItem item) {

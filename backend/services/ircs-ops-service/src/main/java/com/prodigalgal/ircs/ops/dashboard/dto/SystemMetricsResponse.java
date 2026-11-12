@@ -14,7 +14,7 @@ public record SystemMetricsResponse(
         int downloadQueueDepth,
         List<QueueGroupResponse> queueGroups,
         long totalQueueBacklog,
-        RedisMetricResponse redisMetric,
+        KeyValueMetricResponse redisMetric,
         long freeMemoryBytes,
         long freeDiskSpaceBytes,
         boolean r2Healthy,

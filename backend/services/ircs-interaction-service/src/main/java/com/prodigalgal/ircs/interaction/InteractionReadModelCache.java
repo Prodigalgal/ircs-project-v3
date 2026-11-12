@@ -103,6 +103,6 @@ class InteractionReadModelCache {
             return TieredStringCacheStore.noop();
         }
         StringRedisTemplate template = redisTemplate.getIfAvailable();
-        return template == null ? TieredStringCacheStore.noop() : new InteractionRedisStringCacheStore(template);
+        return template == null ? TieredStringCacheStore.noop() : new InteractionStringCacheStore(template);
     }
 }

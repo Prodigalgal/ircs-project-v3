@@ -22,9 +22,9 @@ import com.prodigalgal.ircs.ops.dashboard.dto.QueueGroupResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.RateKind;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClient;
-import com.prodigalgal.ircs.ops.dashboard.infrastructure.RabbitManagementRateProbe;
+import com.prodigalgal.ircs.ops.dashboard.infrastructure.BrokerManagementRateProbe;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SystemMetricsDataReader;
-import com.prodigalgal.ircs.ops.infrastructure.rabbit.RabbitManagementQueueClient;
+import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Map;
@@ -50,14 +50,14 @@ class SystemMetricsServiceTest {
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
     @SuppressWarnings("unchecked")
-    private final ObjectProvider<RabbitManagementRateProbe> rabbitRateProbeProvider =
+    private final ObjectProvider<BrokerManagementRateProbe> rabbitRateProbeProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider =
             org.mockito.Mockito.mock(ObjectProvider.class);
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
-    private final RabbitManagementQueueClient rabbitManagementQueueClient =
-            org.mockito.Mockito.mock(RabbitManagementQueueClient.class);
+    private final BrokerManagementQueueClient rabbitManagementQueueClient =
+            org.mockito.Mockito.mock(BrokerManagementQueueClient.class);
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final SystemMetricsDataReader dataReader = new SystemMetricsDataReader(
             rabbitAdmin,
@@ -384,14 +384,14 @@ class SystemMetricsServiceTest {
 
     @Test
     void rabbitQueuesExposeAckRateWhenManagementBucketExists() {
-        RabbitManagementRateProbe probe = org.mockito.Mockito.mock(RabbitManagementRateProbe.class);
+        BrokerManagementRateProbe probe = org.mockito.Mockito.mock(BrokerManagementRateProbe.class);
         when(rabbitRateProbeProvider.getIfAvailable()).thenReturn(probe);
         when(probe.rateAvailable()).thenReturn(true);
         stubRateBucket(Map.of(
-                RabbitManagementRateProbe.metricKey(
+                BrokerManagementRateProbe.metricKey(
                         QueueTopic.INGEST_VIDEO,
-                        RabbitManagementRateProbe.RabbitQueueRole.MAIN,
-                        RabbitManagementRateProbe.RabbitRateAction.ACKED),
+                        BrokerManagementRateProbe.RabbitQueueRole.MAIN,
+                        BrokerManagementRateProbe.RabbitRateAction.ACKED),
                 "4"));
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 

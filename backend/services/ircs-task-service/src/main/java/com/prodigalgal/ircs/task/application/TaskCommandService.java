@@ -8,7 +8,7 @@ import com.prodigalgal.ircs.task.domain.ValidatedUpdateTask;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
 import com.prodigalgal.ircs.task.dto.TaskUpdateRequest;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.UUID;
@@ -32,7 +32,7 @@ public class TaskCommandService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskQueueDispatchService taskQueueDispatchService;
-    private final TaskProgressRedisService progressService;
+    private final TaskProgressStore progressService;
     private final Executor taskQueueDispatchExecutor;
 
     public TaskCommandService(
@@ -40,7 +40,7 @@ public class TaskCommandService {
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher,
             TaskQueueDispatchService taskQueueDispatchService,
-            TaskProgressRedisService progressService,
+            TaskProgressStore progressService,
             @Qualifier("taskQueueDispatchExecutor") Executor taskQueueDispatchExecutor) {
         this.taskRepository = taskRepository;
         this.objectMapper = objectMapper;

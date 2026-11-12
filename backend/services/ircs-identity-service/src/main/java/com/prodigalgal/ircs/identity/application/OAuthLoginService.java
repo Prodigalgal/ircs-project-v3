@@ -21,7 +21,7 @@ import com.prodigalgal.ircs.identity.domain.OAuthProviderRegistry;
 import com.prodigalgal.ircs.identity.domain.OAuthProviderConfig;
 import com.prodigalgal.ircs.identity.repository.MemberRepository;
 import com.prodigalgal.ircs.identity.security.JwtTokenService;
-import com.prodigalgal.ircs.identity.IdentityRedisKeys;
+import com.prodigalgal.ircs.identity.IdentityCacheKeys;
 import com.prodigalgal.ircs.identity.api.ApiException;
 import com.prodigalgal.ircs.identity.domain.MemberRecord;
 import com.prodigalgal.ircs.identity.domain.MemberOAuthAccountRecord;
@@ -73,7 +73,7 @@ public class OAuthLoginService {
         String state = randomUrlToken(32);
         String codeVerifier = config.definition().pkceRequired() ? randomUrlToken(48) : "";
         redisTemplate.opsForValue().set(
-                IdentityRedisKeys.oauthState(state),
+                IdentityCacheKeys.oauthState(state),
                 new OAuthStatePayload(config.code(), codeVerifier).encode(),
                 STATE_TTL);
 
@@ -128,7 +128,7 @@ public class OAuthLoginService {
         if (!StringUtils.hasText(state)) {
             throw ApiException.badRequest("OAuth state is missing", "oauth", "oauth.state.missing");
         }
-        String key = IdentityRedisKeys.oauthState(state);
+        String key = IdentityCacheKeys.oauthState(state);
         String raw = redisTemplate.opsForValue().get(key);
         redisTemplate.delete(key);
         if (!StringUtils.hasText(raw)) {

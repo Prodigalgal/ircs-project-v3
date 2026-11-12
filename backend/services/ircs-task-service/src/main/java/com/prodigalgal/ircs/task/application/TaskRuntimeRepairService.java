@@ -6,7 +6,7 @@ package com.prodigalgal.ircs.task.application;
 
 
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
-import com.prodigalgal.ircs.task.runtime.TaskProgressRedisService;
+import com.prodigalgal.ircs.task.runtime.TaskProgressStore;
 import com.prodigalgal.ircs.task.domain.TaskExecutionPlan;
 import com.prodigalgal.ircs.task.domain.TaskRuntimeStatus;
 import com.prodigalgal.ircs.task.runtime.MasterProgressState;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 public class TaskRuntimeRepairService {
 
     private final JdbcCollectionTaskRepository taskRepository;
-    private final TaskProgressRedisService progressService;
+    private final TaskProgressStore progressService;
     private final TaskQueueDispatchService dispatchService;
     private final TaskSnapshotFlushService snapshotFlushService;
 

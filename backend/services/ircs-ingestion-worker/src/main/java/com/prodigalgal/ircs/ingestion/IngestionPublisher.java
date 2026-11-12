@@ -9,14 +9,14 @@ import com.prodigalgal.ircs.contracts.ingestion.PlaylistSyncMessage;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import com.prodigalgal.ircs.messaging.RabbitConfirmedPublisher;
+import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class IngestionPublisher {
 
-    private final RabbitConfirmedPublisher rabbitTemplate;
+    private final ConfirmedMessagePublisher rabbitTemplate;
     private final ObjectMapper objectMapper;
     private final RuntimeWorkQueue workQueue;
 

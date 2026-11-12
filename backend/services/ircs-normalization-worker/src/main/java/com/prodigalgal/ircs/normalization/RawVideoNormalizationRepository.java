@@ -5,7 +5,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
-import com.prodigalgal.ircs.common.metadata.MetadataNameValkeyCache;
+import com.prodigalgal.ircs.common.metadata.MetadataNameCache;
 import com.prodigalgal.ircs.common.normalization.StandardContentCategoryClassifier;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -27,13 +27,13 @@ import org.springframework.util.StringUtils;
 public class RawVideoNormalizationRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
-    private final ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider;
+    private final ObjectProvider<MetadataNameCache> metadataNameCacheProvider;
     private final ObjectMapper objectMapper;
     private final List<String> allowedCategoryCodes = StandardContentCategoryClassifier.stableCategoryCodes();
 
     public RawVideoNormalizationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
-            ObjectProvider<MetadataNameValkeyCache> metadataNameCacheProvider,
+            ObjectProvider<MetadataNameCache> metadataNameCacheProvider,
             ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.metadataNameCacheProvider = metadataNameCacheProvider;
@@ -438,7 +438,7 @@ public class RawVideoNormalizationRepository {
     }
 
     private void evictMetadataNameCache(UUID rawVideoId) {
-        MetadataNameValkeyCache metadataNameCache = metadataNameCacheProvider == null
+        MetadataNameCache metadataNameCache = metadataNameCacheProvider == null
                 ? null
                 : metadataNameCacheProvider.getIfAvailable();
         if (metadataNameCache != null) {

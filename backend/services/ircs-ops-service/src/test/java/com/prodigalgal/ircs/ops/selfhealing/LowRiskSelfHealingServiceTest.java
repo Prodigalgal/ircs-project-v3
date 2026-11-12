@@ -8,9 +8,9 @@ import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.ops.dashboard.application.DashboardQueryService;
-import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqActionResponse;
-import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqQueueResponse;
-import com.prodigalgal.ircs.ops.queue.dlq.rabbit.RabbitDlqService;
+import com.prodigalgal.ircs.ops.queue.dlq.broker.DeadLetterActionResponse;
+import com.prodigalgal.ircs.ops.queue.dlq.broker.DeadLetterQueueResponse;
+import com.prodigalgal.ircs.ops.queue.dlq.broker.DeadLetterService;
 import com.prodigalgal.ircs.ops.queue.dlq.runtime.RuntimeWorkDlqService;
 import com.prodigalgal.ircs.ops.queue.dlq.runtime.RuntimeWorkExpiredInflightReaper;
 import java.time.Clock;
@@ -23,7 +23,7 @@ class LowRiskSelfHealingServiceTest {
 
     private final RuntimeWorkExpiredInflightReaper expiredInflightReaper = mock(RuntimeWorkExpiredInflightReaper.class);
     private final RuntimeWorkDlqService runtimeWorkDlqService = mock(RuntimeWorkDlqService.class);
-    private final RabbitDlqService rabbitDlqService = mock(RabbitDlqService.class);
+    private final DeadLetterService rabbitDlqService = mock(DeadLetterService.class);
     private final DashboardQueryService dashboardQueryService = mock(DashboardQueryService.class);
     private final RuntimeConfigService runtimeConfig = mock(RuntimeConfigService.class);
     private final LowRiskSelfHealingService service = new LowRiskSelfHealingService(
@@ -96,12 +96,12 @@ class LowRiskSelfHealingServiceTest {
     void executesRabbitDlqRetryWithHardLimitOneWhenEnabled() {
         when(runtimeConfig.booleanValue(LowRiskSelfHealingService.DEFAULT_DRY_RUN_KEY, true)).thenReturn(false);
         when(runtimeConfig.booleanValue(LowRiskSelfHealingService.EXECUTE_ENABLED_KEY, false)).thenReturn(true);
-        RabbitDlqActionResponse retryResponse = new RabbitDlqActionResponse(
+        DeadLetterActionResponse retryResponse = new DeadLetterActionResponse(
                 "q.notification.command.dlq",
                 "retry",
                 1,
                 1,
-                new RabbitDlqQueueResponse(
+                new DeadLetterQueueResponse(
                         "DISPATCH_NOTIFICATION",
                         "Notification Command DLQ",
                         "q.notification.command.dlq",

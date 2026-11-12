@@ -133,7 +133,7 @@ class CredentialReadModelCache {
             return TieredStringCacheStore.noop();
         }
         StringRedisTemplate template = redisTemplate.getIfAvailable();
-        return template == null ? TieredStringCacheStore.noop() : new CredentialRedisStringCacheStore(template);
+        return template == null ? TieredStringCacheStore.noop() : new CredentialStringCacheStore(template);
     }
 
     record ListKey(String provider, Boolean enabled, int limit) {

@@ -14,7 +14,7 @@ import com.prodigalgal.ircs.ops.dashboard.dto.DashboardEfficiencyResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.DashboardStatsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.EfficiencyStatsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.RateMetricResponse;
-import com.prodigalgal.ircs.ops.dashboard.dto.RedisMetricResponse;
+import com.prodigalgal.ircs.ops.dashboard.dto.KeyValueMetricResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.SystemMetricsResponse;
 import com.prodigalgal.ircs.ops.dashboard.dto.TaskRuntimeOverviewResponse;
 import java.util.List;
@@ -171,7 +171,7 @@ class DashboardControllerTest {
                 0,
                 List.of(),
                 0,
-                new RedisMetricResponse(0, 0, 0, "unknown"),
+                new KeyValueMetricResponse(0, 0, 0, "unknown"),
                 0,
                 0,
                 false,

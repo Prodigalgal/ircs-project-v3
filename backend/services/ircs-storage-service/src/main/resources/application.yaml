@@ -88,6 +88,12 @@ app:
           worker-id: ${APP_STORAGE_R2_WORK_QUEUE_WORKER_ID:${APP_STORAGE_CLUSTER_LOCK_WORKER_ID:}}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

@@ -215,6 +215,6 @@ class CatalogReadModelCache {
             return TieredStringCacheStore.noop();
         }
         StringRedisTemplate template = redisTemplate.getIfAvailable();
-        return template == null ? TieredStringCacheStore.noop() : new CatalogRedisStringCacheStore(template);
+        return template == null ? TieredStringCacheStore.noop() : new CatalogStringCacheStore(template);
     }
 }

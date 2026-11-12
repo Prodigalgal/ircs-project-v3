@@ -79,6 +79,12 @@ app:
       source: ${APP_WORKER_AUDIT_SOURCE:${spring.application.name}}
 
 management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+          transport: http
   endpoints:
     web:
       exposure:

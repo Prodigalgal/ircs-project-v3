@@ -14,7 +14,7 @@ class IdentityPackageStructurePolicyTest {
     private static final Path MAIN_ROOT = sourceRoot();
     private static final Set<String> ALLOWED_ROOT_FILES = Set.of(
             "IrcsIdentityServiceApplication.java",
-            "IdentityRedisKeys.java");
+            "IdentityCacheKeys.java");
 
     @Test
     void identityRootPackageOnlyContainsEntryPointAndSharedRedisKeys() throws IOException {

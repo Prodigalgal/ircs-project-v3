@@ -24,7 +24,7 @@ class DistributedLockHealthIndicatorTest {
         when(connectionFactory.getConnection()).thenReturn(connection);
         when(connection.ping()).thenReturn("PONG");
 
-        Health health = new DistributedLockHealthIndicator(new RedisDistributedLockManager(redisTemplate)).health();
+        Health health = new DistributedLockHealthIndicator(new ClusterLockManager(redisTemplate)).health();
 
         assertThat(health.getStatus()).isEqualTo(Status.UP);
         assertThat(health.getDetails())
