@@ -10,12 +10,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
-import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 
 class TaskRetryPublisherTest {
 
-    private final ConfirmedMessagePublisher rabbitTemplate = org.mockito.Mockito.mock(ConfirmedMessagePublisher.class);
-    private final TaskRetryPublisher publisher = new TaskRetryPublisher(rabbitTemplate);
+    private final MessagePublisher messagePublisher = org.mockito.Mockito.mock(MessagePublisher.class);
+    private final TaskRetryPublisher publisher = new TaskRetryPublisher(messagePublisher);
 
     @Test
     void publishesRetryMessageWithIncrementedRetryCount() {
@@ -24,7 +24,7 @@ class TaskRetryPublisherTest {
         int retryCount = publisher.publishRetry(QueueTopic.TASK_PAGE, message, new IllegalStateException("temporary"));
 
         ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
-        verify(rabbitTemplate).publish(eq(QueueTopic.Names.TASK_X), eq(QueueTopic.TASK_PAGE.retryRoutingKey()), messageCaptor.capture());
+        verify(messagePublisher).publish(eq(QueueTopic.Names.TASK_X), eq(QueueTopic.TASK_PAGE.retryRoutingKey()), messageCaptor.capture());
         assertThat(retryCount).isEqualTo(2);
         assertThat(messageCaptor.getValue().getMessageProperties().getHeaders())
                 .containsEntry(TaskRetryPublisher.HEADER_RETRY_COUNT, 2)
@@ -39,7 +39,7 @@ class TaskRetryPublisherTest {
         publisher.publishDlq(QueueTopic.TASK_DETAIL, message, new IllegalArgumentException("fatal"));
 
         ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
-        verify(rabbitTemplate).publish(eq(QueueTopic.Names.DLX), eq(QueueTopic.TASK_DETAIL.dlqName()), messageCaptor.capture());
+        verify(messagePublisher).publish(eq(QueueTopic.Names.DLX), eq(QueueTopic.TASK_DETAIL.dlqName()), messageCaptor.capture());
         assertThat(messageCaptor.getValue().getMessageProperties().getHeaders())
                 .containsEntry(TaskRetryPublisher.HEADER_RETRY_COUNT, 3)
                 .containsEntry(TaskRetryPublisher.HEADER_DISPOSITION, TaskRetryPublisher.DISPOSITION_DLQ);

@@ -11,12 +11,11 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.ExecutorService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(value = "app.task.watchdog.enabled", havingValue = "true")
 @Slf4j
 class TaskWatchdog {
 
@@ -27,22 +26,28 @@ class TaskWatchdog {
     private final JdbcCollectionTaskRepository taskRepository;
     private final WorkerJobAuditWriter auditWriter;
     private final TaskDistributedLockRunner lockRunner;
+    private final boolean enabled;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-task-watchdog-trigger-vt-");
 
     TaskWatchdog(
             JdbcCollectionTaskRepository taskRepository,
             WorkerJobAuditWriter auditWriter,
-            TaskDistributedLockRunner lockRunner) {
+            TaskDistributedLockRunner lockRunner,
+            @Value("${app.task.watchdog.enabled:false}") boolean enabled) {
         this.taskRepository = taskRepository;
         this.auditWriter = auditWriter;
         this.lockRunner = lockRunner;
+        this.enabled = enabled;
     }
 
     @Scheduled(
             fixedDelayString = "${app.task.runner.watchdog-delay-ms:300000}",
             initialDelayString = "${app.task.runner.watchdog-initial-delay-ms:60000}")
     void failStaleActiveTasks() {
+        if (!enabled) {
+            return;
+        }
         ScheduledTriggers.submit(triggerExecutor, this::failStaleActiveTasksOnce, log, "task.watchdog.fail-stale-active-tasks");
     }
 

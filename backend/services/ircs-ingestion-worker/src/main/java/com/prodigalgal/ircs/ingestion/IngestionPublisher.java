@@ -9,14 +9,14 @@ import com.prodigalgal.ircs.contracts.ingestion.PlaylistSyncMessage;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class IngestionPublisher {
 
-    private final ConfirmedMessagePublisher rabbitTemplate;
+    private final MessagePublisher messagePublisher;
     private final ObjectMapper objectMapper;
     private final RuntimeWorkQueue workQueue;
 
@@ -39,7 +39,7 @@ public class IngestionPublisher {
 
     private void publishJson(QueueTopic topic, Object payload) {
         try {
-            rabbitTemplate.publish(topic.exchange(), topic.routingKey(), objectMapper.writeValueAsString(payload));
+            messagePublisher.publish(topic.exchange(), topic.routingKey(), objectMapper.writeValueAsString(payload));
         } catch (JacksonException ex) {
             throw new IllegalArgumentException("Unable to serialize ingestion payload", ex);
         }

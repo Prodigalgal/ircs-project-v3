@@ -11,13 +11,13 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 
 class TaskQueuePublisherTest {
 
-    private final ConfirmedMessagePublisher rabbitTemplate = org.mockito.Mockito.mock(ConfirmedMessagePublisher.class);
+    private final MessagePublisher messagePublisher = org.mockito.Mockito.mock(MessagePublisher.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
-    private final TaskQueuePublisher publisher = new TaskQueuePublisher(rabbitTemplate, objectMapper);
+    private final TaskQueuePublisher publisher = new TaskQueuePublisher(messagePublisher, objectMapper);
 
     @Test
     void publishesPageMessageToTaskExchange() throws Exception {
@@ -37,7 +37,7 @@ class TaskQueuePublisherTest {
                 Instant.parse("2026-06-13T00:00:00Z")));
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(rabbitTemplate).publish(
+        verify(messagePublisher).publish(
                 org.mockito.Mockito.eq(QueueTopic.Names.TASK_X),
                 org.mockito.Mockito.eq("task.page"),
                 payloadCaptor.capture());

@@ -25,9 +25,9 @@ public class TaskRetryPublisher {
 
     private static final int ERROR_MESSAGE_LIMIT = 500;
 
-    private final ConfirmedMessagePublisher publisher;
+    private final MessagePublisher publisher;
 
-    public TaskRetryPublisher(ConfirmedMessagePublisher publisher) {
+    public TaskRetryPublisher(MessagePublisher publisher) {
         this.publisher = publisher;
     }
 

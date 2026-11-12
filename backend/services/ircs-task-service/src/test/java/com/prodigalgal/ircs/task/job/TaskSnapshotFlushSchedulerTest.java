@@ -37,7 +37,8 @@ class TaskSnapshotFlushSchedulerTest {
             TaskDistributedLockRunner.local(),
             Duration.ZERO,
             10,
-            10);
+            10,
+            true);
 
     @Test
     void writesAuditWhenDirtyMastersAreFlushed() {
@@ -69,12 +70,16 @@ class TaskSnapshotFlushSchedulerTest {
     }
 
     @Test
-    void schedulerBeanIsNotCreatedWhenGateIsMissing() {
-        schedulerContextRunner().run(context -> assertThat(context).doesNotHaveBean(TaskSnapshotFlushScheduler.class));
+    void schedulerRemainsRegisteredButDoesNoWorkWhenGateIsMissing() {
+        schedulerContextRunner().run(context -> {
+            assertThat(context).hasSingleBean(TaskSnapshotFlushScheduler.class);
+            context.getBean(TaskSnapshotFlushScheduler.class).flushDirtyMasters();
+            verifyNoInteractions(flushService, repairService, auditWriter);
+        });
     }
 
     @Test
-    void schedulerBeanIsCreatedOnlyWhenGateIsEnabled() {
+    void schedulerBeanIsAvailableWhenGateIsEnabled() {
         schedulerContextRunner()
                 .withPropertyValues("app.task.snapshot.flush.enabled=true")
                 .run(context -> assertThat(context).hasSingleBean(TaskSnapshotFlushScheduler.class));

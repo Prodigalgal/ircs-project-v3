@@ -40,7 +40,7 @@ class SearchReconciliationRunnerTest {
                 searchIndexService,
                 workPublisher,
                 org.mockito.Mockito.mock(WorkerJobAuditWriter.class),
-                SearchDistributedLockRunner.local());
+                SearchDistributedLockRunner.local(), true);
         set(runner, "batchSize", 10);
         set(runner, "maxBatches", 10);
         set(runner, "dryRun", false);

@@ -14,12 +14,10 @@ import java.time.Instant;
 import java.util.concurrent.ExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(value = "app.task.snapshot.flush.enabled", havingValue = "true")
 @Slf4j
 class TaskSnapshotFlushScheduler {
 
@@ -34,6 +32,7 @@ class TaskSnapshotFlushScheduler {
     private final Duration minDirtyAge;
     private final int batchSize;
     private final int repairBatchSize;
+    private final boolean enabled;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-task-snapshot-flush-trigger-vt-");
 
@@ -44,7 +43,8 @@ class TaskSnapshotFlushScheduler {
             TaskDistributedLockRunner lockRunner,
             @Value("${app.task.snapshot.flush.min-dirty-age:PT5S}") Duration minDirtyAge,
             @Value("${app.task.snapshot.flush.batch-size:100}") int batchSize,
-            @Value("${app.task.runtime.repair.batch-size:100}") int repairBatchSize) {
+            @Value("${app.task.runtime.repair.batch-size:100}") int repairBatchSize,
+            @Value("${app.task.snapshot.flush.enabled:false}") boolean enabled) {
         this.flushService = flushService;
         this.repairService = repairService;
         this.auditWriter = auditWriter;
@@ -52,12 +52,16 @@ class TaskSnapshotFlushScheduler {
         this.minDirtyAge = minDirtyAge == null || minDirtyAge.isNegative() ? Duration.ZERO : minDirtyAge;
         this.batchSize = Math.max(1, batchSize);
         this.repairBatchSize = Math.max(1, repairBatchSize);
+        this.enabled = enabled;
     }
 
     @Scheduled(
             fixedDelayString = "${app.task.snapshot.flush.delay-ms:30000}",
             initialDelayString = "${app.task.snapshot.flush.initial-delay-ms:30000}")
     void flushDirtyMasters() {
+        if (!enabled) {
+            return;
+        }
         ScheduledTriggers.submit(triggerExecutor, this::flushDirtyMastersOnce, log, "task.snapshot-flush.flush-dirty-masters");
     }
 

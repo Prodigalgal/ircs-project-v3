@@ -5,20 +5,20 @@ import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import lombok.RequiredArgsConstructor;
-import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 class IngestionPublisher {
 
-    private final ConfirmedMessagePublisher rabbitTemplate;
+    private final MessagePublisher messagePublisher;
     private final ObjectMapper objectMapper;
 
     void publish(IngestionItem item) {
         QueueTopic topic = QueueTopic.INGEST_VIDEO;
         try {
-            rabbitTemplate.publish(topic.exchange(), topic.routingKey(), objectMapper.writeValueAsString(item));
+            messagePublisher.publish(topic.exchange(), topic.routingKey(), objectMapper.writeValueAsString(item));
         } catch (JacksonException e) {
             throw new IllegalStateException("Failed to serialize ingestion item", e);
         }

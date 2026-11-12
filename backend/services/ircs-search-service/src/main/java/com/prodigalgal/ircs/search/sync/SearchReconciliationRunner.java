@@ -18,13 +18,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-@ConditionalOnProperty(prefix = "app.search.reconciliation", name = "enabled", havingValue = "true")
 class SearchReconciliationRunner {
 
     private static final String JOB_TYPE = "scheduler";
@@ -35,6 +33,7 @@ class SearchReconciliationRunner {
     private final SearchSyncWorkPublisher workPublisher;
     private final WorkerJobAuditWriter auditWriter;
     private final SearchDistributedLockRunner lockRunner;
+    private final boolean enabled;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-search-reconciliation-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -55,16 +54,21 @@ class SearchReconciliationRunner {
             SearchIndexService searchIndexService,
             SearchSyncWorkPublisher workPublisher,
             WorkerJobAuditWriter auditWriter,
-            SearchDistributedLockRunner lockRunner) {
+            SearchDistributedLockRunner lockRunner,
+            @Value("${app.search.reconciliation.enabled:false}") boolean enabled) {
         this.documentRepository = documentRepository;
         this.searchIndexService = searchIndexService;
         this.workPublisher = workPublisher;
         this.auditWriter = auditWriter;
         this.lockRunner = lockRunner;
+        this.enabled = enabled;
     }
 
     @Scheduled(cron = "${app.search.reconciliation.cron:0 0 3 * * ?}")
     public void runScheduled() {
+        if (!enabled) {
+            return;
+        }
         ScheduledTriggers.submit(triggerExecutor, () -> runOnce(), log, "search.reconciliation.run");
     }
 

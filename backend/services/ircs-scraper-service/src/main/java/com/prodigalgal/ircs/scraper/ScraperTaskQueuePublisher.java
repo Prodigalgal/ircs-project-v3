@@ -8,14 +8,14 @@ import com.prodigalgal.ircs.contracts.task.TaskDetailMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageDiscoveredMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageFailedMessage;
 import lombok.RequiredArgsConstructor;
-import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 class ScraperTaskQueuePublisher {
 
-    private final ConfirmedMessagePublisher rabbitTemplate;
+    private final MessagePublisher messagePublisher;
     private final ObjectMapper objectMapper;
 
     void publishDetail(TaskDetailMessage message) {
@@ -36,7 +36,7 @@ class ScraperTaskQueuePublisher {
 
     private void publish(QueueTopic topic, Object payload) {
         try {
-            rabbitTemplate.publish(
+            messagePublisher.publish(
                     topic.exchange(),
                     topic.routingKey(),
                     objectMapper.writeValueAsString(payload));

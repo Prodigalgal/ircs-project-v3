@@ -10,16 +10,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(value = "app.task.media-request.enabled", havingValue = "true", matchIfMissing = true)
-@RequiredArgsConstructor
 @Slf4j
 class MediaRequestScheduler {
 
@@ -28,16 +24,31 @@ class MediaRequestScheduler {
     private final JdbcCollectionTaskRepository taskRepository;
     private final MediaRequestBatchService batchService;
     private final TaskDistributedLockRunner lockRunner;
+    private final boolean enabled;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-media-request-scheduler-trigger-vt-");
 
     @Value("${app.task.media-request.batch-size:20}")
     private int batchSize;
 
+    MediaRequestScheduler(
+            JdbcCollectionTaskRepository taskRepository,
+            MediaRequestBatchService batchService,
+            TaskDistributedLockRunner lockRunner,
+            @Value("${app.task.media-request.enabled:true}") boolean enabled) {
+        this.taskRepository = taskRepository;
+        this.batchService = batchService;
+        this.lockRunner = lockRunner;
+        this.enabled = enabled;
+    }
+
     @Scheduled(
             fixedDelayString = "${app.task.media-request.fixed-delay-ms:60000}",
             initialDelayString = "${app.task.media-request.initial-delay-ms:30000}")
     void schedulePendingMediaRequests() {
+        if (!enabled) {
+            return;
+        }
         ScheduledTriggers.submit(triggerExecutor, this::schedulePendingMediaRequestsOnce, log, "task.media-request.schedule");
     }
 

@@ -70,7 +70,7 @@ class MediaRequestSchedulerTest {
         MediaRequestScheduler result = new MediaRequestScheduler(
                 taskRepository,
                 batchService,
-                TaskDistributedLockRunner.local());
+                TaskDistributedLockRunner.local(), true);
         ReflectionTestUtils.setField(result, "batchSize", 20);
         return result;
     }

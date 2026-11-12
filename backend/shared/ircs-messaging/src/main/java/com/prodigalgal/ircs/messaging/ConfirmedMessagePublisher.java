@@ -12,7 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-public class ConfirmedMessagePublisher {
+public class ConfirmedMessagePublisher implements MessagePublisher {
 
     private final RabbitTemplate rabbitTemplate;
     private final Duration timeout;
@@ -27,6 +27,7 @@ public class ConfirmedMessagePublisher {
         this.timeout = timeout;
     }
 
+    @Override
     public void publish(String exchange, String routingKey, Object payload) {
         var correlation = new CorrelationData();
         if (payload instanceof Message message) {

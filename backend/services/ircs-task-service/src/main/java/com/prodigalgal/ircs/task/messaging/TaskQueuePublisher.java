@@ -10,14 +10,14 @@ import com.prodigalgal.ircs.contracts.task.TaskPageDiscoveredMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageFailedMessage;
 import com.prodigalgal.ircs.contracts.task.TaskPageMessage;
 import lombok.RequiredArgsConstructor;
-import com.prodigalgal.ircs.messaging.ConfirmedMessagePublisher;
+import com.prodigalgal.ircs.messaging.MessagePublisher;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class TaskQueuePublisher {
 
-    private final ConfirmedMessagePublisher rabbitTemplate;
+    private final MessagePublisher messagePublisher;
     private final ObjectMapper objectMapper;
 
     public void publishPage(TaskPageMessage message) {
@@ -46,7 +46,7 @@ public class TaskQueuePublisher {
 
     private void publish(QueueTopic topic, Object payload) {
         try {
-            rabbitTemplate.publish(
+            messagePublisher.publish(
                     topic.exchange(),
                     topic.routingKey(),
                     objectMapper.writeValueAsString(payload));

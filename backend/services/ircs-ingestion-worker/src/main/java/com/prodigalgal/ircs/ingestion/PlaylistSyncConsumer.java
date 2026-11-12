@@ -10,13 +10,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "app.ingestion.listener", name = "enabled", havingValue = "true")
 public class PlaylistSyncConsumer {
 
     static final String JOB_TYPE = "queue-consumer";
@@ -26,7 +24,7 @@ public class PlaylistSyncConsumer {
     private final RawVideoIngestionService ingestionService;
     private final WorkerJobAuditWriter auditWriter;
 
-    @RabbitListener(queues = QueueTopic.Names.PROCESS_Q_PLAYLIST)
+    @RabbitListener(queues = QueueTopic.Names.PROCESS_Q_PLAYLIST, autoStartup = "${app.ingestion.listener.enabled:false}")
     public void onMessage(Message message) {
         Instant startedAt = Instant.now();
         PlaylistSyncMessage syncMessage = null;

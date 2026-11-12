@@ -21,4 +21,10 @@
 
 ## 2026-11-12 只读现场
 
-当前 kube context 为 `kubernetes-admin@sg-osaka-dualstack`，3 个 ARM64 节点，目标 namespace `ircs-prod`。Argo `ircs-v4-runtime` 指向 GitOps 的 `ircs-v4/runtime`；V4 API 和 Valkey 已经在 CrashLoopBackOff。PostgreSQL 数据库约 3277 MB，四个数据 PVC 均 Bound。Valkey 日志报告 `appendonly.aof.269.incr.aof` 格式损坏，必须先保留文件再恢复。以上是本次观察，不替代旧事故日志。
+当前 kube context 为 `kubernetes-admin@sg-osaka-dualstack`，3 个 ARM64 节点，目标 namespace `ircs-prod`。Argo `ircs-v4-runtime` 指向 GitOps 的 `ircs-v4/runtime`；V4 API 和 Valkey 已经在 CrashLoopBackOff。PostgreSQL 数据库约 3277 MB，四个数据 PVC 均 Bound。Valkey 日志报告 `appendonly.aof.269.incr.aof` 格式损坏，按用户后续不备份的要求保留有效命令修复异常填充。以上是本次观察，不替代旧事故日志。
+
+## Native 运行期配置边界
+
+- 消费者 Bean 不再依赖构建期默认关闭的 `@ConditionalOnProperty`；监听容器通过运行期 `autoStartup` 控制。任务快照、watchdog、媒体请求和搜索对账的定时入口使用运行期布尔开关。
+- 云端在真实 PostgreSQL、消息代理和键值存储上运行双架构 Native 检查，验证消费者关闭/开启、入库、播放列表消费和下游工作去重，全部通过才发布聚合标签。
+- 发布方通过 `MessagePublisher` 接口依赖确认发布能力，具体传输与确认逻辑保留在 `ConfirmedMessagePublisher` 适配器。

@@ -27,7 +27,7 @@ class TaskWatchdogTest {
     private final TaskWatchdog watchdog = new TaskWatchdog(
             taskRepository,
             auditWriter,
-            TaskDistributedLockRunner.local());
+            TaskDistributedLockRunner.local(), true);
 
     @Test
     void writesBatchAuditEvidenceWhenStaleActiveTasksAreFailed() {
@@ -55,12 +55,16 @@ class TaskWatchdogTest {
     }
 
     @Test
-    void watchdogBeanIsNotCreatedWhenGateIsMissing() {
-        watchdogContextRunner().run(context -> assertThat(context).doesNotHaveBean(TaskWatchdog.class));
+    void watchdogRemainsRegisteredButDoesNoWorkWhenGateIsMissing() {
+        watchdogContextRunner().run(context -> {
+            assertThat(context).hasSingleBean(TaskWatchdog.class);
+            context.getBean(TaskWatchdog.class).failStaleActiveTasks();
+            verifyNoInteractions(taskRepository, auditWriter);
+        });
     }
 
     @Test
-    void watchdogBeanIsCreatedOnlyWhenGateIsEnabled() {
+    void watchdogBeanIsAvailableWhenGateIsEnabled() {
         watchdogContextRunner()
                 .withPropertyValues("app.task.watchdog.enabled=true")
                 .run(context -> assertThat(context).hasSingleBean(TaskWatchdog.class));
