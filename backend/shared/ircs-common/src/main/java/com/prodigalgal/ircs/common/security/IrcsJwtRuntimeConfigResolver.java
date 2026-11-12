@@ -7,6 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
@@ -25,16 +26,31 @@ public class IrcsJwtRuntimeConfigResolver {
     private final String datasourceUrl;
     private final String username;
     private final String password;
+    private final DataSource dataSource;
 
     public IrcsJwtRuntimeConfigResolver(
             Environment environment,
             String datasourceUrl,
             String username,
             String password) {
+        this(environment, datasourceUrl, username, password, null);
+    }
+
+    public IrcsJwtRuntimeConfigResolver(Environment environment, DataSource dataSource) {
+        this(environment, null, null, null, dataSource);
+    }
+
+    private IrcsJwtRuntimeConfigResolver(
+            Environment environment,
+            String datasourceUrl,
+            String username,
+            String password,
+            DataSource dataSource) {
         this.environment = environment;
         this.datasourceUrl = normalize(datasourceUrl);
         this.username = normalize(username);
         this.password = password == null ? "" : password;
+        this.dataSource = dataSource;
     }
 
     public String jwtSecret() {
@@ -67,7 +83,7 @@ public class IrcsJwtRuntimeConfigResolver {
     }
 
     private Optional<String> findDbValue(String key) {
-        if (!StringUtils.hasText(datasourceUrl)) {
+        if (dataSource == null && !StringUtils.hasText(datasourceUrl)) {
             return Optional.empty();
         }
         try (Connection connection = connection();
@@ -85,6 +101,9 @@ public class IrcsJwtRuntimeConfigResolver {
     }
 
     private Connection connection() throws SQLException {
+        if (dataSource != null) {
+            return dataSource.getConnection();
+        }
         if (username == null) {
             return DriverManager.getConnection(datasourceUrl);
         }

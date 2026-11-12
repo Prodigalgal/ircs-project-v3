@@ -36,3 +36,4 @@
 - 死信人工重试使用手动确认，重发得到 broker confirm 后才 ACK 原消息；发送失败 NACK/requeue 原消息。人工重放重置本轮有限重试额度并记录次数，保留原 payload，禁止先删原消息再尝试发送。
 - Native 资源清单包含搜索索引设置和目录国家/语言预设 JSON。云端使用空索引启动搜索服务，验证首次建索引路径，避免现有生产索引掩盖资源遗漏。剩余服务逐个检查，即使一个服务失败也收集后续启动结果，最终仍整体失败并阻止发布。
 - JDK 25 的 Netty 共享内存清理路径需要 Native 编译参数 `-H:+SharedArenaSupport`。生产日志已发现缺少该能力引发的 `UnsupportedFeatureError`，随后出现键值连接响应错位和超时。双架构 CI 在 384 MiB 堆下反复读取 2 MiB 工作记录，断言 pending/inflight/DLQ 实际值，并检查启动、读写及优雅关闭的完整日志；禁止只凭 readiness 放行。参考 [Netty 17172](https://github.com/netty/netty/issues/17172) 和 [GraalVM FFM 支持](https://github.com/oracle/graal/issues/8113)。
+- 网关 JWT 配置查询复用现有 DataSource，成功与异常路径均归还连接，不再为每次鉴权绕过池上限新建连接。保留数据库撤销时间的即时读取和环境变量优先级，不引入撤销状态缓存窗口。
