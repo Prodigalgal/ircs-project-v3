@@ -86,7 +86,7 @@ def start(service, values):
     wait_for(f'{service} health', lambda: request('/actuator/health/readiness')['status'] == 'UP')
     with urlopen('http://127.0.0.1:18080/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
-    maxima = re.findall(r'^hikaricp_connections_max(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
+    maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
     assert all(float(value) == 2 for value in maxima), (service, maxima)
 
 

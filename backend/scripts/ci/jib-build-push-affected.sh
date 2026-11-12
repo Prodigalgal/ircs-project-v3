@@ -252,6 +252,12 @@ for entry in "${selected[@]}"; do
     if [[ "${TARGET_ARCH}" == "amd64" && -z "${NATIVE_TARGET_MACHINE:-}" ]]; then
       native_target_machine="x86-64"
     fi
+    native_memory="${NATIVE_BUILD_MEMORY:-8g}"
+    native_parallelism="${NATIVE_BUILD_PARALLELISM:-4}"
+    if [[ "${image}" == "ircs-search-service" ]]; then
+      native_memory="${NATIVE_BUILD_MEMORY:-10g}"
+      native_parallelism="${NATIVE_BUILD_PARALLELISM:-2}"
+    fi
     docker buildx build \
       --platform "${TARGET_PLATFORMS}" \
       --file scripts/docker/Dockerfile.native \
@@ -259,8 +265,8 @@ for entry in "${selected[@]}"; do
       --build-arg "MODULE_DIR=${module//:/\/}" \
       --build-arg "IMAGE_NAME=${image}" \
       --build-arg "NATIVE_TARGET_MACHINE=${native_target_machine}" \
-      --build-arg "NATIVE_BUILD_MEMORY=${NATIVE_BUILD_MEMORY:-8g}" \
-      --build-arg "NATIVE_BUILD_PARALLELISM=${NATIVE_BUILD_PARALLELISM:-4}" \
+      --build-arg "NATIVE_BUILD_MEMORY=${native_memory}" \
+      --build-arg "NATIVE_BUILD_PARALLELISM=${native_parallelism}" \
       --tag "${target}" \
       --provenance=false \
       --push \
