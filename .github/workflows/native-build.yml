@@ -1,0 +1,284 @@
+name: V3 Native Build
+
+on:
+  push:
+    branches: [main, 'upgrade/**']
+  workflow_dispatch:
+    inputs:
+      build_scope:
+        description: all or comma-separated Java service image names
+        default: all
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      images: ${{ steps.matrix.outputs.images }}
+      registry: ${{ steps.matrix.outputs.registry }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: matrix
+        env:
+          BUILD_SCOPE: ${{ inputs.build_scope || 'all' }}
+        run: python3 backend/scripts/ci/native-matrix.py
+
+  java-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      IRCS_TEST_REDIS_PORT: '6379'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          check-latest: true
+          cache: gradle
+      - name: Full Java regression suite
+        run: chmod +x gradlew && ./gradlew --no-daemon --console=plain test
+      - name: Test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: java-test-results
+          path: 'backend/**/build/test-results/test/*.xml'
+          retention-days: 7
+
+  python-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/services/ircs-adult-classifier-service/requirements*.txt
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
+          python -m pip install -r backend/services/ircs-adult-classifier-service/requirements-test.txt
+          python -m pip check
+      - name: Offline model and HTTP regression suite
+        working-directory: backend/services/ircs-adult-classifier-service
+        run: python -m unittest discover -s tests -v
+
+  native-images:
+    name: Native ${{ matrix.image }} / ${{ matrix.arch }}
+    needs: [prepare, java-tests]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      IMAGE: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:sha-${{ github.sha }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Native image on matching architecture
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: backend
+          file: backend/scripts/docker/Dockerfile.native
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.IMAGE }}
+          provenance: false
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            GRADLE_PROJECT=${{ matrix.module }}
+            MODULE_DIR=${{ matrix.directory }}
+            IMAGE_NAME=${{ matrix.image }}
+            NATIVE_TARGET_MACHINE=${{ matrix.machine }}
+            NATIVE_BUILD_MEMORY=4g
+            NATIVE_BUILD_PARALLELISM=2
+          cache-from: type=gha,scope=native-${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=native-${{ matrix.image }}-${{ matrix.arch }}
+      - name: Native HTTP and migration smoke
+        run: bash backend/scripts/ci/native-smoke.sh '${{ matrix.image }}' "$IMAGE"
+      - name: Image evidence
+        run: echo "Built \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+
+  python-images:
+    name: Python image / ${{ matrix.arch }}
+    needs: [prepare, python-tests]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build CPU classifier image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: backend
+          file: backend/services/ircs-adult-classifier-service/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ needs.prepare.outputs.registry }}/ircs-adult-classifier-service:sha-${{ github.sha }}-${{ matrix.arch }}
+          provenance: false
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=python-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=python-${{ matrix.arch }}
+
+  frontend-tests:
+    name: Frontend ${{ matrix.frontend }} checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        frontend: [admin, huawai]
+    defaults:
+      run:
+        working-directory: frontends/${{ matrix.frontend }}
+    env:
+      FRONTEND: ${{ matrix.frontend }}
+      NEXT_TELEMETRY_DISABLED: '1'
+      API_INTERNAL_URL: http://127.0.0.1:9/api/portal
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.13.0'
+          cache: npm
+          cache-dependency-path: frontends/${{ matrix.frontend }}/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - name: Package compiled frontend
+        run: |
+          if [[ "$FRONTEND" == admin ]]; then
+            tar -czf frontend-dist.tar.gz -C dist .
+          else
+            mkdir frontend-build
+            cp -a .next/standalone/. frontend-build/
+            cp -a .next/static frontend-build/.next/static
+            cp -a public frontend-build/public
+            tar -czf frontend-dist.tar.gz -C frontend-build .
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-${{ matrix.frontend }}-${{ github.sha }}
+          path: frontends/${{ matrix.frontend }}/frontend-dist.tar.gz
+          retention-days: 7
+
+  frontend-images:
+    name: Frontend ${{ matrix.frontend }} / ${{ matrix.arch }}
+    needs: [prepare, frontend-tests]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - frontend: admin
+            image: ircs-admin-frontend
+            arch: amd64
+            runner: ubuntu-24.04
+          - frontend: admin
+            image: ircs-admin-frontend
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - frontend: huawai
+            image: ircs-huawai-frontend
+            arch: amd64
+            runner: ubuntu-24.04
+          - frontend: huawai
+            image: ircs-huawai-frontend
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: frontends/${{ matrix.frontend }}
+          file: frontends/${{ matrix.frontend }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:sha-${{ github.sha }}-${{ matrix.arch }}
+          provenance: false
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: API_INTERNAL_URL=http://127.0.0.1:9/api/portal
+          cache-from: type=gha,scope=frontend-${{ matrix.frontend }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=frontend-${{ matrix.frontend }}-${{ matrix.arch }}
+
+  manifests:
+    needs: [prepare, native-images, python-images, frontend-images]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble verified multiarch images
+        env:
+          IMAGES: ${{ needs.prepare.outputs.images }}
+          REGISTRY: ${{ needs.prepare.outputs.registry }}
+        run: |
+          python3 - <<'PY' > images.txt
+          import json, os
+          print('\n'.join(json.loads(os.environ['IMAGES']) + ['ircs-adult-classifier-service', 'ircs-admin-frontend', 'ircs-huawai-frontend']))
+          PY
+          while IFS= read -r image; do
+            target="${REGISTRY}/${image}:sha-${GITHUB_SHA}"
+            docker buildx imagetools create --tag "$target" "${target}-amd64" "${target}-arm64"
+            echo "- \`$target\` (linux/amd64, linux/arm64)" >> "$GITHUB_STEP_SUMMARY"
+          done < images.txt

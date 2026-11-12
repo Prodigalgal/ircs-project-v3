@@ -1,0 +1,6 @@
+@echo off
+echo 正在执行 Repomix...
+repomix -o frontend.md
+echo.
+echo 执行完成！按任意键关闭窗口...
+pause

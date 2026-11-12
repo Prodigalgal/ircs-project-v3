@@ -1,0 +1,246 @@
+@import "tailwindcss";
+
+/*
+  SYSTEM: SEMANTIC TOKENS
+  ----------------------------------------------------------------------------
+  We use CSS variables to define the design system's primitive values.
+  The .dark class mirrors the existing "Deep Obsidian" aesthetic perfectly.
+  The :root (Light) class introduces a "Soft Industrial" aesthetic.
+*/
+
+:root {
+  /* --- Light Mode (Soft Industrial) --- */
+
+  /* Base Layout */
+  --background: 242 242 245;    /* #f2f2f5 - Cool Grey/Zinc Tint */
+  --foreground: 24 24 27;       /* #18181b - Zinc 900 */
+
+  /* Surfaces (Cards, Panels, Modals) */
+  --card: 255 255 255;          /* #ffffff */
+  --card-foreground: 24 24 27;  /* #18181b */
+  --card-hover: 244 244 245;    /* #f4f4f5 - Zinc 100 */
+
+  /* Interactive Elements (Popovers, Tooltips) */
+  --popover: 255 255 255;
+  --popover-foreground: 24 24 27;
+
+  /* Primary Brand (Indigo) */
+  --primary: 79 70 229;         /* #4f46e5 - Indigo 600 (Darker for Light Mode contrast) */
+  --primary-foreground: 255 255 255;
+
+  /* Secondary / Muted (Subtle elements) */
+  --secondary: 244 244 245;     /* #f4f4f5 */
+  --secondary-foreground: 24 24 27;
+
+  --muted: 244 244 245;         /* #f4f4f5 */
+  --muted-foreground: 113 113 122; /* #71717a - Zinc 500 */
+
+  /* Destructive Actions */
+  --destructive: 239 68 68;     /* #ef4444 */
+  --destructive-foreground: 255 255 255;
+
+  /* Borders & Inputs */
+  /* Light mode uses black alpha for borders to maintain glass feel on white */
+  --border: 228 228 231;        /* #e4e4e7 - Zinc 200 (Solid fallback) */
+  --border-subtle: 0 0 0;       /* Use with opacity in utilities, e.g. border-border-subtle/10 */
+  --input: 228 228 231;
+  --ring: 79 70 229;
+
+  /* Charts / Accents */
+  --radius: 1rem; /* 16px */
+}
+
+.dark {
+  /* --- Dark Mode (Deep Obsidian - Legacy Compatible) --- */
+
+  /* Base Layout */
+  --background: 3 3 5;          /* #030305 - The core identity */
+  --foreground: 255 255 255;    /* #ffffff */
+
+  /* Surfaces */
+  --card: 10 10 12;             /* #0a0a0c */
+  --card-foreground: 255 255 255;
+  --card-hover: 18 18 20;       /* #121214 */
+
+  /* Interactive */
+  --popover: 10 10 12;          /* #0a0a0c */
+  --popover-foreground: 255 255 255;
+
+  /* Primary Brand */
+  --primary: 99 102 241;        /* #6366f1 - Indigo 500 (Brighter for Dark Mode) */
+  --primary-foreground: 255 255 255;
+
+  /* Secondary / Muted */
+  --secondary: 39 39 42;        /* #27272a */
+  --secondary-foreground: 250 250 250;
+
+  --muted: 39 39 42;            /* #27272a */
+  --muted-foreground: 161 161 170; /* #a1a1aa - Zinc 400 */
+
+  /* Destructive */
+  --destructive: 127 29 29;     /* #7f1d1d */
+  --destructive-foreground: 255 255 255;
+
+  /* Borders */
+  /* Dark mode uses white alpha */
+  --border: 39 39 42;           /* #27272a (Solid fallback) */
+  --border-subtle: 255 255 255; /* Use with opacity, e.g. border-white/10 -> border-border-subtle/10 */
+  --input: 39 39 42;
+  --ring: 99 102 241;
+}
+
+/*
+  THEME CONFIGURATION
+  Mapping CSS variables to Tailwind utilities.
+  We use `rgb()` to allow opacity modifiers (e.g., `bg-background/80`).
+*/
+@theme inline {
+  --color-background: rgb(var(--background));
+  --color-foreground: rgb(var(--foreground));
+
+  --color-card: rgb(var(--card));
+  --color-card-foreground: rgb(var(--card-foreground));
+  --color-card-hover: rgb(var(--card-hover));
+
+  --color-popover: rgb(var(--popover));
+  --color-popover-foreground: rgb(var(--popover-foreground));
+
+  --color-primary: rgb(var(--primary));
+  --color-primary-foreground: rgb(var(--primary-foreground));
+
+  --color-secondary: rgb(var(--secondary));
+  --color-secondary-foreground: rgb(var(--secondary-foreground));
+
+  --color-muted: rgb(var(--muted));
+  --color-muted-foreground: rgb(var(--muted-foreground));
+
+  --color-destructive: rgb(var(--destructive));
+  --color-destructive-foreground: rgb(var(--destructive-foreground));
+
+  --color-border: rgb(var(--border));
+  --color-border-subtle: rgb(var(--border-subtle)); /* Special utility for glass borders */
+  --color-input: rgb(var(--input));
+  --color-ring: rgb(var(--ring));
+
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.optional-external-fonts {
+  --font-sans: Geist, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/*
+  GLOBAL STYLES
+  ----------------------------------------------------------------------------
+*/
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+
+  /* Texture: Conditional based on mode */
+  /* Dark Mode: Radial Glows (Simulated Lighting) */
+  /* Light Mode: Subtle Grain (Physical Texture) */
+  background-image:
+          radial-gradient(circle at 50% 0%, rgb(var(--primary) / 0.03) 0%, transparent 50%),
+          radial-gradient(circle at 100% 100%, rgb(var(--primary) / 0.02) 0%, transparent 40%);
+
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+  UTILITIES: SEMANTIC COMPONENTS
+  Replacing hardcoded .surface-panel and .density-card with semantic variants.
+*/
+
+/* Glass Surface (Panels, Dialogs) */
+.surface-panel {
+  /* Dynamic Background: White/60 (Dark) or White/80 (Light) ? No, semantic mapping. */
+  /* Dark: bg-card/60, Light: bg-white/80 */
+  background-color: rgb(var(--card) / 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+
+  /* Dynamic Border: White/6 (Dark) or Black/6 (Light) */
+  border: 1px solid rgb(var(--border-subtle) / 0.06);
+
+  /* Dynamic Shadow */
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); /* Reduced shadow intensity for general use */
+}
+
+/* High Density Card (Movie Cards) */
+.density-card {
+  background-color: var(--color-card);
+  border: 1px solid rgb(var(--border-subtle) / 0.06); /* border-white/6 or border-black/6 */
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.density-card:hover {
+  border-color: rgb(var(--border-subtle) / 0.15);     /* border-white/12 or border-black/15 */
+  background-color: var(--color-card-hover);
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3); /* Softer shadow */
+}
+
+/* Custom Scrollbar - Semantic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--muted-foreground) / 0.5);
+}
+
+/* Player Branding */
+[data-vidstack-player] {
+  --media-brand: rgb(var(--primary));
+  --media-focus-ring: 0 0 0 2px rgb(var(--primary) / 0.5);
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes toast-progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.toast-progress {
+  animation-name: toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes spotlight-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 320px 260px;
+}
