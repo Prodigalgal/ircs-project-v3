@@ -25,9 +25,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
+import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.DefaultMessagePropertiesConverter;
+import org.springframework.amqp.rabbit.support.DefaultMessagePropertiesConverter;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -154,7 +155,7 @@ public class DeadLetterService {
             } catch (RuntimeException | IOException failure) {
                 try {
                     channel.basicNack(deliveryTag, false, true);
-                } catch (IOException requeueFailure) {
+                } catch (IOException | RuntimeException requeueFailure) {
                     failure.addSuppressed(requeueFailure);
                 }
                 throw failure;
@@ -390,6 +391,7 @@ public class DeadLetterService {
         Integer replayCount = numberHeader(message, HEADER_MANUAL_REPLAY_COUNT);
         int nextReplay = replayCount == null ? 1 : Math.min(Integer.MAX_VALUE - 1, Math.max(0, replayCount)) + 1;
         return MessageBuilder.fromMessage(message)
+                .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                 .setHeader(HEADER_MANUAL_ACTION, action)
                 .setHeader(HEADER_MANUAL_ACTION_AT, Instant.now().toString())
                 .setHeader(HEADER_MANUAL_REPLAY_COUNT, nextReplay)

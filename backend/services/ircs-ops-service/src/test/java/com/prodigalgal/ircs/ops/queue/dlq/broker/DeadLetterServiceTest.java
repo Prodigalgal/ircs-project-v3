@@ -38,6 +38,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.core.ChannelCallback;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageDeliveryMode;
 
 class DeadLetterServiceTest {
 
@@ -65,6 +66,7 @@ class DeadLetterServiceTest {
         order.verify(messagePublisher).publish(eq(QueueTopic.TASK_DETAIL.exchange()), eq(QueueTopic.TASK_DETAIL.routingKey()), message.capture());
         order.verify(channel).basicAck(42L, false);
         assertThat(message.getValue().getBody()).isEqualTo("payload".getBytes(StandardCharsets.UTF_8));
+        assertThat(message.getValue().getMessageProperties().getDeliveryMode()).isEqualTo(MessageDeliveryMode.PERSISTENT);
         assertThat(message.getValue().getMessageProperties().getHeaders().get("x-ircs-retry-count")).isEqualTo(0);
         assertThat(message.getValue().getMessageProperties().getHeaders().get("x-ircs-manual-dlq-replay-count")).isEqualTo(1);
         verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
