@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+CI_PASSWORD="$(openssl rand -hex 24)"
+export CI_PASSWORD
+printf '::add-mask::%s\n' "$CI_PASSWORD"
+
+cleanup() {
+  if [[ "$?" != 0 ]]; then
+    docker logs --tail 80 ircs-native-broker 2>&1 || true
+    docker logs --tail 80 ircs-native-migrator 2>&1 || true
+  fi
+  docker rm -f ircs-native-consumer ircs-native-migrator ircs-native-postgres ircs-native-broker ircs-native-key-value >/dev/null 2>&1 || true
+  docker network rm ircs-native-consumers >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+docker network create ircs-native-consumers >/dev/null
+docker run -d --network ircs-native-consumers --name ircs-native-postgres \
+  -e POSTGRES_USER=ircs -e POSTGRES_PASSWORD="$CI_PASSWORD" -e POSTGRES_DB=ircs postgres:18 >/dev/null
+docker run -d --network ircs-native-consumers --name ircs-native-key-value valkey/valkey:8 >/dev/null
+docker run -d --network ircs-native-consumers --name ircs-native-broker -p 127.0.0.1:15672:15672 \
+  -e RABBITMQ_DEFAULT_USER=ircs -e RABBITMQ_DEFAULT_PASS="$CI_PASSWORD" rabbitmq:4.1.8-management >/dev/null
+for attempt in $(seq 1 90); do
+  if docker exec ircs-native-postgres pg_isready -U ircs -d ircs >/dev/null 2>&1 \
+    && curl --fail --silent --user "ircs:${CI_PASSWORD}" http://127.0.0.1:15672/api/overview >/dev/null; then break; fi
+  sleep 2
+done
+docker run --name ircs-native-migrator --network ircs-native-consumers \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://ircs-native-postgres:5432/ircs \
+  -e SPRING_DATASOURCE_USERNAME=ircs -e SPRING_DATASOURCE_PASSWORD="$CI_PASSWORD" \
+  "${REGISTRY}/ircs-migrator:sha-${SOURCE_REVISION}-${NATIVE_ARCH}" -Xmx256m
+python3 backend/scripts/ci/native-consumer-smoke.py

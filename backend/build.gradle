@@ -1,0 +1,169 @@
+plugins {
+    id 'org.springframework.boot' version '4.1.2' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
+    id 'com.google.cloud.tools.jib' version '3.5.4' apply false
+    id 'org.graalvm.buildtools.native' version '1.1.18' apply false
+}
+ext {
+    springAiVersion = '2.0.2'
+}
+
+allprojects {
+    group = 'com.prodigalgal'
+    version = '0.1.0-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom 'org.springframework.boot:spring-boot-dependencies:4.1.2'
+            mavenBom 'software.amazon.awssdk:bom:2.57.13'
+            mavenBom 'io.github.resilience4j:resilience4j-bom:2.4.0'
+            mavenBom 'io.opentelemetry:opentelemetry-bom:1.68.0'
+            mavenBom 'io.micrometer:micrometer-tracing-bom:1.7.2'
+            mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+            mavenBom 'org.apache.logging.log4j:log4j-bom:2.26.1'
+        }
+    }
+
+    configurations.configureEach {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+    }
+
+    configurations {
+        mockitoAgent
+    }
+
+    dependencies {
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+        mockitoAgent('org.mockito:mockito-core') {
+            transitive = false
+        }
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile.absolutePath}"
+    }
+}
+
+def serviceProjects = subprojects.findAll { it.path.startsWith(':services:') }
+
+def parseJibPlatforms(Project project) {
+    def configured = project.providers.gradleProperty('jibTargetPlatforms')
+            .orElse(project.providers.gradleProperty('jibTargetOs')
+                    .zip(project.providers.gradleProperty('jibTargetArch')) { os, arch -> "${os}/${arch}" })
+            .orElse('linux/arm64')
+            .get()
+    configured.split(',')
+            .collect { it.trim() }
+            .findAll { !it.isBlank() }
+            .collect { platform ->
+                def parts = platform.split('/')
+                if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                    throw new GradleException("Invalid jibTargetPlatforms entry '${platform}', expected os/architecture")
+                }
+                [os: parts[0], architecture: parts[1]]
+            }
+}
+
+configure(serviceProjects) {
+    apply plugin: 'org.springframework.boot'
+    apply plugin: 'com.google.cloud.tools.jib'
+    apply plugin: 'org.graalvm.buildtools.native'
+
+    tasks.named('processAot') {
+        // BuildKit exports its own collector settings into RUN processes. They must
+        // not decide which telemetry transport is frozen into the application.
+        environment = environment.findAll { key, value -> !key.startsWith('OTEL_') }
+        systemProperty 'management.opentelemetry.tracing.export.otlp.transport', 'http'
+        systemProperty 'management.opentelemetry.logging.export.otlp.transport', 'http'
+    }
+
+    dependencies {
+        implementation project(':shared:ircs-common')
+        implementation project(':shared:ircs-contracts')
+        implementation project(':shared:ircs-observability')
+
+        implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+        implementation 'org.springframework.boot:spring-boot-starter-actuator'
+        implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+        implementation 'org.springframework.boot:spring-boot-starter-validation'
+        implementation 'org.springframework.boot:spring-boot-starter-log4j2'
+        implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+        implementation 'com.lmax:disruptor:4.0.0'
+        implementation 'io.micrometer:micrometer-registry-prometheus'
+        implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+        implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    }
+
+    jib {
+        containerizingMode = 'packaged'
+        from {
+            image = providers.gradleProperty('jibBaseImage')
+                    .orElse('registry.mnnu.eu.org/ircs/base/eclipse-temurin:25-jre-alpine')
+                    .get()
+            platforms {
+                parseJibPlatforms(project).each { targetPlatform ->
+                    platform {
+                        architecture = targetPlatform.architecture
+                        os = targetPlatform.os
+                    }
+                }
+            }
+        }
+        to {
+            image = providers.gradleProperty('jibToImage')
+                    .orElse("registry.mnnu.eu.org/ircs/${project.name}:dev")
+                    .get()
+        }
+        container {
+            ports = ['8080']
+            creationTime = 'USE_CURRENT_TIMESTAMP'
+            jvmFlags = ['-Dspring.threads.virtual.enabled=true', '-XX:+ExitOnOutOfMemoryError']
+            environment = [SPRING_THREADS_VIRTUAL_ENABLED: 'true']
+        }
+    }
+}
+
+configure(serviceProjects + project(':platform:ircs-migrator')) {
+    apply plugin: 'org.graalvm.buildtools.native'
+
+    graalvmNative {
+        toolchainDetection = true
+        metadataRepository {
+            enabled = true
+        }
+        binaries {
+            main {
+                imageName = project.name
+                buildArgs.addAll([
+                        '--enable-url-protocols=http,https',
+                        '-H:+AddAllCharsets',
+                        '-H:+ReportExceptionStackTraces',
+                        '--gc=serial',
+                        "-J-Xmx${providers.gradleProperty('nativeBuildMemory').orElse('8g').get()}",
+                        "--parallelism=${providers.gradleProperty('nativeBuildParallelism').orElse('4').get()}",
+                        "-march=${providers.gradleProperty('nativeTargetMachine').orElse('compatibility').get()}",
+                        '--no-fallback'
+                ])
+            }
+        }
+    }
+}

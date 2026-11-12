@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1.7
+FROM container-registry.oracle.com/graalvm/native-image:25.0.5.0.3@sha256:d2d08cc7eb65b37c838c35e5658dab17216b7c07c324ac58c36f326501354573 AS builder
+ARG GRADLE_PROJECT
+ARG MODULE_DIR
+ARG IMAGE_NAME
+ARG NATIVE_TARGET_MACHINE=compatibility
+ARG NATIVE_BUILD_MEMORY=8g
+ARG NATIVE_BUILD_PARALLELISM=4
+WORKDIR /workspace
+COPY . .
+RUN --mount=type=cache,target=/root/.gradle \
+    test -n "$GRADLE_PROJECT" && test -n "$MODULE_DIR" && test -n "$IMAGE_NAME" && \
+    chmod +x gradlew && \
+    ./gradlew --no-daemon ":${GRADLE_PROJECT}:nativeCompile" \
+      '-Dorg.gradle.jvmargs=-Xmx1g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8' \
+      -PnativeTargetMachine="${NATIVE_TARGET_MACHINE}" \
+      -PnativeBuildMemory="${NATIVE_BUILD_MEMORY}" \
+      -PnativeBuildParallelism="${NATIVE_BUILD_PARALLELISM}" && \
+    mkdir /workspace/native-app && \
+    cp -a "${MODULE_DIR}/build/native/nativeCompile/." /workspace/native-app/ && \
+    mv "/workspace/native-app/${IMAGE_NAME}" /workspace/native-app/ircs-service
+
+FROM debian:13-slim
+WORKDIR /app
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates zlib1g libstdc++6 fontconfig fonts-dejavu-core && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /workspace/native-app/ /app/
+ENV SPRING_THREADS_VIRTUAL_ENABLED=true
+EXPOSE 8080
+ENTRYPOINT ["/app/ircs-service"]

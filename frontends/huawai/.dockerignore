@@ -1,0 +1,11 @@
+.git
+.github
+.gitea
+.idea
+node_modules
+.next
+out
+build
+coverage
+*.log
+*.tsbuildinfo

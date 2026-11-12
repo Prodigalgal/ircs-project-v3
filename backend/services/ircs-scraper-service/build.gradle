@@ -1,0 +1,15 @@
+dependencies {
+    implementation project(':shared:ircs-common')
+    implementation project(':shared:ircs-messaging')
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.jsoup:jsoup:1.24.1'
+    implementation 'com.jayway.jsonpath:json-path:3.0.0'
+    implementation 'org.apache.tika:tika-core:4.2.0'
+    implementation('org.apache.tika:tika-parsers-standard-package:4.2.0') {
+        exclude group: 'xml-apis', module: 'xml-apis'
+    }
+    runtimeOnly 'org.postgresql:postgresql'
+    testImplementation 'com.h2database:h2'
+}

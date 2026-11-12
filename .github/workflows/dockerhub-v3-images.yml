@@ -7,6 +7,11 @@ on:
         description: "all or comma-separated service image names"
         required: false
         default: "all"
+      image_mode:
+        description: "Native executable or JVM fallback"
+        type: choice
+        options: [native, jvm]
+        default: native
 
 permissions:
   contents: read
@@ -16,39 +21,72 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    defaults:
+      run:
+        working-directory: backend
+    runs-on: ubuntu-24.04
+    services:
+      valkey:
+        image: valkey/valkey:8
+        ports: ["6379:6379"]
+        options: --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      IRCS_TEST_KEY_VALUE_PORT: "6379"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+      - name: Java regression tests
+        run: chmod +x gradlew && ./gradlew --no-daemon test
+
   backend-images:
-    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: backend
+    needs: tests
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     env:
       REGISTRY: docker.io/speedproxy
-      TARGET_PLATFORMS: linux/arm64,linux/amd64
-      IMAGE_TAG: v3-latest
+      TARGET_ARCH: ${{ matrix.arch }}
+      TARGET_PLATFORMS: linux/${{ matrix.arch }}
+      IMAGE_MODE: ${{ inputs.image_mode || 'native' }}
+      IMAGE_TAG: v3-${{ inputs.image_mode || 'native' }}-${{ github.sha }}-${{ matrix.arch }}
       JIB_BASE_IMAGE: public.ecr.aws/docker/library/eclipse-temurin:25-jre-alpine
       REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
       BUILD_SCOPE_INPUT: ${{ inputs.build_scope }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "25"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           name: ircs-builder
           driver-opts: image=moby/buildkit:latest
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -72,7 +110,59 @@ jobs:
         run: cat build-image-manifest.txt
 
       - name: Upload image manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: v3-backend-image-manifest
-          path: build-image-manifest.txt
+          name: v3-backend-image-manifest-${{ matrix.arch }}
+          path: backend/build-image-manifest.txt
+
+  python-tests:
+    defaults:
+      run:
+        working-directory: backend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/services/ircs-adult-classifier-service/requirements*.txt
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
+          python -m pip install -r services/ircs-adult-classifier-service/requirements-test.txt
+      - name: Offline inference and HTTP tests
+        working-directory: backend/services/ircs-adult-classifier-service
+        run: python -m unittest discover -s tests -v
+
+  multiarch-manifests:
+    needs: [backend-images, python-tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: v3-backend-image-manifest-*
+          path: manifests
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish multiarch manifests
+        env:
+          IMAGE_MODE: ${{ inputs.image_mode || 'native' }}
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r module amd64_image; do
+            case "$module" in
+              services:*|platform:*|python:*) ;;
+              *) continue ;;
+            esac
+            arm64_image=$(grep -F "${module}=" manifests/v3-backend-image-manifest-arm64/build-image-manifest.txt | cut -d= -f2-)
+            test -n "$arm64_image"
+            image_name=${amd64_image%:*}
+            docker buildx imagetools create \
+              --tag "${image_name}:v3-${IMAGE_MODE}-${GITHUB_SHA}" \
+              --tag "${image_name}:v3-${IMAGE_MODE}-latest" \
+              "$amd64_image" "$arm64_image"
+          done < manifests/v3-backend-image-manifest-amd64/build-image-manifest.txt

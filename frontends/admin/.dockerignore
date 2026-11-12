@@ -1,0 +1,9 @@
+.git
+.github
+.gitea
+.idea
+node_modules
+dist
+dist-ssr
+coverage
+*.log
