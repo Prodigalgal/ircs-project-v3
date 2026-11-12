@@ -26,7 +26,7 @@ matrix = {"include": [
 outputs = {
     "matrix": json.dumps(matrix, separators=(",", ":")),
     "images": json.dumps([module.split(":")[-1] for module in modules], separators=(",", ":")),
-    "registry": "ghcr.io/" + os.environ["GITHUB_REPOSITORY"].lower(),
+    "registry": "docker.io/speedproxy",
 }
 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
     for key, value in outputs.items():
