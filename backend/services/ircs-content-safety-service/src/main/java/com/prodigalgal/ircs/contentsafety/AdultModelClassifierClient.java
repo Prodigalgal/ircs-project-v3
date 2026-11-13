@@ -14,13 +14,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 class AdultModelClassifierClient {
 
@@ -29,9 +27,26 @@ class AdultModelClassifierClient {
     private final ObjectMapper objectMapper;
     private final ContentSafetyProperties properties;
 
+    private final DecisionMicrobatchClient googleClient;
+
+    AdultModelClassifierClient(ObjectMapper objectMapper, ContentSafetyProperties properties, DecisionMicrobatchClient googleClient) {
+        this.objectMapper = objectMapper;
+        this.properties = properties;
+        this.googleClient = googleClient;
+    }
+
     Map<UUID, AdultAssessmentModelResult> classify(List<AdultAssessmentItem> items) {
         ContentSafetyProperties.Model model = properties.adult().model();
-        if (!model.enabled() || !StringUtils.hasText(model.endpoint()) || items == null || items.isEmpty()) {
+        if (!model.enabled() || items == null || items.isEmpty()) {
+            return Map.of();
+        }
+        if (DecisionSettings.PROVIDER.equalsIgnoreCase(model.provider())) {
+            if (googleClient != null) { return googleClient.classify(items); }
+            Map<UUID, AdultAssessmentModelResult> unavailable = new HashMap<>();
+            items.forEach(item -> unavailable.put(item.id(), GoogleDecisionNsfwClient.unavailable("CONFIGURATION_ERROR", 60)));
+            return unavailable;
+        }
+        if (!"PYTHON".equalsIgnoreCase(model.provider()) || !StringUtils.hasText(model.endpoint())) {
             return Map.of();
         }
         try {
@@ -101,7 +116,7 @@ class AdultModelClassifierClient {
         return value == null || value.isNegative() || value.isZero() ? Duration.ofSeconds(3) : value;
     }
 
-    private static String adultText(AdultAssessmentItem item, int maxTextLength) {
+    static String adultText(AdultAssessmentItem item, int maxTextLength) {
         String joined = String.join("\n",
                 safe(item.title()),
                 safe(item.aliasTitle()),

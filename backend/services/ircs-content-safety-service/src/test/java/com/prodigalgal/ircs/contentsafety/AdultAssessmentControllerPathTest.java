@@ -23,7 +23,7 @@ class AdultAssessmentControllerPathTest {
         AdultAssessmentService service = new AdultAssessmentService(
                 properties,
                 new SensitiveWordEvidenceService(),
-                new AdultModelClassifierClient(objectMapper, properties));
+                new AdultModelClassifierClient(objectMapper, properties, null));
         AdultAssessmentController controller =
                 new AdultAssessmentController(new ContentSafetyInternalAccessPolicy(properties), service);
 

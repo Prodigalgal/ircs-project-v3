@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,13 +35,15 @@ public class AggregationService {
     private final AggregationWorkPublisher workPublisher;
     private final PlatformTransactionManager transactionManager;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public AggregationResult aggregateOne(UUID rawVideoId) {
-        repository.lockAggregationShared();
-        return aggregateOneInternal(rawVideoId);
+        return withDeferredAdultAssessments(() -> {
+            repository.lockAggregationShared();
+            return aggregateOneInternal(rawVideoId);
+        }, false);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public AggregationResult aggregateRuntimeWork(UUID rawVideoId) {
         return aggregateRuntimeWorkBatch(List.of(rawVideoId)).stream()
                 .filter(result -> rawVideoId.equals(result.rawVideoId()))
@@ -48,8 +51,12 @@ public class AggregationService {
                 .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public List<AggregationResult> aggregateRuntimeWorkBatch(List<UUID> rawVideoIds) {
+        return withDeferredAdultAssessments(() -> aggregateRuntimeWorkBatchInTransaction(rawVideoIds), true);
+    }
+
+    private List<AggregationResult> aggregateRuntimeWorkBatchInTransaction(List<UUID> rawVideoIds) {
         repository.lockAggregationShared();
         List<UUID> orderedIds = rawVideoIds == null
                 ? List.of()
@@ -100,6 +107,66 @@ public class AggregationService {
         return orderedResults(orderedIds, results);
     }
 
+    private <T> T withDeferredAdultAssessments(Supplier<T> action, boolean retryClaimedWork) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("Aggregation orchestration must start outside a database transaction");
+        }
+        try (DeferredAdultAssessments scope = DeferredAdultAssessments.open()) {
+            T result = new TransactionTemplate(transactionManager).execute(status -> action.get());
+            // execute() has completed transaction synchronizations, released JDBC and match/advisory locks.
+            // An existing SAFE search document must not outlive a committed, definite adult restriction.
+            ClusterLeaseGuard.checkCurrentOwnership();
+            scope.publishRestrictedIndexes();
+            try {
+                List<AdultAssessmentSnapshot> snapshots = new ArrayList<>();
+                for (UUID id : scope.ids()) {
+                    TransactionTemplate read = new TransactionTemplate(transactionManager);
+                    read.setReadOnly(true);
+                    read.setTimeout(30);
+                    read.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+                    AdultAssessmentSnapshot snapshot = read.execute(status -> repository.captureAdultAssessment(id));
+                    if (snapshot != null) {
+                        snapshots.add(snapshot);
+                    }
+                }
+                snapshots.sort(java.util.Comparator.comparing(AdultAssessmentSnapshot::id));
+                ClusterLeaseGuard.checkCurrentOwnership();
+                Map<UUID, com.prodigalgal.ircs.common.adult.AdultAssessment> assessments =
+                        snapshots.isEmpty() ? Map.of() : repository.evaluateAdultAssessments(snapshots);
+                // No network work inside this final transaction. A changed snapshot rolls back all
+                // results and index requests; the original claimed item is retained for retry.
+                TransactionTemplate write = new TransactionTemplate(transactionManager);
+                write.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+                write.setTimeout(30);
+                write.executeWithoutResult(status -> {
+                    ClusterLeaseGuard.checkCurrentOwnership();
+                    repository.lockAggregationShared();
+                    for (AdultAssessmentSnapshot snapshot : snapshots) {
+                        var assessment = assessments.get(snapshot.id());
+                        if (assessment == null || !repository.applyAdultAssessment(snapshot, assessment)) {
+                            throw new AdultAssessmentDeferredException("CONTENT_SAFETY_SNAPSHOT_CHANGED", 5);
+                        }
+                        if (scope.restrictedWasPublished(snapshot.id())) {
+                            publisher.publishUnifiedIndex(snapshot.id());
+                        }
+                    }
+                    ClusterLeaseGuard.checkCurrentOwnership();
+                    scope.publishIndexes();
+                });
+            } catch (AdultAssessmentDeferredException ex) {
+                if (retryClaimedWork) { throw ex; }
+                // Interactive/maintenance operations have no claim to fail. Queue their committed rows
+                // using the existing idempotent publisher, without changing the merge/reset result.
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    for (UUID id : scope.ids()) {
+                        repository.findRawIdsForUnified(id).forEach(raw -> workPublisher.enqueue(raw, null, "adult-assessment-pending"));
+                    }
+                });
+            }
+            return result;
+        }
+    }
+
     private List<RawVideoAggregationRecord> loadRawVideos(
             List<UUID> orderedIds,
             Map<UUID, AggregationResult> results) {
@@ -147,20 +214,20 @@ public class AggregationService {
                 .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(propagation = Propagation.NEVER)
     public int recalculateUnified(UUID unifiedVideoId) {
         List<UUID> rawVideoIds = repository.findRawIdsForUnified(unifiedVideoId);
         int processed = 0;
         boolean allSucceeded = true;
         boolean dirtyAlreadyMarked = false;
         for (UUID rawVideoId : rawVideoIds) {
-            AggregationResult result = new TransactionTemplate(transactionManager).execute(status -> {
+            AggregationResult result = withDeferredAdultAssessments(() -> {
                 repository.lockAggregationShared();
-                return aggregateOneInternal(rawVideoId);
-            });
+                AggregationResult aggregated = aggregateOneInternal(rawVideoId);
+                if ("BOUND".equals(aggregated.status())) { publishBoundResult(aggregated); }
+                return aggregated;
+            }, false);
             if ("BOUND".equals(result.status())) {
-                publisher.publishRawIndex(rawVideoId);
-                result.deletedUnifiedVideoIds().forEach(publisher::publishUnifiedDelete);
                 processed++;
             } else {
                 allSucceeded = false;
@@ -172,14 +239,14 @@ public class AggregationService {
         }
         if (allSucceeded) {
             repository.markUnifiedSynced(unifiedVideoId);
-            publisher.publishUnifiedIndex(unifiedVideoId);
+            if (rawVideoIds.isEmpty()) { publisher.publishUnifiedIndex(unifiedVideoId); }
         } else if (!dirtyAlreadyMarked) {
             repository.markUnifiedDirty(unifiedVideoId);
         }
         return processed;
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(propagation = Propagation.NEVER)
     public AggregationMaintenanceRunResponse recalculateDirtyUnified(int limit) {
         List<UUID> unifiedVideoIds = repository.findDirtyUnifiedIds(Math.max(1, limit));
         int processed = 0;
@@ -225,13 +292,17 @@ public class AggregationService {
                         .toList());
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit) {
         return backfillUnifiedAdultAssessments(limit, true);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit, boolean publishSearch) {
+        return withDeferredAdultAssessments(() -> backfillUnifiedAdultAssessmentsInTransaction(limit, publishSearch), false);
+    }
+
+    private AggregationMaintenanceRunResponse backfillUnifiedAdultAssessmentsInTransaction(int limit, boolean publishSearch) {
         repository.lockAggregationShared();
         List<UUID> unifiedVideoIds = repository.findAdultAssessmentBackfillIds(Math.max(1, limit));
         List<UUID> processedIds = repository.rebuildUnifiedAdultAssessments(unifiedVideoIds);
@@ -245,8 +316,12 @@ public class AggregationService {
                 processedIds);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public ManualUnifiedMergeResponse mergeUnifiedVideos(List<UUID> unifiedVideoIds) {
+        return withDeferredAdultAssessments(() -> mergeUnifiedVideosInTransaction(unifiedVideoIds), false);
+    }
+
+    private ManualUnifiedMergeResponse mergeUnifiedVideosInTransaction(List<UUID> unifiedVideoIds) {
         repository.lockAggregationShared();
         List<UUID> orderedIds = normalizeManualMergeIds(unifiedVideoIds);
         UUID rootUnifiedVideoId = orderedIds.getFirst();

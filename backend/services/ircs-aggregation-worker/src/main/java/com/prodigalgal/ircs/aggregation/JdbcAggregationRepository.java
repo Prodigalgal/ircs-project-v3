@@ -476,11 +476,13 @@ public class JdbcAggregationRepository {
     }
 
     public void rebuildUnifiedAdultAssessment(UUID unifiedVideoId) {
+        lockAdultAssessmentRow(unifiedVideoId);
+        if (adultFieldsLocked(unifiedVideoId)) { return; }
         Optional<UnifiedAdultAssessmentBase> base = findUnifiedAdultAssessmentBase(unifiedVideoId);
         if (base.isEmpty()) {
             return;
         }
-        AdultAssessment assessment = adultAssessmentEvaluator.assess(unifiedVideoId, new AdultAssessmentInput(
+        AdultAssessment assessment = assessOrDefer(unifiedVideoId, new AdultAssessmentInput(
                 base.get().title(),
                 base.get().aliasTitle(),
                 base.get().description(),
@@ -505,6 +507,7 @@ public class JdbcAggregationRepository {
         if (orderedIds.isEmpty()) {
             return List.of();
         }
+        orderedIds.stream().sorted().forEach(this::lockAdultAssessmentRow);
         Map<UUID, UnifiedAdultAssessmentBase> bases = findUnifiedAdultAssessmentBases(orderedIds);
         if (bases.isEmpty()) {
             return List.of();
@@ -514,7 +517,7 @@ public class JdbcAggregationRepository {
         Map<UUID, AdultAssessmentInput> inputs = new LinkedHashMap<>();
         for (UUID unifiedVideoId : orderedIds) {
             UnifiedAdultAssessmentBase base = bases.get(unifiedVideoId);
-            if (base == null) {
+            if (base == null || adultFieldsLocked(unifiedVideoId)) {
                 continue;
             }
             inputs.put(unifiedVideoId, new AdultAssessmentInput(
@@ -530,7 +533,13 @@ public class JdbcAggregationRepository {
                     JsonStringArrays.readSet(objectMapper, base.genreCodesJson()),
                     sourcesByUnifiedId.getOrDefault(unifiedVideoId, List.of())));
         }
-        Map<UUID, AdultAssessment> assessments = adultAssessmentEvaluator.assessAll(inputs);
+        Map<UUID, AdultAssessment> assessments;
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            assessments = new LinkedHashMap<>();
+            inputs.forEach((id, input) -> assessments.put(id, assessOrDefer(id, input)));
+        } else {
+            assessments = adultAssessmentEvaluator.assessAll(inputs);
+        }
         List<AdultAssessmentWrite> writes = new ArrayList<>(assessments.size());
         for (UUID unifiedVideoId : orderedIds) {
             AdultAssessment assessment = assessments.get(unifiedVideoId);
@@ -540,6 +549,105 @@ public class JdbcAggregationRepository {
             writes.add(new AdultAssessmentWrite(unifiedVideoId, assessment));
         }
         return writeUnifiedAdultAssessments(writes);
+    }
+
+    private void lockAdultAssessmentRow(UUID id) {
+        jdbcTemplate.query("select id from unified_videos where id=:id for update",
+                new MapSqlParameterSource("id", id), (rs, row) -> rs.getObject("id", UUID.class));
+    }
+
+    private boolean adultFieldsLocked(UUID id) {
+        return findLockedFields(id).stream().map(value -> value.replace("_", "").toLowerCase(Locale.ROOT))
+                .anyMatch(value -> value.equals("adult") || value.equals("adultrestricted") || value.equals("adultassessment"));
+    }
+
+    private AdultAssessment assessOrDefer(UUID id, AdultAssessmentInput input) {
+        if (!DeferredAdultAssessments.register(id)) {
+            if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+                throw new AdultAssessmentDeferredException("CONTENT_SAFETY_ORCHESTRATION_REQUIRED", 60);
+            }
+            return adultAssessmentEvaluator.assess(id, input);
+        }
+        AdultAssessment local = AdultContentAssessor.assess(input);
+        if (local.adultRestricted()) {
+            DeferredAdultAssessments.registerRestricted(id);
+            return local;
+        }
+        var signals = new ArrayList<>(local.signals());
+        signals.add(new com.prodigalgal.ircs.common.adult.AdultAssessmentSignal(
+                "model_unavailable", "combinedText", "PENDING_REVIEW", 0,
+                "内容安全远端判断将在聚合事务提交后执行"));
+        return new AdultAssessment(local.ruleVersion(),
+                com.prodigalgal.ircs.common.adult.AdultAssessmentLevel.SUSPECT, false, 0, signals);
+    }
+
+    // The full source row digests intentionally include more than just title text: source restriction,
+    // bindings, deletion, cover/source-domain changes and standard category changes invalidate a result.
+    static final String ADULT_SOURCE_DIGEST = """
+            md5(coalesce((select jsonb_agg(jsonb_build_array(to_jsonb(rv),to_jsonb(ds),to_jsonb(ci),to_jsonb(sd))
+                                               order by rv.id)::text
+                            from raw_video_unified_video links
+                            join raw_videos rv on rv.id=links.raw_video_id
+                            left join data_sources ds on ds.id=rv.data_source_id
+                            left join cover_images ci on ci.id=rv.cover_image_id
+                            left join source_domains sd on sd.id=ci.source_domain_id
+                           where links.unified_video_id=uv.id),'')
+                || coalesce((select to_jsonb(sc)::text from standard_category sc where sc.slug=uv.category_code),''))
+            """;
+
+    AdultAssessmentSnapshot captureAdultAssessment(UUID id) {
+        if (adultFieldsLocked(id)) { return null; }
+        Optional<UnifiedAdultAssessmentBase> maybeBase = findUnifiedAdultAssessmentBase(id);
+        if (maybeBase.isEmpty()) { return null; }
+        UnifiedAdultAssessmentBase base = maybeBase.orElseThrow();
+        AdultAssessmentInput input = new AdultAssessmentInput(base.title(), base.aliasTitle(), base.description(),
+                base.remarks(), base.subtitle(), base.categoryCode(), base.categoryName(),
+                JsonStringArrays.readSet(objectMapper, base.actorNamesJson()),
+                JsonStringArrays.readSet(objectMapper, base.directorNamesJson()),
+                JsonStringArrays.readSet(objectMapper, base.genreCodesJson()), findAdultAssessmentSources(id));
+        List<AdultAssessmentSnapshot> snapshots = jdbcTemplate.query(
+                "select md5(to_jsonb(uv)::text) as unified_digest, " + ADULT_SOURCE_DIGEST
+                        + " as source_digest from unified_videos uv where uv.id=:id",
+                new MapSqlParameterSource("id", id), (rs, row) -> new AdultAssessmentSnapshot(
+                        id, rs.getString("unified_digest"), rs.getString("source_digest"), input));
+        return snapshots.stream().findFirst().orElse(null);
+    }
+
+    Map<UUID, AdultAssessment> evaluateAdultAssessments(List<AdultAssessmentSnapshot> snapshots) {
+        Map<UUID, AdultAssessmentInput> inputs = new LinkedHashMap<>();
+        snapshots.forEach(snapshot -> inputs.put(snapshot.id(), snapshot.input()));
+        return adultAssessmentEvaluator.assessAll(inputs);
+    }
+
+    boolean applyAdultAssessment(AdultAssessmentSnapshot snapshot, AdultAssessment assessment) {
+        lockAdultAssessmentRow(snapshot.id());
+        if (adultFieldsLocked(snapshot.id())) { return false; }
+        // Lock existing inputs before a new READ COMMITTED statement rechecks their digest.
+        // The parent FOR UPDATE also fences FK binding inserts until this short transaction ends.
+        MapSqlParameterSource params = new MapSqlParameterSource("id", snapshot.id());
+        jdbcTemplate.query("""
+                select links.raw_video_id from raw_video_unified_video links
+                join raw_videos rv on rv.id=links.raw_video_id
+                where links.unified_video_id=:id order by rv.id for share of links, rv
+                """, params, (rs, row) -> rs.getObject(1, UUID.class));
+        for (String sourceLock : List.of(
+                "select ds.id from data_sources ds where ds.id in (select rv.data_source_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ds.id for share",
+                "select ci.id from cover_images ci where ci.id in (select rv.cover_image_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ci.id for share",
+                "select sd.id from source_domains sd where sd.id in (select ci.source_domain_id from cover_images ci join raw_videos rv on rv.cover_image_id=ci.id join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by sd.id for share",
+                "select sc.id from standard_category sc where sc.slug=(select uv.category_code from unified_videos uv where uv.id=:id) for share")) {
+            jdbcTemplate.query(sourceLock, params, (rs, row) -> rs.getObject(1));
+        }
+        return jdbcTemplate.update("""
+                update unified_videos uv
+                   set adult_restricted=:adultRestricted, adult_assessment=cast(:assessment as jsonb),
+                       adult_checked_at=now(), updated_at=now(), version=coalesce(uv.version,0)+1
+                 where uv.id=:id and md5(to_jsonb(uv)::text)=:unifiedDigest and
+                """ + ADULT_SOURCE_DIGEST + "=:sourceDigest",
+                new MapSqlParameterSource("id", snapshot.id())
+                        .addValue("unifiedDigest", snapshot.unifiedDigest())
+                        .addValue("sourceDigest", snapshot.sourceDigest())
+                        .addValue("adultRestricted", assessment.adultRestricted())
+                        .addValue("assessment", writeJson(assessment))) > 0;
     }
 
     public List<UUID> rebuildUnifiedPipelineCoverImage(UUID unifiedVideoId) {
@@ -1480,7 +1588,7 @@ public class JdbcAggregationRepository {
                 update unified_videos
                    set adult_restricted = :adultRestricted,
                        adult_assessment = cast(:adultAssessment as jsonb),
-                       adult_checked_at = now(),
+                       adult_checked_at = case when :pending then null else now() end,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1
                  where id = :unifiedVideoId
@@ -1488,7 +1596,8 @@ public class JdbcAggregationRepository {
                 new MapSqlParameterSource()
                         .addValue("unifiedVideoId", unifiedVideoId)
                         .addValue("adultRestricted", assessment.adultRestricted())
-                        .addValue("adultAssessment", writeJson(assessment)));
+                        .addValue("adultAssessment", writeJson(assessment))
+                        .addValue("pending", DeferredAdultAssessments.contains(unifiedVideoId)));
     }
 
     private List<UUID> writeUnifiedAdultAssessments(List<AdultAssessmentWrite> writes) {
@@ -1499,14 +1608,15 @@ public class JdbcAggregationRepository {
                 .map(write -> new MapSqlParameterSource()
                         .addValue("unifiedVideoId", write.unifiedVideoId())
                         .addValue("adultRestricted", write.assessment().adultRestricted())
-                        .addValue("adultAssessment", writeJson(write.assessment())))
+                        .addValue("adultAssessment", writeJson(write.assessment()))
+                        .addValue("pending", DeferredAdultAssessments.contains(write.unifiedVideoId())))
                 .toArray(MapSqlParameterSource[]::new);
         int[] updates = jdbcTemplate.batchUpdate(
                 """
                 update unified_videos
                    set adult_restricted = :adultRestricted,
                        adult_assessment = cast(:adultAssessment as jsonb),
-                       adult_checked_at = now(),
+                       adult_checked_at = case when :pending then null else now() end,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1
                  where id = :unifiedVideoId

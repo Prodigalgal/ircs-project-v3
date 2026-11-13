@@ -62,6 +62,56 @@ class AggregationServiceTest {
     }
 
     @Test
+    void runtimePendingEscapesAfterCommittedAggregationForOriginalClaimRetry() {
+        UUID raw = UUID.randomUUID();
+        UUID unified = UUID.randomUUID();
+        when(repository.findRawVideo(raw)).thenReturn(Optional.of(readyRawVideo(raw)));
+        when(repository.findExistingBinding(raw)).thenReturn(Optional.of(unified));
+        when(aggregationPipelineRuntime.run(unified)).thenAnswer(ignored -> {
+            DeferredAdultAssessments.register(unified);
+            return pipelineExecution(unified, List.of());
+        });
+        var snapshot = new AdultAssessmentSnapshot(unified, "v1", "sources1", null);
+        when(repository.captureAdultAssessment(unified)).thenReturn(snapshot);
+        var deferred = new AdultAssessmentDeferredException("GOOGLE_NSFW_PENDING", 86400);
+        when(repository.evaluateAdultAssessments(List.of(snapshot))).thenThrow(deferred);
+
+        org.junit.jupiter.api.Assertions.assertSame(deferred,
+                org.junit.jupiter.api.Assertions.assertThrows(AdultAssessmentDeferredException.class,
+                        () -> service.aggregateRuntimeWork(raw)));
+        InOrder order = inOrder(transactionManager, repository);
+        order.verify(transactionManager).commit(any());
+        order.verify(repository).captureAdultAssessment(unified);
+        order.verify(transactionManager).commit(any());
+        order.verify(repository).evaluateAdultAssessments(List.of(snapshot));
+        verifyNoInteractions(workPublisher);
+        verify(repository, never()).applyAdultAssessment(any(), any());
+    }
+
+    @Test
+    void runtimeSnapshotChangeRetainsOriginalClaimForRetry() {
+        UUID raw = UUID.randomUUID();
+        UUID unified = UUID.randomUUID();
+        when(repository.findRawVideo(raw)).thenReturn(Optional.of(readyRawVideo(raw)));
+        when(repository.findExistingBinding(raw)).thenReturn(Optional.of(unified));
+        when(aggregationPipelineRuntime.run(unified)).thenAnswer(ignored -> {
+            DeferredAdultAssessments.register(unified);
+            return pipelineExecution(unified, List.of());
+        });
+        var snapshot = new AdultAssessmentSnapshot(unified, "v1", "sources1", null);
+        var assessment = com.prodigalgal.ircs.common.adult.AdultAssessment.safe("test");
+        when(repository.captureAdultAssessment(unified)).thenReturn(snapshot);
+        when(repository.evaluateAdultAssessments(List.of(snapshot))).thenReturn(java.util.Map.of(unified, assessment));
+        when(repository.applyAdultAssessment(snapshot, assessment)).thenReturn(false);
+
+        var exception = org.junit.jupiter.api.Assertions.assertThrows(AdultAssessmentDeferredException.class,
+                () -> service.aggregateRuntimeWork(raw));
+        assertEquals("CONTENT_SAFETY_SNAPSHOT_CHANGED", exception.getMessage());
+        verify(transactionManager).rollback(any());
+        verifyNoInteractions(workPublisher);
+    }
+
+    @Test
     void createsUnifiedVideoBindsRawVideoAndPublishesSearchSync() {
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
@@ -457,15 +507,21 @@ class AggregationServiceTest {
         }
         when(aggregationPipelineRuntime.run(unifiedId)).thenReturn(pipelineExecution(unifiedId, List.of()));
 
-        assertEquals(2, service.recalculateUnified(unifiedId));
+        var search = org.mockito.Mockito.mock(com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher.class);
+        var actual = new AggregationService(repository, new AggregationSearchSyncPublisher(search),
+                storageCommandPublisher, rawVideoGraphClusterer, aggregationPipelineRuntime,
+                matchKeyLock, workPublisher, transactionManager);
+        assertEquals(2, actual.recalculateUnified(unifiedId));
 
-        InOrder order = inOrder(transactionManager, publisher);
+        InOrder order = inOrder(transactionManager, search);
         order.verify(transactionManager).getTransaction(any());
         order.verify(transactionManager).commit(any());
-        order.verify(publisher).publishRawIndex(first);
+        order.verify(search).enqueue(first, com.prodigalgal.ircs.contracts.search.SearchEntityType.RAW_VIDEO,
+                com.prodigalgal.ircs.contracts.search.SyncOperation.INDEX);
         order.verify(transactionManager).getTransaction(any());
         order.verify(transactionManager).commit(any());
-        order.verify(publisher).publishRawIndex(second);
+        order.verify(search).enqueue(second, com.prodigalgal.ircs.contracts.search.SearchEntityType.RAW_VIDEO,
+                com.prodigalgal.ircs.contracts.search.SyncOperation.INDEX);
     }
 
     @Test

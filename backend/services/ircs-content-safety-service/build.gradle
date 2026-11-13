@@ -1,5 +1,6 @@
 dependencies {
     implementation project(':shared:ircs-common')
     implementation project(':shared:ircs-contracts')
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'com.github.houbb:sensitive-word:0.29.5'
 }

@@ -37,6 +37,7 @@ class AggregationWorkQueueWorker {
     private final ObjectMapper objectMapper;
     private final AggregationService aggregationService;
     private final WorkerJobAuditWriter auditWriter;
+    private final AggregationWorkDeferrer workDeferrer;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-aggregation-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -81,11 +82,13 @@ class AggregationWorkQueueWorker {
             RuntimeWorkQueue workQueue,
             ObjectMapper objectMapper,
             AggregationService aggregationService,
-            WorkerJobAuditWriter auditWriter) {
+            WorkerJobAuditWriter auditWriter,
+            AggregationWorkDeferrer workDeferrer) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.aggregationService = aggregationService;
         this.auditWriter = auditWriter == null ? WorkerJobAuditWriter.noop() : auditWriter;
+        this.workDeferrer = workDeferrer;
     }
 
     @Scheduled(
@@ -261,9 +264,20 @@ class AggregationWorkQueueWorker {
                 for (RuntimeWorkItem item : entry.getValue()) {
                     setStage("FINISH_FAIL", entry.getKey(), item.taskId(), 1);
                     heartbeat(resolvedWorkerId);
-                    failRetryable(item, startedAt, entry.getKey(), ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                    if (ex instanceof AdultAssessmentDeferredException deferred && deferred.waiting()) {
+                        setStage("FINISH_DEFER", entry.getKey(), item.taskId(), 1);
+                        boolean moved = workDeferrer.defer(item, deferred.retryAfter(), deferred.getMessage());
+                        log.info("Aggregation assessment waiting: rawVideoId={}, reason={}, retryAfter={}, claimMoved={}",
+                                entry.getKey(), deferred.getMessage(), deferred.retryAfter(), moved);
+                    } else {
+                        if (ex instanceof AdultAssessmentDeferredException deferred) {
+                            failRetryable(item, startedAt, entry.getKey(), deferred.getMessage(), deferred.retryAfter());
+                        } else {
+                            failRetryable(item, startedAt, entry.getKey(), ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                        }
+                        failed++;
+                    }
                     processed++;
-                    failed++;
                     lastProgressAt = Instant.now();
                 }
             }
@@ -297,8 +311,15 @@ class AggregationWorkQueueWorker {
     }
 
     private void failRetryable(RuntimeWorkItem item, Instant startedAt, UUID rawVideoId, String reason) {
-        boolean retryable = item.attempt() < Math.max(1, maxRetries);
-        workQueue.fail(item, retryable, retryDelay(item.attempt()), reason);
+        failRetryable(item, startedAt, rawVideoId, reason, Duration.ZERO);
+    }
+
+    private void failRetryable(RuntimeWorkItem item, Instant startedAt, UUID rawVideoId, String reason, Duration delay) {
+        int failureAttempt = workDeferrer.failureAttempt(item);
+        boolean retryable = failureAttempt < Math.max(1, maxRetries);
+        Duration backoff = retryDelay(failureAttempt);
+        Duration effectiveDelay = delay.compareTo(backoff) > 0 ? delay : backoff;
+        workQueue.fail(item, retryable, effectiveDelay, reason);
         if (retryable) {
             log.info(
                     "Aggregation work item scheduled for retry: rawVideoId={}, taskId={}, attempt={}, reason={}",

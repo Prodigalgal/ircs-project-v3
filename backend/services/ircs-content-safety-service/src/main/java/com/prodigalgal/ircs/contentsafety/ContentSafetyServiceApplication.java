@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 @SpringBootApplication
-@EnableConfigurationProperties(ContentSafetyProperties.class)
+@EnableConfigurationProperties({ContentSafetyProperties.class, DecisionSettings.class})
 public class ContentSafetyServiceApplication {
 
     public static void main(String[] args) {

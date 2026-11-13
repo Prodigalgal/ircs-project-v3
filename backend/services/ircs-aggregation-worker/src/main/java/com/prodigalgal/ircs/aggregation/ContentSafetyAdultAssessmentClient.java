@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.aggregation;
 
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import com.prodigalgal.ircs.common.adult.AdultAssessment;
 import com.prodigalgal.ircs.common.adult.AdultAssessmentInput;
 import com.prodigalgal.ircs.common.adult.AdultAssessmentLevel;
@@ -68,6 +69,9 @@ class ContentSafetyAdultAssessmentClient {
         if (!enabled || inputs == null || inputs.isEmpty() || !StringUtils.hasText(baseUrl)) {
             return Map.of();
         }
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("Content safety network calls require a released aggregation transaction");
+        }
         try {
             AdultAssessmentBatchRequest request = new AdultAssessmentBatchRequest(inputs.entrySet().stream()
                     .map(entry -> toItem(entry.getKey(), entry.getValue()))
@@ -87,23 +91,51 @@ class ContentSafetyAdultAssessmentClient {
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 log.warn("content-safety adult assessment failed: upstream status={}", response.statusCode());
-                return Map.of();
+                throw new AdultAssessmentDeferredException("CONTENT_SAFETY_HTTP_" + response.statusCode(), 60);
             }
             AdultAssessmentBatchResponse body =
                     objectMapper.readValue(response.body(), AdultAssessmentBatchResponse.class);
             Map<UUID, AdultAssessment> results = new LinkedHashMap<>();
+            AdultAssessmentDeferredException deferred = null;
+            if (body == null) {
+                throw new AdultAssessmentDeferredException("CONTENT_SAFETY_INCOMPLETE", 60);
+            }
             for (AdultAssessmentResult result : body.items()) {
+                if (result == null || result.id() == null || !inputs.containsKey(result.id())) {
+                    throw new AdultAssessmentDeferredException("CONTENT_SAFETY_INCOMPLETE", 60);
+                }
+                boolean definiteAdult = result.adultRestricted() || "ADULT".equalsIgnoreCase(result.level());
+                if (!definiteAdult && result.model() != null && !result.model().available()
+                        && "GOOGLE_DECISIONS".equals(result.model().raw().get("provider"))
+                        && Boolean.TRUE.equals(result.model().raw().get("retryable"))) {
+                    Object rawDelay = result.model().raw().get("retryAfterSeconds");
+                    long seconds = rawDelay instanceof Number number ? number.longValue() : 60;
+                    Object rawReason = result.model().raw().get("reason");
+                    String reason = rawReason instanceof String value
+                            && AdultAssessmentDeferredException.isWaitingReason(value) ? value : "GOOGLE_NSFW_PENDING";
+                    var next = new AdultAssessmentDeferredException(reason, seconds);
+                    if (deferred == null || (deferred.waiting() && !next.waiting())
+                            || (deferred.waiting() == next.waiting()
+                                    && next.retryAfter().compareTo(deferred.retryAfter()) > 0)) {
+                        deferred = next;
+                    }
+                    continue;
+                }
                 if (result.id() != null) {
                     results.put(result.id(), toAssessment(result));
                 }
             }
+            if (deferred != null) { throw deferred; }
+            if (!results.keySet().containsAll(inputs.keySet())) {
+                throw new AdultAssessmentDeferredException("CONTENT_SAFETY_INCOMPLETE", 60);
+            }
             return results;
-        } catch (IOException | InterruptedException | IllegalArgumentException ex) {
+        } catch (IOException | InterruptedException | IllegalArgumentException | JacksonException ex) {
             if (ex instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            log.warn("content-safety adult assessment unavailable: {}", ex.getMessage());
-            return Map.of();
+            log.warn("content-safety adult assessment unavailable: {}", ex.getClass().getSimpleName());
+            throw new AdultAssessmentDeferredException("CONTENT_SAFETY_UNAVAILABLE", 60);
         }
     }
 
@@ -178,7 +210,7 @@ class ContentSafetyAdultAssessmentClient {
         return new AdultAssessment(
                 StringUtils.hasText(result.ruleVersion()) ? result.ruleVersion() : AdultContentAssessor.RULE_VERSION,
                 level,
-                result.adultRestricted(),
+                result.adultRestricted() || level == AdultAssessmentLevel.ADULT,
                 Math.max(0, Math.min(100, result.confidence())),
                 result.signals().stream()
                         .map(ContentSafetyAdultAssessmentClient::toSignal)
@@ -196,12 +228,12 @@ class ContentSafetyAdultAssessmentClient {
 
     private static AdultAssessmentLevel parseLevel(String value) {
         if (!StringUtils.hasText(value)) {
-            return AdultAssessmentLevel.SAFE;
+            return AdultAssessmentLevel.SUSPECT;
         }
         try {
             return AdultAssessmentLevel.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            return AdultAssessmentLevel.SAFE;
+            return AdultAssessmentLevel.SUSPECT;
         }
     }
 

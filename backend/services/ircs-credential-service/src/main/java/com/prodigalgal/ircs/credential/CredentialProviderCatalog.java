@@ -21,6 +21,11 @@ public class CredentialProviderCatalog {
 
     public List<CredentialTemplateField> templates(String provider) {
         return switch (normalizeProvider(provider)) {
+            case "GOOGLE_DECISIONS" -> List.of(
+                    field("api_key", "Google AI Studio API Key", "password", true, null, null,
+                            "仅用于 gemini-decision-1 Decisions API；同项目多个 key 共享配额。"),
+                    field("project_id", "Google Cloud Project ID", "text", false, null, null,
+                            "可选项目标识，仅作归属元数据；系统预算仍跨所有 key 聚合。"));
             case "OPENAI" -> List.of(
                     field("api_key", "OpenAI API Key", "password", true, "sk-...", null,
                             "支持 OpenAI / OneAPI / NewAPI 等兼容 OpenAI API 的密钥。"),
@@ -69,6 +74,20 @@ public class CredentialProviderCatalog {
             throw new IllegalArgumentException("payload is required");
         }
         switch (normalizeProvider(request.provider())) {
+            case "GOOGLE_DECISIONS" -> {
+                if (!(payload.get("api_key") instanceof String)
+                        || (payload.get("project_id") != null && !(payload.get("project_id") instanceof String))) {
+                    throw new IllegalArgumentException("Google Decisions api_key and project_id must be strings");
+                }
+                requireText(payload, "api_key", "Google API Key is required");
+                String projectId = optionalText(payload, "project_id");
+                if (!projectId.isEmpty() && !projectId.matches("[a-z][a-z0-9-]{4,28}[a-z0-9]")) {
+                    throw new IllegalArgumentException("Google project_id is invalid");
+                }
+                if (payload.keySet().stream().anyMatch(key -> !"api_key".equals(key) && !"project_id".equals(key))) {
+                    throw new IllegalArgumentException("Google Decisions payload only accepts api_key and project_id");
+                }
+            }
             case "OPENAI" -> validateOpenAi(payload);
             case "TMDB" -> requireText(payload, "api_key", "API Key is required");
             case "DOUBAN" -> validateDouban(payload);
@@ -86,6 +105,7 @@ public class CredentialProviderCatalog {
 
     public String fingerprintSource(String provider, Map<String, Object> payload) {
         return switch (normalizeProvider(provider)) {
+            case "GOOGLE_DECISIONS" -> "google-decisions\n" + requireText(payload, "api_key", "Google API Key is required");
             case "OPENAI" -> resolveOpenAiBaseUrl(payload) + "\n" + requireText(payload, "api_key", "API Key is required");
             case "TMDB" -> requireText(payload, "api_key", "API Key is required");
             case "DOUBAN" -> optionalText(payload, "cookie") + "\n" + optionalText(payload, "user_agent");

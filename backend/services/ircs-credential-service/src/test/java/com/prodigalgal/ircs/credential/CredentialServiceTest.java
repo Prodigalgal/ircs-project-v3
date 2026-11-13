@@ -126,6 +126,23 @@ class CredentialServiceTest {
     }
 
     @Test
+    void googleDecisionsCredentialsRequireExplicitProviderAndNeverJoinOpenAiLeasePool() {
+        var openai = record(UUID.randomUUID(), "OPENAI");
+        var google = record(UUID.randomUUID(), "GOOGLE_DECISIONS");
+        when(repository.findEnabledProviderCredentials("OPENAI", "api_key", 1)).thenReturn(List.of(openai));
+        when(repository.findEnabledProviderCredentials("GOOGLE_DECISIONS", "api_key", 100)).thenReturn(List.of(google));
+        assertThat(service.leaseProviderCredentials("OPENAI", "api_key", 1))
+                .extracting(com.prodigalgal.ircs.contracts.credential.ProviderCredentialLease::getProvider).containsExactly("OPENAI");
+        assertThat(service.leaseProviderCredentials("GOOGLE_DECISIONS", "api_key", 100))
+                .extracting(com.prodigalgal.ircs.contracts.credential.ProviderCredentialLease::getProvider).containsExactly("GOOGLE_DECISIONS");
+        assertThrows(IllegalArgumentException.class, () -> service.leaseProviderCredentials(null, "api_key", 1));
+        assertThrows(IllegalArgumentException.class, () -> service.leaseProviderCredentials(" ", "api_key", 1));
+        verify(repository).findEnabledProviderCredentials("OPENAI", "api_key", 1);
+        verify(repository).findEnabledProviderCredentials("GOOGLE_DECISIONS", "api_key", 100);
+        verify(repository, never()).findEnabledProviderCredentials(null, "api_key", 1);
+    }
+
+    @Test
     void cachesProviderCredentialLeasesUntilEvicted() {
         CredentialRecord record = record(UUID.randomUUID(), "TMDB");
         when(repository.findEnabledProviderCredentials("TMDB", "api_key", 20)).thenReturn(List.of(record));

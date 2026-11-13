@@ -81,6 +81,8 @@ public class AggregationPipelineRuntime {
             List<AggregationPipelineStageFailure> failures) {
         try {
             stageTransaction.executeWithoutResult(ignored -> action.run());
+        } catch (AdultAssessmentDeferredException ex) {
+            throw ex;
         } catch (Exception ex) {
             failures.add(AggregationPipelineStageFailure.from(stage, ex));
             log.error(
@@ -110,6 +112,8 @@ public class AggregationPipelineRuntime {
         try {
             List<UUID> result = stageTransaction.execute(ignored -> action.get());
             return result == null ? List.of() : List.copyOf(result);
+        } catch (AdultAssessmentDeferredException ex) {
+            throw ex;
         } catch (Exception ex) {
             failures.add(AggregationPipelineStageFailure.from(stage, ex));
             log.error(

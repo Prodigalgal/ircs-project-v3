@@ -94,6 +94,7 @@ public class ContentSafetyProperties {
 
     public static class Model {
         private boolean enabled;
+        private String provider = "PYTHON";
         private String name = "uget/sexual_content_dection";
         private String version = "remote";
         private String endpoint = "";
@@ -115,6 +116,10 @@ public class ContentSafetyProperties {
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
         }
+
+        public String provider() { return provider; }
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
 
         public String name() {
             return name;

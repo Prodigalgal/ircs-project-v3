@@ -46,6 +46,17 @@ class AdultAssessmentService {
                 : modelResult;
         modelSignal(effectiveModel).forEach(signals::add);
         AdultAssessment merged = AdultContentAssessor.summarizeSignals(signals);
+        if (properties.adult().model().enabled()
+                && DecisionSettings.PROVIDER.equalsIgnoreCase(properties.adult().model().provider())
+                && !effectiveModel.available()
+                && merged.level() != com.prodigalgal.ircs.common.adult.AdultAssessmentLevel.ADULT) {
+            // Existing transport contract has no UNKNOWN level. SUSPECT means pending review;
+            // zero confidence explicitly avoids inventing a positive NSFW/SFW prediction.
+            signals.add(new AdultAssessmentSignal("model_unavailable", "combinedText", "PENDING_REVIEW", 0,
+                    "Google NSFW 判断尚未完成，待复核或重试"));
+            merged = new AdultAssessment(merged.ruleVersion(),
+                    com.prodigalgal.ircs.common.adult.AdultAssessmentLevel.SUSPECT, false, 0, signals);
+        }
         return AdultAssessmentContractMapper.toResult(item, merged, effectiveModel);
     }
 

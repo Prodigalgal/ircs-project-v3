@@ -26,6 +26,17 @@ class AggregationPipelineRuntimeTest {
     private JdbcAggregationRepository repository;
 
     @Test
+    void deferredAssessmentEscapesPipelineRatherThanBeingReportedAsOrdinaryFailure() {
+        UUID id = UUID.randomUUID();
+        var deferred = new AdultAssessmentDeferredException("GOOGLE_NSFW_PENDING", 60);
+        doThrow(deferred).when(repository).rebuildUnifiedAdultAssessment(id);
+        AggregationPipelineRuntime runtime = AggregationPipelineRuntime.forTest(repository, new RecordingTransactionOperations());
+        org.junit.jupiter.api.Assertions.assertSame(deferred,
+                org.junit.jupiter.api.Assertions.assertThrows(AdultAssessmentDeferredException.class, () -> runtime.run(id)));
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never()).rebuildUnifiedPipelineCoverImage(id);
+    }
+
+    @Test
     void runsHandlersInV1OrderAndReturnsCoverR2SyncIds() {
         UUID unifiedVideoId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();

@@ -14,10 +14,12 @@ public class AggregationSearchSyncPublisher {
     private final SearchSyncWorkPublisher searchSyncWorkPublisher;
 
     public void publishRawIndex(UUID rawVideoId) {
+        if (DeferredAdultAssessments.deferIndex("raw:" + rawVideoId, () -> publishRawIndex(rawVideoId))) { return; }
         searchSyncWorkPublisher.enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
     }
 
     public void publishUnifiedIndex(UUID unifiedVideoId) {
+        if (DeferredAdultAssessments.deferIndex("unified:" + unifiedVideoId, () -> publishUnifiedIndex(unifiedVideoId))) { return; }
         searchSyncWorkPublisher.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
     }
 

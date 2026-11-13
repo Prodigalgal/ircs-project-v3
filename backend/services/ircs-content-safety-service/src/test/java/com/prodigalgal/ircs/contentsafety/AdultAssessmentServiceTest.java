@@ -15,7 +15,7 @@ class AdultAssessmentServiceTest {
     private final AdultAssessmentService service = new AdultAssessmentService(
             properties,
             new SensitiveWordEvidenceService(),
-            new AdultModelClassifierClient(JsonMapper.builder().build(), properties));
+            new AdultModelClassifierClient(JsonMapper.builder().build(), properties, null));
 
     @Test
     void marksExplicitChineseAdultTitleWithoutCatalogCode() {
@@ -64,5 +64,47 @@ class AdultAssessmentServiceTest {
         assertThat(response.items().getFirst().level()).isEqualTo("SAFE");
         assertThat(response.items().getFirst().adultRestricted()).isFalse();
         assertThat(response.items().getFirst().model().available()).isFalse();
+    }
+
+    @Test
+    void unavailableGoogleAssessmentBecomesPendingReviewInsteadOfSafe() {
+        properties.adult().model().setEnabled(true);
+        properties.adult().model().setProvider(DecisionSettings.PROVIDER);
+        var item = GoogleDecisionNsfwClientTest.item("普通纪录片");
+        var result = service.assess(new AdultAssessmentBatchRequest(List.of(item))).items().getFirst();
+        assertThat(result.level()).isEqualTo("SUSPECT");
+        assertThat(result.adultRestricted()).isFalse();
+        assertThat(result.confidence()).isZero();
+        assertThat(result.model().available()).isFalse();
+        assertThat(result.signals()).anyMatch(signal -> "PENDING_REVIEW".equals(signal.matchedValue()));
+    }
+
+    @Test
+    void googleFailureCannotDowngradeExistingExplicitAdultEvidence() {
+        properties.adult().model().setEnabled(true);
+        properties.adult().model().setProvider(DecisionSettings.PROVIDER);
+        var item = GoogleDecisionNsfwClientTest.item("吊钟奶兔女郎观音坐莲巨乳眼镜妹情趣制服诱惑深喉口交女上位超诱惑");
+        var result = service.assess(new AdultAssessmentBatchRequest(List.of(item))).items().getFirst();
+        assertThat(result.level()).isEqualTo("ADULT");
+        assertThat(result.adultRestricted()).isTrue();
+        assertThat(result.model().available()).isFalse();
+    }
+
+    @Test
+    void explicitAdultRestrictionIsEffectiveWhileGoogleIsQueuedOrSafetyBlocked() {
+        properties.adult().model().setEnabled(true);
+        properties.adult().model().setProvider(DecisionSettings.PROVIDER);
+        var microbatch = org.mockito.Mockito.mock(DecisionMicrobatchClient.class);
+        var guarded = new AdultAssessmentService(properties, new SensitiveWordEvidenceService(),
+                new AdultModelClassifierClient(JsonMapper.builder().build(), properties, microbatch));
+        var item = GoogleDecisionNsfwClientTest.item("吊钟奶兔女郎观音坐莲巨乳眼镜妹情趣制服诱惑深喉口交女上位超诱惑");
+        for (String reason : List.of("QUEUE_PENDING", "INPUT_REJECTED")) {
+            org.mockito.Mockito.when(microbatch.classify(List.of(item)))
+                    .thenReturn(java.util.Map.of(item.id(), GoogleDecisionNsfwClient.unavailable(reason, 2)));
+            var result = guarded.assess(new AdultAssessmentBatchRequest(List.of(item))).items().getFirst();
+            assertThat(result.level()).isEqualTo("ADULT");
+            assertThat(result.adultRestricted()).isTrue();
+            assertThat(result.model().raw()).containsEntry("reason", reason);
+        }
     }
 }

@@ -46,7 +46,7 @@ class AdultModelClassifierClientTest {
             model.setServiceToken("secret-token");
             model.setScopes("adult-classifier:classify");
             AdultModelClassifierClient client =
-                    new AdultModelClassifierClient(JsonMapper.builder().build(), properties);
+                    new AdultModelClassifierClient(JsonMapper.builder().build(), properties, null);
 
             Map<UUID, ?> results = client.classify(List.of(new AdultAssessmentItem(
                     id,
@@ -72,6 +72,22 @@ class AdultModelClassifierClientTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void explicitGoogleProviderDispatchesWithoutCallingLegacyPythonEndpoint() {
+        var mapper = JsonMapper.builder().build();
+        var properties = new ContentSafetyProperties();
+        properties.adult().model().setEnabled(true);
+        properties.adult().model().setProvider(DecisionSettings.PROVIDER);
+        properties.adult().model().setEndpoint("http://unused-legacy-endpoint.invalid");
+        var google = org.mockito.Mockito.mock(DecisionMicrobatchClient.class);
+        var item = GoogleDecisionNsfwClientTest.item("ordinary text");
+        var expected = Map.of(item.id(), GoogleDecisionNsfwClient.unavailable("LOW_CONFIDENCE", 60));
+        org.mockito.Mockito.when(google.classify(List.of(item))).thenReturn(expected);
+        var client = new AdultModelClassifierClient(mapper, properties, google);
+        assertThat(client.classify(List.of(item))).isEqualTo(expected);
+        org.mockito.Mockito.verify(google).classify(List.of(item));
     }
 
     private static String firstHeader(Map<String, List<String>> headers, String name) throws IOException {
