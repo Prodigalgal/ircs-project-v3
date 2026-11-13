@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.prodigalgal.ircs.common.lease.ClusterLease;
+import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -79,11 +80,31 @@ class DistributedLockServiceTest {
         assertThat(service.releaseAttempts).isEqualTo(1);
     }
 
+    @Test
+    void ownershipChecksAndResourceClosePreserveTheOriginalLossWithoutSelfSuppression() {
+        FakeDistributedLockService service = new FakeDistributedLockService(true);
+        Throwable error = org.assertj.core.api.Assertions.catchThrowable(() -> service.runWithLock(
+                "ops:maintenance", "worker", Duration.ofMillis(600), () -> {
+                    service.renewalAllowed = false;
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ignored) {
+                        // Simulate an owner reaching its next explicit ownership check after cancellation.
+                    }
+                    ClusterLeaseGuard.checkCurrentOwnership();
+                }));
+
+        assertThat(error).isInstanceOf(IllegalStateException.class).hasMessageContaining("ownership lost");
+        assertThat(error.getSuppressed()).hasSize(1);
+        assertThat(error.getSuppressed()[0]).isNotSameAs(error).hasMessageContaining("ownership lost");
+        assertThat(service.releaseAttempts).isEqualTo(1);
+    }
+
     private static class FakeDistributedLockService implements DistributedLockService {
 
         private final boolean acquire;
         private int releaseAttempts;
-        private boolean renewalAllowed = true;
+        private volatile boolean renewalAllowed = true;
 
         private FakeDistributedLockService(boolean acquire) {
             this.acquire = acquire;

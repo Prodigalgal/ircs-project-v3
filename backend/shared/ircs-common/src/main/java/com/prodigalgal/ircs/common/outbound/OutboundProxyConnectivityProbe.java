@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.common.outbound;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
@@ -38,7 +39,8 @@ public class OutboundProxyConnectivityProbe {
                     .withProxy(connectionProxy).withCircuitBreaker(OutboundCircuitBreakerConfig.disabled());
             return client.execute(OutboundHttpRequest.get(TARGET, policy)).statusCode();
         });
-        Thread worker = Thread.ofVirtual().name("ircs-proxy-connectivity-probe").start(operation);
+        Thread worker = VirtualThreadExecutors.threadFactory("ircs-proxy-connectivity-probe-").newThread(operation);
+        worker.start();
         try {
             return operation.get(6, TimeUnit.SECONDS);
         } catch (TimeoutException ex) {

@@ -48,6 +48,7 @@ class TaskDistributedLockRunnerTest {
         assertThat(lockManager.lastOwnerId).isEqualTo("task-pod-1");
         assertThat(lockManager.lastTtl).isEqualTo(Duration.ofSeconds(30));
         assertThat(lockManager.released).isTrue();
+        assertThat(lockManager.renewAttempts).isGreaterThanOrEqualTo(1);
     }
 
     @Test
@@ -75,6 +76,7 @@ class TaskDistributedLockRunnerTest {
         private String lastOwnerId;
         private Duration lastTtl;
         private boolean released;
+        private int renewAttempts;
 
         private FakeDistributedLockManager(boolean acquire) {
             this.acquire = acquire;
@@ -93,13 +95,14 @@ class TaskDistributedLockRunnerTest {
             if (!acquire) {
                 return Optional.empty();
             }
-            Instant now = Instant.parse("2026-06-11T00:00:00Z");
+            Instant now = Instant.now();
             return Optional.of(new ClusterLease(name, ownerId, ownerId + ":token", now, now.plus(ttl)));
         }
 
         @Override
         public boolean renew(ClusterLease lease, Duration ttl) {
-            return true;
+            renewAttempts++;
+            return lease.name().equals(lastName) && lease.ownerId().equals(lastOwnerId) && ttl.equals(lastTtl);
         }
 
         @Override

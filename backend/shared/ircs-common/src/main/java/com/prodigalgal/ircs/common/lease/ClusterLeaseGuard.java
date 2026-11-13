@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.common.lease;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -37,7 +38,7 @@ public final class ClusterLeaseGuard implements AutoCloseable {
         validUntilNanos = System.nanoTime() + Math.min(ttl.toNanos(), remaining.toNanos());
         CURRENT.get().add(this);
         Duration interval = Duration.ofMillis(Math.max(1L, ttl.toMillis() / 3L));
-        renewer = Thread.ofVirtual().name("ircs-lease-renewal").start(() -> {
+        renewer = VirtualThreadExecutors.threadFactory("ircs-lease-renewal-").newThread(() -> {
             while (!stopped) {
                 try {
                     Thread.sleep(interval);
@@ -65,6 +66,7 @@ public final class ClusterLeaseGuard implements AutoCloseable {
                 }
             }
         });
+        renewer.start();
     }
 
     public static void checkCurrentOwnership() {
@@ -82,11 +84,11 @@ public final class ClusterLeaseGuard implements AutoCloseable {
 
     public void checkOwnership() {
         if (failure != null) {
-            throw failure;
+            throw ownershipFailure();
         }
         if (System.nanoTime() - validUntilNanos >= 0L) {
             lost(null);
-            throw failure;
+            throw ownershipFailure();
         }
     }
 
@@ -98,6 +100,12 @@ public final class ClusterLeaseGuard implements AutoCloseable {
         }
         validUntilNanos = started + ttl.toNanos();
         checkOwnership();
+    }
+
+    private IllegalStateException ownershipFailure() {
+        // A fresh wrapper is required: try-with-resources may also fail in close(),
+        // and Java rejects suppressing an exception onto the very same instance.
+        return new IllegalStateException(failure.getMessage(), failure);
     }
 
     private synchronized void lost(Throwable cause) {
@@ -139,7 +147,8 @@ public final class ClusterLeaseGuard implements AutoCloseable {
                     renewOwnership();
                     return null;
                 });
-                Thread verification = Thread.ofVirtual().name("ircs-lease-final-check").start(validation);
+                Thread verification = VirtualThreadExecutors.threadFactory("ircs-lease-final-check-").newThread(validation);
+                verification.start();
                 try {
                     checkOwnership();
                     long budget = Math.min(Duration.ofSeconds(5).toNanos(), Math.max(1L, validUntilNanos - System.nanoTime()));
@@ -154,7 +163,7 @@ public final class ClusterLeaseGuard implements AutoCloseable {
                 }
             }
             if (failure != null) {
-                throw failure;
+                throw ownershipFailure();
             }
         } finally {
             closed = true;

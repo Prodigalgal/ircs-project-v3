@@ -50,9 +50,9 @@
 
 - **安全**：新增公共验签边界、Gateway 签名、可信客户端地址；修复 CORS、PoW 和 10 处内部 fail-open。详见 `../architecture/gateway-identity-boundary.md`。旧 URL token 客户端及旧 PoW body 客户端须切到当前 Authorization/scoped-header 协议。
 - **并发/可靠性**：provider attempt CAS、任务状态 CAS、跨副本调度、续租与丢锁处理、聚合数据库互斥和短事务。共享队列 key、消息路由和公共消息结构保持兼容。
-- **数据/性能**：新增四个独立 `CREATE INDEX CONCURRENTLY` changeset，均 `runInTransaction:false`，所属业务版本 3.2.0；不删数据、不改变唯一性或已有迁移 checksum。批量读取保持每输入限制和权限维护门。
+- **数据/性能**：新增四个独立 `CREATE INDEX CONCURRENTLY` changeset，均 `runInTransaction:false`，所属业务版本 3.2.1；不删数据、不改变唯一性或已有迁移 checksum。批量读取保持每输入限制和权限维护门。
 - **缓存/前端**：MetadataNameCache 原子替换与过期；SSE 不再向 URL 写凭证，重连重新读取当前 token，401 终止、组件卸载取消连接。现有 L1/L2/L3 配置缓存继续使用。
-- **Native/发布**：补 TagDatabaseChange 公共反射 hints；统一业务版本 3.2.0，镜像保留日期、版本、用途和源码 SHA。Gateway 升级波次 -5，先签名后升级 backend 验签；网络、公钥引用与镜像在同一 GitOps commit 晋级。
+- **Native/发布**：补 TagDatabaseChange 公共反射 hints；统一业务版本 3.2.1，镜像保留日期、版本、用途和源码 SHA。Gateway 升级波次 -5，先签名后升级 backend 验签；网络、公钥引用与镜像在同一 GitOps commit 晋级。
 
 验证入口：全量 Java 测试含真实 PostgreSQL provider retry 与真实 Valkey TTL/缓存/邮件限流；前端 Node SSE 回归、lint/build；两架构 Native migrator 迁移和重复运行、21 服务启动、非法直连/篡改/过期签名拒绝、真实 Gateway→Ops/identity 转发、低堆大队列读、实际入库及去重。以上新增回归执行状态待 CI 填入，不进行本地编译。
 
@@ -68,3 +68,6 @@
 `app.outbound.proxy-pool.enabled` 默认关闭；开启后 scraper 与 metadata PUBLIC_FETCH 在未显式自定义代理时轮询两个网关。GET/HEAD 只在既有重试额度内故障切换，故障网关进入有限冷却；全池失败明确报错，不静默直连。内部服务、Gateway 和 R2 请求保持原路径。
 
 Config 的 PROXY 测试改真实有限时 HTTPS 探测，其他类别仍只进行参数接收但明确返回 NOT_TESTED/dry-run/success=false；管理端只对真实 boolean success 显示成功。运维部署、节点和真实连通性记录统一放在服务器管理工作区，最终以现场测试为准。
+
+
+3.2.0 云端 Java 全模块编译通过，全量回归剩三项失败。复核发现 checkOwnership 与 close 重抛同一丢锁异常会触发 Java 自抑制错误，已改为独立包装并保留原 cause；另修正测试中过期假租约，并恢复集中虚拟线程工厂约束。修复候选递增为 3.2.1，旧版本不复用。代理网关已在生产集群独立部署，2026-11-13 09:00 北京时间实测 Oracle 7/7、CF 16/16 HTTPS 探测通过，两池均连通公网出口和 TMDB（无API key的401为预期认证响应）；应用 Native 候选尚未部署。

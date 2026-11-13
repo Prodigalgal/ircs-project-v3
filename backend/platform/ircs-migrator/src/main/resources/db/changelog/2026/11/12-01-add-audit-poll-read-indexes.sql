@@ -1,6 +1,6 @@
 -- liquibase formatted sql
 
--- 业务版本: 3.2.0。按当前运行时 SQL 补齐读索引；不改变数据、状态或唯一性契约。
+-- 业务版本: 3.2.1。按当前运行时 SQL 补齐读索引；不改变数据、状态或唯一性契约。
 -- 2026/06/add-performance-indexes.sql 未执行的旧轮询索引由此处现行排序索引替代；
 -- enrichment 已走运行时工作队列，不再为不存在的 PENDING SQL 轮询增加写放大。
 
