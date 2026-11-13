@@ -179,8 +179,17 @@ function ConfigTabPanel({ group, allConfigs, configMeta = {}, refetch }) {
         });
 
         try {
-            await testConnection({ type: group.testType, params }).unwrap();
-            setNotification({ open: true, message: '连接测试成功！配置有效。', severity: 'success' });
+            const result = await testConnection({ type: group.testType, params }).unwrap();
+            const isNotTested = result?.mode === 'dry-run' || result?.status === 'NOT_TESTED';
+            const message = typeof result?.message === 'string' && result.message.trim()
+                ? result.message
+                : '未执行连接测试';
+
+            if (result?.success === true && !isNotTested) {
+                setNotification({ open: true, message, severity: 'success' });
+            } else {
+                setNotification({ open: true, message, severity: isNotTested ? 'info' : 'warning' });
+            }
         } catch (err) {
             const msg = err.data?.error || err.data?.message || err.error || '连接失败，请检查配置或网络';
             setNotification({ open: true, message: `测试失败: ${msg}`, severity: 'error' });

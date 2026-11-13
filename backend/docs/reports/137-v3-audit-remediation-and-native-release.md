@@ -1,4 +1,4 @@
-# V3 审计复核与 3.1.1 修复候选
+# V3 审计复核与修复候选
 
 复核日期：2026-11-12。对应报告：`136-v3-full-code-audit-security-reliability-concurrency-performance.md`。
 
@@ -6,7 +6,7 @@
 
 实际源码仓库是项目根 `ircs-project-v3/.git`，修复起点为 `b8501b1`。原报告读取了残留的 `backend/.git`，其分支和 origin/main 描述不代表当前 monorepo。原报告实际列出 4 个 P0、12 个 P1、15 个 P2，共 31 项，摘要计数有误。未修改原始审计。
 
-3.1.0 云端 Java、Python 回归成功，但两个架构的 Native migrator 在 `TagDatabaseChange.setKeepTagOnRollback` 反射访问失败，尚未部署。该版本已占用；后续修复使用 3.1.1。全部编译与测试通过 GitHub Actions，本地只做静态检查、清单渲染和生产只读调查。
+3.1.0 云端 Java、Python 回归成功，但两个架构的 Native migrator 在 `TagDatabaseChange.setKeepTagOnRollback` 反射访问失败，尚未部署。该版本已占用；后续 3.1.1 两套前端、Python 检查通过，Java 新增 PoW 测试因 Mockito 重载桩不匹配而失败。测试桩已修复；代理池新增能力合并后按 minor 使用 3.2.0，不复用失败版本。全部编译与测试通过 GitHub Actions，本地只做静态检查、清单渲染和生产只读调查。
 
 以下“已实现”不表示已经通过 CI 或部署。当前生产仍为原 V3 Native 镜像组，聚合服务为已单独修复的临时镜像。新版本只有完整云端验证通过后才自动晋级 GitOps。
 
@@ -50,12 +50,21 @@
 
 - **安全**：新增公共验签边界、Gateway 签名、可信客户端地址；修复 CORS、PoW 和 10 处内部 fail-open。详见 `../architecture/gateway-identity-boundary.md`。旧 URL token 客户端及旧 PoW body 客户端须切到当前 Authorization/scoped-header 协议。
 - **并发/可靠性**：provider attempt CAS、任务状态 CAS、跨副本调度、续租与丢锁处理、聚合数据库互斥和短事务。共享队列 key、消息路由和公共消息结构保持兼容。
-- **数据/性能**：新增四个独立 `CREATE INDEX CONCURRENTLY` changeset，均 `runInTransaction:false`，所属业务版本 3.1.1；不删数据、不改变唯一性或已有迁移 checksum。批量读取保持每输入限制和权限维护门。
+- **数据/性能**：新增四个独立 `CREATE INDEX CONCURRENTLY` changeset，均 `runInTransaction:false`，所属业务版本 3.2.0；不删数据、不改变唯一性或已有迁移 checksum。批量读取保持每输入限制和权限维护门。
 - **缓存/前端**：MetadataNameCache 原子替换与过期；SSE 不再向 URL 写凭证，重连重新读取当前 token，401 终止、组件卸载取消连接。现有 L1/L2/L3 配置缓存继续使用。
-- **Native/发布**：补 TagDatabaseChange 公共反射 hints；统一业务版本 3.1.1，镜像保留日期、版本、用途和源码 SHA。Gateway 升级波次 -5，先签名后升级 backend 验签；网络、公钥引用与镜像在同一 GitOps commit 晋级。
+- **Native/发布**：补 TagDatabaseChange 公共反射 hints；统一业务版本 3.2.0，镜像保留日期、版本、用途和源码 SHA。Gateway 升级波次 -5，先签名后升级 backend 验签；网络、公钥引用与镜像在同一 GitOps commit 晋级。
 
 验证入口：全量 Java 测试含真实 PostgreSQL provider retry 与真实 Valkey TTL/缓存/邮件限流；前端 Node SSE 回归、lint/build；两架构 Native migrator 迁移和重复运行、21 服务启动、非法直连/篡改/过期签名拒绝、真实 Gateway→Ops/identity 转发、低堆大队列读、实际入库及去重。以上新增回归执行状态待 CI 填入，不进行本地编译。
 
 生产验收还必须核对 Argo revision、不可变镜像/运行时版本、数据库 tag 和索引有效性、保留数据与 PVC、实际消费/队列和连接池指标。HTTP 200 或 Argo Healthy 不能独自代表完成。
 
 回滚使用上一组不可变 V3 镜像。新增索引可以保留，不需要回退业务数据。若回退到不签名 Gateway，必须先回退验签 backend；只回退 Gateway 会造成 401。私钥不分发到 backend，继续保存在现有 Secret。
+
+
+## 3.2.0 可选代理池能力
+
+用户追加 Oracle VLESS 和 CF 订阅接入，并授权补装缺少 VLESS 的节点。V3 公共 HTTP 客户端继续使用 HTTP 代理协议，两个私有 ClusterIP 网关负责 VLESS 协议转换；订阅 URL、UUID、REALITY 密钥材料仅进入专用 Secret，不写入仓库。Oracle 既有节点保留身份与服务；新 sydney-arm-01 使用 systemd 原生 Xray，保持 containerd/CNI。
+
+`app.outbound.proxy-pool.enabled` 默认关闭；开启后 scraper 与 metadata PUBLIC_FETCH 在未显式自定义代理时轮询两个网关。GET/HEAD 只在既有重试额度内故障切换，故障网关进入有限冷却；全池失败明确报错，不静默直连。内部服务、Gateway 和 R2 请求保持原路径。
+
+Config 的 PROXY 测试改真实有限时 HTTPS 探测，其他类别仍只进行参数接收但明确返回 NOT_TESTED/dry-run/success=false；管理端只对真实 boolean success 显示成功。运维部署、节点和真实连通性记录统一放在服务器管理工作区，最终以现场测试为准。

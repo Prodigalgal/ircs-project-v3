@@ -3,6 +3,8 @@ package com.prodigalgal.ircs.metadata.provider.tmdb;
 import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
 import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
+import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
@@ -25,14 +27,17 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
     private static final String PROVIDER_CODE = "TMDB";
 
     private OutboundHttpClient httpClient;
+    private final PublicOutboundProxyPool proxyPool;
     private final Duration timeout;
     private final MetadataProviderTrafficLimiter trafficLimiter;
     public RestClientTmdbHttpClient(
             TmdbProviderProperties properties,
-            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
+        this.proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new JdkOutboundTransport(properties.getRequestTimeout()));
+                new JdkOutboundTransport(properties.getRequestTimeout()), proxyPool);
         this.timeout = properties.getRequestTimeout();
         this.trafficLimiter = resolveTrafficLimiter(trafficLimiterProvider);
     }
@@ -47,7 +52,7 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
         MetadataProviderTrafficLimiter trafficLimiter) {
         TmdbProviderProperties properties = new TmdbProviderProperties();
         properties.setRequestTimeout(timeout);
-        RestClientTmdbHttpClient client = new RestClientTmdbHttpClient(properties, trafficLimiterProvider(trafficLimiter));
+        RestClientTmdbHttpClient client = new RestClientTmdbHttpClient(properties, trafficLimiterProvider(trafficLimiter), null);
         client.httpClient = httpClient;
         return client;
     }
@@ -93,7 +98,8 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
             trafficLimiter.acquireProviderSlot(PROVIDER_CODE);
             OutboundHttpResponse response = httpClient.execute(OutboundHttpRequest.get(
                     uri.toString(),
-                    OutboundHttpPolicy.publicFetch(timeout)));
+                    OutboundHttpPolicy.publicFetch(timeout).withProxy(proxyPool == null
+                            ? OutboundProxy.disabled() : proxyPool.customProxy("app.metadata.tmdb"))));
             int status = response.statusCode();
             String body = response.bodyAsUtf8();
             if (status >= 200 && status < 300) {

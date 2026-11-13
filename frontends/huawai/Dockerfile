@@ -8,7 +8,7 @@ RUN npm ci
 
 # 2. 构建阶段
 FROM node:26.13-alpine AS builder
-ARG APP_VERSION=3.1.1
+ARG APP_VERSION=3.2.0
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -26,7 +26,7 @@ RUN npm run build && printf '{"version":"%s"}\n' "$APP_VERSION" > public/version
 FROM node:26.13-alpine AS runner
 WORKDIR /app
 
-ARG APP_VERSION=3.1.1
+ARG APP_VERSION=3.2.0
 ENV NODE_ENV production \
     APP_VERSION=${APP_VERSION}
 ENV NEXT_TELEMETRY_DISABLED 1

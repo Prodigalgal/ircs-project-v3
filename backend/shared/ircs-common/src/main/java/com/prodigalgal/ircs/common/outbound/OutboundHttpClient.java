@@ -3,7 +3,6 @@ package com.prodigalgal.ircs.common.outbound;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.http.HttpTimeoutException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -15,15 +14,28 @@ public class OutboundHttpClient {
     private final OutboundUrlPolicy urlPolicy;
     private final OutboundTransport transport;
     private final OutboundCircuitBreaker circuitBreaker;
+    private final PublicOutboundProxyPool proxyPool;
 
     public OutboundHttpClient(OutboundUrlPolicy urlPolicy, OutboundTransport transport) {
-        this(urlPolicy, transport, new OutboundCircuitBreaker());
+        this(urlPolicy, transport, new OutboundCircuitBreaker(), null);
+    }
+
+    public OutboundHttpClient(
+            OutboundUrlPolicy urlPolicy, OutboundTransport transport, PublicOutboundProxyPool proxyPool) {
+        this(urlPolicy, transport, new OutboundCircuitBreaker(), proxyPool);
     }
 
     OutboundHttpClient(
             OutboundUrlPolicy urlPolicy,
             OutboundTransport transport,
             OutboundCircuitBreaker circuitBreaker) {
+        this(urlPolicy, transport, circuitBreaker, null);
+    }
+
+    private OutboundHttpClient(
+            OutboundUrlPolicy urlPolicy, OutboundTransport transport,
+            OutboundCircuitBreaker circuitBreaker, PublicOutboundProxyPool proxyPool) {
+        this.proxyPool = proxyPool;
         this.urlPolicy = urlPolicy;
         this.transport = transport;
         this.circuitBreaker = circuitBreaker;
@@ -56,21 +68,28 @@ public class OutboundHttpClient {
     private OutboundHttpResponse executeWithRetry(OutboundHttpRequest normalized)
             throws IOException, InterruptedException {
         OutboundHttpPolicy policy = normalized.policy();
-        int attempts = policy.maxRetries() + 1;
+        boolean pooled = proxyPool != null && proxyPool.appliesTo(normalized);
+        boolean safeToRetry = "GET".equalsIgnoreCase(normalized.method()) || "HEAD".equalsIgnoreCase(normalized.method());
+        int attempts = pooled && !safeToRetry ? 1 : policy.maxRetries() + 1;
         IOException last = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
+            OutboundProxy selected = pooled ? proxyPool.select() : policy.proxy();
+            OutboundHttpRequest routed = pooled
+                    ? new OutboundHttpRequest(normalized.uri(), normalized.method(), normalized.headers(),
+                            policy.withProxy(selected), normalized.body()) : normalized;
             try {
-                OutboundHttpResponse response = transport.send(normalized);
+                OutboundHttpResponse response = transport.send(routed);
+                if (pooled && (response.statusCode() == 502 || response.statusCode() == 503 || response.statusCode() == 504)) {
+                    proxyPool.recordFailure(selected);
+                }
                 if (shouldRetry(response, policy) && attempt < attempts) {
                     continue;
                 }
                 return maybeDecompress(response, policy);
-            } catch (HttpTimeoutException ex) {
-                last = ex;
-                if (attempt >= attempts) {
-                    throw ex;
-                }
             } catch (IOException ex) {
+                if (pooled) {
+                    proxyPool.recordFailure(selected);
+                }
                 last = ex;
                 if (attempt >= attempts) {
                     throw ex;

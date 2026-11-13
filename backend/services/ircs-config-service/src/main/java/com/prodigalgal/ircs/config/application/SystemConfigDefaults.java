@@ -42,6 +42,10 @@ public class SystemConfigDefaults {
             Map.entry("app.storage.r2.public-domain", List.of("app.storage.r2-public-domain")));
 
     private static final List<DefaultConfig> DEFAULTS = List.of(
+            cfg("app.outbound.proxy-pool.enabled", "false", "公共采集和元数据 HTTP 代理池开关"),
+            cfg("app.outbound.proxy-pool.endpoints", com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool.DEFAULT_ENDPOINTS,
+                    "公共代理 HTTP 网关列表，逗号分隔，禁止直连降级"),
+            cfg("app.outbound.proxy-pool.failure-cooldown", "PT30S", "公共代理网关故障冷却时间"),
             cfg("normalization.timeout.processing-min", "30", "归一化处理超时时间(分钟)"),
             cfg("normalization.timeout.pending-min", "60", "归一化等待超时补救(分钟)"),
             cfg("normalization.max-retries", "5", "归一化最大重试次数"),

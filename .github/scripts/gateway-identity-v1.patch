@@ -1,8 +1,11 @@
 diff --git a/ircs-prod/core/01-app-config.yaml b/ircs-prod/core/01-app-config.yaml
-index 627f8fb..bede219 100644
+index 627f8fb..4afc4b6 100644
 --- a/ircs-prod/core/01-app-config.yaml
 +++ b/ircs-prod/core/01-app-config.yaml
-@@ -11,0 +12,2 @@ data:
+@@ -11,0 +12,5 @@ data:
++  APP_OUTBOUND_PROXY_POOL_ENABLED: 'true'
++  APP_OUTBOUND_PROXY_POOL_ENDPOINTS: http://ircs-proxy-oracle.ircs-prod.svc.cluster.local:17890,http://ircs-proxy-cf.ircs-prod.svc.cluster.local:17890
++  APP_OUTBOUND_PROXY_POOL_FAILURE_COOLDOWN: PT30S
 +  # Replace before rollout; this is an Ed25519 X.509 public key (base64 DER), never a private key.
 +  GATEWAY_IDENTITY_PUBLIC_KEY: MCowBQYDK2VwAyEAZfSkdxlvV8Ku82xO8LF9rM4ZINXTTmPcRmr4321wDVM=
 diff --git a/ircs-prod/core/05-application-network-policy.yaml b/ircs-prod/core/05-application-network-policy.yaml
@@ -135,12 +138,12 @@ index 0000000..9a19c16
 +    - {protocol: TCP, port: 80}
 +    - {protocol: TCP, port: 3000}
 diff --git a/ircs-prod/core/kustomization.yaml b/ircs-prod/core/kustomization.yaml
-index 44aa6b2..1cf1a93 100644
+index dffb9e6..46b36ff 100644
 --- a/ircs-prod/core/kustomization.yaml
 +++ b/ircs-prod/core/kustomization.yaml
-@@ -37,0 +38 @@ resources:
+@@ -38,0 +39 @@ resources:
 +- 05-application-network-policy.yaml
-@@ -88,0 +90,23 @@ images:
+@@ -89,0 +91,23 @@ images:
 +
 +patches:
 +- target:

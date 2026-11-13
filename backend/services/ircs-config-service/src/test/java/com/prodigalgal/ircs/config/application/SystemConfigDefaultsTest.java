@@ -377,6 +377,9 @@ class SystemConfigDefaultsTest {
             "member.oauth.qq.redirect-uri");
 
     private static final Set<String> CURRENT_SYSTEM_CONFIG_KEYS = Set.of(
+            "app.outbound.proxy-pool.enabled",
+            "app.outbound.proxy-pool.endpoints",
+            "app.outbound.proxy-pool.failure-cooldown",
             "normalization.timeout.processing-min",
             "normalization.timeout.pending-min",
             "normalization.max-retries",

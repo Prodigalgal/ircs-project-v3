@@ -67,7 +67,7 @@ public class ConfigController {
     }
 
     @PostMapping("/configs/test/{type}")
-    public ResponseEntity<Map<String, String>> testConnection(
+    public ResponseEntity<Map<String, Object>> testConnection(
             @PathVariable String type,
             @RequestBody(required = false) Map<String, Object> params) {
         return ResponseEntity.ok(configService.testConnection(type, params == null ? Map.of() : params));

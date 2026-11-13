@@ -3,6 +3,8 @@ package com.prodigalgal.ircs.metadata.provider.rt;
 import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
 import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
+import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
@@ -23,14 +25,17 @@ public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpCli
     private static final String PROVIDER_CODE = "ROTTEN_TOMATOES";
 
     private OutboundHttpClient httpClient;
+    private final PublicOutboundProxyPool proxyPool;
     private final RottenTomatoesProviderProperties properties;
     private final MetadataProviderTrafficLimiter trafficLimiter;
     public RestClientRottenTomatoesHttpClient(
             RottenTomatoesProviderProperties properties,
-            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider) {
+            ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
+        this.proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
         this.httpClient = new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new JdkOutboundTransport(properties.getRequestTimeout()));
+                new JdkOutboundTransport(properties.getRequestTimeout()), proxyPool);
         this.properties = properties;
         this.trafficLimiter = resolveTrafficLimiter(trafficLimiterProvider);
     }
@@ -40,7 +45,7 @@ public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpCli
             RottenTomatoesProviderProperties properties) {
         RestClientRottenTomatoesHttpClient client = new RestClientRottenTomatoesHttpClient(
                 properties,
-                trafficLimiterProvider(MetadataProviderTrafficLimiter.noop()));
+                trafficLimiterProvider(MetadataProviderTrafficLimiter.noop()), null);
         client.httpClient = httpClient;
         return client;
     }
@@ -82,6 +87,7 @@ public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpCli
         try {
             trafficLimiter.acquireProviderSlot(PROVIDER_CODE);
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(properties.getRequestTimeout())
+                    .withProxy(proxyPool == null ? OutboundProxy.disabled() : proxyPool.customProxy("app.metadata.rotten-tomatoes"))
                     .withUserAgent(credential
                             .map(RottenTomatoesCredential::userAgent)
                             .filter(StringUtils::hasText)

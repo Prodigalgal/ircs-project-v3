@@ -88,7 +88,7 @@ public class ConfigService {
         return false;
     }
 
-    public Map<String, String> testConnection(String type, Map<String, Object> params) {
+    public Map<String, Object> testConnection(String type, Map<String, Object> params) {
         return connectivityService.testConnection(type, params);
     }
 

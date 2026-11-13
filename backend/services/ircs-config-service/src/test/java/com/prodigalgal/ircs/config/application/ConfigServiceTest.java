@@ -449,7 +449,7 @@ class ConfigServiceTest {
     @Test
     void delegatesDryRunConnectionTest() {
         Map<String, Object> params = Map.of("api_key", "secret");
-        Map<String, String> result = Map.of("message", "连接成功");
+        Map<String, Object> result = Map.of("message", "未执行连接测试", "success", false);
         when(connectivityService.testConnection("LLM", params)).thenReturn(result);
 
         assertEquals(result, service.testConnection("LLM", params));

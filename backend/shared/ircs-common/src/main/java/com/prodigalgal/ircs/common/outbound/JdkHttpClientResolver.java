@@ -11,6 +11,9 @@ final class JdkHttpClientResolver {
 
     private final Duration connectTimeout;
     private final HttpClient fixedHttpClient;
+    private static final int MAX_PROXY_CLIENTS = 32;
+    private final java.util.LinkedHashMap<ProxyClientKey, HttpClient> proxyClients =
+            new java.util.LinkedHashMap<>(16, 0.75f, true);
     private volatile HttpClient sharedDirectClient;
     private volatile Duration sharedDirectClientTimeout;
 
@@ -29,8 +32,28 @@ final class JdkHttpClientResolver {
         if (!proxy.enabled()) {
             return sharedDirectClient(timeout);
         }
-        return buildClient(timeout, proxy);
+        return proxyClient(timeout, proxy);
     }
+
+    private HttpClient proxyClient(Duration timeout, OutboundProxy proxy) {
+        ProxyClientKey key = new ProxyClientKey(timeout, proxy.host(), proxy.port(), proxy.username(), proxy.password());
+        synchronized (proxyClients) {
+            HttpClient client = proxyClients.get(key);
+            if (client != null) {
+                return client;
+            }
+            client = buildClient(timeout, proxy);
+            proxyClients.put(key, client);
+            if (proxyClients.size() > MAX_PROXY_CLIENTS) {
+                ProxyClientKey oldest = proxyClients.keySet().iterator().next();
+                HttpClient evicted = proxyClients.remove(oldest);
+                evicted.shutdown();
+            }
+            return client;
+        }
+    }
+
+    private record ProxyClientKey(Duration timeout, String host, Integer port, String username, String password) {}
 
     private HttpClient sharedDirectClient(Duration timeout) {
         HttpClient existing = sharedDirectClient;

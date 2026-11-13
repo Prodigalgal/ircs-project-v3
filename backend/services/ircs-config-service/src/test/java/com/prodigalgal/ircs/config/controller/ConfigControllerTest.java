@@ -115,7 +115,7 @@ class ConfigControllerTest {
     @Test
     void testsConnectionWithDryRunResponse() {
         Map<String, Object> params = Map.of("api_key", "secret");
-        Map<String, String> result = Map.of("message", "连接成功", "mode", "dry-run");
+        Map<String, Object> result = Map.of("message", "未执行连接测试", "mode", "dry-run", "success", false);
         when(configService.testConnection("llm", params)).thenReturn(result);
 
         var response = controller.testConnection("llm", params);

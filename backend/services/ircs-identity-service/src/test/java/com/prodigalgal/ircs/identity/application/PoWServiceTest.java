@@ -82,27 +82,29 @@ class PoWServiceTest {
     }
 
     @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
     void scopedHeaderProofIsConsumedOnceAndCannotBeReplayed() {
         var stored = new java.util.concurrent.atomic.AtomicReference<>(
                 "portal.register|0|server-nonce||" + java.time.Instant.now().plusSeconds(60).toEpochMilli());
         org.mockito.Mockito.doAnswer(call -> stored.getAndSet(null)).when(redisTemplate)
-                .execute(org.mockito.ArgumentMatchers.any(org.springframework.data.redis.core.script.RedisScript.class),
-                        org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.<Object[]>any());
+                .execute(org.mockito.ArgumentMatchers.<org.springframework.data.redis.core.script.RedisScript<String>>any(),
+                        org.mockito.ArgumentMatchers.eq(List.of(com.prodigalgal.ircs.identity.IdentityCacheKeys.powChallenge("id"))));
         PoWService service = new PoWService(redisTemplate, configService, new SecureRandom());
         var request = proof("id", "portal.register", "server-nonce", "1");
         service.verifyHeaders(request, "portal.register", false);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyHeaders(request, "portal.register", false))
                 .isInstanceOf(com.prodigalgal.ircs.identity.api.ApiException.class).hasMessageContaining("expired or invalid");
+        // Match the production call with no Lua arguments, and prove each attempt consumes the same key.
+        org.mockito.Mockito.verify(redisTemplate, org.mockito.Mockito.times(2)).execute(
+                org.mockito.ArgumentMatchers.<org.springframework.data.redis.core.script.RedisScript<String>>any(),
+                org.mockito.ArgumentMatchers.eq(List.of(com.prodigalgal.ircs.identity.IdentityCacheKeys.powChallenge("id"))));
         org.mockito.Mockito.verify(redisTemplate, org.mockito.Mockito.never()).opsForValue();
     }
 
     @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
     void rejectsCrossScopeProofAndLegacyBodyEvenAtZeroDifficulty() {
         org.mockito.Mockito.doReturn("portal.register|0|server-nonce||" + java.time.Instant.now().plusSeconds(60).toEpochMilli())
-                .when(redisTemplate).execute(org.mockito.ArgumentMatchers.any(org.springframework.data.redis.core.script.RedisScript.class),
-                        org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.<Object[]>any());
+                .when(redisTemplate).execute(org.mockito.ArgumentMatchers.<org.springframework.data.redis.core.script.RedisScript<String>>any(),
+                        org.mockito.ArgumentMatchers.eq(List.of(com.prodigalgal.ircs.identity.IdentityCacheKeys.powChallenge("id"))));
         PoWService service = new PoWService(redisTemplate, configService, new SecureRandom());
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.verifyHeaders(
                 proof("id", "portal.register", "server-nonce", "1"), "admin.login", true))

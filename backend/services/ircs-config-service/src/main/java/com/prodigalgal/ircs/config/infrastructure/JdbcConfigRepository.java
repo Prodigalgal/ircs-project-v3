@@ -25,7 +25,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class JdbcConfigRepository {
+public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.RuntimeConfigValueSource {
 
     private static final int MAX_PAGE_SIZE = 1000;
 
@@ -94,8 +94,14 @@ public class JdbcConfigRepository {
         }
     }
 
+    @Override
     public Optional<String> findValue(String key) {
         return valkeyCache.findValue(key, () -> findValueFromDatabase(key));
+    }
+
+    @Override
+    public void evict(String key) {
+        valkeyCache.evictLocal(key);
     }
 
     public boolean existsByKey(String key) {
