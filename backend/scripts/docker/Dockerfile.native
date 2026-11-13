@@ -3,7 +3,7 @@ FROM container-registry.oracle.com/graalvm/native-image:25.0.5.0.3@sha256:d2d08c
 ARG GRADLE_PROJECT
 ARG MODULE_DIR
 ARG IMAGE_NAME
-ARG APP_VERSION=3.2.1
+ARG APP_VERSION=3.2.2
 ARG NATIVE_TARGET_MACHINE=compatibility
 ARG NATIVE_BUILD_MEMORY=8g
 ARG NATIVE_BUILD_PARALLELISM=4
@@ -28,7 +28,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates zlib1g libstdc++6 fontconfig fonts-dejavu-core && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /workspace/native-app/ /app/
-ARG APP_VERSION=3.2.1
+ARG APP_VERSION=3.2.2
 ENV APP_VERSION=${APP_VERSION} \
     SPRING_THREADS_VIRTUAL_ENABLED=true
 EXPOSE 8080

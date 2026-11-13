@@ -8,7 +8,7 @@
 
 3.1.0 云端 Java、Python 回归成功，但两个架构的 Native migrator 在 `TagDatabaseChange.setKeepTagOnRollback` 反射访问失败，尚未部署。该版本已占用；后续 3.1.1 两套前端、Python 检查通过，Java 新增 PoW 测试因 Mockito 重载桩不匹配而失败。测试桩已修复；代理池新增能力合并后按 minor 使用 3.2.0，不复用失败版本。全部编译与测试通过 GitHub Actions，本地只做静态检查、清单渲染和生产只读调查。
 
-以下“已实现”不表示已经通过 CI 或部署。当前生产仍为原 V3 Native 镜像组，聚合服务为已单独修复的临时镜像。新版本只有完整云端验证通过后才自动晋级 GitOps。
+修复后的当前候选为 3.2.2。以下“已实现”不表示已经通过 CI 或部署。当前生产仍为原 V3 Native 镜像组，聚合服务为已单独修复的临时镜像。新版本只有完整云端验证通过后才自动晋级 GitOps。
 
 ## 逐项结果
 
@@ -50,9 +50,9 @@
 
 - **安全**：新增公共验签边界、Gateway 签名、可信客户端地址；修复 CORS、PoW 和 10 处内部 fail-open。详见 `../architecture/gateway-identity-boundary.md`。旧 URL token 客户端及旧 PoW body 客户端须切到当前 Authorization/scoped-header 协议。
 - **并发/可靠性**：provider attempt CAS、任务状态 CAS、跨副本调度、续租与丢锁处理、聚合数据库互斥和短事务。共享队列 key、消息路由和公共消息结构保持兼容。
-- **数据/性能**：新增四个独立 `CREATE INDEX CONCURRENTLY` changeset，均 `runInTransaction:false`，所属业务版本 3.2.1；不删数据、不改变唯一性或已有迁移 checksum。批量读取保持每输入限制和权限维护门。
+- **数据/性能**：新增四个独立 `CREATE INDEX CONCURRENTLY` changeset，均 `runInTransaction:false`，所属业务版本 3.2.2；不删数据、不改变唯一性或已有迁移 checksum。批量读取保持每输入限制和权限维护门。
 - **缓存/前端**：MetadataNameCache 原子替换与过期；SSE 不再向 URL 写凭证，重连重新读取当前 token，401 终止、组件卸载取消连接。现有 L1/L2/L3 配置缓存继续使用。
-- **Native/发布**：补 TagDatabaseChange 公共反射 hints；统一业务版本 3.2.1，镜像保留日期、版本、用途和源码 SHA。Gateway 升级波次 -5，先签名后升级 backend 验签；网络、公钥引用与镜像在同一 GitOps commit 晋级。
+- **Native/发布**：补 TagDatabaseChange 公共反射 hints；统一业务版本 3.2.2，镜像保留日期、版本、用途和源码 SHA。Gateway 升级波次 -5，先签名后升级 backend 验签；网络、公钥引用与镜像在同一 GitOps commit 晋级。
 
 验证入口：全量 Java 测试含真实 PostgreSQL provider retry 与真实 Valkey TTL/缓存/邮件限流；前端 Node SSE 回归、lint/build；两架构 Native migrator 迁移和重复运行、21 服务启动、非法直连/篡改/过期签名拒绝、真实 Gateway→Ops/identity 转发、低堆大队列读、实际入库及去重。以上新增回归执行状态待 CI 填入，不进行本地编译。
 
@@ -70,4 +70,8 @@
 Config 的 PROXY 测试改真实有限时 HTTPS 探测，其他类别仍只进行参数接收但明确返回 NOT_TESTED/dry-run/success=false；管理端只对真实 boolean success 显示成功。运维部署、节点和真实连通性记录统一放在服务器管理工作区，最终以现场测试为准。
 
 
-3.2.0 云端 Java 全模块编译通过，全量回归剩三项失败。复核发现 checkOwnership 与 close 重抛同一丢锁异常会触发 Java 自抑制错误，已改为独立包装并保留原 cause；另修正测试中过期假租约，并恢复集中虚拟线程工厂约束。修复候选递增为 3.2.1，旧版本不复用。代理网关已在生产集群独立部署，2026-11-13 09:00 北京时间实测 Oracle 7/7、CF 16/16 HTTPS 探测通过，两池均连通公网出口和 TMDB（无API key的401为预期认证响应）；应用 Native 候选尚未部署。
+3.2.0 云端 Java 全模块编译通过，全量回归剩三项失败。复核发现 checkOwnership 与 close 重抛同一丢锁异常会触发 Java 自抑制错误，已改为独立包装并保留原 cause；另修正测试中过期假租约，并恢复集中虚拟线程工厂约束。修复候选递增为 3.2.1，旧版本不复用。3.2.1 的 1700 项 Java 回归、前端检查和 Python 检查通过；44 个双架构 Native 构建全部通过，其中 metadata/amd64 首次因插件依赖解析失败，单独重跑成功。双架构服务运行检查均在网关共享缓存探测处失败，因此没有发布：共享值从撤销值改为 0 后已进入上游连接，但真实 ConnectException 返回 500，而检查预期 502，并非已有证据证明 L1 旧值。3.2.2 将上游取得响应头之前的 I/O 失败映射为 502，保留 cause；客户端写出、已提交流及关闭失败继续保留原异常。新增连接拒绝、超时与写出失败回归，并在 Native 断言输出实际状态，不放宽 502 或 L2/L3 约束。3.2.2 云端回归、GitOps 晋级及生产应用验收待完成。
+
+两个代理池共用一个 `ircs-proxy-gateway` Deployment、两个跨节点 sing-box 副本，两个 Service 的 HTTP 入口维持兼容；每次采集请求只复用 HTTP 客户端和现有代理，不创建转换进程。JDK transport 的代理客户端按超时、端点与凭据缓存，LRU 上限 32，淘汰时关闭旧客户端；当前生产 25 个采集源使用自动选择的 JDK transport。同步脚本比较配置内容，未变更不写 Secret 或触发 Pod 更新。
+
+生产代理基础设施由 GitOps `c829ffb` 上线。2026-11-13 10:10 北京时间实测 Oracle 7/7、CF 16/16 HTTPS 延迟探测通过，双池的 gstatic 与公网出口检查成功，TMDB 无 API key 返回预期 401；私网 canary 双池均拒绝且命中数为 0。临时探测 Job/ConfigMap 已清理。三项代理池 SystemConfig 已通过管理 API 写入并确认来源 DB；业务应用 Native 候选尚未部署，不能据此声称生产采集已使用共享池。详细运维及脱敏探测记录位于服务器管理工作区 `platform/vless-reality/` 与 `docs/ircs-proxy-pools-2026-11-13.*`。

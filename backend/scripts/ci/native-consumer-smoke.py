@@ -281,15 +281,21 @@ def gateway_config_cache_probe():
 
     before = database_loads()
     docker('exec', 'ircs-native-key-value', 'valkey-cli', 'SET', cache_key, str(int(time.time()) + 60), 'PX', '30000')
-    assert status() == 401, 'A shared revocation must reject the old token'
+    actual_status = status()
+    assert actual_status == 401, f'A shared revocation must reject the old token: expected 401, got {actual_status}'
     docker('exec', 'ircs-native-key-value', 'valkey-cli', 'SET', cache_key, '0', 'PX', '30000')
     # The configured upstream is intentionally unavailable. Reaching its 502
     # response proves authorization passed after observing the updated L2 value.
-    assert status() == 502, 'A newer shared value must be observed without waiting for L1 expiry'
+    actual_status = status()
+    assert actual_status == 502, (
+        f'A newer shared value must be observed without waiting for L1 expiry: expected 502, got {actual_status}')
     assert database_loads() == before, 'L2 hits must not load database configuration'
     docker('exec', 'ircs-native-key-value', 'valkey-cli', 'DEL', cache_key)
-    for _ in range(5):
-        assert status() == 502
+    for attempt in range(5):
+        actual_status = status()
+        assert actual_status == 502, (
+            f'Cold-cache authorization {attempt + 1} must reach the unavailable upstream: '
+            f'expected 502, got {actual_status}')
     assert database_loads() == before + 1, 'One cold miss must fill L2 for subsequent authorizations'
     remaining_ttl = int(docker('exec', 'ircs-native-key-value', 'valkey-cli', 'PTTL', cache_key))
     assert 0 < remaining_ttl <= 30000, remaining_ttl

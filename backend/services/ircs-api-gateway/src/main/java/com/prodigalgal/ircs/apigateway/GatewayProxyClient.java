@@ -119,7 +119,7 @@ class GatewayProxyClient {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
             URI target = targetUri(route, request);
             OutboundHttpRequest outbound = outboundRequest(request, target);
-            try (OutboundStreamingHttpResponse upstream = outboundClient.execute(outbound)) {
+            try (OutboundStreamingHttpResponse upstream = openUpstream(outbound)) {
                 statusCode = upstream.statusCode();
                 writeResponse(upstream, response);
             }
@@ -131,15 +131,20 @@ class GatewayProxyClient {
             Thread.currentThread().interrupt();
             errorMessage = "API gateway proxy interrupted";
             throw new IOException("API gateway proxy interrupted", ex);
-        } catch (OutboundHttpException ex) {
-            statusCode = HttpStatus.BAD_GATEWAY.value();
-            errorMessage = ex.getMessage();
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "API gateway upstream unavailable", ex);
         } catch (IOException | RuntimeException ex) {
             errorMessage = ex.getMessage();
             throw ex;
         } finally {
             auditWriter.record(request, statusCode, Duration.between(startedAt, Instant.now()), errorMessage);
+        }
+    }
+
+    private OutboundStreamingHttpResponse openUpstream(OutboundHttpRequest outbound) throws InterruptedException {
+        try {
+            return outboundClient.execute(outbound);
+        } catch (IOException ex) {
+            // Only failures before receiving upstream headers can become a new 502 response.
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "API gateway upstream unavailable", ex);
         }
     }
 

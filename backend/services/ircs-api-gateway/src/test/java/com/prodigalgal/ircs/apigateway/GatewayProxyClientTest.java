@@ -2,9 +2,14 @@ package com.prodigalgal.ircs.apigateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.prodigalgal.ircs.common.audit.ProxyRequestAuditWriter;
 import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpException;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundStreamingHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundStreamingHttpResponse;
@@ -19,7 +24,10 @@ import jakarta.servlet.WriteListener;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.ConnectException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -39,10 +47,14 @@ class GatewayProxyClientTest {
     private final GatewayProxyClient proxyClient = client(TEST_PRIVATE_KEY);
 
     private GatewayProxyClient client(String signingKey) {
+        return client(signingKey, new ProxyRequestAuditWriter(false, null, null, null, "ircs-api-gateway"));
+    }
+
+    private GatewayProxyClient client(String signingKey, ProxyRequestAuditWriter auditWriter) {
         return new GatewayProxyClient(Duration.ofSeconds(5), Duration.ofSeconds(2), Duration.ofMinutes(30),
                 "api-gateway-proxy-test", false, 5, Duration.ofSeconds(30), 1,
                 "api-gateway", "", "ops:read ops:run", "", "ops-alert:read ops-alert:run", signingKey, "",
-                new ProxyRequestAuditWriter(false, null, null, null, "ircs-api-gateway"),
+                auditWriter,
                 provider(new OutboundStreamingHttpClient(new OutboundUrlPolicy(new DefaultOutboundAddressResolver()), transport)),
                 provider(new OutboundUrlPolicy(new DefaultOutboundAddressResolver())));
     }
@@ -340,6 +352,101 @@ class GatewayProxyClientTest {
         assertThat(transport.requests).isEmpty();
     }
 
+    @Test
+    void mapsUpstreamConnectionFailureToBadGateway() {
+        assertUpstreamFailureMappedToBadGateway(new ConnectException("Connection refused"));
+    }
+
+    @Test
+    void mapsUpstreamResponseHeaderTimeoutToBadGateway() {
+        assertUpstreamFailureMappedToBadGateway(new HttpTimeoutException("Upstream response headers timed out"));
+    }
+
+    @Test
+    void preservesBadGatewayMappingForOutboundHttpException() {
+        assertUpstreamFailureMappedToBadGateway(new OutboundHttpException("Circuit is open"));
+    }
+
+    private void assertUpstreamFailureMappedToBadGateway(IOException failure) {
+        transport.failure = failure;
+        ProxyRequestAuditWriter auditWriter = mock(ProxyRequestAuditWriter.class);
+        GatewayProxyClient client = client(TEST_PRIVATE_KEY, auditWriter);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+
+        assertThatThrownBy(() -> client.proxy(request, new MockHttpServletResponse(), contentRoutes()))
+                .isInstanceOfSatisfying(ResponseStatusException.class, ex -> {
+                    assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(ex.getReason()).isEqualTo("API gateway upstream unavailable");
+                    assertThat(ex.getCause()).isSameAs(failure);
+                });
+        assertThat(transport.requests).hasSize(1);
+        verify(auditWriter).record(eq(request), eq(502), any(Duration.class), eq("API gateway upstream unavailable"));
+    }
+
+    @Test
+    void preservesClientWriteFailureWithoutMappingItToBadGateway() {
+        IOException failure = new IOException("Client disconnected");
+        FailingOutputResponse response = new FailingOutputResponse(failure, false);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+
+        assertThatThrownBy(() -> proxyClient.proxy(request, response, contentRoutes())).isSameAs(failure);
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.isCommitted()).isFalse();
+    }
+
+    @Test
+    void preservesFailureAfterEventStreamHasBeenCommitted() throws Exception {
+        IOException failure = new OutboundHttpException("Client disconnected after first event-stream chunk");
+        transport.response = response(200, Map.of("Content-Type", List.of("text/event-stream")), "x".repeat(70_000));
+        ProxyRequestAuditWriter auditWriter = mock(ProxyRequestAuditWriter.class);
+        GatewayProxyClient client = client(TEST_PRIVATE_KEY, auditWriter);
+        FailingOutputResponse response = new FailingOutputResponse(failure, true);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+        request.addHeader("Accept", "text/event-stream");
+
+        assertThatThrownBy(() -> client.proxy(request, response, contentRoutes())).isSameAs(failure);
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.isCommitted()).isTrue();
+        assertThat(response.getContentAsByteArray()).hasSize(65_536);
+        verify(auditWriter).record(eq(request), eq(200), any(Duration.class), eq(failure.getMessage()));
+    }
+
+    @Test
+    void preservesUpstreamBodyReadFailureWithoutMappingItToBadGateway() {
+        IOException failure = new OutboundHttpException("Upstream body interrupted");
+        transport.response = new OutboundStreamingHttpResponse(200, Map.of(), new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw failure;
+            }
+        });
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+
+        assertThatThrownBy(() -> proxyClient.proxy(request, new MockHttpServletResponse(), contentRoutes()))
+                .isSameAs(failure);
+    }
+
+    @Test
+    void preservesUpstreamCloseFailureWithoutMappingItToBadGateway() {
+        IOException failure = new OutboundHttpException("Upstream close failed");
+        transport.response = new OutboundStreamingHttpResponse(200, Map.of(), new ByteArrayInputStream(new byte[0]) {
+            @Override
+            public void close() throws IOException {
+                throw failure;
+            }
+        });
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/raw-videos/42");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThatThrownBy(() -> proxyClient.proxy(request, response, contentRoutes())).isSameAs(failure);
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    private static GatewayRouteTable contentRoutes() {
+        return new GatewayRouteTable(List.of(
+                new GatewayRoute("/api/v1/raw-videos", "http://content-service", "/api/v1/raw-videos")));
+    }
+
     private static OutboundStreamingHttpResponse response(
             int statusCode,
             Map<String, List<String>> headers,
@@ -361,11 +468,62 @@ class GatewayProxyClientTest {
 
         private final List<OutboundHttpRequest> requests = new ArrayList<>();
         private OutboundStreamingHttpResponse response = response(200, Map.of(), "ok");
+        private IOException failure;
 
         @Override
         public OutboundStreamingHttpResponse send(OutboundHttpRequest request) throws IOException {
             requests.add(request);
+            if (failure != null) {
+                throw failure;
+            }
             return response;
+        }
+    }
+
+    private static final class FailingOutputResponse extends MockHttpServletResponse {
+
+        private final ServletOutputStream outputStream;
+
+        FailingOutputResponse(IOException failure, boolean afterFlush) {
+            ServletOutputStream delegate = super.getOutputStream();
+            outputStream = new ServletOutputStream() {
+                @Override
+                public boolean isReady() {
+                    return true;
+                }
+
+                @Override
+                public void setWriteListener(WriteListener writeListener) {
+                    // Tests write synchronously.
+                }
+
+                @Override
+                public void write(int value) throws IOException {
+                    if (!afterFlush || isCommitted()) {
+                        throw failure;
+                    }
+                    delegate.write(value);
+                }
+
+                @Override
+                public void write(byte[] bytes, int offset, int length) throws IOException {
+                    if (!afterFlush || isCommitted()) {
+                        throw failure;
+                    }
+                    delegate.write(bytes, offset, length);
+                }
+
+                @Override
+                public void flush() throws IOException {
+                    delegate.flush();
+                    setCommitted(true);
+                }
+            };
+        }
+
+        @Override
+        public ServletOutputStream getOutputStream() {
+            return outputStream;
         }
     }
 
