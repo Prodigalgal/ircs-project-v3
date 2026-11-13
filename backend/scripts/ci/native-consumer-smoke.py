@@ -17,6 +17,9 @@ release_tag = os.environ['RELEASE_TAG']
 app_version = os.environ['APP_VERSION']
 arch = os.environ['NATIVE_ARCH']
 password = os.environ['CI_PASSWORD']
+selected_services = set(json.loads(os.environ['JAVA_IMAGES']))
+image_refs = json.loads(os.environ.get('IMAGE_REFS_JSON', '{}'))
+module_versions = json.loads(os.environ.get('MODULE_VERSIONS_JSON', '{}'))
 authorization = 'Basic ' + base64.b64encode(f'ircs:{password}'.encode()).decode()
 
 
@@ -82,7 +85,19 @@ def docker(*args):
 
 
 def image(service):
-    return f'{registry}/{service}:{release_tag}-{arch}'
+    if service in selected_services:
+        return f'{registry}/{service}:{release_tag}-{arch}'
+    if service not in image_refs:
+        raise AssertionError(f'Missing verified baseline image for fixture {service}')
+    return image_refs[service]
+
+
+def version_for(service):
+    if service in selected_services:
+        return app_version
+    if service not in module_versions:
+        raise AssertionError(f'Missing verified baseline version for fixture {service}')
+    return module_versions[service]
 
 
 def request(path, data=None, broker=False, authenticated=False):
@@ -167,7 +182,7 @@ def start(service, values, container_name='ircs-native-consumer', listen_port=18
         return request('/actuator/health/readiness')['status'] == 'UP'
 
     wait_for(f'{service} health', ready)
-    assert request('/actuator/info')['build']['version'] == app_version, service
+    assert request('/actuator/info')['build']['version'] == version_for(service), service
     with urlopen(f'http://127.0.0.1:{listen_port}/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
     maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
@@ -337,53 +352,74 @@ def ingestion_round_trip():
     print('Native ingestion persisted one video, consumed playlist sync and deduplicated normalization work.', flush=True)
 
 
-cases = [
-    ('ircs-ingestion-worker', 'APP_INGESTION_LISTENER_ENABLED', ['q.ingest.video', 'q.process.playlist_sync']),
-    ('ircs-content-service', 'APP_CONTENT_LISTENER_ENABLED', ['q.storage.image_unlink']),
-    ('ircs-interaction-service', 'APP_INTERACTION_LISTENER_ENABLED', ['q.interaction.watch_progress']),
-]
-try:
-    for service, flag, queues in cases:
-        for enabled in ('false', 'true'):
-            start(service, {flag: enabled})
-            if enabled == 'true':
-                wait_for(f'{service} consumers enabled', lambda: all(queue(q)['consumers'] > 0 for q in queues))
-                if service == 'ircs-ingestion-worker':
-                    ingestion_round_trip()
-            else:
-                wait_for(f'{service} consumers disabled', lambda: all(queue(q)['consumers'] == 0 for q in queues))
-            print(f'{service}: runtime {flag}={enabled} verified', flush=True)
-            assert not stop(), f'{service}: Native transport errors'
-            wait_for('consumer shutdown', lambda: all(queue(q)['consumers'] == 0 for q in queues))
-    checked = {case[0] for case in cases}
-    failures = []
-    for service in json.loads(os.environ['JAVA_IMAGES']):
-        if service in checked or service == 'ircs-migrator':
-            continue
-        values = {}
-        if service == 'ircs-storage-service':
-            values = {'APP_STORAGE_R2_ENABLED': 'true', 'APP_STORAGE_R2_ACCOUNT_ID': 'native-smoke',
-                      'APP_STORAGE_R2_ACCESS_KEY': password, 'APP_STORAGE_R2_SECRET_KEY': password,
-                      'APP_STORAGE_R2_ENDPOINT': 'http://127.0.0.1:9'}
-        if service == 'ircs-ops-service':
-            values['APP_OPS_RUNTIME_DLQ_REPLAY_WORKER_ENABLED'] = 'false'
-        if service == 'ircs-api-gateway':
-            values['APP_GATEWAY_OPS_BASE_URL'] = 'http://127.0.0.1:9'
-        try:
-            start(service, values)
+def main():
+    cases = [
+        ('ircs-ingestion-worker', 'APP_INGESTION_LISTENER_ENABLED', ['q.ingest.video', 'q.process.playlist_sync']),
+        ('ircs-content-service', 'APP_CONTENT_LISTENER_ENABLED', ['q.storage.image_unlink']),
+        ('ircs-interaction-service', 'APP_INTERACTION_LISTENER_ENABLED', ['q.interaction.watch_progress']),
+    ]
+    try:
+        for service, flag, queues in cases:
+            if service not in selected_services:
+                continue
+            for enabled in ('false', 'true'):
+                start(service, {flag: enabled})
+                if enabled == 'true':
+                    wait_for(f'{service} consumers enabled', lambda: all(queue(q)['consumers'] > 0 for q in queues))
+                    if service == 'ircs-ingestion-worker':
+                        ingestion_round_trip()
+                else:
+                    wait_for(f'{service} consumers disabled', lambda: all(queue(q)['consumers'] == 0 for q in queues))
+                print(f'{service}: runtime {flag}={enabled} verified', flush=True)
+                assert not stop(), f'{service}: Native transport errors'
+                wait_for('consumer shutdown', lambda: all(queue(q)['consumers'] == 0 for q in queues))
+        checked = {case[0] for case in cases}
+        failures = []
+        for service in sorted(selected_services):
+            if service in checked or service == 'ircs-migrator':
+                continue
+            values = {}
+            if service == 'ircs-storage-service':
+                values = {'APP_STORAGE_R2_ENABLED': 'true', 'APP_STORAGE_R2_ACCOUNT_ID': 'native-smoke',
+                          'APP_STORAGE_R2_ACCESS_KEY': password, 'APP_STORAGE_R2_SECRET_KEY': password,
+                          'APP_STORAGE_R2_ENDPOINT': 'http://127.0.0.1:9'}
             if service == 'ircs-ops-service':
-                runtime_queue_buffer_probe()
-                gateway_forwarding_probe(service)
-            if service == 'ircs-identity-service':
-                gateway_forwarding_probe(service)
+                values['APP_OPS_RUNTIME_DLQ_REPLAY_WORKER_ENABLED'] = 'false'
             if service == 'ircs-api-gateway':
-                gateway_config_cache_probe()
-            print(f'{service}: Native application startup and pool budget verified', flush=True)
-        except Exception as error:
-            failures.append(f'{service}: {error}')
-            print(f'Native startup failed: {service}: {error}', flush=True)
-        finally:
-            failures.extend(f'{service}: {error}' for error in stop())
-    assert not failures, failures
-finally:
-    stop()
+                values['APP_GATEWAY_OPS_BASE_URL'] = 'http://127.0.0.1:9'
+            try:
+                start(service, values)
+                if service == 'ircs-ops-service':
+                    runtime_queue_buffer_probe()
+                    gateway_forwarding_probe(service)
+                if service == 'ircs-identity-service':
+                    gateway_forwarding_probe(service)
+                if service == 'ircs-api-gateway':
+                    gateway_config_cache_probe()
+                print(f'{service}: Native application startup and pool budget verified', flush=True)
+            except Exception as error:
+                failures.append(f'{service}: {error}')
+                print(f'Native startup failed: {service}: {error}', flush=True)
+            finally:
+                failures.extend(f'{service}: {error}' for error in stop())
+        # A changed gateway must exercise both forwarding contracts with unchanged
+        # verified backend fixtures; their versions remain the ledger versions.
+        if 'ircs-api-gateway' in selected_services:
+            for backend in ('ircs-ops-service', 'ircs-identity-service'):
+                if backend in selected_services:
+                    continue
+                values = {'APP_OPS_RUNTIME_DLQ_REPLAY_WORKER_ENABLED': 'false'} if backend == 'ircs-ops-service' else {}
+                try:
+                    start(backend, values)
+                    gateway_forwarding_probe(backend)
+                except Exception as error:
+                    failures.append(f'{backend} baseline fixture: {error}')
+                finally:
+                    failures.extend(f'{backend} fixture: {error}' for error in stop())
+        assert not failures, failures
+    finally:
+        stop()
+
+
+if __name__ == '__main__':
+    main()

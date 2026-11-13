@@ -1,5 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Resolve only required fixture images. Baseline references are immutable
+# multiarch manifests; selected applications use this candidate's arch images.
+MIGRATOR_IMAGE="$(python3 - <<'PY'
+import json, os
+selected = set(json.loads(os.environ['JAVA_IMAGES']))
+assert selected, 'A runtime smoke requires selected Java images'
+refs = json.loads(os.environ.get('IMAGE_REFS_JSON', '{}'))
+versions = json.loads(os.environ.get('MODULE_VERSIONS_JSON', '{}'))
+required = {'ircs-migrator'}
+if 'ircs-api-gateway' in selected:
+    required.update({'ircs-ops-service', 'ircs-identity-service'})
+if selected & {'ircs-ops-service', 'ircs-identity-service'}:
+    required.add('ircs-api-gateway')
+for fixture in required - selected:
+    assert refs.get(fixture) and versions.get(fixture), 'Missing immutable baseline fixture: ' + fixture
+image = (os.environ['REGISTRY'] + '/ircs-migrator:' + os.environ['RELEASE_TAG'] + '-' + os.environ['NATIVE_ARCH']
+         if 'ircs-migrator' in selected else refs['ircs-migrator'])
+print(image)
+PY
+)"
+if [[ "$JAVA_IMAGES" == '["ircs-migrator"]' ]]; then
+  bash backend/scripts/ci/native-smoke.sh ircs-migrator "$MIGRATOR_IMAGE"
+  exit 0
+fi
 CI_PASSWORD="$(openssl rand -hex 24)"
 export CI_PASSWORD
 printf '::add-mask::%s\n' "$CI_PASSWORD"
@@ -51,5 +75,5 @@ done
 docker run --name ircs-native-migrator --network ircs-native-consumers \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://ircs-native-postgres:5432/ircs \
   -e SPRING_DATASOURCE_USERNAME=ircs -e SPRING_DATASOURCE_PASSWORD="$CI_PASSWORD" \
-  "${REGISTRY}/ircs-migrator:${RELEASE_TAG}-${NATIVE_ARCH}" -Xmx256m
+  "$MIGRATOR_IMAGE" -Xmx256m
 python3 backend/scripts/ci/native-consumer-smoke.py

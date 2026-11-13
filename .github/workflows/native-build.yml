@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       build_scope:
-        description: all or comma-separated Java service image names
-        default: all
+        description: auto, all, or comma-separated images to add to pending changes
+        default: auto
         required: false
 
 permissions:
@@ -24,23 +24,117 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       images: ${{ steps.matrix.outputs.images }}
       registry: ${{ steps.matrix.outputs.registry }}
+      selected_images: ${{ steps.matrix.outputs.selected_images }}
+      has_selected: ${{ steps.matrix.outputs.has_selected }}
+      java_tests: ${{ steps.matrix.outputs.java_tests }}
+      java_test_modules: ${{ steps.matrix.outputs.java_test_modules }}
+      python_changed: ${{ steps.matrix.outputs.python_changed }}
+      python_tests: ${{ steps.matrix.outputs.python_tests }}
+      frontends: ${{ steps.matrix.outputs.frontends }}
+      frontend_tests: ${{ steps.matrix.outputs.frontend_tests }}
+      frontend_matrix: ${{ steps.matrix.outputs.frontend_matrix }}
+      frontend_test_matrix: ${{ steps.matrix.outputs.frontend_test_matrix }}
+      image_refs: ${{ steps.matrix.outputs.image_refs }}
+      module_versions: ${{ steps.matrix.outputs.module_versions }}
       version: ${{ steps.release.outputs.version }}
       release_tag: ${{ steps.release.outputs.release_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Verify unified release version
+      - name: Verify release metadata
         run: python3 .github/scripts/check-version.py
-      - id: release
-        run: python3 .github/scripts/release-info.py
-      - id: matrix
+      - name: CI planner and publishing-script regression
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 -m unittest discover -s backend/scripts/ci -p 'test_*.py' -v
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes=
+      - id: fast
+        name: Plan this event without accessing private credentials
         env:
-          BUILD_SCOPE: ${{ inputs.build_scope || 'all' }}
-        run: python3 backend/scripts/ci/native-matrix.py
+          EVENT_BEFORE: ${{ github.event.before }}
+          FORCE_SCOPE: ${{ inputs.build_scope || 'auto' }}
+        run: |
+          set -euo pipefail
+          base_args=()
+          if [[ -n "$EVENT_BEFORE" && ! "$EVENT_BEFORE" =~ ^0+$ ]]; then
+            base_args=(--base "$EVENT_BEFORE")
+          fi
+          python3 .github/scripts/affected-plan.py "${base_args[@]}" --head "$GITHUB_SHA" --output "$RUNNER_TEMP/fast-plan.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'fast-plan.json').read_text())
+          applications = bool(plan['java_images'] or plan['frontends'] or plan['python_changed'])
+          applications = applications or os.environ['FORCE_SCOPE'] not in ('', 'auto')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('application_changes=' + str(applications).lower() + '\n')
+          PY
+          cp "$RUNNER_TEMP/fast-plan.json" "$RUNNER_TEMP/affected-plan.json"
+      - name: Read last promoted component ledger and include unpromoted changes
+        if: steps.fast.outputs.application_changes == 'true'
+        env:
+          GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          key_file="$(mktemp "$RUNNER_TEMP/ircs-plan-key.XXXXXX")"
+          hosts_file="$(mktemp "$RUNNER_TEMP/ircs-plan-hosts.XXXXXX")"
+          clone_dir="$(mktemp -d "$RUNNER_TEMP/ircs-plan-gitops.XXXXXX")"
+          trap 'rm -f "$key_file" "$hosts_file"; rm -rf "$clone_dir"' EXIT
+          test -n "$GITOPS_DEPLOY_KEY"
+          printf '%s\n' "$GITOPS_DEPLOY_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$hosts_file"
+          export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$hosts_file"
+          git clone --depth 1 git@github.com:Prodigalgal/k8s-gitops-config.git "$clone_dir"
+          if [[ -f "$clone_dir/ircs-prod/core/release-state.json" ]]; then
+            cp "$clone_dir/ircs-prod/core/release-state.json" "$RUNNER_TEMP/release-state.json"
+            baseline="$(python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          value = json.loads((Path(os.environ['RUNNER_TEMP']) / 'release-state.json').read_text())
+          revision = value.get('source_revision', '')
+          assert value.get('schema_version') == 1 and re.fullmatch('[0-9a-f]{40}', revision), 'Invalid release-state baseline'
+          print(revision)
+          PY
+            )"
+            git merge-base --is-ancestor "$baseline" "$GITHUB_SHA"
+            python3 .github/scripts/affected-plan.py --base "$baseline" --head "$GITHUB_SHA" --output "$RUNNER_TEMP/affected-plan.json"
+          else
+            python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'fast-plan.json').read_text())
+          assert plan['initial'], 'Seed release-state.json before an incremental application release'
+          PY
+          fi
+      - id: matrix
+        name: Select only affected build and test matrices
+        env:
+          BUILD_SCOPE: ${{ inputs.build_scope || 'auto' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'affected-plan.json').read_text())
+          assert not plan['removed_java_images'], 'Removed applications need an explicit GitOps deletion review'
+          PY
+          python3 backend/scripts/ci/native-matrix.py --plan "$RUNNER_TEMP/affected-plan.json" --baseline "$RUNNER_TEMP/release-state.json"
+      - id: release
+        if: steps.matrix.outputs.has_selected == 'true'
+        name: Verify reserved immutable application candidate
+        run: python3 .github/scripts/release-info.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: affected-plan
+          path: ${{ runner.temp }}/affected-plan.json
+          retention-days: 14
 
   java-tests:
     needs: prepare
+    if: needs.prepare.outputs.java_tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -72,8 +166,14 @@ jobs:
           java-version: '25'
           check-latest: true
           cache: gradle
-      - name: Full Java regression suite
-        run: chmod +x gradlew && ./gradlew --no-daemon --console=plain --continue test
+      - name: Affected Java regression suite
+        env:
+          JAVA_TEST_MODULES: ${{ needs.prepare.outputs.java_test_modules }}
+        run: |
+          chmod +x gradlew
+          mapfile -t tasks < <(python3 -c 'import json, os; print("\n".join(":" + module + ":test" for module in json.loads(os.environ["JAVA_TEST_MODULES"])))')
+          test "${#tasks[@]}" -gt 0
+          ./gradlew --no-daemon --console=plain --continue "${tasks[@]}"
       - name: Test evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -84,6 +184,7 @@ jobs:
 
   python-tests:
     needs: prepare
+    if: needs.prepare.outputs.python_tests == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -105,6 +206,7 @@ jobs:
   native-images:
     name: Native ${{ matrix.image }} / ${{ matrix.arch }}
     needs: [prepare, java-tests]
+    if: needs.prepare.outputs.images != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -168,6 +270,7 @@ jobs:
   python-images:
     name: Python image / ${{ matrix.arch }}
     needs: [prepare, python-tests]
+    if: needs.prepare.outputs.python_changed == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
@@ -221,13 +324,13 @@ jobs:
 
   frontend-tests:
     needs: prepare
+    if: needs.prepare.outputs.frontend_tests != '[]'
     name: Frontend ${{ matrix.frontend }} checks
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      matrix:
-        frontend: [admin, huawai]
+      matrix: ${{ fromJSON(needs.prepare.outputs.frontend_test_matrix) }}
     defaults:
       run:
         working-directory: frontends/${{ matrix.frontend }}
@@ -246,7 +349,9 @@ jobs:
       - run: npm run lint
       - run: npm test --if-present
       - run: npm run build
+        if: contains(fromJSON(needs.prepare.outputs.frontends), matrix.frontend)
       - name: Package compiled frontend
+        if: contains(fromJSON(needs.prepare.outputs.frontends), matrix.frontend)
         run: |
           if [[ "$FRONTEND" == admin ]]; then
             tar -czf frontend-dist.tar.gz -C dist .
@@ -258,6 +363,7 @@ jobs:
             tar -czf frontend-dist.tar.gz -C frontend-build .
           fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: contains(fromJSON(needs.prepare.outputs.frontends), matrix.frontend)
         with:
           name: frontend-${{ matrix.frontend }}-${{ github.sha }}
           path: frontends/${{ matrix.frontend }}/frontend-dist.tar.gz
@@ -266,6 +372,7 @@ jobs:
   frontend-images:
     name: Frontend ${{ matrix.frontend }} / ${{ matrix.arch }}
     needs: [prepare, frontend-tests]
+    if: needs.prepare.outputs.frontends != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -273,24 +380,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - frontend: admin
-            image: ircs-admin-frontend
-            arch: amd64
-            runner: ubuntu-24.04
-          - frontend: admin
-            image: ircs-admin-frontend
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - frontend: huawai
-            image: ircs-huawai-frontend
-            arch: amd64
-            runner: ubuntu-24.04
-          - frontend: huawai
-            image: ircs-huawai-frontend
-            arch: arm64
-            runner: ubuntu-24.04-arm
+      matrix: ${{ fromJSON(needs.prepare.outputs.frontend_matrix) }}
     env:
       IMAGE: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:${{ needs.prepare.outputs.release_tag }}-${{ matrix.arch }}
     steps:
@@ -333,7 +423,7 @@ jobs:
   native-consumer-smoke:
     name: Native service runtime / ${{ matrix.arch }}
     needs: [prepare, native-images]
-    if: inputs.build_scope == '' || inputs.build_scope == 'all'
+    if: needs.prepare.outputs.images != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -359,11 +449,17 @@ jobs:
           APP_VERSION: ${{ needs.prepare.outputs.version }}
           NATIVE_ARCH: ${{ matrix.arch }}
           JAVA_IMAGES: ${{ needs.prepare.outputs.images }}
+          IMAGE_REFS_JSON: ${{ needs.prepare.outputs.image_refs }}
+          MODULE_VERSIONS_JSON: ${{ needs.prepare.outputs.module_versions }}
         run: bash backend/scripts/ci/native-consumer-smoke.sh
 
   manifests:
     needs: [prepare, native-images, native-consumer-smoke, python-images, frontend-images]
-    if: ${{ !cancelled() && !failure() }}
+    if: >-
+      ${{ always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.has_selected == 'true'
+          && (needs.prepare.outputs.images == '[]' || (needs.native-images.result == 'success' && needs.native-consumer-smoke.result == 'success'))
+          && (needs.prepare.outputs.python_changed != 'true' || needs.python-images.result == 'success')
+          && (needs.prepare.outputs.frontends == '[]' || needs.frontend-images.result == 'success') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -378,13 +474,13 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Assemble verified multiarch images
         env:
-          IMAGES: ${{ needs.prepare.outputs.images }}
+          IMAGES: ${{ needs.prepare.outputs.selected_images }}
           REGISTRY: ${{ needs.prepare.outputs.registry }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
         run: |
           python3 - <<'PY' > images.txt
           import json, os
-          print('\n'.join(json.loads(os.environ['IMAGES']) + ['ircs-adult-classifier-service', 'ircs-admin-frontend', 'ircs-huawai-frontend']))
+          print('\n'.join(json.loads(os.environ['IMAGES'])))
           PY
           while IFS= read -r image; do
             target="${REGISTRY}/${image}:${RELEASE_TAG}"
@@ -401,7 +497,7 @@ jobs:
   gitops:
     name: Promote verified V3 images to GitOps
     needs: [prepare, manifests]
-    if: github.ref == 'refs/heads/main' && (inputs.build_scope == '' || inputs.build_scope == 'all')
+    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.has_selected == 'true' && needs.manifests.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -414,6 +510,8 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           APP_VERSION: ${{ needs.prepare.outputs.version }}
           JAVA_IMAGES: ${{ needs.prepare.outputs.images }}
+          SELECTED_IMAGES: ${{ needs.prepare.outputs.selected_images }}
+          REGISTRY: ${{ needs.prepare.outputs.registry }}
         run: |
           set -euo pipefail
           key_file="${RUNNER_TEMP}/ircs-v3-gitops-key"
@@ -432,7 +530,7 @@ jobs:
           git clone --depth 1 git@github.com:Prodigalgal/k8s-gitops-config.git gitops
           python3 .github/scripts/update-gitops.py gitops
           kubectl kustomize gitops/ircs-prod/core > /dev/null
-          kubectl kustomize gitops/ircs-prod/edge > /dev/null
+          kubectl kustomize gitops/ircs-prod/edge-cutover > /dev/null
           git -C gitops add ircs-prod/core
           if git -C gitops diff --cached --quiet; then
             echo 'GitOps already references this revision.' >> "$GITHUB_STEP_SUMMARY"
