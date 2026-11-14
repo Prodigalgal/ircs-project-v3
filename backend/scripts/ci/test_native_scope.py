@@ -112,6 +112,40 @@ class NativeRuntimeScopeTest(unittest.TestCase):
         self.assertNotIn('APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED', values)
         self.assertNotIn('APP_AGGREGATION_AUTO_UNIFIED_MERGE_ENABLED', values)
 
+    def test_normalization_only_runs_actual_text_consumption_probe(self):
+        self.smoke.selected_services = {'ircs-normalization-worker'}
+        starts, probes = [], []
+        self.smoke.start = lambda service, values, **kwargs: starts.append(service)
+        self.smoke.stop = lambda *args: []
+        self.smoke.normalization_round_trip = lambda: probes.append(True)
+        self.smoke.main()
+        self.assertEqual(['ircs-normalization-worker'], starts)
+        self.assertEqual([True], probes)
+
+    def normalization_docker(self, title='国王的演讲'):
+        def respond(*args):
+            if 'HGET' in args:
+                return 'SUCCESS'
+            if 'ZCARD' in args:
+                return '1'
+            if args[-1].startswith('select json_build_object'):
+                return json.dumps({'status': 'READY', 'title': title, 'description': '音乐与繁体国语'})
+            return ''
+        return respond
+
+    def test_normalization_probe_requires_durable_conversion_and_both_handoffs(self):
+        with patch.object(self.smoke, 'docker', side_effect=self.normalization_docker()) as runtime:
+            self.smoke.normalization_round_trip()
+        args = [call.args for call in runtime.call_args_list]
+        self.assertTrue(any('HGET' in command for command in args))
+        for queue in ('pipeline.enrich-metadata', 'aggregation.raw-video'):
+            self.assertTrue(any(command[-1] == 'ircs:work:v1:' + queue + ':pending' for command in args))
+
+    def test_normalization_probe_rejects_an_unconverted_native_title(self):
+        with patch.object(self.smoke, 'docker', side_effect=self.normalization_docker('國王的演講')):
+            with self.assertRaisesRegex(AssertionError, 'title conversion'):
+                self.smoke.normalization_round_trip()
+
     def aggregation_http(self, requests):
         def respond(request, timeout):
             payload = json.loads(request.data)

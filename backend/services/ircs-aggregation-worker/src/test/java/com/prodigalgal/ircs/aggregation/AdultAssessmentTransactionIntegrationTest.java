@@ -343,6 +343,18 @@ class AdultAssessmentTransactionIntegrationTest {
         assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isEqualTo("123");
     }
 
+    @Test
+    void pendingBackfillSelectsReadyInputsWithoutDemotingExistingBoundMembers() {
+        jdbc.update("update raw_videos set aggregation_status='PENDING' where id=?", rawId);
+        jdbc.update("insert into raw_videos(id,title,normalization_status,aggregation_status) values (?, 'Not ready', 'PENDING', 'PENDING')",
+                UUID.randomUUID());
+        jdbc.update("insert into raw_videos(id,title,enrichment_status,aggregation_status) values (?, 'Waiting metadata', 'PENDING', 'PENDING')",
+                UUID.randomUUID());
+        jdbc.update("insert into raw_videos(id,title,aggregation_status) values (?, ' ', 'PENDING')", UUID.randomUUID());
+        jdbc.update("insert into raw_videos(id,title,aggregation_status) values (?, 'Already bound', 'BOUND')", UUID.randomUUID());
+        assertThat(repository.findEligiblePendingRawIds(10)).containsExactly(rawId);
+    }
+
     private AdultAssessmentSnapshot capture() {
         TransactionTemplate read = new TransactionTemplate(manager);
         read.setReadOnly(true);

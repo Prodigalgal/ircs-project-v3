@@ -5,6 +5,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.github.houbb.opencc4j.util.ZhJpConverterUtil;
 import com.hankcs.hanlp.HanLP;
 import com.hankcs.hanlp.dictionary.other.CharTable;
+import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.HashSet;
@@ -76,6 +77,14 @@ public class RawVideoTextNormalizer {
         this.objectMapper = objectMapper;
         this.descriptionMetadataExtractor = descriptionMetadataExtractor;
         this.rawRelationAliasPolicy = rawRelationAliasPolicy;
+    }
+
+    @PostConstruct
+    public void verifyRuntimeSupport() {
+        String converted = standardize("繁體國語與音楽 ABC");
+        if (!converted.contains("繁体国语") || !converted.contains("音乐") || !converted.contains("ABC")) {
+            throw new IllegalStateException("Text conversion dictionaries did not produce the required normalized output");
+        }
     }
 
     public RawVideoPatch normalize(RawVideoRecord record, JsonNode metadata) {

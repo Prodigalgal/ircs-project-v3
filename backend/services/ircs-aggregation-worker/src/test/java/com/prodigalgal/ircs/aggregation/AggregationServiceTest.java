@@ -599,7 +599,7 @@ class AggregationServiceTest {
     void enqueuePendingRawWorkPublishesRuntimeWorkForPendingRawVideos() {
         UUID firstRawVideoId = UUID.randomUUID();
         UUID secondRawVideoId = UUID.randomUUID();
-        when(repository.findPendingRawIdsWithoutRuntimeProgress(50))
+        when(repository.findEligiblePendingRawIds(50))
                 .thenReturn(List.of(firstRawVideoId, secondRawVideoId));
 
         var result = service.enqueuePendingRawWork(50);

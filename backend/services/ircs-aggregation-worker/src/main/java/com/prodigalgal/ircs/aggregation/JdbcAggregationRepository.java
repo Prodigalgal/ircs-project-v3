@@ -226,12 +226,15 @@ public class JdbcAggregationRepository {
                 UUID.class);
     }
 
-    public List<UUID> findPendingRawIdsWithoutRuntimeProgress(int limit) {
+    public List<UUID> findEligiblePendingRawIds(int limit) {
         return jdbcTemplate.queryForList(
                 """
                 select rv.id
                 from raw_videos rv
                 where rv.aggregation_status = 'PENDING'
+                  and rv.normalization_status = 'READY'
+                  and rv.enrichment_status is distinct from 'PENDING'
+                  and nullif(trim(rv.title), '') is not null
                 order by rv.aggregation_status_updated_at asc nulls first, rv.updated_at asc nulls first, rv.id
                 limit :limit
                 """,

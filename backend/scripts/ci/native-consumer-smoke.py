@@ -352,6 +352,47 @@ def ingestion_round_trip():
     print('Native ingestion persisted one video, consumed playlist sync and deduplicated normalization work.', flush=True)
 
 
+def normalization_round_trip():
+    import uuid
+
+    raw_id = str(uuid.uuid4())
+    version = 'native-normalization-v1'
+    source_hash = 'native-normalization-' + raw_id
+    metadata = json.dumps({'title': '國王的演講', 'description': '音楽與繁體國語', 'year': '2010'}, ensure_ascii=False)
+    docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-v', 'ON_ERROR_STOP=1', '-c',
+           "INSERT INTO raw_videos(id,created_at,updated_at,version,source_vid,source_hash,data_hash,title,description,"
+           "raw_metadata,normalization_status,enrichment_status,aggregation_status) VALUES('" + raw_id + "',now(),now(),0,"
+           "'native-normalization','" + source_hash + "','" + version + "','國王的演講','音楽與繁體國語','"
+           + metadata.replace("'", "''") + "'::jsonb,'PENDING','PENDING','PENDING')")
+    task_type = 'pipeline.normalize-video'
+    task_id = task_type + ':' + raw_id + ':' + version
+    prefix = 'ircs:work:v1:' + task_type
+    task_key = prefix + ':task:' + task_id
+    now = str(int(time.time() * 1000))
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HSET', task_key,
+           'taskType', task_type, 'taskId', task_id, 'submissionId', 'native-normalization-' + raw_id,
+           'aggregateId', raw_id, 'version', version, 'payload', '{}', 'status', 'PENDING',
+           'attempt', '0', 'attemptCycleStart', '0', 'createdAt', now, 'updatedAt', now, 'dueAt', now,
+           'ownerId', '', 'visibleAt', '', 'lastError', '')
+    docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZADD', prefix + ':pending', now, task_id)
+
+    def consumed():
+        return docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HGET', task_key, 'status') == 'SUCCESS'
+
+    wait_for('Native normalization consumed actual Chinese/Japanese text', consumed)
+    row = json.loads(docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc',
+                            "select json_build_object('status',normalization_status,'title',title,'description',description) "
+                            "from raw_videos where id='" + raw_id + "'"))
+    assert row['status'] == 'READY', 'Native normalization did not persist READY'
+    assert row['title'] == '国王的演讲', 'Native title conversion did not use the expected dictionaries'
+    assert '音乐' in row['description'], 'Native Japanese variant conversion failed'
+    assert int(docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZCARD',
+                      'ircs:work:v1:pipeline.enrich-metadata:pending')) > 0, 'Metadata handoff was not persisted'
+    assert int(docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZCARD',
+                      'ircs:work:v1:aggregation.raw-video:pending')) > 0, 'Aggregation handoff was not persisted'
+    print('Native normalization: actual text conversion, durable task completion and downstream handoff verified.', flush=True)
+
+
 def aggregation_evaluation_probe():
     import uuid
 
@@ -447,6 +488,8 @@ def main():
                 start(service, values)
                 if service == 'ircs-aggregation-worker':
                     aggregation_evaluation_probe()
+                if service == 'ircs-normalization-worker':
+                    normalization_round_trip()
                 if service == 'ircs-ops-service':
                     runtime_queue_buffer_probe()
                     gateway_forwarding_probe(service)

@@ -16,6 +16,11 @@ class RawVideoTextNormalizerTest {
     private final RawVideoTextNormalizer normalizer = defaultNormalizer();
 
     @Test
+    void verifiesRealDictionaryAndJapaneseVariantSupportBeforeAcceptingWork() {
+        normalizer.verifyRuntimeSupport();
+    }
+
+    @Test
     void respectsLockedTitleAndNormalizesOtherFields() throws Exception {
         RawVideoRecord record = record("[\"title\"]", "Manual Fixed Title", null, null);
         JsonNode metadata = objectMapper.readTree("""

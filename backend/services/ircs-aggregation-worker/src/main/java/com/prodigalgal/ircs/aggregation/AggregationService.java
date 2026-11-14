@@ -325,7 +325,7 @@ public class AggregationService {
 
     @Transactional
     public AggregationMaintenanceRunResponse enqueuePendingRawWork(int limit) {
-        List<UUID> rawVideoIds = repository.findPendingRawIdsWithoutRuntimeProgress(Math.max(1, limit));
+        List<UUID> rawVideoIds = repository.findEligiblePendingRawIds(Math.max(1, limit));
         for (UUID rawVideoId : rawVideoIds) {
             workPublisher.enqueue(rawVideoId, null, "aggregation-pending-backfill");
         }

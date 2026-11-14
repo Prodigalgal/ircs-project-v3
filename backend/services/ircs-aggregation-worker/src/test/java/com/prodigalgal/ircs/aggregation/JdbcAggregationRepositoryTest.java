@@ -536,18 +536,21 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
-    void findPendingRawIdsWithoutRuntimeProgressSelectsPendingRawVideosOnly() {
+    void findEligiblePendingRawIdsSelectsPendingRawVideosOnly() {
         UUID rawVideoId = UUID.randomUUID();
         JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy);
         when(jdbcTemplate.queryForList(any(String.class), any(MapSqlParameterSource.class), eq(UUID.class)))
                 .thenReturn(List.of(rawVideoId));
 
-        List<UUID> result = repository.findPendingRawIdsWithoutRuntimeProgress(25);
+        List<UUID> result = repository.findEligiblePendingRawIds(25);
 
         assertEquals(List.of(rawVideoId), result);
         verify(jdbcTemplate).queryForList(sqlCaptor.capture(), paramsCaptor.capture(), eq(UUID.class));
         assertTrue(sqlCaptor.getValue().contains("from raw_videos rv"));
         assertTrue(sqlCaptor.getValue().contains("where rv.aggregation_status = 'PENDING'"));
+        assertTrue(sqlCaptor.getValue().contains("rv.normalization_status = 'READY'"));
+        assertTrue(sqlCaptor.getValue().contains("rv.enrichment_status is distinct from 'PENDING'"));
+        assertTrue(sqlCaptor.getValue().contains("nullif(trim(rv.title), '') is not null"));
         assertEquals(25, paramsCaptor.getValue().getValue("limit"));
     }
 
