@@ -163,7 +163,7 @@ class QueueGaugeSnapshot {
         }
     }
 
-    private int property(Properties properties, String key) {
+    private int property(Properties properties, Object key) {
         Object value = properties.get(key);
         if (!(value instanceof Number number)) {
             throw new IllegalStateException("Rabbit queue count unavailable: " + key);
