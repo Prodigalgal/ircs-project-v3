@@ -21,6 +21,7 @@ public final class NormalizationRuntimeHints implements RuntimeHintsRegistrar {
             hints.reflection().registerType(TypeReference.of("com.github.houbb.opencc4j." + type),
                     MemberCategory.INVOKE_DECLARED_CONSTRUCTORS);
         }
-        hints.resources().registerPattern("data/dictionary/**", "hanlp.properties");
+        hints.resources().registerPattern("data/dictionary/**");
+        hints.resources().registerPattern("hanlp.properties");
     }
 }

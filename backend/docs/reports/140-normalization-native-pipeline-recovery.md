@@ -1,6 +1,6 @@
 # 规范化 Native 运行阻断与聚合上游恢复
 
-2026-11-14，3.4.3 候选，待 GitHub Actions 验证。本文记录代码改造和运行证据，不代表历史任务已经恢复。
+2026-11-14，3.4.4 候选，待 GitHub Actions 验证。本文记录代码改造和运行证据，不代表历史任务已经恢复。
 
 生产只读统计发现，7,937 条聚合 PENDING 中，7,174 条仍是 normalization=PENDING / enrichment=PENDING；666 条 READY/SUCCESS，71 条 READY/PENDING，26 条 READY/PERMANENT_FAILURE。Ops 队列指标同时记录 normalization DLQ=7,270、inflight=200。规范化日志持续出现 `NoClassDefFoundError: Could not initialize class com.github.houbb.opencc4j.util.ZhJpConverterUtil`，这会使错误逃出 RuntimeException 分支，留下等待超时回收的 claim。以上为当时快照，不能将队列数量与数据库记录逐条等同。
 
@@ -13,3 +13,5 @@ Native runtime smoke 新增实际规范化队列任务：隔离 PostgreSQL 插�
 聚合补入队查询同步只选 READY、补全不再 PENDING、标题非空的聚合 PENDING 输入，避免 7,174 条上游未就绪记录占满人工补回批次，先推进已经满足条件的输入。等待中的已有任务仍沿用持久 defer，不删除或重置任何状态。
 
 为停止无效重试，GitOps `e56ac38` 临时将 normalization 副本从 1 改为 0，并加 `normalization-native-repair-hold` 注解；aggregation audit hold 继续保持。未执行全量 reset、删除 DLQ 或清空数据。恢复须在候选门禁通过后移除对应 hold，先观察有界批次的 READY、下游交接、错误率和连接占用，再推进历史积压。回滚使用上一不可变镜像并重新保持消费暂停；原有业务引用与数据保留。
+
+3.4.3 / [43578323293](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43578323293) 因本轮新增 hints 使用了当前 Spring 不支持的双字符串 `registerPattern` 调用而在编译阶段失败；已拆为单独资源注册。该候选没有进入 Native 构建或生产发布，后续使用新的 3.4.4 版本。
