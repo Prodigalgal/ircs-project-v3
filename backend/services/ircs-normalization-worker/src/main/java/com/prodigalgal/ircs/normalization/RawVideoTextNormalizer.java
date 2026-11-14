@@ -4,10 +4,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.github.houbb.opencc4j.util.ZhJpConverterUtil;
 import com.hankcs.hanlp.HanLP;
-import com.hankcs.hanlp.dictionary.other.CharTable;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
-import java.text.Normalizer;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -26,9 +24,9 @@ public class RawVideoTextNormalizer {
 
     private static final Pattern YEAR_PATTERN = Pattern.compile("(?:18|19|20)\\d{2}");
     private static final Pattern SPACE_PATTERN = Pattern.compile("\\s+");
-    private static final Pattern EDGE_SYMBOLS = Pattern.compile("^[^a-zA-Z0-9\\u4e00-\\u9fa5]+|[^a-zA-Z0-9\\u4e00-\\u9fa5]+$");
-    private static final Pattern TITLE_LEADING_EDGE_SYMBOLS = Pattern.compile("^[^a-zA-Z0-9\\u4e00-\\u9fa5]+");
-    private static final Pattern TITLE_TRAILING_EDGE_SYMBOLS = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5)]+$");
+    private static final Pattern EDGE_SYMBOLS = Pattern.compile("^[^\\p{L}\\p{M}\\p{N}]+|[^\\p{L}\\p{M}\\p{N}]+$");
+    private static final Pattern TITLE_LEADING_EDGE_SYMBOLS = Pattern.compile("^[^\\p{L}\\p{M}\\p{N}]+");
+    private static final Pattern TITLE_TRAILING_EDGE_SYMBOLS = Pattern.compile("[^\\p{L}\\p{M}\\p{N})]+$");
     private static final Pattern BRACKET_YEAR_PATTERN = Pattern.compile("[\\[(]\\s*(?:18|19|20)\\d{2}\\s*[\\])]");
     private static final Pattern LEADING_RELEASE_GROUP_PATTERN = Pattern.compile(
             "(?i)^(?:\\[[a-z0-9][a-z0-9._ -]{1,31}]|\\([a-z0-9][a-z0-9._ -]{1,31}\\))\\s*");
@@ -50,8 +48,6 @@ public class RawVideoTextNormalizer {
     private static final Pattern BRACKET_CONTENT = Pattern.compile("\\[([^]]*)(\\]|$)");
     private static final Pattern BILINGUAL_NUMBER_REPEAT = Pattern.compile(
             "^(.+?)(\\d+)\\s+([a-zA-Z0-9\\s\\p{Punct}]+)\\s+\\2$");
-    private static final Pattern SCRIPT_BOUNDARY = Pattern.compile(
-            "(?<=\\p{IsHan})(?=\\p{IsLatin})|(?<=\\p{IsLatin})(?=\\p{IsHan})");
     private static final Pattern MONOLINGUAL_REPEAT = Pattern.compile("^(.+?)[\\s:：-]*\\1$");
     private static final Pattern CHINESE_ORDINAL = Pattern.compile("第([零一二三四五六七八九十百两]+)([季部])");
     private static final Pattern SEASON_PATTERN = Pattern.compile(
@@ -135,11 +131,15 @@ public class RawVideoTextNormalizer {
             }
         }
         if (!locked.contains("aliasTitle")) {
-            aliasTitle = cleanAliasTitle(
-                    firstText(metadata, aliasTitle, "aliasTitle", "subTitle", "alias"),
-                    title,
-                    season,
-                    subtitle);
+            String sourceAliases = firstText(metadata, aliasTitle, "aliasTitle", "subTitle", "alias");
+            String completeSourceTitle = cleanTitle(sourceTitle, year, false);
+            if (StringUtils.hasText(completeSourceTitle)
+                    && !completeSourceTitle.equals(removeRedundantBilingualTitle(completeSourceTitle))) {
+                sourceAliases = StringUtils.hasText(sourceAliases)
+                        ? sourceAliases + " / " + completeSourceTitle
+                        : completeSourceTitle;
+            }
+            aliasTitle = cleanAliasTitle(sourceAliases, title, season, subtitle);
         }
         if (!locked.contains("description")) {
             description = cleanDescription(firstText(metadata, description, "description", "desc", "plot"));
@@ -325,6 +325,10 @@ public class RawVideoTextNormalizer {
     }
 
     private String cleanTitle(String value, String year) {
+        return cleanTitle(value, year, true);
+    }
+
+    private String cleanTitle(String value, String year, boolean removeBilingualRepetition) {
         if (!StringUtils.hasText(value)) {
             return value;
         }
@@ -338,7 +342,9 @@ public class RawVideoTextNormalizer {
         title = BRACKET_YEAR_PATTERN.matcher(title).replaceAll(" ");
         title = normalizeChineseOrdinals(title);
         title = removeSelfRepetition(title);
-        title = removeRedundantBilingualTitle(title);
+        if (removeBilingualRepetition) {
+            title = removeRedundantBilingualTitle(title);
+        }
         title = RELEASE_NOISE.matcher(title).replaceAll("");
         title = processV1BracketContents(title);
         title = FILE_EXTENSION_PATTERN.matcher(title.trim()).replaceAll("");
@@ -346,11 +352,13 @@ public class RawVideoTextNormalizer {
         title = cleanTitleEdges(title);
         title = SPACE_PATTERN.matcher(title).replaceAll(" ").trim();
         String normalizedYear = normalizeYear(year);
-        if (StringUtils.hasText(normalizedYear) && title.endsWith(normalizedYear)) {
+        if (hasTrailingReleaseYear(title, normalizedYear)) {
             title = title.substring(0, title.length() - normalizedYear.length()).trim();
             title = cleanTitleEdges(title);
         }
-        title = removeRedundantBilingualTitle(title);
+        if (removeBilingualRepetition) {
+            title = removeRedundantBilingualTitle(title);
+        }
         title = SPACE_PATTERN.matcher(title).replaceAll(" ").trim();
         return title;
     }
@@ -389,7 +397,8 @@ public class RawVideoTextNormalizer {
                 Matcher compact = COMPACT_CN_SPLIT.matcher(processing);
                 if (compact.find()) {
                     String number = compact.group(2);
-                    if (!number.startsWith("0") && number.length() <= 2) {
+                    if (!number.startsWith("0") && number.length() <= 2
+                            && !continuesIdentityNumber(compact.group(3))) {
                         Integer parsed = parsePositiveSeason(number);
                         if (parsed != null) {
                             processing = compact.group(1).trim();
@@ -416,6 +425,8 @@ public class RawVideoTextNormalizer {
                 if (parsed != null
                         && !number.startsWith("0")
                         && potentialTitle.length() >= 2
+                        && containsHan(potentialTitle)
+                        && !potentialTitle.endsWith(".")
                         && !endsWithPartOrVolumeMarker(potentialTitle)) {
                     processing = potentialTitle;
                     season = parsed;
@@ -450,7 +461,10 @@ public class RawVideoTextNormalizer {
             }
         }
         matcher = UNICODE_ROMAN_PATTERN.matcher(value);
-        if (matcher.find()) {
+        while (matcher.find()) {
+            if (endsWithPartOrVolumeMarker(value.substring(0, matcher.start()))) {
+                continue;
+            }
             Integer season = parseUnicodeRoman(matcher.group());
             if (season != null) {
                 return new SeasonMatch(season, matcher.start(), matcher.end());
@@ -466,7 +480,7 @@ public class RawVideoTextNormalizer {
         String normalized = normalizeChineseOrdinals(normalizeTitleSymbols(standardize(value)));
         String compact = SPACE_PATTERN.matcher(normalized).replaceAll(" ").trim();
         if (compact.matches("[0-9]{1,3}")) {
-            return parsePositiveSeason(compact);
+            return parseNonNegativeSeason(compact);
         }
         Matcher matcher = SEASON_PATTERN.matcher(compact);
         if (!matcher.find()) {
@@ -487,9 +501,18 @@ public class RawVideoTextNormalizer {
         }
         String normalized = rawNumber.trim();
         if (normalized.matches("[0-9]{1,3}")) {
-            return parsePositiveSeason(normalized);
+            return parseNonNegativeSeason(normalized);
         }
         return parseRomanNumeral(normalized);
+    }
+
+    private Integer parseNonNegativeSeason(String rawNumber) {
+        try {
+            int parsed = Integer.parseInt(rawNumber);
+            return parsed >= 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private Integer parsePositiveSeason(String rawNumber) {
@@ -620,8 +643,7 @@ public class RawVideoTextNormalizer {
         if (!StringUtils.hasText(value)) {
             return value;
         }
-        return UNICODE_ROMAN_PATTERN.matcher(SEASON_PATTERN.matcher(value).replaceAll(" "))
-                .replaceAll(" ")
+        return SEASON_PATTERN.matcher(value).replaceAll(" ")
                 .replaceAll("\\s{2,}", " ")
                 .trim();
     }
@@ -652,7 +674,7 @@ public class RawVideoTextNormalizer {
         subtitle = cleanTitleEdges(subtitle);
         subtitle = SPACE_PATTERN.matcher(subtitle).replaceAll(" ").trim();
         String normalizedYear = normalizeYear(year);
-        if (StringUtils.hasText(normalizedYear) && subtitle.endsWith(normalizedYear)) {
+        if (hasTrailingReleaseYear(subtitle, normalizedYear)) {
             subtitle = subtitle.substring(0, subtitle.length() - normalizedYear.length()).trim();
             subtitle = cleanTitleEdges(subtitle);
         }
@@ -825,29 +847,7 @@ public class RawVideoTextNormalizer {
         if (repeatedNumber.matches() && containsHan(repeatedNumber.group(1))) {
             return repeatedNumber.group(1).trim() + repeatedNumber.group(2);
         }
-        if (!containsHan(input)) {
-            return input;
-        }
-        Matcher boundary = SCRIPT_BOUNDARY.matcher(input);
-        if (!boundary.find()) {
-            return input;
-        }
-        String left = input.substring(0, boundary.start()).trim();
-        String right = input.substring(boundary.start()).trim();
-        if (left.equalsIgnoreCase(right)) {
-            return left;
-        }
-        boolean leftHasHan = containsHan(left);
-        boolean rightHasHan = containsHan(right);
-        if (leftHasHan && rightHasHan) {
-            return input;
-        }
-        if (leftHasHan && !rightHasHan) {
-            return left;
-        }
-        if (!leftHasHan && rightHasHan) {
-            return right;
-        }
+        // Adjacent scripts can be one identity (头文字D, DNA恋人), not redundant translations.
         return input;
     }
 
@@ -890,7 +890,7 @@ public class RawVideoTextNormalizer {
     private Set<String> aliasComparisonKeys(String title, Integer season, String subtitle) {
         Set<String> keys = new LinkedHashSet<>();
         addAliasComparisonKey(keys, title);
-        if (StringUtils.hasText(title) && season != null && season > 0) {
+        if (StringUtils.hasText(title) && season != null && season >= 0) {
             addAliasComparisonKey(keys, title + season);
             addAliasComparisonKey(keys, title + " " + season);
             addAliasComparisonKey(keys, title + " 第" + season + "季");
@@ -902,7 +902,7 @@ public class RawVideoTextNormalizer {
             addAliasComparisonKey(keys, title + ": " + subtitle);
             addAliasComparisonKey(keys, title + " - " + subtitle);
         }
-        if (StringUtils.hasText(title) && season != null && season > 0 && StringUtils.hasText(subtitle)) {
+        if (StringUtils.hasText(title) && season != null && season >= 0 && StringUtils.hasText(subtitle)) {
             addAliasComparisonKey(keys, title + " 第" + season + "季 " + subtitle);
             addAliasComparisonKey(keys, title + "第" + season + "季" + subtitle);
         }
@@ -1032,54 +1032,42 @@ public class RawVideoTextNormalizer {
         if (!StringUtils.hasText(value)) {
             return value;
         }
-        String normalized = CharTable.convert(value);
-        normalized = HanLP.convertToSimplifiedChinese(normalized);
+        // CharTable is intended for NLP matching and also folds distinct name characters.
+        // Only fold full-width ASCII here; retain the existing Chinese/Japanese dictionaries.
+        StringBuilder widthNormalized = new StringBuilder(value.length());
+        for (char character : value.toCharArray()) {
+            if (character >= '\uFF01' && character <= '\uFF5E') {
+                widthNormalized.append((char) (character - 0xFEE0));
+            } else {
+                widthNormalized.append(character == '\u3000' ? ' ' : character);
+            }
+        }
+        String normalized = HanLP.convertToSimplifiedChinese(widthNormalized.toString());
         if (StringUtils.hasText(normalized)) {
             normalized = ZhJpConverterUtil.toSimple(normalized);
         }
-        return restoreAsciiLetterCase(normalized.trim(), value);
+        return normalized.trim();
     }
 
-    private String restoreAsciiLetterCase(String normalized, String original) {
-        if (!StringUtils.hasText(normalized) || !StringUtils.hasText(original)) {
-            return normalized;
+    private boolean hasTrailingReleaseYear(String title, String year) {
+        if (!StringUtils.hasText(year) || !title.endsWith(year) || title.length() <= year.length()) {
+            return false;
         }
-        String reference = Normalizer.normalize(original, Normalizer.Form.NFKC);
-        StringBuilder restored = new StringBuilder(normalized.length());
-        int referenceIndex = 0;
-        for (int i = 0; i < normalized.length(); i++) {
-            char current = normalized.charAt(i);
-            if (!isAsciiLetter(current)) {
-                restored.append(current);
-                continue;
-            }
-            int match = nextCaseReference(reference, referenceIndex, current);
-            if (match >= 0) {
-                char referenceChar = reference.charAt(match);
-                restored.append(Character.isUpperCase(referenceChar)
-                        ? Character.toUpperCase(current)
-                        : Character.toLowerCase(current));
-                referenceIndex = match + 1;
-            } else {
-                restored.append(current);
-            }
-        }
-        return restored.toString();
+        // A release year is a separate token. A title such as 1917 or 赛博朋克2077
+        // must survive even when its identity number equals the metadata release year.
+        int boundary = title.length() - year.length();
+        return Character.isWhitespace(title.charAt(boundary - 1));
     }
 
-    private int nextCaseReference(String reference, int start, char target) {
-        for (int i = start; i < reference.length(); i++) {
-            char candidate = reference.charAt(i);
-            if (isAsciiLetter(candidate)
-                    && Character.toLowerCase(candidate) == Character.toLowerCase(target)) {
-                return i;
-            }
+    private boolean continuesIdentityNumber(String value) {
+        // Compact title numbers such as 幸福36计 and 中国刑侦1号案 are identity,
+        // whereas an explicit 第N季 remains handled by SEASON_PATTERN.
+        if (!StringUtils.hasText(value)) {
+            return false;
         }
-        return -1;
-    }
-
-    private boolean isAsciiLetter(char value) {
-        return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+        return "号计路天年月日时分秒岁个位人米级次度万亿百千".indexOf(value.charAt(0)) >= 0
+                || value.startsWith("小时")
+                || (value.charAt(0) == '.' && value.length() > 1 && Character.isDigit(value.charAt(1)));
     }
 
     private record TitleSplit(String mainTitle, String subtitle) {

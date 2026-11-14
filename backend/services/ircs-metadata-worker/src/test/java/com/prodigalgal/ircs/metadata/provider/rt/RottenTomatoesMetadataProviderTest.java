@@ -119,6 +119,33 @@ class RottenTomatoesMetadataProviderTest {
                 .build()));
     }
 
+    @Test
+    void ignoresWrongMediaTypeAndSequelBeforeExactMovie() {
+        var context = MetadataSearchContext.builder().title("Alien").categorySlug("movie").build();
+        when(credentialRepository.findPreferred()).thenReturn(Optional.empty());
+        when(httpClient.getHtml(any(), any())).thenReturn(Optional.of("""
+                <ul slot="list">
+                  <li><a href="/tv/alien">Alien</a></li>
+                  <li><a href="/m/alien_covenant">Alien: Covenant</a></li>
+                  <li><a href="/m/alien">Alien</a></li>
+                </ul>
+                """));
+
+        assertThat(provider.enrich(context).orElseThrow().getRottenTomatoesId()).isEqualTo("alien");
+    }
+
+    @Test
+    void searchesAndMatchesCombinedSubtitle() {
+        var context = MetadataSearchContext.builder().title("Alien").subtitle("Covenant").build();
+        when(credentialRepository.findPreferred()).thenReturn(Optional.empty());
+        when(httpClient.getHtml(argThat(uri -> uri.toString().contains("search=Alien%20Covenant")), any()))
+                .thenReturn(Optional.of("""
+                        <search-page-media-row><a slot="title" href="/m/alien_covenant">Alien: Covenant</a></search-page-media-row>
+                        """));
+
+        assertThat(provider.enrich(context).orElseThrow().getRottenTomatoesId()).isEqualTo("alien_covenant");
+    }
+
     private boolean isSearchUri(URI uri) {
         return uri != null
                 && uri.toString().startsWith("https://www.rottentomatoes.com/search")

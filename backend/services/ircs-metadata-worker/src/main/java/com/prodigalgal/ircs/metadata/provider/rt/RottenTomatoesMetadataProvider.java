@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.net.URI;
 import java.util.Optional;
@@ -46,7 +47,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
 
     private URI buildSearchUri(MetadataSearchContext context) {
         return UriComponentsBuilder.fromUriString(properties.getSearchUrl())
-                .queryParam("search", context.getTitle())
+                .queryParam("search", context.getFullTitle())
                 .build()
                 .encode()
                 .toUri();
@@ -62,7 +63,8 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
             for (Element link : links) {
                 String title = link.text();
                 String id = extractIdFromUrl(link.attr("href"));
-                if (StringUtils.hasText(id) && isMatch(context, title)) {
+                if (StringUtils.hasText(id) && matchesMediaType(context, link.attr("href"))
+                        && MetadataCandidateTitles.matches(context, title)) {
                     EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
                     metadata.setRottenTomatoesId(id);
                     return Optional.of(metadata);
@@ -74,14 +76,21 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
         }
     }
 
-    private boolean isMatch(MetadataSearchContext source, String resultTitle) {
-        String sourceTitle = normalize(source.getTitle());
-        String sourceFullTitle = normalize(source.getFullTitle());
-        String sourceAlias = normalize(source.getAliasTitle());
-        String target = normalize(resultTitle);
-        return equalsOrContains(target, sourceTitle)
-                || equalsOrContains(target, sourceFullTitle)
-                || (StringUtils.hasText(sourceAlias) && equalsOrContains(target, sourceAlias));
+    private boolean matchesMediaType(MetadataSearchContext context, String href) {
+        String path;
+        try {
+            path = URI.create(href).getPath();
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+        if (path == null || (!path.startsWith("/m/") && !path.startsWith("/tv/"))) {
+            return false;
+        }
+        boolean television = context.getSeason() != null && context.getSeason() >= 0
+                || java.util.Set.of("series", "tv", "variety", "short-drama").contains(
+                        context.getCategorySlug() == null ? "" : context.getCategorySlug());
+        return television ? path.startsWith("/tv/")
+                : !"movie".equals(context.getCategorySlug()) || path.startsWith("/m/");
     }
 
     private String extractIdFromUrl(String href) {
@@ -104,18 +113,4 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
         }
     }
 
-    private String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.toLowerCase()
-                .replaceAll("[\\p{Punct}\\s]+", "")
-                .trim();
-    }
-
-    private boolean equalsOrContains(String target, String source) {
-        return StringUtils.hasText(target)
-                && StringUtils.hasText(source)
-                && (target.equals(source) || target.contains(source) || source.contains(target));
-    }
 }

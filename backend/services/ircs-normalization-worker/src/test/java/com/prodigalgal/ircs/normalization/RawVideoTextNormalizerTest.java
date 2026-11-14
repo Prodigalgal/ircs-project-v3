@@ -552,6 +552,102 @@ class RawVideoTextNormalizerTest {
         assertNull(patch.year());
     }
 
+    @Test
+    void preservesKoreanAndKanaTitlesAndAliasesAtUnicodeEdges() throws Exception {
+        assertEquals("디렉터스 아레나", normalizedTitle("디렉터스 아레나", "2026"));
+        assertEquals("ラブライブ", normalizedTitle("ラブライブ", "2026"));
+        RawVideoPatch patch = normalizer.normalize(
+                record("[]", "导演竞技场", "2026", null),
+                objectMapper.readTree("""
+                        {"aliasTitle": "디렉터스 아레나 / ラブライブ / Amélie"}
+                        """));
+        assertEquals("디렉터스 아레나, ラブライブ, Amélie", patch.aliasTitle());
+    }
+
+    @Test
+    void preservesMixedScriptIdentityRatherThanDiscardingApparentTranslation() throws Exception {
+        assertEquals("头文字D", normalizedTitle("头文字D 2026 1080p", "2026"));
+        assertEquals("DNA恋人", normalizedTitle("DNA恋人 2026 1080p", "2026"));
+    }
+
+    @Test
+    void retainsNumberedBilingualSourceAsAliasWhileKeepingLegacySequelStructure() throws Exception {
+        RawVideoPatch patch = normalizer.normalize(
+                record("[]", "钢铁侠3 Iron Man 3", "2023", null),
+                objectMapper.readTree("""
+                        {"title": "钢铁侠3 Iron Man 3 2023 1080p WEB-DL", "year": "2023"}
+                        """));
+        assertEquals("钢铁侠", patch.title());
+        assertEquals(3, patch.season());
+        assertEquals("钢铁侠3 Iron Man 3", patch.aliasTitle());
+    }
+
+    @Test
+    void preservesEnglishIdentityNumbersAndChineseNumberUnitsWithoutInferringSeason() throws Exception {
+        for (String title : new String[]{"Apollo 13", "District 9", "Apollo13", "幸福36计", "中国刑侦1号案", "危情24小时", "侏罗纪世界2.1", "Dune Part Ⅱ", "Monogatari Vol.Ⅱ"}) {
+            RawVideoPatch patch = normalizer.normalize(
+                    record("[]", title, "2026", null), objectMapper.readTree("{}"));
+            assertEquals(title, patch.title(), title);
+            assertNull(patch.season(), title);
+        }
+        assertEquals("洛克王国", normalizedTitle("洛克王国4 2023 1080p", "2023"));
+    }
+
+    @Test
+    void preservesNumericAndAttachedYearIdentitiesAndStillRemovesReleaseYearTokens() throws Exception {
+        assertEquals("1917", normalizedTitle("1917", "1917"));
+        assertEquals("赛博朋克2077", normalizedTitle("赛博朋克2077", "2077"));
+        assertEquals("1917", normalizedTitle("1917 2019 1080p", "2019"));
+        RawVideoPatch patch = normalizer.normalize(
+                record("[]", "电影名", "1917", null),
+                objectMapper.readTree("""
+                        {"subtitle": "1917", "year": "1917"}
+                        """));
+        assertEquals("1917", patch.subtitle());
+    }
+
+    @Test
+    void extractsExplicitSpecialSeasonZeroWithoutInferringBareZero() throws Exception {
+        for (String title : new String[]{"Series S0", "Series S00", "剧集 第0季"}) {
+            RawVideoPatch patch = normalizer.normalize(
+                    record("[]", title, null, null), objectMapper.readTree("{}"));
+            assertEquals(0, patch.season(), title);
+        }
+        RawVideoPatch metadataZero = normalizer.normalize(
+                record("[]", "Series", null, null), objectMapper.readTree("{\"season\":0}"));
+        assertEquals(0, metadataZero.season());
+        RawVideoPatch bareZero = normalizer.normalize(
+                record("[]", "高达0", null, null), objectMapper.readTree("{}"));
+        assertEquals("高达0", bareZero.title());
+        assertNull(bareZero.season());
+    }
+
+    @Test
+    void preservesLockedSeasonAndAliasWhenSourceContainsSpecialSeasonZero() throws Exception {
+        RawVideoPatch patch = normalizer.normalize(
+                recordWithOverrides("[\"season\",\"aliasTitle\"]", "Series", "人工别名", 4, null, null, null, null),
+                objectMapper.readTree("""
+                        {"title": "Series S0", "season": 0, "aliasTitle": "Replacement"}
+                        """));
+        assertEquals(4, patch.season());
+        assertEquals("人工别名", patch.aliasTitle());
+    }
+
+    @Test
+    void retainsSportsParticipantsAndCommaTitleIdentityInStructuredFields() throws Exception {
+        RawVideoPatch sports = normalizer.normalize(
+                record("[]", "6月28日25-26赛季新疆足球超级联赛 巴州队VS和田队", "2026", null),
+                objectMapper.readTree("{}"));
+        assertEquals("6月28日25-26赛季新疆足球超级联赛", sports.title());
+        assertEquals("巴州队VS和田队", sports.subtitle());
+        assertNull(sports.season());
+        RawVideoPatch drama = normalizer.normalize(
+                record("[]", "被家族抛弃，我觉醒九亿属性点", "2026", null),
+                objectMapper.readTree("{}"));
+        assertEquals("被家族抛弃", drama.title());
+        assertEquals("我觉醒九亿属性点", drama.subtitle());
+    }
+
     private RawVideoRecord record(String lockedFields, String title, String year, UUID dataSourceId) {
         return record(lockedFields, title, year, dataSourceId, null);
     }

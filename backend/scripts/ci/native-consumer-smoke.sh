@@ -53,25 +53,40 @@ docker run -d --network ircs-native-consumers --name ircs-native-postgres \
 docker run -d --network ircs-native-consumers --name ircs-native-key-value valkey/valkey:8 >/dev/null
 docker run -d --network ircs-native-consumers --name ircs-native-broker -p 127.0.0.1:15672:15672 \
   -e RABBITMQ_DEFAULT_USER=ircs -e RABBITMQ_DEFAULT_PASS="$CI_PASSWORD" rabbitmq:4.1.8-management >/dev/null
-plugin_dir="${RUNNER_TEMP}/ircs-native-search-plugins"
-mkdir -p "$plugin_dir/ik" "$plugin_dir/pinyin"
-for plugin in ik pinyin; do
-  curl --fail --silent --show-error --retry 3 \
-    "https://release.infinilabs.com/analysis-${plugin}/stable/elasticsearch-analysis-${plugin}-9.1.4.zip" \
-    -o "${RUNNER_TEMP}/ircs-${plugin}.zip"
-  unzip -q "${RUNNER_TEMP}/ircs-${plugin}.zip" -d "$plugin_dir/$plugin"
-done
-chmod -R a+rX "$plugin_dir"
-docker run -d --network ircs-native-consumers --name ircs-native-search -p 127.0.0.1:19200:9200 \
-  -e discovery.type=single-node -e xpack.security.enabled=false -e node.store.allow_mmap=false \
-  -e 'ES_JAVA_OPTS=-Xms512m -Xmx512m' -v "$plugin_dir:/usr/share/elasticsearch/plugins:ro" \
-  docker.elastic.co/elasticsearch/elasticsearch:9.1.4 >/dev/null
-for attempt in $(seq 1 180); do
+requires_search="$(python3 backend/scripts/ci/native-consumer-smoke.py --requires-search-fixture)"
+if [[ "$requires_search" == true ]]; then
+  plugin_dir="${RUNNER_TEMP}/ircs-native-search-plugins"
+  mkdir -p "$plugin_dir/ik" "$plugin_dir/pinyin"
+  for plugin in ik pinyin; do
+    curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
+      --connect-timeout 10 --max-time 90 \
+      "https://release.infinilabs.com/analysis-${plugin}/stable/elasticsearch-analysis-${plugin}-9.1.4.zip" \
+      -o "${RUNNER_TEMP}/ircs-${plugin}.zip"
+    unzip -q "${RUNNER_TEMP}/ircs-${plugin}.zip" -d "$plugin_dir/$plugin"
+  done
+  chmod -R a+rX "$plugin_dir"
+  docker run -d --network ircs-native-consumers --name ircs-native-search -p 127.0.0.1:19200:9200 \
+    -e discovery.type=single-node -e xpack.security.enabled=false -e node.store.allow_mmap=false \
+    -e 'ES_JAVA_OPTS=-Xms512m -Xmx512m' -v "$plugin_dir:/usr/share/elasticsearch/plugins:ro" \
+    docker.elastic.co/elasticsearch/elasticsearch:9.1.4 >/dev/null
+fi
+infrastructure_ready=false
+ready_deadline=$((SECONDS + 180))
+while (( SECONDS < ready_deadline )); do
   if docker exec ircs-native-postgres pg_isready -U ircs -d ircs >/dev/null 2>&1 \
-    && curl --fail --silent --user "ircs:${CI_PASSWORD}" http://127.0.0.1:15672/api/overview >/dev/null \
-    && curl --fail --silent 'http://127.0.0.1:19200/_cluster/health?wait_for_status=yellow&timeout=1s' >/dev/null; then break; fi
+    && curl --fail --silent --connect-timeout 2 --max-time 5 --user "ircs:${CI_PASSWORD}" http://127.0.0.1:15672/api/overview >/dev/null; then
+    if [[ "$requires_search" != true ]] \
+      || curl --fail --silent --connect-timeout 2 --max-time 5 'http://127.0.0.1:19200/_cluster/health?wait_for_status=yellow&timeout=1s' >/dev/null; then
+      infrastructure_ready=true
+      break
+    fi
+  fi
   sleep 2
 done
+if [[ "$infrastructure_ready" != true ]]; then
+  echo 'Required Native runtime infrastructure was not ready within 180 seconds' >&2
+  exit 1
+fi
 docker run --name ircs-native-migrator --network ircs-native-consumers \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://ircs-native-postgres:5432/ircs \
   -e SPRING_DATASOURCE_USERNAME=ircs -e SPRING_DATASOURCE_PASSWORD="$CI_PASSWORD" \

@@ -231,6 +231,65 @@ class ManualScraperServiceTaskExecutionTest {
     }
 
     @Test
+    void taskExecutionSkipsRepeatedSourceVersionButKeepsLaterTimestamp() {
+        UUID taskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        DataSourceRecord source = new DataSourceRecord(
+                dataSourceId,
+                "Codex source",
+                "https://example.invalid",
+                "/list",
+                "{}",
+                "/detail/{id}",
+                "{}",
+                """
+                        {
+                          "detail_mapping": {
+                            "source_vid": { "path": "$.list[0].vod_id" },
+                            "title": { "path": "$.list[0].vod_name" }
+                          }
+                        }
+                        """);
+        when(dataSourceRepository.findById(dataSourceId)).thenReturn(Optional.of(source));
+        when(listScraperClient.fetchListPage(eq(source), any(), eq(1))).thenReturn(new ListPage(
+                List.of(new ListItem("v-versioned", "2026-06-10 10:00:00", Map.of())), 3, 4));
+        when(listScraperClient.fetchListPage(eq(source), any(), eq(2))).thenReturn(new ListPage(
+                List.of(new ListItem("v-versioned", "2026-06-10 10:00:00", Map.of())), 3, 4));
+        when(listScraperClient.fetchListPage(eq(source), any(), eq(3))).thenReturn(new ListPage(
+                List.of(new ListItem("v-versioned", "2026-06-10 11:00:00", Map.of())), 3, 4));
+        when(listScraperClient.fetchDetail(eq(source), any(), eq("v-versioned"))).thenReturn(
+                """
+                        {"list":[{"vod_id":"v-versioned","vod_name":"Codex video"}]}
+                        """);
+
+        var result = service.executeCollectionTask(new TaskExecutionRequest(
+                taskId,
+                dataSourceId,
+                "codex",
+                null,
+                null,
+                1,
+                3,
+                null,
+                false,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "{}",
+                0,
+                true,
+                List.of()));
+
+        assertEquals("COMPLETED", result.status());
+        assertEquals(2, result.publishedCount());
+        verify(listScraperClient, org.mockito.Mockito.times(2)).fetchDetail(eq(source), any(), eq("v-versioned"));
+        verify(ingestionPublisher, org.mockito.Mockito.times(2)).publish(org.mockito.ArgumentMatchers.any(IngestionItem.class));
+    }
+
+    @Test
     void writesSucceededAuditForRawVideoRefetchRunner() {
         UUID rawVideoId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();

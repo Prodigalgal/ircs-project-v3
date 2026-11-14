@@ -164,13 +164,15 @@ final class AggregationCandidateRepository {
             String provider, String column, String parameterPrefix, String batchParameter) {
     }
 
-    private record ContextSearchKey(String title, String year) {
+    private record ContextSearchKey(List<String> titles, String year, Integer season,
+            List<String> actors, List<String> directors) {
         static ContextSearchKey from(RawVideoAggregationRecord rawVideo) {
             return new ContextSearchKey(
-                    StringUtils.hasText(rawVideo.title())
-                            ? AggregationTitleNormalizer.normalizeTitle(rawVideo.title())
-                            : "",
-                    normalizedYear(rawVideo.year()));
+                    AggregationRecallKeys.titles(rawVideo).stream()
+                            .map(AggregationTitleNormalizer::normalizeTitle).distinct().toList(),
+                    normalizedYear(rawVideo.year()), rawVideo.season(),
+                    AggregationRecallKeys.people(rawVideo.actorNames()),
+                    AggregationRecallKeys.people(rawVideo.directorNames()));
         }
 
         private static String normalizedYear(String year) {
@@ -210,8 +212,9 @@ final class AggregationCandidateRepository {
 
     private List<UnifiedVideoAggregationCandidate> findContextSearchCandidates(RawVideoAggregationRecord rawVideo) {
         AggregationContextSearchClient.ContextSearchResult searchResult =
-                contextSearchClient.findCandidateUnifiedVideoIds(rawVideo.title(), rawVideo.year());
-        if (!searchResult.attempted()) {
+                contextSearchClient.findCandidateUnifiedVideoIds(
+                        AggregationRecallKeys.completeTitle(rawVideo.title(), rawVideo.subtitle()), rawVideo.year());
+        if (searchResult == null || !searchResult.attempted()) {
             return findTitleYearCandidates(rawVideo, false);
         }
         if (searchResult.unifiedVideoIds().isEmpty()) {
@@ -226,7 +229,20 @@ final class AggregationCandidateRepository {
             return findTitleYearCandidates(rawVideo, false);
         }
         List<UnifiedVideoAggregationCandidate> candidates = queryUnifiedCandidatesByIds(candidateIds);
-        return candidates.isEmpty() ? findTitleYearCandidates(rawVideo, false) : candidates;
+        if (candidates.isEmpty()) {
+            return findTitleYearCandidates(rawVideo, false);
+        }
+        if (AggregationRecallKeys.titles(rawVideo).size() > 1 || rawVideo.season() != null
+                || !AggregationRecallKeys.people(rawVideo.actorNames()).isEmpty()
+                || !AggregationRecallKeys.people(rawVideo.directorNames()).isEmpty()) {
+            // Search recall is title/year-only. A nonempty top-20 must not hide a better
+            // complete-title, cast, director or season bucket for a different work.
+            Map<UUID, UnifiedVideoAggregationCandidate> combined = new LinkedHashMap<>();
+            addCandidatesUpToLimit(combined, findTitleYearCandidates(rawVideo, false));
+            addCandidatesUpToLimit(combined, candidates);
+            return List.copyOf(combined.values());
+        }
+        return candidates;
     }
 
     private List<UnifiedVideoAggregationCandidate> findExternalIdCandidates(RawVideoAggregationRecord rawVideo) {
@@ -259,38 +275,84 @@ final class AggregationCandidateRepository {
         if (!StringUtils.hasText(rawVideo.title())) {
             return List.of();
         }
-        String title = rawVideo.title().trim();
+        List<String> titles = AggregationRecallKeys.titles(rawVideo);
+        if (titles.isEmpty()) {
+            return List.of();
+        }
         YearRecall yearRecall = yearRecall(rawVideo.year());
         MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("title", title)
-                .addValue("titleLike", "%" + title.toLowerCase(Locale.ROOT) + "%")
                 .addValue("titleRecallThreshold", TITLE_RECALL_THRESHOLD)
                 .addValue("limit", TITLE_RECALL_LIMIT);
+        List<String> titleScores = new ArrayList<>();
+        List<String> titleContains = new ArrayList<>();
+        for (int index = 0; index < titles.size(); index++) {
+            String parameter = index == 0 ? "title" : "title" + index;
+            params.addValue(parameter, titles.get(index));
+            params.addValue(parameter + "Like", "%" + escapeLike(titles.get(index).toLowerCase(Locale.ROOT)) + "%");
+            titleScores.add("similarity(title, :" + parameter + ")");
+            titleScores.add("similarity(coalesce(alias_title, ''), :" + parameter + ")");
+            titleScores.add("similarity(concat_ws(' ', title, subtitle), :" + parameter + ")");
+            titleContains.add("lower(title) like :" + parameter + "Like");
+            titleContains.add("lower(coalesce(alias_title, '')) like :" + parameter + "Like");
+        }
+        String titleScore = "greatest(" + String.join(", ", titleScores) + ")";
+        String actors = peoplePredicate("actor_names", "bucketActors", rawVideo.actorNames(), params);
+        String directors = peoplePredicate("director_names", "bucketDirectors", rawVideo.directorNames(), params);
+        List<String> buckets = new ArrayList<>();
+        buckets.add(titleScore + " >= :titleRecallThreshold");
+        buckets.addAll(titleContains);
+        String ranking = titleScore;
+        if (AggregationTitleNormalizer.isDistinctiveSecondaryTitle(rawVideo.subtitle())) {
+            // The base-title bucket may be exact for hundreds of different works. Rank the
+            // complete identity independently so an older matching subtitle survives top-K.
+            ranking += " + 0.20 * greatest(similarity(title, :title),"
+                    + " similarity(coalesce(alias_title, ''), :title),"
+                    + " similarity(concat_ws(' ', title, subtitle), :title))";
+        }
+        if (actors != null) {
+            buckets.add("(" + actors + " and " + titleScore + " >= 0.25)");
+            ranking += " + case when " + actors + " then 0.03 else 0 end";
+        }
+        if (directors != null) {
+            buckets.add("(" + directors + " and " + titleScore + " >= 0.20)");
+            ranking += " + case when " + directors + " then 0.05 else 0 end";
+        }
+        if (rawVideo.season() != null) {
+            params.addValue("bucketSeason", rawVideo.season());
+            ranking += " + case when season = :bucketSeason then 0.05 else 0 end";
+        }
         String yearPredicate = "";
         if (!yearRecall.buckets().isEmpty()) {
-            params.addValue("yearBuckets", yearRecall.buckets());
-            yearPredicate = "(year in (:yearBuckets) or year is null or btrim(year) = '') and";
+            params.addValue("yearBuckets", yearRecall.buckets()).addValue("unknownYears", UNKNOWN_YEARS);
+            yearPredicate = "(year in (:yearBuckets) or year is null or btrim(year) = ''"
+                    + " or lower(btrim(year)) in (:unknownYears)) and";
         } else if (yearRecall.exact() != null) {
-            params.addValue("year", yearRecall.exact());
-            yearPredicate = "(year = :year or year is null or btrim(year) = '') and";
+            params.addValue("year", yearRecall.exact()).addValue("unknownYears", UNKNOWN_YEARS);
+            yearPredicate = "(year = :year or year is null or btrim(year) = ''"
+                    + " or lower(btrim(year)) in (:unknownYears)) and";
         }
         return queryUnifiedCandidates(
                 """
                 where %s
-                  (
-                    similarity(title, :title) >= :titleRecallThreshold
-                    or similarity(coalesce(alias_title, ''), :title) >= :titleRecallThreshold
-                    or lower(title) like :titleLike
-                    or lower(coalesce(alias_title, '')) like :titleLike
-                  )
-                order by greatest(
-                    similarity(title, :title),
-                    similarity(coalesce(alias_title, ''), :title)
-                ) desc, updated_at desc
+                  (%s)
+                order by (%s) desc, updated_at desc, id
                 limit :limit
-                """.formatted(yearPredicate),
+                """.formatted(yearPredicate, String.join(" or ", buckets), ranking),
                 params,
                 populateMetadata);
+    }
+
+    private String peoplePredicate(String column, String parameter, Set<String> names, MapSqlParameterSource params) {
+        List<String> keys = AggregationRecallKeys.people(names);
+        if (keys.isEmpty()) {
+            return null;
+        }
+        params.addValue(parameter, keys);
+        return "jsonb_exists_any(coalesce(" + column + ", '[]'::jsonb), ARRAY[:" + parameter + "]::text[])";
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private record YearRecall(List<String> buckets, String exact) {

@@ -14,12 +14,17 @@ import com.prodigalgal.ircs.scraper.ScraperDtos.ListItem;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ListPage;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ManualScrapeConfigRequest;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ScrapedVideoDraft;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -55,7 +60,8 @@ class TaskQueueScraperService {
                     filterHours(message.options()));
             ListPage page = filteredPage.page();
             ScraperTaskDeadline.check();
-            for (ListItem item : page.items()) {
+            List<ListItem> uniqueItems = new ScrapeListItemVersionDeduplicator().keepUnseenVersions(page.items());
+            for (ListItem item : uniqueItems) {
                 ScraperTaskDeadline.check();
                 queuePublisher.publishDetail(new TaskDetailMessage(
                         message.masterTaskId(),
@@ -65,7 +71,7 @@ class TaskQueueScraperService {
                         item.id(),
                         null,
                         0,
-                        idempotencyKey(message.masterTaskId(), message.pageTaskId(), item.id()),
+                        idempotencyKey(message.masterTaskId(), message.pageTaskId(), item),
                         message.options(),
                         message.correlationId(),
                         Instant.now()));
@@ -75,7 +81,7 @@ class TaskQueueScraperService {
                     message.masterTaskId(),
                     message.pageTaskId(),
                     message.pageNumber(),
-                    page.items().size(),
+                    uniqueItems.size(),
                     page.totalPages(),
                     page.totalItems(),
                     message.correlationId(),
@@ -178,8 +184,27 @@ class TaskQueueScraperService {
         return keyword == null || keyword.isBlank() ? null : keyword;
     }
 
-    private String idempotencyKey(UUID masterTaskId, UUID pageTaskId, String sourceVid) {
-        return masterTaskId + ":" + pageTaskId + ":" + sourceVid;
+    private String idempotencyKey(UUID masterTaskId, UUID pageTaskId, ListItem item) {
+        String sourceVid = item.id() == null ? null : item.id().trim();
+        String updateTime = item.updateTime();
+        String key = masterTaskId + ":" + pageTaskId + ":" + boundedKeyPart(
+                sourceVid,
+                ScrapeListItemVersionDeduplicator.MAX_SOURCE_VID_LENGTH);
+        return StringUtils.hasText(updateTime)
+                ? key + ":" + boundedKeyPart(updateTime.trim(), ScrapeListItemVersionDeduplicator.MAX_UPDATE_TIME_LENGTH)
+                : key;
+    }
+
+    private String boundedKeyPart(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return "sha256-" + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
     }
 
     private void recordSucceeded(String jobName, String correlationId, Instant startedAt) {

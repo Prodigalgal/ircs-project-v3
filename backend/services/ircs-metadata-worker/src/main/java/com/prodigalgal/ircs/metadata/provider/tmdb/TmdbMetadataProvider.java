@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -17,17 +18,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 @Component
-@Slf4j
 @RequiredArgsConstructor
 public class TmdbMetadataProvider implements MetadataProvider {
 
     private static final int MAX_ACTORS = 15;
+    private static final int MAX_SEASON_CANDIDATES = 2;
     private static final Set<String> MOVIE_SLUGS = Set.of("movie");
     private static final Set<String> TV_SLUGS = Set.of("series", "tv", "variety", "short-drama");
 
@@ -56,11 +56,19 @@ public class TmdbMetadataProvider implements MetadataProvider {
         }
 
         MetadataProviderRetryableException lastRetryable = null;
+        SeasonHydrationBudget seasonBudget = new SeasonHydrationBudget();
         int start = Math.floorMod(credentialCursor.getAndIncrement(), credentials.size());
         for (int attempt = 0; attempt < credentials.size(); attempt++) {
+            if (seasonBudget.exhausted() && lastRetryable != null) {
+                break;
+            }
             TmdbCredential credential = credentials.get((start + attempt) % credentials.size());
             try {
-                return searchWithCredential(context, credential);
+                Optional<EnrichedMetadataDTO> result = searchWithCredential(context, credential, seasonBudget);
+                if (result.isEmpty() && seasonBudget.exhausted() && lastRetryable != null) {
+                    throw lastRetryable;
+                }
+                return result;
             } catch (MetadataProviderRetryableException ex) {
                 lastRetryable = ex;
             }
@@ -71,7 +79,8 @@ public class TmdbMetadataProvider implements MetadataProvider {
                 : lastRetryable;
     }
 
-    private Optional<EnrichedMetadataDTO> searchWithCredential(MetadataSearchContext context, TmdbCredential credential) {
+    private Optional<EnrichedMetadataDTO> searchWithCredential(
+            MetadataSearchContext context, TmdbCredential credential, SeasonHydrationBudget seasonBudget) {
         String searchType = determineSearchType(context);
         int maxPages = "multi".equals(searchType) ? properties.getMaxMultiPages() : 1;
         for (int page = 1; page <= maxPages; page++) {
@@ -79,7 +88,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
             if (response.isEmpty()) {
                 return Optional.empty();
             }
-            Optional<EnrichedMetadataDTO> match = findMatch(context, credential, searchType, page, response.get());
+            Optional<EnrichedMetadataDTO> match = findMatch(context, credential, searchType, page, response.get(), seasonBudget);
             if (match.isPresent()) {
                 return match;
             }
@@ -92,20 +101,35 @@ public class TmdbMetadataProvider implements MetadataProvider {
             TmdbCredential credential,
             String searchType,
             int page,
-            String response) {
+            String response,
+            SeasonHydrationBudget seasonBudget) {
         try {
             JsonNode root = objectMapper.readTree(response);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("TMDB search response must be an object");
+            }
             JsonNode results = root.path("results");
             int totalPages = root.path("total_pages").asInt(1);
+            if (!results.isArray()) {
+                throw new IllegalArgumentException("TMDB search response must contain a results array");
+            }
             if (results.isArray()) {
                 for (JsonNode candidate : results) {
                     String mediaType = extractMediaType(candidate, searchType);
-                    if ("person".equals(mediaType)) {
+                    if ((!"movie".equals(mediaType) && !"tv".equals(mediaType))
+                            || (!"multi".equals(searchType) && !searchType.equals(mediaType))
+                            || candidate.path("id").asLong(0) <= 0) {
                         continue;
                     }
                     if (isMatch(context, candidate, mediaType)) {
+                        if (isSeasonScoped(context, mediaType) && !seasonBudget.tryAcquire()) {
+                            break;
+                        }
                         String tmdbId = String.valueOf(candidate.path("id").asLong());
-                        return fetchDetails(credential, tmdbId, mediaType);
+                        Optional<EnrichedMetadataDTO> details = fetchDetails(context, credential, tmdbId, mediaType);
+                        if (details.isPresent() || !isSeasonScoped(context, mediaType)) {
+                            return details;
+                        }
                     }
                 }
             }
@@ -120,7 +144,8 @@ public class TmdbMetadataProvider implements MetadataProvider {
         }
     }
 
-    private Optional<EnrichedMetadataDTO> fetchDetails(TmdbCredential credential, String tmdbId, String mediaType) {
+    private Optional<EnrichedMetadataDTO> fetchDetails(
+            MetadataSearchContext context, TmdbCredential credential, String tmdbId, String mediaType) {
         try {
             String endpoint = "movie".equals(mediaType) ? "/movie" : "/tv";
             Optional<String> response = getJson(credential, UriComponentsBuilder
@@ -134,12 +159,64 @@ public class TmdbMetadataProvider implements MetadataProvider {
             if (response.isEmpty()) {
                 return Optional.empty();
             }
-            return Optional.of(mapDetails(tmdbId, response.get()));
+            EnrichedMetadataDTO metadata = mapDetails(tmdbId, response.get());
+            if (isSeasonScoped(context, mediaType)) {
+                return applyVerifiedSeason(context, credential, tmdbId, metadata);
+            }
+            return Optional.of(metadata);
         } catch (MetadataProviderRetryableException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.warn("Failed to fetch or parse TMDB details for id={}", tmdbId, ex);
+            throw new MetadataProviderRetryableException(
+                    "PROVIDER_PARSE_ERROR", "Unable to parse TMDB details for id=" + tmdbId, ex);
+        }
+    }
+
+    private Optional<EnrichedMetadataDTO> applyVerifiedSeason(MetadataSearchContext context,
+            TmdbCredential credential, String tmdbId, EnrichedMetadataDTO metadata) throws java.io.IOException {
+        Optional<String> response = getJson(credential, UriComponentsBuilder
+                .fromUriString(properties.getBaseUrl() + "/tv/" + tmdbId + "/season/" + context.getSeason())
+                .queryParam("api_key", credential.apiKey())
+                .queryParam("language", properties.getLanguage())
+                .build().encode().toUri());
+        if (response.isEmpty()) {
             return Optional.empty();
+        }
+        JsonNode season = objectMapper.readTree(response.get());
+        if (season == null || !season.isObject()) {
+            throw new IllegalArgumentException("TMDB season response must be an object");
+        }
+        if (!season.path("season_number").isIntegralNumber()
+                || season.path("season_number").asInt(-1) != context.getSeason()
+                || !StringUtils.hasText(season.path("air_date").asText(null))) {
+            return Optional.empty();
+        }
+        LocalDate airDate = LocalDate.parse(season.path("air_date").asText());
+        if (!yearMatches(context.getYear(), airDate.toString())) {
+            return Optional.empty();
+        }
+        metadata.setPublishedAt(airDate);
+        metadata.setYear(Integer.toString(airDate.getYear()));
+        return Optional.of(metadata);
+    }
+
+    private boolean isSeasonScoped(MetadataSearchContext context, String mediaType) {
+        return "tv".equals(mediaType) && context.getSeason() != null && context.getSeason() >= 0;
+    }
+
+    private static final class SeasonHydrationBudget {
+        private int remaining = MAX_SEASON_CANDIDATES;
+
+        boolean tryAcquire() {
+            if (exhausted()) {
+                return false;
+            }
+            remaining--;
+            return true;
+        }
+
+        boolean exhausted() {
+            return remaining == 0;
         }
     }
 
@@ -150,6 +227,11 @@ public class TmdbMetadataProvider implements MetadataProvider {
 
     private EnrichedMetadataDTO mapDetails(String tmdbId, String response) throws java.io.IOException {
         JsonNode root = objectMapper.readTree(response);
+        if (root == null || !root.isObject()
+                || (!StringUtils.hasText(root.path("title").asText(null))
+                && !StringUtils.hasText(root.path("name").asText(null)))) {
+            throw new IllegalArgumentException("TMDB details response must contain a title or name");
+        }
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
         metadata.setTmdbId(tmdbId);
 
@@ -249,7 +331,9 @@ public class TmdbMetadataProvider implements MetadataProvider {
                 .queryParam("page", page);
 
         String year = cleanYear(context.getYear());
-        if (StringUtils.hasText(year)) {
+        // TV year also covers episode air dates; first_air_date_year would lose later seasons.
+        // Multi search has no documented year parameter, so validate its candidate dates locally.
+        if (StringUtils.hasText(year) && !"multi".equals(searchType)) {
             builder.queryParam("year", year);
         }
         return builder.build().encode().toUri();
@@ -257,13 +341,16 @@ public class TmdbMetadataProvider implements MetadataProvider {
 
     private String determineSearchType(MetadataSearchContext context) {
         String slug = context.getCategorySlug();
+        if (context.getSeason() != null && context.getSeason() >= 0) {
+            return "tv";
+        }
         if (slug == null) {
             return "multi";
         }
         if (MOVIE_SLUGS.contains(slug)) {
             return "movie";
         }
-        if (TV_SLUGS.contains(slug) || (context.getSeason() != null && context.getSeason() > 0)) {
+        if (TV_SLUGS.contains(slug)) {
             return "tv";
         }
         return "multi";
@@ -283,7 +370,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
     }
 
     private boolean isMatch(MetadataSearchContext source, JsonNode candidate, String mediaType) {
-        if (source.getSeason() != null && source.getSeason() > 0 && "movie".equals(mediaType)) {
+        if (source.getSeason() != null && source.getSeason() >= 0 && "movie".equals(mediaType)) {
             return false;
         }
 
@@ -297,22 +384,11 @@ public class TmdbMetadataProvider implements MetadataProvider {
                 ? candidate.path("release_date").asText()
                 : candidate.path("first_air_date").asText();
 
-        if (!yearMatches(source.getYear(), candidateDate)) {
+        if (!isSeasonScoped(source, mediaType) && !yearMatches(source.getYear(), candidateDate)) {
             return false;
         }
 
-        String sourceFullTitle = normalize(source.getFullTitle());
-        String sourceTitle = normalize(source.getTitle());
-        String sourceAlias = normalize(source.getAliasTitle());
-        String targetTitle = normalize(candidateTitle);
-        String targetOriginal = normalize(candidateOriginalTitle);
-
-        return equalsOrContains(targetTitle, sourceFullTitle)
-                || equalsOrContains(targetOriginal, sourceFullTitle)
-                || equalsOrContains(targetTitle, sourceTitle)
-                || equalsOrContains(targetOriginal, sourceTitle)
-                || (StringUtils.hasText(sourceAlias)
-                && (targetTitle.equals(sourceAlias) || targetOriginal.equals(sourceAlias)));
+        return MetadataCandidateTitles.matches(source, candidateTitle, candidateOriginalTitle);
     }
 
     private boolean yearMatches(String sourceYear, String candidateDate) {
@@ -337,18 +413,4 @@ public class TmdbMetadataProvider implements MetadataProvider {
         return cleanYear.length() == 4 ? cleanYear : null;
     }
 
-    private String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.toLowerCase()
-                .replaceAll("[\\p{Punct}\\s]+", "")
-                .trim();
-    }
-
-    private boolean equalsOrContains(String target, String source) {
-        return StringUtils.hasText(target)
-                && StringUtils.hasText(source)
-                && (target.equals(source) || target.contains(source));
-    }
 }

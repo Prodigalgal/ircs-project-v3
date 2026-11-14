@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.net.URI;
 import java.util.Optional;
@@ -54,11 +55,11 @@ public class DoubanMetadataProvider implements MetadataProvider {
     private Optional<EnrichedMetadataDTO> mapFirstMatch(MetadataSearchContext context, String response) {
         try {
             JsonNode root = objectMapper.readTree(response);
-            if (!root.isArray()) {
-                return Optional.empty();
+            if (root == null || !root.isArray()) {
+                throw new IllegalArgumentException("Douban suggest response must be an array");
             }
             for (JsonNode candidate : root) {
-                if (isMatch(context, candidate)) {
+                if (StringUtils.hasText(text(candidate, "id")) && isMatch(context, candidate)) {
                     return Optional.of(mapCandidate(candidate));
                 }
             }
@@ -86,17 +87,8 @@ public class DoubanMetadataProvider implements MetadataProvider {
         if (!yearMatches(source.getYear(), text(candidate, "year"))) {
             return false;
         }
-        String sourceFullTitle = normalize(source.getFullTitle());
-        String sourceTitle = normalize(source.getTitle());
-        String sourceAlias = normalize(source.getAliasTitle());
-        String targetTitle = normalize(text(candidate, "title"));
-        String targetOriginal = normalize(cleanOriginalTitle(text(candidate, "sub_title")));
-        return equalsOrContains(targetTitle, sourceFullTitle)
-                || equalsOrContains(targetOriginal, sourceFullTitle)
-                || equalsOrContains(targetTitle, sourceTitle)
-                || equalsOrContains(targetOriginal, sourceTitle)
-                || (StringUtils.hasText(sourceAlias)
-                && (targetTitle.equals(sourceAlias) || targetOriginal.equals(sourceAlias)));
+        return MetadataCandidateTitles.matches(source, text(candidate, "title"),
+                cleanOriginalTitle(text(candidate, "sub_title")));
     }
 
     private boolean yearMatches(String sourceYear, String candidateYear) {
@@ -125,21 +117,6 @@ public class DoubanMetadataProvider implements MetadataProvider {
             return null;
         }
         return value.replaceFirst("^\\s*原名[:：]\\s*", "").trim();
-    }
-
-    private String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.toLowerCase()
-                .replaceAll("[\\p{Punct}\\s]+", "")
-                .trim();
-    }
-
-    private boolean equalsOrContains(String target, String source) {
-        return StringUtils.hasText(target)
-                && StringUtils.hasText(source)
-                && (target.equals(source) || target.contains(source));
     }
 
     private String text(JsonNode node, String field) {

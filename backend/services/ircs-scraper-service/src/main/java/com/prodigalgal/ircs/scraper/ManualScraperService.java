@@ -224,24 +224,28 @@ class ManualScraperService {
     private void processDataSource(DataSourceRecord source, ManualScrapeConfigRequest request, SseEmitter emitter)
             throws IOException {
         send(emitter, ScrapeEvent.log("[" + source.name() + "] 开始搜索..."));
+        ScrapeListItemVersionDeduplicator deduplicator = new ScrapeListItemVersionDeduplicator();
         for (int page = request.effectiveStartPage(); page <= request.effectiveEndPage(); page++) {
             ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
                     listScraperClient.fetchListPage(source, request, page),
                     page,
                     request.filterHours());
             ListPage pageResult = filteredPage.page();
-            List<ListItem> items = pageResult.items();
+            if (pageResult.items().isEmpty()) {
+                String message = filteredPage.exhausted()
+                        ? "[" + source.name() + "] 最近更新窗口已结束，停止该源。"
+                        : "[" + source.name() + "] 第 " + page + " 页未找到数据，停止该源。";
+                send(emitter, ScrapeEvent.log(message));
+                break;
+            }
+            List<ListItem> items = deduplicator.keepUnseenVersions(pageResult.items());
             if (pageResult.hasPagination()) {
                 send(emitter, ScrapeEvent.log("[" + source.name() + "] 第 " + page
                         + " 页 pagination: totalPages=" + valueOrUnknown(pageResult.totalPages())
                         + ", totalItems=" + valueOrUnknown(pageResult.totalItems())));
             }
             if (items.isEmpty()) {
-                String message = filteredPage.exhausted()
-                        ? "[" + source.name() + "] 最近更新窗口已结束，停止该源。"
-                        : "[" + source.name() + "] 第 " + page + " 页未找到数据，停止该源。";
-                send(emitter, ScrapeEvent.log(message));
-                break;
+                send(emitter, ScrapeEvent.log("[" + source.name() + "] 第 " + page + " 页均为已处理版本，继续下一页。"));
             }
             for (ListItem item : items) {
                 try {
@@ -272,6 +276,7 @@ class ManualScraperService {
             List<TaskExecutionLog> logs) {
         int published = 0;
         int failed = 0;
+        ScrapeListItemVersionDeduplicator deduplicator = new ScrapeListItemVersionDeduplicator();
         logs.add(log("INFO", "SYSTEM", "[" + source.name() + "] start"));
         for (int page = request.effectiveStartPage(); page <= request.effectiveEndPage(); page++) {
             ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
@@ -279,17 +284,20 @@ class ManualScraperService {
                     page,
                     request.filterHours());
             ListPage pageResult = filteredPage.page();
-            List<ListItem> items = pageResult.items();
-            if (pageResult.hasPagination()) {
-                logs.add(log("INFO", "PAGE-" + page, "[" + source.name() + "] pagination totalPages="
-                        + valueOrUnknown(pageResult.totalPages()) + ", totalItems=" + valueOrUnknown(pageResult.totalItems())));
-            }
-            if (items.isEmpty()) {
+            if (pageResult.items().isEmpty()) {
                 String message = filteredPage.exhausted()
                         ? "[" + source.name() + "] update window exhausted, stop source"
                         : "[" + source.name() + "] empty page, stop source";
                 logs.add(log("INFO", "PAGE-" + page, message));
                 break;
+            }
+            List<ListItem> items = deduplicator.keepUnseenVersions(pageResult.items());
+            if (pageResult.hasPagination()) {
+                logs.add(log("INFO", "PAGE-" + page, "[" + source.name() + "] pagination totalPages="
+                        + valueOrUnknown(pageResult.totalPages()) + ", totalItems=" + valueOrUnknown(pageResult.totalItems())));
+            }
+            if (items.isEmpty()) {
+                logs.add(log("INFO", "PAGE-" + page, "[" + source.name() + "] page contains only previously handled versions"));
             }
             for (ListItem item : items) {
                 try {

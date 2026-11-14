@@ -100,6 +100,10 @@ def version_for(service):
     return module_versions[service]
 
 
+def requires_search_fixture():
+    return 'ircs-search-service' in selected_services
+
+
 def request(path, data=None, broker=False, authenticated=False):
     url = ('http://127.0.0.1:15672' if broker else f'http://127.0.0.1:{current_port}') + path
     headers = {'Content-Type': 'application/json'}
@@ -529,4 +533,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    if sys.argv[1:] == ['--requires-search-fixture']:
+        print(str(requires_search_fixture()).lower())
+    else:
+        main()

@@ -300,7 +300,7 @@ class AggregationMatchingStrategyTest {
     }
 
     @Test
-    void sharedActorDirectorMetadataRaisesScoreLikeV1Jaccard() {
+    void sharedDirectorAndPartialCastContributeSeparateRoleEvidence() {
         RawVideoAggregationRecord rawVideo = rawVideoWithMetadata(
                 "Codex Signal",
                 "2026",
@@ -319,7 +319,7 @@ class AggregationMatchingStrategyTest {
 
         double score = strategy.calculateSimilarity(rawVideo, candidate);
 
-        assertEquals(0.90, score, 0.0001);
+        assertEquals(0.91, score, 0.0001);
         assertTrue(score >= 0.85);
     }
 

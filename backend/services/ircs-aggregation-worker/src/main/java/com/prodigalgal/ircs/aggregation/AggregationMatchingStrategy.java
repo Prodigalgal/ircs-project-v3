@@ -23,6 +23,8 @@ public class AggregationMatchingStrategy {
     private static final double TITLE_BLOCK_THRESHOLD = 0.80;
     private static final double TITLE_WEIGHT = 0.70;
     private static final double METADATA_WEIGHT = 0.30;
+    private static final double ACTOR_EVIDENCE_WEIGHT = 0.60;
+    private static final double DIRECTOR_EVIDENCE_WEIGHT = 0.40;
     private static final double TITLE_ONLY_CONFIDENCE = 0.95;
     private static final double EPISODE_PENALTY = 0.15;
     private static final double AREA_PENALTY = 0.10;
@@ -114,7 +116,7 @@ public class AggregationMatchingStrategy {
             return false;
         }
         // Destroying an existing work needs stronger corroboration than ordinary raw matching.
-        if (sharedIdCount > 1 || left.people().stream().anyMatch(right.people()::contains)) {
+        if (sharedIdCount > 1 || sharesPeopleInSameRole(left, right)) {
             return true;
         }
         return left.titles().stream()
@@ -156,7 +158,7 @@ public class AggregationMatchingStrategy {
             return 0.0;
         }
 
-        double titleScore = maxTitleSimilarity(rawFingerprint.titles(), candidateFingerprint.titles());
+        double titleScore = titleSimilarity(rawFingerprint, candidateFingerprint);
         if (externalIdCheck > 0) {
             return corroboratesSharedIdentity(rawFingerprint, candidateFingerprint,
                     sharedExternalIdCount(rawFingerprint, candidateFingerprint)) ? 1.0 : 0.0;
@@ -167,8 +169,8 @@ public class AggregationMatchingStrategy {
 
         return scoreWithMetadataAndPenalties(
                 titleScore,
-                rawFingerprint.people(),
-                candidateFingerprint.people(),
+                rawFingerprint,
+                candidateFingerprint,
                 rawFingerprint.episodeCount(),
                 candidateFingerprint.episodeCount(),
                 rawFingerprint.areas(),
@@ -193,7 +195,7 @@ public class AggregationMatchingStrategy {
             return 0.0;
         }
 
-        double titleScore = maxTitleSimilarity(leftFingerprint.titles(), rightFingerprint.titles());
+        double titleScore = titleSimilarity(leftFingerprint, rightFingerprint);
         if (externalIdCheck > 0) {
             return corroboratesSharedIdentity(leftFingerprint, rightFingerprint,
                     sharedExternalIdCount(leftFingerprint, rightFingerprint)) ? 1.0 : 0.0;
@@ -204,8 +206,8 @@ public class AggregationMatchingStrategy {
 
         return scoreWithMetadataAndPenalties(
                 titleScore,
-                leftFingerprint.people(),
-                rightFingerprint.people(),
+                leftFingerprint,
+                rightFingerprint,
                 leftFingerprint.episodeCount(),
                 rightFingerprint.episodeCount(),
                 leftFingerprint.areas(),
@@ -248,10 +250,10 @@ public class AggregationMatchingStrategy {
         if (sharedIdCount == 0) {
             return false;
         }
-        if (sharedIdCount > 1 || maxTitleSimilarity(left.titles(), right.titles()) >= SAME_ID_TITLE_FLOOR) {
+        if (sharedIdCount > 1 || titleSimilarity(left, right) >= SAME_ID_TITLE_FLOOR) {
             return true;
         }
-        return left.people().stream().anyMatch(right.people()::contains);
+        return sharesPeopleInSameRole(left, right);
     }
 
     SimilaritySession prepareSimilaritySession(List<AggregationGraphCandidate> candidates) {
@@ -328,7 +330,7 @@ public class AggregationMatchingStrategy {
 
     private VideoFingerprint fingerprint(RawVideoAggregationRecord rawVideo) {
         return fingerprint(rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.remarks(), rawVideo.season(),
-                metadataNameSet(rawVideo.actorNames(), rawVideo.directorNames()), parseYear(rawVideo.year()),
+                normalizedNames(rawVideo.actorNames()), normalizedNames(rawVideo.directorNames()), parseYear(rawVideo.year()),
                 parseEpisodeCount(rawVideo.totalEpisodes()), normalizedAreas(rawVideo.areaNames()),
                 normalizedExternalIds(externalIds(rawVideo)));
     }
@@ -339,17 +341,18 @@ public class AggregationMatchingStrategy {
                 candidate.aliasTitle(),
                 candidate.subtitle(),
                 candidate.remarks(),
-                candidate.season(), metadataNameSet(candidate.actorNames(), candidate.directorNames()), parseYear(candidate.year()),
+                candidate.season(), normalizedNames(candidate.actorNames()), normalizedNames(candidate.directorNames()), parseYear(candidate.year()),
                 parseEpisodeCount(candidate.totalEpisodes()), normalizedAreas(candidate.areaNames()),
                 normalizedExternalIds(externalIds(candidate)));
     }
 
     private VideoFingerprint fingerprint(String title, String aliasTitle, String subtitle, String remarks, Integer season,
-            Set<String> people, Integer year, Integer episodeCount, Set<String> areas, Map<String, String> externalIds) {
+            Set<String> actors, Set<String> directors, Integer year, Integer episodeCount,
+            Set<String> areas, Map<String, String> externalIds) {
         List<String> rawTitles = new ArrayList<>();
+        addIfText(rawTitles, AggregationRecallKeys.completeTitle(title, subtitle));
         addIfText(rawTitles, title);
         rawTitles.addAll(AggregationTitleNormalizer.splitAliases(aliasTitle));
-        addIfText(rawTitles, subtitle);
 
         Integer parsedSeason = season;
         VideoVersion version = VideoVersion.NORMAL;
@@ -380,8 +383,28 @@ public class AggregationMatchingStrategy {
         if (normalizedTitles.isEmpty() && StringUtils.hasText(title)) {
             normalizedTitles.add(title.trim().toLowerCase(Locale.ROOT));
         }
-        return new VideoFingerprint(List.copyOf(normalizedTitles), parsedSeason, version, Set.copyOf(people),
-                AggregationTitleNormalizer.eventIdentityKey(title), year, episodeCount, areas, externalIds);
+        return new VideoFingerprint(List.copyOf(normalizedTitles), parsedSeason, version, actors, directors,
+                AggregationTitleNormalizer.eventIdentityKey(AggregationRecallKeys.completeTitle(title, subtitle)),
+                year, episodeCount, areas, externalIds,
+                StringUtils.hasText(title) ? AggregationTitleNormalizer.normalizeTitle(title) : "",
+                AggregationTitleNormalizer.isDistinctiveSecondaryTitle(subtitle)
+                        ? AggregationTitleNormalizer.normalizeTitle(subtitle) : "");
+    }
+
+    private double titleSimilarity(VideoFingerprint left, VideoFingerprint right) {
+        double score = maxTitleSimilarity(left.titles(), right.titles());
+        // A common heading cannot make different complete titles identical. Keep secondary
+        // identity in the comparison; e.g. two short dramas with the same comma prefix.
+        if (!left.primaryTitle().isEmpty() && left.primaryTitle().equals(right.primaryTitle())
+                && !left.subtitle().isEmpty() && !right.subtitle().isEmpty()) {
+            score = Math.min(score, stringSimilarity.apply(left.subtitle(), right.subtitle()));
+        }
+        return score;
+    }
+
+    private boolean sharesPeopleInSameRole(VideoFingerprint left, VideoFingerprint right) {
+        return left.actors().stream().anyMatch(right.actors()::contains)
+                || left.directors().stream().anyMatch(right.directors()::contains);
     }
 
     private double maxTitleSimilarity(List<String> leftTitles, List<String> rightTitles) {
@@ -396,18 +419,29 @@ public class AggregationMatchingStrategy {
 
     private double scoreWithMetadataAndPenalties(
             double titleScore,
-            Set<String> leftPeople,
-            Set<String> rightPeople,
+            VideoFingerprint left,
+            VideoFingerprint right,
             Integer leftTotalEpisodes,
             Integer rightTotalEpisodes,
             Set<String> leftAreas,
             Set<String> rightAreas) {
         double score;
-        if (leftPeople.isEmpty() || rightPeople.isEmpty()) {
+        boolean actorsComparable = !left.actors().isEmpty() && !right.actors().isEmpty();
+        boolean directorsComparable = !left.directors().isEmpty() && !right.directors().isEmpty();
+        if (!actorsComparable && !directorsComparable) {
             score = titleScore * TITLE_ONLY_CONFIDENCE;
         } else {
-            score = titleScore * TITLE_WEIGHT
-                    + metadataJaccard(leftPeople, rightPeople) * METADATA_WEIGHT;
+            double weightedEvidence = 0.0;
+            double availableWeight = 0.0;
+            if (actorsComparable) {
+                weightedEvidence += ACTOR_EVIDENCE_WEIGHT * metadataJaccard(left.actors(), right.actors());
+                availableWeight += ACTOR_EVIDENCE_WEIGHT;
+            }
+            if (directorsComparable) {
+                weightedEvidence += DIRECTOR_EVIDENCE_WEIGHT * metadataJaccard(left.directors(), right.directors());
+                availableWeight += DIRECTOR_EVIDENCE_WEIGHT;
+            }
+            score = titleScore * TITLE_WEIGHT + (weightedEvidence / availableWeight) * METADATA_WEIGHT;
         }
         if (!isEpisodeCountCompatible(leftTotalEpisodes, rightTotalEpisodes)) {
             score -= EPISODE_PENALTY;
@@ -429,11 +463,10 @@ public class AggregationMatchingStrategy {
         return union.isEmpty() ? 0.5 : (double) intersection.size() / union.size();
     }
 
-    private Set<String> metadataNameSet(Set<String> actors, Set<String> directors) {
+    private Set<String> normalizedNames(Set<String> values) {
         Set<String> names = new HashSet<>();
-        addNormalizedNames(names, actors);
-        addNormalizedNames(names, directors);
-        return names;
+        addNormalizedNames(names, values);
+        return Set.copyOf(names);
     }
 
     private void addNormalizedNames(Set<String> target, Set<String> values) {
@@ -666,8 +699,8 @@ public class AggregationMatchingStrategy {
     }
 
     private record VideoFingerprint(List<String> titles, Integer season, VideoVersion version,
-            Set<String> people, Optional<String> eventKey, Integer year, Integer episodeCount,
-            Set<String> areas, Map<String, String> externalIds) {
+            Set<String> actors, Set<String> directors, Optional<String> eventKey, Integer year, Integer episodeCount,
+            Set<String> areas, Map<String, String> externalIds, String primaryTitle, String subtitle) {
     }
 
     private enum VideoVersion {

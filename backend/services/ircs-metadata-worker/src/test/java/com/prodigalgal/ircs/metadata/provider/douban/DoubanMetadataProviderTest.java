@@ -111,6 +111,32 @@ class DoubanMetadataProviderTest {
                 .build()));
     }
 
+    @Test
+    void distinguishesMalformedProviderEnvelopeFromValidEmptyResult() {
+        var context = MetadataSearchContext.builder().title("Example").build();
+        when(credentialRepository.findPreferred()).thenReturn(Optional.empty());
+        when(httpClient.getJson(any(), any())).thenReturn(Optional.of("{\"error\":\"blocked\"}"), Optional.of("[]"));
+
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException.class,
+                () -> provider.enrich(context));
+
+        assertThat(failure.getErrorCode()).isEqualTo("PROVIDER_PARSE_ERROR");
+        assertThat(provider.enrich(context)).isEmpty();
+    }
+
+    @Test
+    void skipsSequelAndCandidateWithoutIdentifier() {
+        var context = MetadataSearchContext.builder().title("Alien").build();
+        when(credentialRepository.findPreferred()).thenReturn(Optional.empty());
+        when(httpClient.getJson(any(), any())).thenReturn(Optional.of("""
+                [{"id":"sequel","title":"Alien Covenant"},
+                 {"title":"Alien"}, {"id":"original","title":"Alien"}]
+                """));
+
+        assertThat(provider.enrich(context).orElseThrow().getDoubanId()).isEqualTo("original");
+    }
+
     private boolean isSuggestUri(URI uri) {
         return uri != null
                 && uri.toString().startsWith("https://movie.douban.com/j/subject_suggest")

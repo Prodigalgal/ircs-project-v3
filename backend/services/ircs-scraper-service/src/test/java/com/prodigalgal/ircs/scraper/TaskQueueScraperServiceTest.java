@@ -105,6 +105,73 @@ class TaskQueueScraperServiceTest {
     }
 
     @Test
+    void pageTaskDeduplicatesSameSourceVersionAndKeepsUpdatedVersion() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        DataSourceRecord source = source(dataSourceId);
+        when(dataSourceRepository.findById(dataSourceId)).thenReturn(Optional.of(source));
+        when(listScraperClient.fetchListPage(eq(source), any(), eq(1))).thenReturn(new ListPage(
+                List.of(
+                        new ListItem("v-same", "2026-06-13 10:00:00", Map.of()),
+                        new ListItem("v-same", "2026-06-13 10:00:00", Map.of()),
+                        new ListItem("v-same", "2026-06-13 11:00:00", Map.of())),
+                1,
+                3));
+
+        service.processPage(new TaskPageMessage(
+                masterTaskId,
+                pageTaskId,
+                dataSourceId,
+                1,
+                false,
+                0,
+                options(),
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z")));
+
+        ArgumentCaptor<TaskDetailMessage> detailCaptor = ArgumentCaptor.forClass(TaskDetailMessage.class);
+        verify(queuePublisher, org.mockito.Mockito.times(2)).publishDetail(detailCaptor.capture());
+        assertThat(detailCaptor.getAllValues()).extracting(TaskDetailMessage::sourceVid)
+                .containsExactly("v-same", "v-same");
+        assertThat(detailCaptor.getAllValues()).extracting(TaskDetailMessage::idempotencyKey)
+                .doesNotHaveDuplicates();
+        ArgumentCaptor<TaskPageDiscoveredMessage> discoveredCaptor =
+                ArgumentCaptor.forClass(TaskPageDiscoveredMessage.class);
+        verify(queuePublisher).publishPageDiscovered(discoveredCaptor.capture());
+        assertThat(discoveredCaptor.getValue().detailScheduled()).isEqualTo(2);
+    }
+
+    @Test
+    void pageTaskBoundsIdempotencyKeyPartsForOversizedSourceValues() {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        UUID dataSourceId = UUID.randomUUID();
+        DataSourceRecord source = source(dataSourceId);
+        String oversizedSourceVid = "v".repeat(ScrapeListItemVersionDeduplicator.MAX_SOURCE_VID_LENGTH + 1);
+        String oversizedUpdateTime = "t".repeat(ScrapeListItemVersionDeduplicator.MAX_UPDATE_TIME_LENGTH + 1);
+        when(dataSourceRepository.findById(dataSourceId)).thenReturn(Optional.of(source));
+        when(listScraperClient.fetchListPage(eq(source), any(), eq(1))).thenReturn(new ListPage(
+                List.of(new ListItem(oversizedSourceVid, oversizedUpdateTime, Map.of())), 1, 1));
+
+        service.processPage(new TaskPageMessage(
+                masterTaskId,
+                pageTaskId,
+                dataSourceId,
+                1,
+                false,
+                0,
+                options(),
+                masterTaskId.toString(),
+                Instant.parse("2026-06-13T00:00:00Z")));
+
+        ArgumentCaptor<TaskDetailMessage> detailCaptor = ArgumentCaptor.forClass(TaskDetailMessage.class);
+        verify(queuePublisher).publishDetail(detailCaptor.capture());
+        assertThat(detailCaptor.getValue().idempotencyKey()).hasSizeLessThan(250)
+                .doesNotContain(oversizedSourceVid, oversizedUpdateTime);
+    }
+
+    @Test
     void pageTaskDoesNotFetchListWhenMasterIsPaused() {
         UUID masterTaskId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();

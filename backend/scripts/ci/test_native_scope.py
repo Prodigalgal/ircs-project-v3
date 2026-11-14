@@ -81,6 +81,19 @@ class NativeRuntimeScopeTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.smoke.image('ircs-identity-service')
 
+    def test_metadata_and_normalization_do_not_require_search_infrastructure(self):
+        self.smoke.selected_services = {'ircs-metadata-worker', 'ircs-normalization-worker'}
+        self.assertFalse(self.smoke.requires_search_fixture())
+
+    def test_search_keeps_its_real_elasticsearch_fixture_when_selected_alone_or_together(self):
+        for selected in ({'ircs-search-service'}, {'ircs-search-service', 'ircs-metadata-worker'}):
+            self.smoke.selected_services = selected
+            self.assertTrue(self.smoke.requires_search_fixture())
+
+    def test_baseline_ops_and_identity_forwarding_fixtures_do_not_add_a_search_dependency(self):
+        self.smoke.selected_services = {'ircs-api-gateway', 'ircs-ops-service', 'ircs-identity-service'}
+        self.assertFalse(self.smoke.requires_search_fixture())
+
     def test_gateway_only_does_not_start_unselected_listener_cases(self):
         starts = []
         self.smoke.start = lambda service, values, **kwargs: starts.append(service)
