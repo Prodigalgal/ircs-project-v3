@@ -125,7 +125,7 @@ class NativeRuntimeScopeTest(unittest.TestCase):
     def normalization_docker(self, title='国王的演讲'):
         def respond(*args):
             if 'HGET' in args:
-                return 'SUCCESS'
+                return 'SUCCESS' if args[-1] == 'status' else ''
             if 'ZCARD' in args:
                 return '1'
             if args[-1].startswith('select json_build_object'):
@@ -145,6 +145,19 @@ class NativeRuntimeScopeTest(unittest.TestCase):
         with patch.object(self.smoke, 'docker', side_effect=self.normalization_docker('國王的演講')):
             with self.assertRaisesRegex(AssertionError, 'title conversion'):
                 self.smoke.normalization_round_trip()
+
+    def test_normalization_probe_reports_the_first_durable_failure_without_waiting_for_all_retries(self):
+        fallback = self.normalization_docker()
+
+        def respond(*args):
+            if 'HGET' in args and args[-1] == 'lastError':
+                return 'BadSqlGrammarException: could not determine data type of parameter'
+            return fallback(*args)
+
+        with patch.object(self.smoke, 'docker', side_effect=respond), patch.object(self.smoke.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(AssertionError, 'Native normalization task failed: BadSqlGrammarException'):
+                self.smoke.normalization_round_trip()
+        sleep.assert_not_called()
 
     def aggregation_http(self, requests):
         def respond(request, timeout):

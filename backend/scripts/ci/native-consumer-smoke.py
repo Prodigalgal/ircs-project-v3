@@ -377,7 +377,10 @@ def normalization_round_trip():
     docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZADD', prefix + ':pending', now, task_id)
 
     def consumed():
-        return docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HGET', task_key, 'status') == 'SUCCESS'
+        status = docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HGET', task_key, 'status')
+        error = docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HGET', task_key, 'lastError')
+        assert not error, 'Native normalization task failed: ' + error
+        return status == 'SUCCESS'
 
     wait_for('Native normalization consumed actual Chinese/Japanese text', consumed)
     row = json.loads(docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc',

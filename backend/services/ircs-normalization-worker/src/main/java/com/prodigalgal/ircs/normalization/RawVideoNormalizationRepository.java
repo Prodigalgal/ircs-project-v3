@@ -252,26 +252,31 @@ public class RawVideoNormalizationRepository {
         if (!StringUtils.hasText(sourceCode) && !StringUtils.hasText(sourceName)) {
             return Optional.empty();
         }
-        String safeSourceCode = trimToLength(sourceCode, 100);
+        String safeSourceCode = trimNullable(sourceCode, 100);
         String safeSourceName = StringUtils.hasText(sourceName) ? trimToLength(sourceName, 255) : null;
         String inferredCategoryCode = StandardContentCategoryClassifier
                 .inferCode(safeSourceCode, safeSourceName)
                 .orElse(null);
         String fallbackCategoryCode = StandardContentCategoryClassifier.OTHER;
-        String categoryCode = jdbcTemplate.queryForObject(
-                """
-                select slug
-                  from standard_category
-                 where lower(slug) = lower(coalesce(
-                       cast(:inferredCategoryCode as text),
-                       cast(:fallbackCategoryCode as text)
-                 ))
-                 limit 1
-                """,
-                new MapSqlParameterSource()
-                        .addValue("inferredCategoryCode", inferredCategoryCode)
-                        .addValue("fallbackCategoryCode", fallbackCategoryCode),
-                String.class);
+        String categoryCode;
+        try {
+            categoryCode = jdbcTemplate.queryForObject(
+                    """
+                    select slug
+                      from standard_category
+                     where lower(slug) = lower(coalesce(
+                           cast(:inferredCategoryCode as text),
+                           cast(:fallbackCategoryCode as text)
+                     ))
+                     limit 1
+                    """,
+                    new MapSqlParameterSource()
+                            .addValue("inferredCategoryCode", inferredCategoryCode)
+                            .addValue("fallbackCategoryCode", fallbackCategoryCode),
+                    String.class);
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        }
         if (!StringUtils.hasText(categoryCode)) {
             return Optional.empty();
         }
@@ -368,7 +373,7 @@ public class RawVideoNormalizationRepository {
                        language_codes = case when :hasLanguageCodes then cast(:languageCodes as jsonb) else language_codes end,
                        genre_codes = case when :hasGenreCodes then cast(:genreCodes as jsonb) else genre_codes end,
                        category_code = case
-                           when :categoryCode is not null then :categoryCode
+                           when cast(:categoryCode as text) is not null then cast(:categoryCode as text)
                            when lower(coalesce(category_code, '')) not in (:allowedCategoryCodes) then null
                            else category_code
                        end,
