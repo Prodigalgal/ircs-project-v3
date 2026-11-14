@@ -1,6 +1,6 @@
 # 聚合优化实施与验证记录
 
-**状态：3.4.2 已通过真实 Spring 代理回归、双架构 Native 构建/运行验证和生产只读评估，自动 GitOps 发布成功（f8a8366）。生产聚合继续保持 audit hold。3.4.3 补齐上游规范化 Native 支持与有资格输入的补入队筛选，详见 140 号记录。禁止本地应用编译。**
+**状态：3.4.5 已通过 361 项应用测试、双架构 Native 构建和功能门禁，自动发布至 GitOps 19290eb；规范化和聚合已分别通过 d32beca / ff7c0c1 恢复 1 副本。发现的元数据补全 Native 凭据绑定阻断由 3.4.6 单模块候选修复，详见 140 号记录。禁止本地应用编译。**
 
 ## 目标与边界
 
@@ -13,7 +13,7 @@
 ## 依据与夹具设计
 
 - 138 号第 3 节和 `aggregation-sample-2026-11-14.json` 仅提供旧快照统计与定向坏例线索：总体计数为采样时点汇总，不能估计总体误合并率；异常簇明细也不是随机验收集。
-- 现有匹配、图聚类、服务和 worker 测试覆盖 placeholder ID、体育事件区分、图桥接、候选歧义、锁竞争和队列结果；新增生产回归测试目前含从生产复制的标题，应在提交前改为合成标题/字段与人工标注标签，不保留原始作品名称、生产 ID 或原始样本导出。
+- 匹配、图聚类、服务和 worker 测试覆盖 placeholder ID、体育事件区分、图桥接、候选歧义、锁竞争和队列结果；本轮回归以合成标题/字段和显式预期替换生产样本，不提交原始作品名称、生产 ID 或原始样本导出。
 - 夹具使用 `SplittableRandom` 或等价 PRNG 固定 seed，生成的 ID 从 seed 派生；用独立 `workLabel` 表示真值，不从 matcher 分数自动生成标签。正例、负例、边界例显式人工标注并提交为小型 Java fixture，不提交生产 JSON。
 - 固定 seed 负责可重现的批量排列、候选顺序与并发时序；真值来自人工标注。调参集与验收集按作品标签拆分，避免同一作品/别名跨集合泄漏。合成定向回归与随机分层评测分开报告。
 
@@ -57,7 +57,7 @@
 
 ## CI 选择规则核对
 
-`.github/scripts/affected-plan.py` 按模块源文件计算服务消费者并把受影响模块加入测试矩阵；模块测试文件仅触发对应测试，不触发镜像构建。`backend/scripts/ci/native-matrix.py` 将 image 映射到模块测试任务；`.github/workflows/native-build.yml` 中 Java 测试任务按矩阵执行，受影响 Java 镜像再进入 native build 和 runtime smoke。聚合 worker 单模块源码变更预期仅选择聚合 worker；shared/common、messaging、Gradle 或 native Docker recipe 变更会按当前规则扩大范围。最终范围以 GHA 上传的 affected-plan 为准，本轮未在 CI 运行验证。
+`.github/scripts/affected-plan.py` 按模块源文件计算服务消费者并把受影响模块加入测试矩阵；模块测试文件仅触发对应测试，不触发镜像构建。`backend/scripts/ci/native-matrix.py` 将 image 映射到模块测试任务；`.github/workflows/native-build.yml` 中 Java 测试任务按矩阵执行，受影响 Java 镜像再进入 native build 和 runtime smoke。3.4.2 实证只构建聚合 worker，3.4.5 选择聚合与规范化两个模块；前端和 Python 的元数据提升没有触发无关构建。shared/common、messaging、Gradle 或 native Docker recipe 的实际变更仍按依赖图扩大范围。
 
 ## 名称与报告交叉核对
 
@@ -67,7 +67,7 @@
 
 ## 完成状态
 
-已完成以下代码改造，应用测试和实际性能仍待验证：
+已完成以下代码改造，应用测试与只读评估见后文；真实消费吞吐和业务准确率仍需分别验证：
 
 - 身份安全：单条和批量都复核完整拟合并集合，包含 victim 之间的冲突、候选缺失和正向证据；歧义不再任取最小 UUID，也不自动新建重复作品。自动合并既有作品默认关闭；普通 raw 绑定继续支持，冲突簇拆回独立绑定。
 - 清洗与匹配：通用别名/副标题在清洗前后均过滤；provider 明确的占位及拒绝 ID 不参与召回、创建或流水线填充。发行年差异统一允许有效四位年份 ±1；未知年不是身份证明，完整簇校验阻止弱桥。未知季不等于 S1，可能增加待核验或碎片，未批量重绑旧数据。
@@ -78,7 +78,7 @@
 - 队列：依赖/竞争/源变化/快照变化/人工核验持久延期，不计供应商失败预算；默认依赖 30 秒、竞争 2 秒、核验 1 小时。严格 submission/owner/attempt/期限 CAS，整批未终结任务续期；事务内 ownership 检查不等待续期网络。
 - 只读评估：内部鉴权保护的 `POST /internal/v1/aggregation/evaluate` 接收 1..100 个 UUID，去重后返回旧绑定、拟 root/victims、决策和原因。明确标注 `SNAPSHOT_ONLY`；没有批量图和提交授权，不执行写入、成人判断、索引或队列。
 
-配置、DTO、并发和 Native HTTP 回归已经加入候选。CI 脚本静态单测、版本契约和 workflow lint 可在本地校验；它们不等于应用测试或 Native 运行成功。最新源码/版本一致使用 3.4.3，未变化组件继续复用发布账本中不可变镜像，不因元数据提升重建前端或 Python 服务。
+配置、DTO、并发和 Native HTTP 回归已经加入候选。CI 脚本静态单测、版本契约和 workflow lint 在本地通过；应用测试与 Native 验证仅在 GitHub Actions 执行。最新待验证候选为 metadata 专属修复 3.4.6，aggregation / normalization 已验收的 3.4.5 镜像继续复用，不因元数据提升重建无关组件。
 
 未创建数据库迁移、未全量 reset、未自动拆修历史污染作品。尚无权威 ID/来源信任账本；真实误聚率、召回率、吞吐和连接占用变化均需标注样本与运行证据。回滚使用上一不可变镜像并保留 audit hold；切换 worker 前暂停消费，避免不同锁键格式滚动混跑。
 
@@ -93,5 +93,11 @@
 
 - 编排入口取消 `NEVER` 事务注解，用显式入口校验拒绝实际事务和空 synchronization 上下文，再按短 TransactionTemplate 写入。Spring 的空 synchronization 也可能绑定 JdbcTemplate 连接，单纯检查 `isActualTransactionActive=false` 不足以证明连接已释放。PostgreSQL 单连接池测试统一经过真实 Spring TransactionInterceptor/CGLIB 代理，覆盖准备查询、成人远端等待与重试。
 - 已有绑定刷新对缺失季字段采用“缺少证据”处理，明确 S1/S2 冲突仍拒绝；新绑定及作品合并继续严格处理未知季，避免把未知直接当作 S1。只读冲突返回 provider/category/year/season/version/event 等具体维度，便于核验。
-- 增量发布条件使用 `always()`、未取消、main、prepare 成功、有选中组件、manifest 成功的组合，处理上游未变模块矩阵跳过导致的传递跳过，同时保留全部成功门禁；语义依据 [GitHub needs 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)。新增静态回归，实际发布结果待新候选验证。
-- 最新候选占用 3.4.2；不复用已占用的 3.4.0/3.4.1 tag 或制品。
+- 增量发布条件使用 `always()`、未取消、main、prepare 成功、有选中组件、manifest 成功的组合，处理上游未变模块矩阵跳过导致的传递跳过，同时保留全部成功门禁；语义依据 [GitHub needs 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)。静态回归与 3.4.2 实际自动 GitOps 发布均通过。
+- 该轮候选独立占用 3.4.2；后续候选同样不复用版本、tag 或制品。
+
+3.4.2 / `628b4f9` / [43576088924](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43576088924) 共 269 项应用测试零失败、零跳过，双架构 Native 构建和运行、manifest、自动 GitOps 发布全部通过。相同 seed 的 200 条生产只读评估中，100 条 BOUND 为 93 兼容、7 冲突线索（类别 3、赛事 3、TMDB ID 1），耗时 3.031 秒；100 条 PENDING 为 91 等待依赖、8 已有绑定兼容、1 赛事冲突，耗时 2.172 秒。评估前后业务行数不变，数据库会话 1 / idle-in-transaction 0；临时 Job 与转发已清理。两次评估的缓存、节点状态未受控，不能据耗时差计算优化百分比。
+
+3.4.5 在 GitHub Actions 的 48 套件、361 项应用测试中零失败、零错误、零跳过，其中新增规范化 PostgreSQL 集成测试 6 项全部通过。现有聚合输入补入队查询在生产只读 EXPLAIN ANALYZE 下返回 100 行，执行约 1.227 毫秒；这是该查询单次耗时，不代表端到端消费吞吐。
+
+[43580835042](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43580835042) 的四个 Native 镜像、双架构实际文本规范化/READY/SUCCESS/双下游交接、聚合只读 HTTP 门禁、多架构 manifest 与自动 GitOps 全部成功。生产恢复后首次快照中 normalization PENDING 从 7,174 降到 6,984（190 条进入 READY），数据卷身份及业务绑定保持。元数据补全暴露旧镜像的 Native 凭据反序列化问题，不能据规范化成功宣称完整聚合链路已恢复。
