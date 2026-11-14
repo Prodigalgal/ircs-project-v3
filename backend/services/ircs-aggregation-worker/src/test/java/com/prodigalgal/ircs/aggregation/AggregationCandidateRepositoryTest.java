@@ -70,13 +70,12 @@ class AggregationCandidateRepositoryTest {
         for (int index = 0; index < 201; index++) {
             input.add(raw);
         }
-        when(search.findCandidateUnifiedVideoIds(anyString(), anyString()))
-                .thenReturn(AggregationContextSearchClient.ContextSearchResult.notAttempted());
         AtomicInteger batchIndex = new AtomicInteger();
         when(jdbc.query(anyString(), any(MapSqlParameterSource.class), anyRowMapper())).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);
             if (!sql.startsWith("with context_candidates")) {
-                return List.of();
+                RowMapper<?> mapper = invocation.getArgument(2);
+                return List.of(mapper.mapRow(row(0, UUID.randomUUID()), 0));
             }
             RowMapper<?> mapper = invocation.getArgument(2);
             List<Object> rows = new ArrayList<>();

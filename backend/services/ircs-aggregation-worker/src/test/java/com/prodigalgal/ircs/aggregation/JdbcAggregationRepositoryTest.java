@@ -315,7 +315,7 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
-    void contextExternalRecallUsesOnlyDoubanAndTmdbLikeV1() {
+    void contextExternalRecallAlsoUsesImdbAndRottenTomatoes() {
         RawVideoAggregationRecord rawVideo = new RawVideoAggregationRecord(
                 UUID.randomUUID(),
                 null,
@@ -342,10 +342,9 @@ class JdbcAggregationRepositoryTest {
         List<UnifiedVideoAggregationCandidate> result = repository.findContextUnifiedCandidates(List.of(rawVideo));
 
         assertEquals(List.of(), result);
-        verify(jdbcTemplate, times(0)).query(
-                any(String.class),
-                any(MapSqlParameterSource.class),
-                anyUnifiedCandidateRowMapper());
+        verify(jdbcTemplate).query(sqlCaptor.capture(), paramsCaptor.capture(), anyUnifiedCandidateRowMapper());
+        assertTrue(sqlCaptor.getValue().contains("imdb_id = :imdbId"));
+        assertTrue(sqlCaptor.getValue().contains("rotten_tomatoes_id = :rottenTomatoesId"));
     }
 
     @Test

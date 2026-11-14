@@ -318,6 +318,26 @@ class AdultAssessmentTransactionIntegrationTest {
                 .isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"", "0", "123", "unknown"})
+    void invalidExternalIdIsReplacedWithUsableSourceEvidence(String initialId) {
+        jdbc.update("update unified_videos set douban_id=? where id=?", initialId, id);
+        jdbc.update("update raw_videos set douban_id='987654', tmdb_id='123' where id=?", rawId);
+        transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
+        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id))
+                .isEqualTo("987654");
+        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id))
+                .isEqualTo("123");
+    }
+
+    @Test
+    void rejectedProviderIdCannotBeFilledIntoAnEmptyUnifiedField() {
+        jdbc.update("update raw_videos set douban_id='123', tmdb_id='123' where id=?", rawId);
+        transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
+        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isEqualTo("123");
+    }
+
     private AdultAssessmentSnapshot capture() {
         TransactionTemplate read = new TransactionTemplate(manager);
         read.setReadOnly(true);

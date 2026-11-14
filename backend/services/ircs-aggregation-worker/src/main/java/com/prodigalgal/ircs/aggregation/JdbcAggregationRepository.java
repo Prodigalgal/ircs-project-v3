@@ -1171,7 +1171,7 @@ public class JdbcAggregationRepository {
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
                 where id = :unifiedVideoId
-                  and not %s
+                  and not (%s)
                   and exists (
                       select 1
                       from raw_video_unified_video rvuv
