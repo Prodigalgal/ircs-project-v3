@@ -4,6 +4,10 @@ import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationMaintenanceRunResponse;
 import com.prodigalgal.ircs.contracts.aggregation.AggregationResetStepResponse;
 import java.util.UUID;
+import java.util.List;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestBody;
 
 @RestController
 @RequestMapping("/internal/v1/aggregation")
@@ -23,6 +28,17 @@ class InternalAggregationController {
     private final AggregationService aggregationService;
     private final AggregationInternalAccessPolicy accessPolicy;
     private final ObjectProvider<AggregationWorkQueueWorker> workQueueWorkerProvider;
+    private final AggregationEvaluationService evaluationService;
+
+    @PostMapping("/evaluate")
+    ResponseEntity<AggregationEvaluationService.EvaluationResponse> evaluate(
+            @Valid @RequestBody EvaluationRequest request,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
+        accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
+        return ResponseEntity.ok(evaluationService.evaluate(request.rawVideoIds()));
+    }
 
     @PostMapping("/unified-videos/{id}/recalculate")
     ResponseEntity<RecalculateResponse> recalculateUnified(
@@ -107,4 +123,6 @@ class InternalAggregationController {
 
     record RecalculateResponse(UUID unifiedVideoId, int sourceCount) {
     }
+
+    record EvaluationRequest(@NotNull @Size(min = 1, max = 100) List<@NotNull UUID> rawVideoIds) { }
 }

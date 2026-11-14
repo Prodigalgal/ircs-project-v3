@@ -4,8 +4,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -20,15 +24,22 @@ class RestAggregationContextSearchClient implements AggregationContextSearchClie
     RestAggregationContextSearchClient(
             RestClient.Builder builder,
             @Value("${app.aggregation.context-search.enabled:true}") boolean enabled,
-            @Value("${app.aggregation.context-search.base-url:http://ircs-search-service:8080}") String baseUrl) {
+            @Value("${app.aggregation.context-search.base-url:http://ircs-search-service:8080}") String baseUrl,
+            @Qualifier("aggregationContextRequestFactory") ObjectProvider<ClientHttpRequestFactory> factoryProvider) {
         this.enabled = enabled;
-        this.restClient = builder.clone().baseUrl(stripTrailingSlash(baseUrl)).build();
+        RestClient.Builder configured = builder.clone().baseUrl(stripTrailingSlash(baseUrl));
+        ClientHttpRequestFactory factory = factoryProvider == null ? null : factoryProvider.getIfAvailable();
+        if (factory != null) { configured.requestFactory(factory); }
+        this.restClient = configured.build();
     }
 
     @Override
     public ContextSearchResult findCandidateUnifiedVideoIds(String title, String year) {
         if (!enabled || !StringUtils.hasText(title)) {
             return ContextSearchResult.notAttempted();
+        }
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("Aggregation search recall must run outside a database transaction");
         }
         try {
             UUID[] ids = restClient.get()
@@ -44,6 +55,7 @@ class RestAggregationContextSearchClient implements AggregationContextSearchClie
             List<UUID> result = ids == null ? List.of() : Arrays.stream(ids)
                     .filter(java.util.Objects::nonNull)
                     .distinct()
+                    .limit(20)
                     .toList();
             return ContextSearchResult.attempted(result);
         } catch (RestClientException ex) {

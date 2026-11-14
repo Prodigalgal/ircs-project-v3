@@ -1,6 +1,10 @@
 package com.prodigalgal.ircs.aggregation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,8 +23,39 @@ class InternalAggregationControllerTest {
     private final AggregationInternalAccessPolicy accessPolicy =
             org.mockito.Mockito.mock(AggregationInternalAccessPolicy.class);
     private final ObjectProvider<AggregationWorkQueueWorker> workerProvider = org.mockito.Mockito.mock(ObjectProvider.class);
+    private final AggregationEvaluationService evaluationService = org.mockito.Mockito.mock(AggregationEvaluationService.class);
     private final InternalAggregationController controller =
-            new InternalAggregationController(aggregationService, accessPolicy, workerProvider);
+            new InternalAggregationController(aggregationService, accessPolicy, workerProvider, evaluationService);
+
+    @Test
+    void evaluateChecksExistingInternalAccessBeforeReadOnlyService() {
+        UUID rawId = UUID.randomUUID();
+        var request = new InternalAggregationController.EvaluationRequest(List.of(rawId));
+        var response = new AggregationEvaluationService.EvaluationResponse(
+                "SNAPSHOT_ONLY", java.time.Instant.now(), false, "snapshot", List.of());
+        when(evaluationService.evaluate(request.rawVideoIds())).thenReturn(response);
+
+        var result = controller.evaluate(request, "ops-service", "token", "aggregation:maintenance");
+
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals(response, result.getBody());
+        var ordered = inOrder(accessPolicy, evaluationService);
+        ordered.verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
+        ordered.verify(evaluationService).evaluate(List.of(rawId));
+        verifyNoInteractions(aggregationService, workerProvider);
+    }
+
+    @Test
+    void evaluateDoesNotReadOrWriteWhenInternalAccessIsDenied() {
+        var request = new InternalAggregationController.EvaluationRequest(List.of(UUID.randomUUID()));
+        var denied = new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN);
+        doThrow(denied).when(accessPolicy).assertAccess("unknown", "bad", "wrong-scope");
+
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.evaluate(request, "unknown", "bad", "wrong-scope"));
+
+        verifyNoInteractions(evaluationService, aggregationService, workerProvider);
+    }
 
     @Test
     void recalculateDirtyUnifiedChecksAccessAndDelegatesToService() {

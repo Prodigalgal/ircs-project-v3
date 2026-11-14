@@ -352,6 +352,57 @@ def ingestion_round_trip():
     print('Native ingestion persisted one video, consumed playlist sync and deduplicated normalization work.', flush=True)
 
 
+def aggregation_evaluation_probe():
+    import uuid
+
+    def table_counts():
+        result = docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs',
+                        '-v', 'ON_ERROR_STOP=1', '-Atc',
+                        'select (select count(*) from unified_videos), '
+                        '(select count(*) from raw_videos), '
+                        '(select count(*) from raw_video_unified_video)')
+        counts = tuple(int(value) for value in result.split('|'))
+        assert len(counts) == 3, 'Aggregation fixture count query must return three counts'
+        return counts
+
+    def evaluate(raw_ids, authenticated):
+        headers = {'Content-Type': 'application/json'}
+        if authenticated:
+            headers.update({'X-IRCS-SERVICE-ID': 'native-aggregation-smoke',
+                            'X-IRCS-SERVICE-TOKEN': password,
+                            'X-IRCS-SERVICE-SCOPES': 'aggregation:maintenance'})
+        payload = json.dumps({'rawVideoIds': raw_ids}).encode()
+        try:
+            with urlopen(Request(f'http://127.0.0.1:{current_port}/internal/v1/aggregation/evaluate',
+                                 data=payload, headers=headers, method='POST'), timeout=10) as response:
+                return response.status, json.load(response)
+        except HTTPError as error:
+            status = error.code
+            error.close()
+            return status, None
+
+    raw_id = str(uuid.uuid4())
+    before = table_counts()
+    try:
+        status, _ = evaluate([raw_id], False)
+        assert status == 401, 'Aggregation evaluation must reject missing internal authentication'
+        for raw_ids in ([raw_id], [raw_id, raw_id]):
+            status, result = evaluate(raw_ids, True)
+            assert status == 200, 'Authenticated aggregation evaluation must succeed'
+            assert result.get('scope') == 'SNAPSHOT_ONLY', 'Evaluation must explicitly remain snapshot-only'
+            assert result.get('autoUnifiedMergeEnabled') is False, 'Automatic unified merge must default to disabled'
+            decisions = result.get('decisions', [])
+            assert len(decisions) == 1, 'Evaluation must deduplicate raw UUIDs'
+            assert decisions[0].get('rawVideoId') == raw_id, 'Evaluation must preserve the requested raw UUID'
+            assert decisions[0].get('decision') == 'MISSING', 'Disposable random raw UUID must remain missing'
+        status, _ = evaluate([], True)
+        assert status == 400, 'Native request validation must reject an empty raw UUID list'
+    finally:
+        assert table_counts() == before, 'Read-only evaluation must preserve raw, unified and binding counts'
+    print('Native aggregation evaluation: internal authentication, snapshot DTOs, deduplication, validation and read-only counts verified.',
+          flush=True)
+
+
 def main():
     cases = [
         ('ircs-ingestion-worker', 'APP_INGESTION_LISTENER_ENABLED', ['q.ingest.video', 'q.process.playlist_sync']),
@@ -387,8 +438,15 @@ def main():
                 values['APP_OPS_RUNTIME_DLQ_REPLAY_WORKER_ENABLED'] = 'false'
             if service == 'ircs-api-gateway':
                 values['APP_GATEWAY_OPS_BASE_URL'] = 'http://127.0.0.1:9'
+            if service == 'ircs-aggregation-worker':
+                values.update({'APP_AGGREGATION_INTERNAL_ACCESS_REQUIRE_TOKEN': 'true',
+                               'APP_AGGREGATION_INTERNAL_ACCESS_TOKEN': password,
+                               'APP_AGGREGATION_INTERNAL_ACCESS_REQUIRED_SCOPE': 'aggregation:maintenance',
+                               'APP_AGGREGATION_WORK_QUEUE_WORKER_INITIAL_DELAY_MS': '3600000'})
             try:
                 start(service, values)
+                if service == 'ircs-aggregation-worker':
+                    aggregation_evaluation_probe()
                 if service == 'ircs-ops-service':
                     runtime_queue_buffer_probe()
                     gateway_forwarding_probe(service)
@@ -398,8 +456,11 @@ def main():
                     gateway_config_cache_probe()
                 print(f'{service}: Native application startup and pool budget verified', flush=True)
             except Exception as error:
-                failures.append(f'{service}: {error}')
-                print(f'Native startup failed: {service}: {error}', flush=True)
+                # Docker startup exceptions may include command arguments containing this probe's token.
+                detail = (str(error) if isinstance(error, AssertionError) else type(error).__name__) \
+                    if service == 'ircs-aggregation-worker' else str(error)
+                failures.append(f'{service}: {detail}')
+                print(f'Native startup failed: {service}: {detail}', flush=True)
             finally:
                 failures.extend(f'{service}: {error}' for error in stop())
         # A changed gateway must exercise both forwarding contracts with unchanged

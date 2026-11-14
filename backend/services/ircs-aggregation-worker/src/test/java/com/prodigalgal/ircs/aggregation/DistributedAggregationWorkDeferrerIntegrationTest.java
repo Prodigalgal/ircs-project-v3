@@ -18,6 +18,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -134,6 +136,54 @@ class DistributedAggregationWorkDeferrerIntegrationTest {
         RuntimeWorkItem replacement = claim("owner-b");
         assertThat(deferrer.defer(old, Duration.ofSeconds(2), "QUEUE_PENDING")).isFalse();
         assertThat(queue.complete(replacement)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MATCH_LOCK_BUSY", "NOT_ELIGIBLE", "WAITING_DEPENDENCIES", "SOURCE_CHANGED",
+            "IDENTITY_CONFLICT", "MERGE_AMBIGUOUS"})
+    void aggregationWaitReasonsRemainDurableAndDoNotSpendFailureBudget(String reason) {
+        queue.submit(request("v1"));
+        RuntimeWorkItem waiting = claim("worker");
+        assertThat(deferrer.defer(waiting, Duration.ofHours(1), reason)).isTrue();
+        assertThat(queue.counts(type).pending()).isEqualTo(1);
+        assertThat(queue.counts(type).inflight()).isZero();
+        assertThat(queue.claim(type, "other-worker", 1, Duration.ofMinutes(1))).isEmpty();
+        clock.advance(Duration.ofHours(1));
+        RuntimeWorkItem resumed = claim("worker");
+        assertThat(deferrer.failureAttempt(resumed)).isEqualTo(1);
+        assertThat(deferrer.defer(waiting, Duration.ofSeconds(2), reason)).isFalse();
+        assertThat(queue.complete(resumed)).isTrue();
+    }
+
+    @Test
+    void renewalKeepsTailClaimPastOriginalDeadlineWithoutChangingItsAttempt() {
+        queue.submit(request("v1"));
+        RuntimeWorkItem tail = queue.claim(type, "owner-a", 1, Duration.ofSeconds(1)).getFirst();
+        clock.advance(Duration.ofMillis(500));
+        assertThat(deferrer.renew(tail, Duration.ofMinutes(1))).isTrue();
+        clock.advance(Duration.ofSeconds(2));
+        assertThat(queue.requeueExpired(type, 100)).isZero();
+        assertThat(queue.claim(type, "owner-b", 1, Duration.ofMinutes(1))).isEmpty();
+        assertThat(deferrer.failureAttempt(tail)).isEqualTo(1);
+        assertThat(queue.complete(tail)).isTrue();
+        assertThat(deferrer.renew(tail, Duration.ofMinutes(1))).isFalse();
+    }
+
+    @Test
+    void renewalCannotReviveExpiredTokenOrOverwriteNewSubmissionOrAttempt() {
+        queue.submit(request("v1"));
+        RuntimeWorkItem expired = queue.claim(type, "same-owner", 1, Duration.ofSeconds(1)).getFirst();
+        clock.advance(Duration.ofSeconds(2));
+        assertThat(deferrer.renew(expired, Duration.ofMinutes(1))).isFalse();
+        RuntimeWorkItem replacement = claim("same-owner");
+        assertThat(deferrer.renew(expired, Duration.ofMinutes(1))).isFalse();
+        assertThat(deferrer.renew(replacement, Duration.ofMinutes(1))).isTrue();
+        queue.submit(request("v2"));
+        assertThat(deferrer.renew(replacement, Duration.ofMinutes(1))).isFalse();
+        RuntimeWorkItem current = claim("same-owner");
+        assertThat(current.version()).isEqualTo("v2");
+        assertThat(deferrer.renew(current, Duration.ofMinutes(1))).isTrue();
+        assertThat(queue.complete(current)).isTrue();
     }
 
     private RuntimeWorkItem claim(String owner) {

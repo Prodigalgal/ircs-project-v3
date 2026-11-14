@@ -81,12 +81,22 @@ class AdultAssessmentTransactionIntegrationTest {
                 create table unified_videos(
                     id uuid primary key, version bigint default 0, title text, alias_title text,
                     description text, remarks text, subtitle text, category_code text,
+                    category_id uuid, year text, score numeric, published_at date, total_episodes text,
+                    duration text, season integer, douban_id text, tmdb_id text, imdb_id text, rotten_tomatoes_id text,
+                    metadata_status text default 'SYNCED', area_codes jsonb default '[]',
                     actor_names jsonb default '[]', director_names jsonb default '[]', genre_codes jsonb default '[]',
                     locked_fields jsonb default '[]', adult_restricted boolean default false,
                     adult_assessment jsonb, adult_checked_at timestamptz, updated_at timestamptz default now());
                 create table raw_videos(id uuid primary key, created_at timestamptz default now(), title text,
                     source_category_code text, source_category_name text, data_source_id uuid references data_sources(id),
-                    cover_image_id uuid references cover_images(id), raw_metadata jsonb);
+                    cover_image_id uuid references cover_images(id), raw_metadata jsonb,
+                    alias_title text, description text, year text, score numeric, published_at date,
+                    total_episodes text, duration text, remarks text, subtitle text, season integer,
+                    category_code text default 'movie', douban_id text, tmdb_id text, imdb_id text, rotten_tomatoes_id text,
+                    normalization_status text default 'READY', enrichment_status text default 'SUCCESS',
+                    aggregation_status text default 'BOUND', aggregation_status_updated_at timestamptz default now(),
+                    updated_at timestamptz default now(), actor_names jsonb default '[]',
+                    director_names jsonb default '[]', area_codes jsonb default '[]');
                 create table raw_video_unified_video(
                     raw_video_id uuid references raw_videos(id),
                     unified_video_id uuid references unified_videos(id) on delete cascade,
@@ -106,7 +116,7 @@ class AdultAssessmentTransactionIntegrationTest {
             return Map.of(id, AdultAssessment.safe("google-test"));
         };
         repository = new JdbcAggregationRepository(new NamedParameterJdbcTemplate(pool),
-                new AggregationMatchingStrategy(),
+                AggregationTestFixtures.matchingStrategy(),
                 (title, year) -> AggregationContextSearchClient.ContextSearchResult.notAttempted(),
                 null, JsonMapper.builder().build(), evaluator, 5);
         manager = new DataSourceTransactionManager(pool);
@@ -115,7 +125,8 @@ class AdultAssessmentTransactionIntegrationTest {
         work = mock(AggregationWorkPublisher.class);
         service = new AggregationService(repository, new AggregationSearchSyncPublisher(search),
                 mock(AggregationStorageCommandPublisher.class), mock(RawVideoGraphClusterer.class),
-                mock(AggregationPipelineRuntime.class), mock(AggregationMatchKeyLock.class), work, manager);
+                mock(AggregationPipelineRuntime.class), mock(AggregationMatchKeyLock.class), work, manager,
+                AggregationTestFixtures.matchingStrategy(), AggregationTestFixtures.safetyPolicy());
     }
 
     @AfterEach
@@ -255,6 +266,56 @@ class AdultAssessmentTransactionIntegrationTest {
         assertThat(jdbc.queryForObject("select adult_restricted from unified_videos where id=?", Boolean.class, id)).isTrue();
         verifyNoInteractions(search);
         verify(work).enqueue(rawId, null, "adult-assessment-pending");
+    }
+
+    @Test
+    void boundAdultRetryUsesReleasedConnectionWithoutDemotingOrRebuildingMembership() {
+        remote = inputs -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+        };
+        AggregationResult result = service.aggregateRuntimeWork(rawId);
+        assertThat(result.status()).isEqualTo("BOUND");
+        assertThat(level()).isEqualTo("SAFE");
+        assertThat(jdbc.queryForObject("select aggregation_status from raw_videos where id=?", String.class, rawId))
+                .isEqualTo("BOUND");
+        assertThat(jdbc.queryForObject("select count(*) from raw_video_unified_video", Integer.class)).isEqualTo(1);
+        verifyNoInteractions(work);
+    }
+
+    @Test
+    void completedBoundDuplicateDoesNotWriteFieldsOrPublishIndexes() {
+        service.backfillUnifiedAdultAssessments(10);
+        org.mockito.Mockito.clearInvocations(search);
+        Long version = jdbc.queryForObject("select version from unified_videos where id=?", Long.class, id);
+        AggregationResult result = service.aggregateRuntimeWork(rawId);
+        assertThat(result.status()).isEqualTo("ALREADY_BOUND");
+        assertThat(jdbc.queryForObject("select version from unified_videos where id=?", Long.class, id)).isEqualTo(version);
+        verifyNoInteractions(search, work);
+    }
+
+    @Test
+    void adultWriteYieldsImmediatelyWhenBindingWriterAlreadyOwnsRawRow() throws Exception {
+        AdultAssessmentSnapshot snapshot = capture();
+        DriverManagerDataSource independent = new DriverManagerDataSource(System.getenv("IRCS_TEST_POSTGRES_URL"),
+                System.getenv("IRCS_TEST_POSTGRES_USER"), System.getenv("IRCS_TEST_POSTGRES_PASSWORD"));
+        try (Connection writer = independent.getConnection(); var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            writer.setAutoCommit(false);
+            try (var statement = writer.createStatement()) {
+                statement.execute("set local search_path to " + schema);
+                statement.executeQuery("select id from raw_videos where id='" + rawId + "' for update");
+            }
+            var attempt = executor.submit(() -> {
+                AdultAssessmentDeferredException deferred = assertThrows(AdultAssessmentDeferredException.class,
+                        () -> transaction.execute(status -> repository.applyAdultAssessment(snapshot, AdultAssessment.safe("late"))));
+                return deferred.getMessage();
+            });
+            assertThat(attempt.get(2, TimeUnit.SECONDS)).isEqualTo("CONTENT_SAFETY_SNAPSHOT_CHANGED");
+            assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+            writer.rollback();
+        }
+        assertThat(jdbc.queryForObject("select adult_checked_at is null from unified_videos where id=?", Boolean.class, id))
+                .isTrue();
     }
 
     private AdultAssessmentSnapshot capture() {

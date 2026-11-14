@@ -66,12 +66,12 @@ public class RawVideoGraphClusterer {
                 .map(AggregationGraphCandidate::unified)
                 .forEach(nodes::add);
         nodes.forEach(graph::addVertex);
-        connectSimilarCandidates(graph, nodes);
+        connectSimilarCandidates(graph, nodes, matchingStrategy.prepareSimilaritySession(nodes));
 
         ConnectivityInspector<AggregationGraphCandidate, DefaultWeightedEdge> inspector =
                 new ConnectivityInspector<>(graph);
         return inspector.connectedSets().stream()
-                .flatMap(component -> decomposeToStars(component, inputOrder).stream())
+                .flatMap(component -> decomposeToStars(graph, component, inputOrder).stream())
                 .sorted(Comparator.comparingInt(cluster -> cluster.members().stream()
                         .map(RawVideoAggregationRecord::id)
                         .map(inputOrder::get)
@@ -82,7 +82,8 @@ public class RawVideoGraphClusterer {
 
     private void connectSimilarCandidates(
             Graph<AggregationGraphCandidate, DefaultWeightedEdge> graph,
-            List<AggregationGraphCandidate> candidates) {
+            List<AggregationGraphCandidate> candidates,
+            AggregationMatchingStrategy.SimilaritySession similaritySession) {
         for (int i = 0; i < candidates.size(); i++) {
             for (int j = i + 1; j < candidates.size(); j++) {
                 AggregationGraphCandidate left = candidates.get(i);
@@ -91,13 +92,7 @@ public class RawVideoGraphClusterer {
                         && right instanceof AggregationGraphCandidate.UnifiedNode) {
                     continue;
                 }
-                if (!categoryBucket(left).equals(categoryBucket(right))) {
-                    continue;
-                }
-                if (!isYearBucketCompatible(left.year(), right.year())) {
-                    continue;
-                }
-                double score = matchingStrategy.calculateSimilarity(left, right);
+                double score = similaritySession.calculateSimilarity(left, right);
                 if (score >= EDGE_THRESHOLD) {
                     DefaultWeightedEdge edge = graph.addEdge(left, right);
                     if (edge != null) {
@@ -109,6 +104,7 @@ public class RawVideoGraphClusterer {
     }
 
     private List<RawVideoAggregationCluster> decomposeToStars(
+            Graph<AggregationGraphCandidate, DefaultWeightedEdge> graph,
             Set<AggregationGraphCandidate> component,
             Map<UUID, Integer> inputOrder) {
         if (component.stream().noneMatch(AggregationGraphCandidate.RawNode.class::isInstance)) {
@@ -131,8 +127,15 @@ public class RawVideoGraphClusterer {
             remaining.remove(leader);
 
             for (AggregationGraphCandidate candidate : sortByInputOrder(new HashSet<>(remaining), inputOrder)) {
-                double score = matchingStrategy.calculateSimilarity(leader, candidate);
-                if (score >= CONSISTENCY_THRESHOLD) {
+                double score = edgeScore(graph, leader, candidate);
+                // Connected components already guarantee a >= EDGE_THRESHOLD path to the leader, but a
+                // path is transitive: A-B and B-C can both clear the bar while A-C does not. Peeling as
+                // a star is only meaningful if every member independently agrees with the candidate at
+                // merge strength, otherwise a long chain of vaguely similar titles collapses into one
+                // cluster (production had a single cluster of 1,870 unrelated fixtures).
+                if (score >= CONSISTENCY_THRESHOLD
+                        && members.stream().allMatch(member ->
+                                edgeScore(graph, member, candidate) >= CONSISTENCY_THRESHOLD)) {
                     members.add(candidate);
                     remaining.remove(candidate);
                 }
@@ -140,6 +143,14 @@ public class RawVideoGraphClusterer {
             addClusterIfRaw(clusters, members);
         }
         return clusters;
+    }
+
+    private double edgeScore(Graph<AggregationGraphCandidate, DefaultWeightedEdge> graph,
+            AggregationGraphCandidate left, AggregationGraphCandidate right) {
+        DefaultWeightedEdge edge = graph.getEdge(left, right);
+        // Every retained edge was scored once during graph construction. Missing edges cannot meet
+        // the stricter consistency threshold, so peeling need not rebuild title/name fingerprints.
+        return edge == null ? 0.0 : graph.getEdgeWeight(edge);
     }
 
     private AggregationGraphCandidate electLeader(
@@ -188,17 +199,17 @@ public class RawVideoGraphClusterer {
     private boolean hasAnyExternalId(AggregationGraphCandidate candidate) {
         if (candidate instanceof AggregationGraphCandidate.RawNode rawNode) {
             RawVideoAggregationRecord raw = rawNode.rawVideo();
-            return isValidExternalId(raw.doubanId())
-                    || isValidExternalId(raw.tmdbId())
-                    || isValidExternalId(raw.imdbId())
-                    || isValidExternalId(raw.rottenTomatoesId());
+            return matchingStrategy.isUsableExternalId("douban", raw.doubanId())
+                    || matchingStrategy.isUsableExternalId("tmdb", raw.tmdbId())
+                    || matchingStrategy.isUsableExternalId("imdb", raw.imdbId())
+                    || matchingStrategy.isUsableExternalId("rt", raw.rottenTomatoesId());
         }
         if (candidate instanceof AggregationGraphCandidate.UnifiedNode unifiedNode) {
             UnifiedVideoAggregationCandidate unified = unifiedNode.unifiedVideo();
-            return isValidExternalId(unified.doubanId())
-                    || isValidExternalId(unified.tmdbId())
-                    || isValidExternalId(unified.imdbId())
-                    || isValidExternalId(unified.rottenTomatoesId());
+            return matchingStrategy.isUsableExternalId("douban", unified.doubanId())
+                    || matchingStrategy.isUsableExternalId("tmdb", unified.tmdbId())
+                    || matchingStrategy.isUsableExternalId("imdb", unified.imdbId())
+                    || matchingStrategy.isUsableExternalId("rt", unified.rottenTomatoesId());
         }
         return false;
     }
@@ -213,37 +224,4 @@ public class RawVideoGraphClusterer {
         return StringUtils.hasText(title) ? title.length() : 0;
     }
 
-    private boolean isValidExternalId(String value) {
-        return StringUtils.hasText(value) && !"0".equals(value.trim()) && !"0.0".equals(value.trim());
-    }
-
-    private String categoryBucket(AggregationGraphCandidate candidate) {
-        return StringUtils.hasText(candidate.categoryName())
-                ? candidate.categoryName().trim()
-                : "UNKNOWN_CATEGORY";
-    }
-
-    private boolean isYearBucketCompatible(String left, String right) {
-        int leftYear = parseYear(left);
-        int rightYear = parseYear(right);
-        if (leftYear == 0 || rightYear == 0) {
-            return leftYear == rightYear;
-        }
-        return Math.abs(leftYear - rightYear) <= 1;
-    }
-
-    private int parseYear(String value) {
-        if (!StringUtils.hasText(value)) {
-            return 0;
-        }
-        String digits = value.replaceAll("\\D", "");
-        if (digits.length() < 4) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(digits.substring(0, 4));
-        } catch (NumberFormatException ignored) {
-            return 0;
-        }
-    }
 }

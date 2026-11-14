@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -51,6 +52,16 @@ class JdbcAggregationRepositoryTest {
 
     @Captor
     private ArgumentCaptor<MapSqlParameterSource> paramsCaptor;
+
+    @BeforeEach
+    void useRealProviderUsabilityForMockedScoring() {
+        AggregationSafetyPolicy policy = AggregationTestFixtures.safetyPolicy();
+        org.mockito.Mockito.lenient().when(matchingStrategy.isUsableExternalId(
+                        any(String.class), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenAnswer(call -> policy.isUsableExternalId(call.getArgument(0), call.getArgument(1)));
+        org.mockito.Mockito.lenient().when(matchingStrategy.rejectedExternalIdValues(any(String.class)))
+                .thenAnswer(call -> policy.rejectedExternalIdValues(call.getArgument(0)));
+    }
 
     @Test
     void recallsTitleYearCandidatesWhenExternalIdsAreAbsent() {
@@ -86,9 +97,9 @@ class JdbcAggregationRepositoryTest {
         assertEquals(Optional.of(unifiedVideoId), result);
         verify(jdbcTemplate).query(sqlCaptor.capture(), paramsCaptor.capture(), anyUnifiedCandidateRowMapper());
         assertTrue(sqlCaptor.getValue().contains("similarity(title, :title)"));
-        assertTrue(sqlCaptor.getValue().contains("year = :year"));
+        assertTrue(sqlCaptor.getValue().contains("year in (:yearBuckets)"));
         assertEquals("Codex Signal", paramsCaptor.getValue().getValue("title"));
-        assertEquals("2026", paramsCaptor.getValue().getValue("year"));
+        assertEquals(List.of("2025", "2026", "2027"), paramsCaptor.getValue().getValue("yearBuckets"));
         verify(matchingStrategy).findMatchPlan(rawVideo, List.of(candidate));
     }
 
@@ -209,7 +220,7 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
-    void contextTitleRecallDoesNotFallbackToSqlWhenSearchServiceReturnsEmpty() {
+    void contextTitleRecallFallsBackToBoundedSqlWhenSearchServiceReturnsEmpty() {
         RawVideoAggregationRecord rawWithTitleOnly = rawVideo("Codex Signal", "2026", null);
         JdbcAggregationRepository repository =
                 JdbcAggregationRepository.forTest(jdbcTemplate, matchingStrategy, contextSearchClient);
@@ -222,14 +233,14 @@ class JdbcAggregationRepositoryTest {
 
         assertEquals(List.of(), result);
         verify(contextSearchClient).findCandidateUnifiedVideoIds("Codex Signal", "2026");
-        verify(jdbcTemplate, times(0)).query(
+        verify(jdbcTemplate).query(
                 any(String.class),
                 any(MapSqlParameterSource.class),
                 anyUnifiedCandidateRowMapper());
     }
 
     @Test
-    void contextTitleRecallFallsBackToSqlOnlyWhenSearchRecallIsNotAttempted() {
+    void contextTitleRecallFallsBackToSqlWhenSearchRecallIsNotAttempted() {
         RawVideoAggregationRecord rawWithTitleOnly = rawVideo("Codex Signal", "2026", null);
         UUID unifiedVideoId = UUID.randomUUID();
         UnifiedVideoAggregationCandidate candidate = new UnifiedVideoAggregationCandidate(
@@ -345,7 +356,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createCandidateSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID categoryId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         jdbc.update("insert into standard_category (id, name, slug) values (?, ?, ?)", categoryId, "电影", "movie");
@@ -370,7 +381,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createCandidateSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID rawVideoId = UUID.randomUUID();
         jdbc.update("""
                 insert into raw_videos (
@@ -397,7 +408,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createCandidateSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID categoryId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
@@ -430,7 +441,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createCandidateSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();
         jdbc.update("""
@@ -567,7 +578,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID firstRawVideoId = UUID.randomUUID();
         UUID secondRawVideoId = UUID.randomUUID();
@@ -595,7 +606,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createMergeSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID rootId = UUID.randomUUID();
         UUID victimId = UUID.randomUUID();
         UUID rawId = UUID.randomUUID();
@@ -650,7 +661,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID rawVideoId = UUID.randomUUID();
         LocalDateTime createdAt = LocalDateTime.of(2026, 1, 1, 0, 0);
         LocalDateTime businessUpdatedAt = LocalDateTime.of(2026, 1, 2, 0, 0);
@@ -686,7 +697,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID oldCategoryId = UUID.randomUUID();
         UUID votedCategoryId = UUID.randomUUID();
@@ -751,7 +762,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID lockedCategoryId = UUID.randomUUID();
         UUID rawCategoryId = UUID.randomUUID();
@@ -806,7 +817,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID rawOne = UUID.randomUUID();
         UUID rawTwo = UUID.randomUUID();
@@ -842,7 +853,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         seedScalarLockedFixture(jdbc, unifiedVideoId, rawVideoId);
@@ -874,7 +885,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
@@ -923,7 +934,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID firstRaw = UUID.randomUUID();
         UUID secondRaw = UUID.randomUUID();
@@ -951,7 +962,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         UUID externalCover = UUID.randomUUID();
@@ -976,7 +987,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID firstRaw = UUID.randomUUID();
         UUID secondRaw = UUID.randomUUID();
@@ -1006,7 +1017,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         UUID externalCover = UUID.randomUUID();
@@ -1031,7 +1042,7 @@ class JdbcAggregationRepositoryTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createPipelineSchema(jdbc);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, new AggregationMatchingStrategy());
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
         UUID unifiedVideoId = UUID.randomUUID();
         UUID rawVideoId = UUID.randomUUID();
         UUID localFetchingCover = UUID.randomUUID();

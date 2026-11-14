@@ -42,6 +42,11 @@ final class DeferredAdultAssessments implements AutoCloseable {
         return scope != null && scope.ids.contains(id);
     }
 
+    static void publishCommittedRestrictions() {
+        var scope = CURRENT.get();
+        if (scope != null) { scope.publishRestrictedIndexes(); }
+    }
+
     static boolean deferIndex(String key, Runnable index) {
         var scope = CURRENT.get();
         if (scope == null || scope.publishing) { return false; }

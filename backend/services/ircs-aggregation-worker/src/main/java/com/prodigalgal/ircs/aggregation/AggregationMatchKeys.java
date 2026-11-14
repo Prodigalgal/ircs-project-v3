@@ -5,39 +5,37 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 
 final class AggregationMatchKeys {
 
     private static final int MAX_KEYS = 12;
-    private static final Pattern SEASON_PATTERN = Pattern.compile(
-            "(?i)(?:season|s)\\s*(\\d+)|第\\s*([0-9一二三四五六七八九十百两]+)\\s*[季部]");
-    private static final Pattern VERSION_REAL = Pattern.compile("(?i)(真人版|剧版|live\\s*action)");
-    private static final Pattern VERSION_ANIME = Pattern.compile("(?i)(动画版|动漫|anime|animation)");
-    private static final Pattern RELEASE_NOISE = Pattern.compile(
-            "(?i)(全集|更新至|完结|国语|粤语|中字|4k|1080p|2160p|bluray|web-dl|第\\d+集|\\d+集全)");
+    private static final AggregationSafetyPolicy DEFAULT_SAFETY_POLICY = new AggregationSafetyPolicy(false, "douban:123");
 
     private AggregationMatchKeys() {
     }
 
     static List<String> forRawVideo(RawVideoAggregationRecord rawVideo) {
+        return forRawVideo(rawVideo, DEFAULT_SAFETY_POLICY);
+    }
+
+    static List<String> forRawVideo(RawVideoAggregationRecord rawVideo, AggregationSafetyPolicy safetyPolicy) {
         if (rawVideo == null) {
             return List.of();
         }
         LinkedHashSet<String> keys = new LinkedHashSet<>();
-        addExternalId(keys, "douban", rawVideo.doubanId());
-        addExternalId(keys, "tmdb", rawVideo.tmdbId());
-        addExternalId(keys, "imdb", rawVideo.imdbId());
-        addExternalId(keys, "rt", rawVideo.rottenTomatoesId());
-        addTitleKeys(keys, rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.year(), rawVideo.season());
+        addExternalId(keys, "douban", rawVideo.doubanId(), safetyPolicy);
+        addExternalId(keys, "tmdb", rawVideo.tmdbId(), safetyPolicy);
+        addExternalId(keys, "imdb", rawVideo.imdbId(), safetyPolicy);
+        addExternalId(keys, "rt", rawVideo.rottenTomatoesId(), safetyPolicy);
+        addTitleKeys(keys, rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.season());
         if (keys.isEmpty() && rawVideo.id() != null) {
             keys.add("raw:" + rawVideo.id());
         }
@@ -45,12 +43,16 @@ final class AggregationMatchKeys {
     }
 
     static List<String> forCluster(RawVideoAggregationCluster cluster) {
+        return forCluster(cluster, DEFAULT_SAFETY_POLICY);
+    }
+
+    static List<String> forCluster(RawVideoAggregationCluster cluster, AggregationSafetyPolicy safetyPolicy) {
         if (cluster == null) {
             return List.of();
         }
         LinkedHashSet<String> keys = new LinkedHashSet<>();
         for (RawVideoAggregationRecord rawVideo : cluster.members()) {
-            keys.addAll(forRawVideo(rawVideo));
+            keys.addAll(forRawVideo(rawVideo, safetyPolicy));
         }
         for (UUID unifiedVideoId : cluster.contextUnifiedVideoIds()) {
             if (unifiedVideoId != null) {
@@ -78,14 +80,11 @@ final class AggregationMatchKeys {
         return limit(all);
     }
 
-    private static void addExternalId(Set<String> keys, String provider, String value) {
-        if (!StringUtils.hasText(value)) {
+    private static void addExternalId(Set<String> keys, String provider, String value, AggregationSafetyPolicy safetyPolicy) {
+        if (!safetyPolicy.isUsableExternalId(provider, value)) {
             return;
         }
         String normalized = value.trim().toLowerCase(Locale.ROOT);
-        if ("0".equals(normalized) || "0.0".equals(normalized)) {
-            return;
-        }
         keys.add(provider + ":" + digest(normalized));
     }
 
@@ -94,45 +93,26 @@ final class AggregationMatchKeys {
             String title,
             String aliasTitle,
             String subtitle,
-            String year,
             Integer season) {
         List<String> titles = new ArrayList<>();
         addIfText(titles, title);
-        addIfText(titles, aliasTitle);
-        addIfText(titles, subtitle);
+        AggregationTitleNormalizer.splitAliases(aliasTitle).stream()
+                .filter(AggregationTitleNormalizer::isDistinctiveSecondaryTitle).forEach(titles::add);
+        if (AggregationTitleNormalizer.isDistinctiveSecondaryTitle(subtitle)) { titles.add(subtitle); }
         Integer parsedSeason = season;
-        VideoVersion version = VideoVersion.NORMAL;
         for (String rawTitle : titles) {
-            if (VERSION_REAL.matcher(rawTitle).find()) {
-                version = VideoVersion.REAL_PERSON;
-            } else if (VERSION_ANIME.matcher(rawTitle).find()) {
-                version = VideoVersion.ANIME;
-            }
             if (parsedSeason == null) {
-                parsedSeason = parseSeason(rawTitle);
+                parsedSeason = AggregationTitleNormalizer.parseSeason(rawTitle);
             }
         }
         for (String rawTitle : titles) {
-            String normalized = normalizeTitle(rawTitle);
+            String normalized = AggregationTitleNormalizer.normalizeTitle(rawTitle);
             if (StringUtils.hasText(normalized)) {
-                keys.add("title:" + digest(normalized + "|year=" + normalize(year)
-                        + "|season=" + (parsedSeason == null ? 1 : parsedSeason)
-                        + "|version=" + version.name()));
+                // Year gaps of one and NORMAL/explicit variants may still match. A shared
+                // title lock must cover those paths; unknown season remains its own identity.
+                keys.add("title:" + digest(normalized + "|season=" + (parsedSeason == null ? "unknown" : parsedSeason)));
             }
         }
-    }
-
-    private static String normalizeTitle(String value) {
-        String normalized = RELEASE_NOISE.matcher(value).replaceAll(" ");
-        normalized = SEASON_PATTERN.matcher(normalized).replaceAll(" ");
-        normalized = VERSION_REAL.matcher(normalized).replaceAll(" ");
-        normalized = VERSION_ANIME.matcher(normalized).replaceAll(" ");
-        normalized = normalized.replaceAll("[\\p{Punct}\\s]+", "");
-        return normalized.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static String normalize(String value) {
-        return StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : "";
     }
 
     private static void addIfText(List<String> values, String value) {
@@ -141,58 +121,38 @@ final class AggregationMatchKeys {
         }
     }
 
-    private static Integer parseSeason(String value) {
-        Matcher matcher = SEASON_PATTERN.matcher(value);
-        if (!matcher.find()) {
-            return null;
-        }
-        String token = matcher.group(1) == null ? matcher.group(2) : matcher.group(1);
-        if (!StringUtils.hasText(token)) {
-            return null;
-        }
-        if (token.chars().allMatch(Character::isDigit)) {
-            return Integer.parseInt(token);
-        }
-        return parseChineseNumber(token);
-    }
-
-    private static Integer parseChineseNumber(String token) {
-        int result = 0;
-        int current = 0;
-        for (char c : token.toCharArray()) {
-            current = switch (c) {
-                case '一' -> 1;
-                case '二', '两' -> 2;
-                case '三' -> 3;
-                case '四' -> 4;
-                case '五' -> 5;
-                case '六' -> 6;
-                case '七' -> 7;
-                case '八' -> 8;
-                case '九' -> 9;
-                case '十' -> {
-                    result += current == 0 ? 10 : current * 10;
-                    current = 0;
-                    yield 0;
-                }
-                case '百' -> {
-                    result += current == 0 ? 100 : current * 100;
-                    current = 0;
-                    yield 0;
-                }
-                default -> current;
-            };
-        }
-        int parsed = result + current;
-        return parsed == 0 ? null : parsed;
-    }
-
+    /**
+     * Identity keys must survive truncation: a dropped {@code douban:}/{@code tmdb:}/{@code unified:}
+     * key means the match lock no longer covers that work, and two replicas can then create
+     * duplicate unified rows for it. Title keys are the only surplus we are willing to drop.
+     */
     private static List<String> limit(Collection<String> keys) {
-        return keys.stream()
+        List<String> ordered = keys.stream()
                 .filter(StringUtils::hasText)
                 .distinct()
-                .limit(MAX_KEYS)
+                .sorted(Comparator.comparingInt(AggregationMatchKeys::keyPriority)
+                        .thenComparing(Comparator.naturalOrder()))
                 .toList();
+        List<String> identityKeys = ordered.stream()
+                .filter(key -> !key.startsWith("title:"))
+                .toList();
+        if (identityKeys.size() >= MAX_KEYS) {
+            return identityKeys;
+        }
+
+        int remainingTitleSlots = MAX_KEYS - identityKeys.size();
+        List<String> titleKeys = ordered.stream()
+                .filter(key -> key.startsWith("title:"))
+                .limit(remainingTitleSlots)
+                .toList();
+        List<String> result = new ArrayList<>(identityKeys.size() + titleKeys.size());
+        result.addAll(identityKeys);
+        result.addAll(titleKeys);
+        return List.copyOf(result);
+    }
+
+    private static int keyPriority(String key) {
+        return key.startsWith("title:") ? 1 : 0;
     }
 
     private static String digest(String value) {
@@ -205,9 +165,4 @@ final class AggregationMatchKeys {
         }
     }
 
-    private enum VideoVersion {
-        NORMAL,
-        REAL_PERSON,
-        ANIME
-    }
 }

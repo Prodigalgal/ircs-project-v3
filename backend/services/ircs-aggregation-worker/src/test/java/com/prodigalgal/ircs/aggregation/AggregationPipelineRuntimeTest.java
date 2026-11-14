@@ -104,6 +104,19 @@ class AggregationPipelineRuntimeTest {
                 .toList());
     }
 
+    @Test
+    void databaseLockContentionDefersWholeWorkInsteadOfCommittingPartialPipelineFailure() {
+        UUID unifiedId = UUID.randomUUID();
+        doThrow(new org.springframework.dao.CannotAcquireLockException("contended",
+                new java.sql.SQLException("lock unavailable", "55P03")))
+                .when(repository).rebuildUnifiedPipelineMetadataRelations(unifiedId);
+        AggregationPipelineRuntime runtime = AggregationPipelineRuntime.forTest(repository, new RecordingTransactionOperations());
+        AggregationDeferredException deferred = org.junit.jupiter.api.Assertions.assertThrows(
+                AggregationDeferredException.class, () -> runtime.run(unifiedId));
+        assertEquals("MATCH_LOCK_BUSY", deferred.getMessage());
+        verify(repository, org.mockito.Mockito.never()).rebuildUnifiedAdultAssessment(unifiedId);
+    }
+
     private static final class RecordingTransactionOperations implements TransactionOperations {
 
         private int calls;

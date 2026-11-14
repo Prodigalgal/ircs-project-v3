@@ -1,6 +1,5 @@
 package com.prodigalgal.ircs.aggregation;
 
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPayload;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes;
@@ -71,6 +70,18 @@ class AggregationWorkQueueWorker {
 
     @Value("${app.aggregation.work-queue.worker.max-backoff-seconds:900}")
     private long maxBackoffSeconds;
+
+    @Value("${app.aggregation.work-queue.worker.dependency-delay-seconds:30}")
+    private long dependencyDelaySeconds;
+
+    @Value("${app.aggregation.work-queue.worker.contention-delay-seconds:2}")
+    private long contentionDelaySeconds;
+
+    @Value("${app.aggregation.work-queue.worker.review-delay-seconds:3600}")
+    private long reviewDelaySeconds;
+
+    @Value("${app.aggregation.work-queue.worker.wait-warning-seconds:3600}")
+    private long waitWarningSeconds;
 
     @Value("${app.aggregation.work-queue.worker.worker-id:${APP_AGGREGATION_WORK_QUEUE_WORKER_ID:}}")
     private String workerId;
@@ -153,11 +164,18 @@ class AggregationWorkQueueWorker {
                     AggregationWorkTypes.RAW_VIDEO,
                     resolvedWorkerId,
                     effectiveBatchSize,
-                    Duration.ofSeconds(Math.max(1, visibilitySeconds)));
-            if (!items.isEmpty()) {
-                lastProgressAt = Instant.now();
+                    visibilityTimeout());
+            if (items.isEmpty()) {
+                markSuccess(0, 0);
+                return 0;
             }
-            result = process(items, resolvedWorkerId);
+            lastProgressAt = Instant.now();
+            try (AggregationQueueClaimGuard claims = new AggregationQueueClaimGuard(
+                    workDeferrer, items, visibilityTimeout(),
+                    () -> heartbeat(resolvedWorkerId))) {
+                result = process(items, resolvedWorkerId, startedAt);
+            }
+            requeued = result.deferred();
             if (result.failed() > 0) {
                 markFailure(result.processed(), result.failed(), requeued, "aggregation work item failures");
             } else {
@@ -176,26 +194,43 @@ class AggregationWorkQueueWorker {
     }
 
     private void heartbeat(String resolvedWorkerId) {
-        workQueue.heartbeatConsumer(
-                AggregationWorkTypes.RAW_VIDEO,
-                resolvedWorkerId,
-                Duration.ofSeconds(Math.max(1, visibilitySeconds)).plusMinutes(1));
+        try {
+            workQueue.heartbeatConsumer(
+                    AggregationWorkTypes.RAW_VIDEO,
+                    resolvedWorkerId,
+                    visibilityTimeout().plusMinutes(1));
+        } catch (RuntimeException ex) {
+            log.warn("Aggregation consumer heartbeat failed: workerId={}", resolvedWorkerId, ex);
+        }
     }
 
-    private ProcessResult process(List<RuntimeWorkItem> items, String resolvedWorkerId) {
+    private Duration visibilityTimeout() {
+        return Duration.ofSeconds(Math.max(1, Math.min(604800, visibilitySeconds)));
+    }
+
+    private ProcessResult process(List<RuntimeWorkItem> items, String resolvedWorkerId, Instant startedAt) {
         if (items.isEmpty()) {
             return ProcessResult.empty();
         }
-        Instant startedAt = Instant.now();
         Map<UUID, List<RuntimeWorkItem>> itemsByRawVideoId = new LinkedHashMap<>();
         int processed = 0;
         int failed = 0;
+        int deferred = 0;
         for (RuntimeWorkItem item : items) {
+            if (!AggregationQueueClaimGuard.ownsCurrent(item)) {
+                recordStaleClaim(item, null, "RENEW_REJECTED");
+                processed++;
+                failed++;
+                continue;
+            }
             setStage("PARSE_PAYLOAD", null, item.taskId(), 1);
             heartbeat(resolvedWorkerId);
             UUID rawVideoId = null;
             try {
                 AggregationWorkPayload payload = objectMapper.readValue(item.payload(), AggregationWorkPayload.class);
+                if (payload == null || payload.rawVideoId() == null) {
+                    throw new IllegalArgumentException("Aggregation payload rawVideoId is required");
+                }
                 rawVideoId = payload.rawVideoId();
                 itemsByRawVideoId.computeIfAbsent(rawVideoId, ignored -> new ArrayList<>()).add(item);
             } catch (RuntimeException ex) {
@@ -206,7 +241,7 @@ class AggregationWorkQueueWorker {
             }
         }
         if (itemsByRawVideoId.isEmpty()) {
-            return new ProcessResult(processed, failed);
+            return new ProcessResult(processed, failed, deferred);
         }
         List<Map.Entry<UUID, List<RuntimeWorkItem>>> entries = new ArrayList<>(itemsByRawVideoId.entrySet());
         int chunkSize = Math.max(1, processingChunkSize);
@@ -216,8 +251,9 @@ class AggregationWorkQueueWorker {
             ProcessResult chunkResult = processChunk(chunk, startedAt, resolvedWorkerId);
             processed += chunkResult.processed();
             failed += chunkResult.failed();
+            deferred += chunkResult.deferred();
         }
-        return new ProcessResult(processed, failed);
+        return new ProcessResult(processed, failed, deferred);
     }
 
     private ProcessResult processChunk(
@@ -229,11 +265,27 @@ class AggregationWorkQueueWorker {
         }
         int processed = 0;
         int failed = 0;
-        List<UUID> rawVideoIds = chunk.stream()
+        int deferred = 0;
+        List<Map.Entry<UUID, List<RuntimeWorkItem>>> ownedChunk = new ArrayList<>();
+        for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : chunk) {
+            List<RuntimeWorkItem> owned = new ArrayList<>();
+            for (RuntimeWorkItem item : entry.getValue()) {
+                if (AggregationQueueClaimGuard.ownsCurrent(item)) {
+                    owned.add(item);
+                } else {
+                    recordStaleClaim(item, entry.getKey(), "RENEW_REJECTED");
+                    processed++;
+                    failed++;
+                }
+            }
+            if (!owned.isEmpty()) { ownedChunk.add(Map.entry(entry.getKey(), owned)); }
+        }
+        if (ownedChunk.isEmpty()) { return new ProcessResult(processed, failed, deferred); }
+        List<UUID> rawVideoIds = ownedChunk.stream()
                 .map(Map.Entry::getKey)
                 .toList();
         try {
-            setStage("AGGREGATE_BATCH", rawVideoIds.getFirst(), firstTaskId(chunk), rawVideoIds.size());
+            setStage("AGGREGATE_BATCH", rawVideoIds.getFirst(), firstTaskId(ownedChunk), rawVideoIds.size());
             heartbeat(resolvedWorkerId);
             List<AggregationResult> results = aggregationService.aggregateRuntimeWorkBatch(rawVideoIds);
             heartbeat(resolvedWorkerId);
@@ -241,7 +293,7 @@ class AggregationWorkQueueWorker {
             for (AggregationResult result : results) {
                 resultByRawVideoId.put(result.rawVideoId(), result);
             }
-            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : chunk) {
+            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : ownedChunk) {
                 AggregationResult result = resultByRawVideoId.getOrDefault(
                         entry.getKey(),
                         AggregationResult.skipped(entry.getKey(), "MISSING_RAW_VIDEO"));
@@ -252,26 +304,30 @@ class AggregationWorkQueueWorker {
                             item.taskId(),
                             1);
                     heartbeat(resolvedWorkerId);
-                    if (!finish(item, startedAt, result)) {
-                        failed++;
-                    }
+                    FinishOutcome outcome = finish(item, startedAt, result);
+                    if (outcome == FinishOutcome.FAILED) { failed++; }
+                    if (outcome == FinishOutcome.DEFERRED) { deferred++; }
                     processed++;
                     lastProgressAt = Instant.now();
                 }
             }
         } catch (RuntimeException ex) {
-            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : chunk) {
+            for (Map.Entry<UUID, List<RuntimeWorkItem>> entry : ownedChunk) {
                 for (RuntimeWorkItem item : entry.getValue()) {
                     setStage("FINISH_FAIL", entry.getKey(), item.taskId(), 1);
                     heartbeat(resolvedWorkerId);
-                    if (ex instanceof AdultAssessmentDeferredException deferred && deferred.waiting()) {
+                    if (ex instanceof AggregationDeferredException aggregation) {
+                        FinishOutcome outcome = defer(item, entry.getKey(), aggregation.retryAfter(), aggregation.getMessage());
+                        if (outcome == FinishOutcome.DEFERRED) { deferred++; }
+                        else { failed++; }
+                    } else if (ex instanceof AdultAssessmentDeferredException assessment && assessment.waiting()) {
                         setStage("FINISH_DEFER", entry.getKey(), item.taskId(), 1);
-                        boolean moved = workDeferrer.defer(item, deferred.retryAfter(), deferred.getMessage());
-                        log.info("Aggregation assessment waiting: rawVideoId={}, reason={}, retryAfter={}, claimMoved={}",
-                                entry.getKey(), deferred.getMessage(), deferred.retryAfter(), moved);
+                        FinishOutcome outcome = defer(item, entry.getKey(), assessment.retryAfter(), assessment.getMessage());
+                        if (outcome == FinishOutcome.DEFERRED) { deferred++; }
+                        else { failed++; }
                     } else {
-                        if (ex instanceof AdultAssessmentDeferredException deferred) {
-                            failRetryable(item, startedAt, entry.getKey(), deferred.getMessage(), deferred.retryAfter());
+                        if (ex instanceof AdultAssessmentDeferredException assessment) {
+                            failRetryable(item, startedAt, entry.getKey(), assessment.getMessage(), assessment.retryAfter());
                         } else {
                             failRetryable(item, startedAt, entry.getKey(), ex.getClass().getSimpleName() + ": " + ex.getMessage());
                         }
@@ -282,32 +338,86 @@ class AggregationWorkQueueWorker {
                 }
             }
         }
-        return new ProcessResult(processed, failed);
+        return new ProcessResult(processed, failed, deferred);
     }
 
-    private boolean finish(RuntimeWorkItem item, Instant startedAt, AggregationResult result) {
+    private FinishOutcome finish(RuntimeWorkItem item, Instant startedAt, AggregationResult result) {
         UUID rawVideoId = result.rawVideoId();
-        if ("BOUND".equals(result.status())) {
-            workQueue.complete(item);
+        if ("BOUND".equals(result.status()) || "ALREADY_BOUND".equals(result.status())) {
+            if (!AggregationQueueClaimGuard.finishCurrent(item, () -> workQueue.complete(item))) {
+                recordStaleClaim(item, rawVideoId, "COMPLETE_REJECTED");
+                return FinishOutcome.FAILED;
+            }
             recordAudit(WorkerJobAuditEvent.succeeded(
                     JOB_TYPE,
                     JOB_NAME,
                     correlationId(rawVideoId, item),
                     elapsedSince(startedAt)));
-            return true;
+            return FinishOutcome.COMPLETED;
+        }
+        if ("MATCH_LOCK_BUSY".equals(result.status()) || "SOURCE_CHANGED".equals(result.status())) {
+            return defer(item, rawVideoId, boundedDelay(contentionDelaySeconds), result.status());
+        }
+        if ("WAITING_DEPENDENCIES".equals(result.status()) || "NOT_ELIGIBLE".equals(result.status())) {
+            return defer(item, rawVideoId, boundedDelay(dependencyDelaySeconds), result.status());
+        }
+        if ("IDENTITY_CONFLICT".equals(result.status()) || "MERGE_AMBIGUOUS".equals(result.status())) {
+            return defer(item, rawVideoId, boundedDelay(reviewDelaySeconds), result.status());
         }
         if ("MISSING_RAW_VIDEO".equals(result.status())) {
-            workQueue.fail(item, false, Duration.ZERO, result.status());
+            if (!AggregationQueueClaimGuard.finishCurrent(
+                    item, () -> workQueue.fail(item, false, Duration.ZERO, result.status()))) {
+                recordStaleClaim(item, rawVideoId, "FAIL_REJECTED");
+                return FinishOutcome.FAILED;
+            }
             recordAudit(WorkerJobAuditEvent.failed(
                     JOB_TYPE,
                     JOB_NAME,
                     correlationId(rawVideoId, item),
                     elapsedSince(startedAt),
                     new AggregationWorkQueueException(result.status())));
-            return false;
+            return FinishOutcome.FAILED;
         }
         failRetryable(item, startedAt, rawVideoId, result.status());
-        return false;
+        return FinishOutcome.FAILED;
+    }
+
+    private FinishOutcome defer(RuntimeWorkItem item, UUID rawVideoId, Duration delay, String reason) {
+        setStage("FINISH_DEFER", rawVideoId, item.taskId(), 1);
+        if (!AggregationQueueClaimGuard.finishCurrent(item, () -> workDeferrer.defer(item, delay, reason))) {
+            recordStaleClaim(item, rawVideoId, "DEFER_REJECTED");
+            return FinishOutcome.FAILED;
+        }
+        long ageSeconds = item.createdAt() == null ? 0 : Math.max(0, elapsedSince(item.createdAt()).toSeconds());
+        if (ageSeconds >= Math.max(1, waitWarningSeconds)) {
+            log.warn("Aggregation work still waiting: rawVideoId={}, taskId={}, reason={}, workAgeSeconds={}, retryAfter={}",
+                    rawVideoId, item.taskId(), reason, ageSeconds, delay);
+        } else {
+            log.info("Aggregation work deferred: rawVideoId={}, taskId={}, reason={}, workAgeSeconds={}, retryAfter={}",
+                    rawVideoId, item.taskId(), reason, ageSeconds, delay);
+        }
+        return FinishOutcome.DEFERRED;
+    }
+
+    private static Duration boundedDelay(long seconds) {
+        return Duration.ofSeconds(Math.max(2, Math.min(604800, seconds)));
+    }
+
+    /**
+     * The queue rejected our terminal write because this claim is no longer the current one: the item
+     * was recovered by the visibility reaper and possibly taken by another worker. Count it as a
+     * failure so it surfaces in run state, and do not record an audit success for work we do not own.
+     */
+    private void recordStaleClaim(RuntimeWorkItem item, UUID rawVideoId, String reason) {
+        AggregationQueueClaimGuard.finishCurrent(item, () -> false);
+        log.warn("Aggregation claim is stale, not recording success: rawVideoId={}, taskId={}, reason={}",
+                rawVideoId, item.taskId(), reason);
+        recordAudit(WorkerJobAuditEvent.failed(
+                JOB_TYPE,
+                JOB_NAME,
+                correlationId(rawVideoId, item),
+                Duration.ZERO,
+                new AggregationWorkQueueException(reason)));
     }
 
     private void failRetryable(RuntimeWorkItem item, Instant startedAt, UUID rawVideoId, String reason) {
@@ -315,11 +425,22 @@ class AggregationWorkQueueWorker {
     }
 
     private void failRetryable(RuntimeWorkItem item, Instant startedAt, UUID rawVideoId, String reason, Duration delay) {
-        int failureAttempt = workDeferrer.failureAttempt(item);
+        int failureAttempt;
+        try {
+            failureAttempt = workDeferrer.failureAttempt(item);
+        } catch (RuntimeException ex) {
+            log.warn("Aggregation retry budget could not be read: taskId={}", item.taskId(), ex);
+            recordStaleClaim(item, rawVideoId, "RETRY_BUDGET_READ_FAILED");
+            return;
+        }
         boolean retryable = failureAttempt < Math.max(1, maxRetries);
         Duration backoff = retryDelay(failureAttempt);
         Duration effectiveDelay = delay.compareTo(backoff) > 0 ? delay : backoff;
-        workQueue.fail(item, retryable, effectiveDelay, reason);
+        if (!AggregationQueueClaimGuard.finishCurrent(
+                item, () -> workQueue.fail(item, retryable, effectiveDelay, reason))) {
+            recordStaleClaim(item, rawVideoId, "FAIL_REJECTED");
+            return;
+        }
         if (retryable) {
             log.info(
                     "Aggregation work item scheduled for retry: rawVideoId={}, taskId={}, attempt={}, reason={}",
@@ -365,7 +486,7 @@ class AggregationWorkQueueWorker {
         lastFailed = 0;
         lastRequeued = requeued;
         lastError = null;
-        lastRunState = processed > 0 || requeued > 0 ? "PROCESSED" : "IDLE";
+        lastRunState = requeued > 0 && requeued == processed ? "WAITING" : processed > 0 ? "PROCESSED" : "IDLE";
         consecutiveFailures.set(0);
     }
 
@@ -434,9 +555,11 @@ class AggregationWorkQueueWorker {
         }
     }
 
-    private record ProcessResult(int processed, int failed) {
+    private enum FinishOutcome { COMPLETED, DEFERRED, FAILED }
+
+    private record ProcessResult(int processed, int failed, int deferred) {
         static ProcessResult empty() {
-            return new ProcessResult(0, 0);
+            return new ProcessResult(0, 0, 0);
         }
     }
 }

@@ -84,6 +84,7 @@ public class AggregationPipelineRuntime {
         } catch (AdultAssessmentDeferredException ex) {
             throw ex;
         } catch (Exception ex) {
+            rethrowContention(ex);
             failures.add(AggregationPipelineStageFailure.from(stage, ex));
             log.error(
                     "Aggregation pipeline handler [{}] failed for unifiedVideoId={}, stage={}",
@@ -115,6 +116,7 @@ public class AggregationPipelineRuntime {
         } catch (AdultAssessmentDeferredException ex) {
             throw ex;
         } catch (Exception ex) {
+            rethrowContention(ex);
             failures.add(AggregationPipelineStageFailure.from(stage, ex));
             log.error(
                     "Aggregation pipeline handler [{}] failed for unifiedVideoId={}, stage={}",
@@ -123,6 +125,16 @@ public class AggregationPipelineRuntime {
                     failures.getLast().unifiedStageLabel(),
                     ex);
             return List.of();
+        }
+    }
+
+    private void rethrowContention(Exception failure) {
+        if (failure instanceof AggregationDeferredException deferred) { throw deferred; }
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.sql.SQLException sql
+                    && ("55P03".equals(sql.getSQLState()) || "40P01".equals(sql.getSQLState()))) {
+                throw new AggregationDeferredException("MATCH_LOCK_BUSY", 2);
+            }
         }
     }
 

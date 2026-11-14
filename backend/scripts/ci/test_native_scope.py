@@ -1,5 +1,6 @@
 """CI-only matrix and runtime fixture scope regressions."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -80,6 +81,84 @@ class NativeRuntimeScopeTest(unittest.TestCase):
         self.assertEqual(['ircs-api-gateway', 'ircs-ops-service', 'ircs-identity-service'], starts)
         self.assertNotIn('ircs-ingestion-worker', starts)
         self.assertNotIn('ircs-content-service', starts)
+
+    def test_aggregation_only_runs_its_http_probe_with_disposable_authentication(self):
+        self.smoke.selected_services = {'ircs-aggregation-worker'}
+        starts = []
+        probes = []
+        self.smoke.start = lambda service, values, **kwargs: starts.append((service, values))
+        self.smoke.stop = lambda *args: []
+        self.smoke.aggregation_evaluation_probe = lambda: probes.append(True)
+
+        self.smoke.main()
+
+        self.assertEqual(['ircs-aggregation-worker'], [service for service, _ in starts])
+        self.assertEqual([True], probes)
+        values = starts[0][1]
+        self.assertEqual('true', values['APP_AGGREGATION_INTERNAL_ACCESS_REQUIRE_TOKEN'])
+        self.assertEqual(self.smoke.password, values['APP_AGGREGATION_INTERNAL_ACCESS_TOKEN'])
+        self.assertEqual('aggregation:maintenance', values['APP_AGGREGATION_INTERNAL_ACCESS_REQUIRED_SCOPE'])
+        self.assertEqual('3600000', values['APP_AGGREGATION_WORK_QUEUE_WORKER_INITIAL_DELAY_MS'])
+        self.assertNotIn('APP_AGGREGATION_WORK_QUEUE_WORKER_ENABLED', values)
+        self.assertNotIn('APP_AGGREGATION_AUTO_UNIFIED_MERGE_ENABLED', values)
+
+    def aggregation_http(self, requests):
+        def respond(request, timeout):
+            payload = json.loads(request.data)
+            requests.append((request, payload))
+            self.assertEqual('POST', request.method)
+            self.assertEqual('/internal/v1/aggregation/evaluate', request.selector)
+            headers = {key.lower(): value for key, value in request.header_items()}
+            if len(requests) == 1:
+                self.assertNotIn('x-ircs-service-token', headers)
+                raise self.smoke.HTTPError(request.full_url, 401, 'Unauthorized', {}, io.BytesIO())
+            self.assertEqual(self.smoke.password, headers['x-ircs-service-token'])
+            self.assertEqual('aggregation:maintenance', headers['x-ircs-service-scopes'])
+            if not payload['rawVideoIds']:
+                raise self.smoke.HTTPError(request.full_url, 400, 'Bad Request', {}, io.BytesIO())
+            response = io.BytesIO(json.dumps({'scope': 'SNAPSHOT_ONLY', 'autoUnifiedMergeEnabled': False,
+                                             'decisions': [{'rawVideoId': payload['rawVideoIds'][0],
+                                                            'decision': 'MISSING'}]}).encode())
+            response.status = 200
+            return response
+        return respond
+
+    def test_aggregation_http_probe_authenticates_and_compares_nonzero_read_only_counts(self):
+        requests = []
+        with patch.object(self.smoke, 'docker', return_value='7|11|9') as database, \
+                patch.object(self.smoke, 'urlopen', side_effect=self.aggregation_http(requests)):
+            self.smoke.aggregation_evaluation_probe()
+
+        self.assertEqual(4, len(requests))
+        single = requests[1][1]['rawVideoIds']
+        self.assertEqual(single * 2, requests[2][1]['rawVideoIds'])
+        self.assertEqual([], requests[3][1]['rawVideoIds'])
+        self.assertEqual(2, database.call_count)
+        for invocation in database.call_args_list:
+            sql = invocation.args[-1]
+            self.assertTrue(sql.lower().startswith('select '))
+            self.assertIn('count(*) from unified_videos', sql)
+            self.assertIn('count(*) from raw_videos', sql)
+            self.assertIn('count(*) from raw_video_unified_video', sql)
+
+    def test_aggregation_http_probe_rejects_any_core_row_count_change(self):
+        requests = []
+        with patch.object(self.smoke, 'docker', side_effect=['7|11|9', '7|12|9']), \
+                patch.object(self.smoke, 'urlopen', side_effect=self.aggregation_http(requests)):
+            with self.assertRaisesRegex(AssertionError, 'preserve raw, unified and binding counts'):
+                self.smoke.aggregation_evaluation_probe()
+
+    def test_aggregation_failure_never_prints_startup_token_arguments(self):
+        self.smoke.selected_services = {'ircs-aggregation-worker'}
+        output = io.StringIO()
+        self.smoke.start = lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError('docker startup arguments token=' + self.smoke.password))
+        self.smoke.stop = lambda *args: []
+        with patch('sys.stdout', output):
+            with self.assertRaises(AssertionError) as error:
+                self.smoke.main()
+        self.assertNotIn(self.smoke.password, output.getvalue())
+        self.assertNotIn(self.smoke.password, str(error.exception))
 
 
 if __name__ == '__main__':

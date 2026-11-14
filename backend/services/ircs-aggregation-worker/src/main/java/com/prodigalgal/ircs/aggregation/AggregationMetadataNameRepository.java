@@ -91,6 +91,17 @@ final class AggregationMetadataNameRepository {
         return List.copyOf(result);
     }
 
+    UnifiedVideoAggregationCandidate withFlatMetadata(
+            UnifiedVideoAggregationCandidate candidate,
+            String actorsJson,
+            String directorsJson,
+            String areasJson) {
+        return candidate.withMetadata(
+                JsonStringArrays.readSet(objectMapper, actorsJson),
+                JsonStringArrays.readSet(objectMapper, directorsJson),
+                JsonStringArrays.readSet(objectMapper, areasJson));
+    }
+
     void evictOwner(MetadataNameOwnerType ownerType, Collection<UUID> ownerIds) {
         if (metadataNameCache != null) {
             metadataNameCache.evictOwner(ownerType, ownerIds);

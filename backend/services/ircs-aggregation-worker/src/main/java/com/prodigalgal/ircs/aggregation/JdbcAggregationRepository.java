@@ -45,6 +45,7 @@ public class JdbcAggregationRepository {
     private final AggregationMetadataNameRepository metadataNameRepository;
     private final AdultAssessmentEvaluator adultAssessmentEvaluator;
     private final ObjectMapper objectMapper;
+    private final AggregationMatchingStrategy matchingStrategy;
 
     public JdbcAggregationRepository(
             NamedParameterJdbcTemplate jdbcTemplate,
@@ -55,6 +56,7 @@ public class JdbcAggregationRepository {
             AdultAssessmentEvaluator adultAssessmentEvaluator,
             @Value("${app.aggregation.jdbc.query-timeout-seconds:30}") int queryTimeoutSeconds) {
         this.jdbcTemplate = jdbcTemplate;
+        this.matchingStrategy = matchingStrategy;
         this.objectMapper = objectMapper;
         this.adultAssessmentEvaluator = adultAssessmentEvaluator == null
                 ? AdultAssessmentEvaluator.local()
@@ -107,6 +109,7 @@ public class JdbcAggregationRepository {
                     select id, title, alias_title, description, year, score, published_at,
                            total_episodes, duration, remarks, subtitle, season,
                            category_name, category_code,
+                           actor_names, director_names, area_codes,
                            douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                            normalization_status, enrichment_status, aggregation_status
                     from (
@@ -118,8 +121,7 @@ public class JdbcAggregationRepository {
                     ) raw_candidate
                     """,
                     new MapSqlParameterSource("id", rawVideoId),
-                    this::mapRawVideo))
-                    .map(metadataNameRepository::populateRawMetadata);
+                    this::mapRawVideo));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -141,6 +143,7 @@ public class JdbcAggregationRepository {
                 select id, title, alias_title, description, year, score, published_at,
                        total_episodes, duration, remarks, subtitle, season,
                        category_name, category_code,
+                        actor_names, director_names, area_codes,
                        douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                        normalization_status, enrichment_status, aggregation_status
                 from (
@@ -153,7 +156,7 @@ public class JdbcAggregationRepository {
                 """,
                 new MapSqlParameterSource("ids", ids),
                 this::mapRawVideo);
-        return metadataNameRepository.populateRawMetadata(rawVideos);
+        return rawVideos;
     }
 
     public Optional<UUID> findExistingBinding(UUID rawVideoId) {
@@ -170,6 +173,32 @@ public class JdbcAggregationRepository {
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
+    }
+
+    public void lockRawVideos(Collection<UUID> rawVideoIds) {
+        if (rawVideoIds == null || rawVideoIds.isEmpty()) { return; }
+        jdbcTemplate.query("select id from raw_videos where id in (:ids) order by id for update",
+                new MapSqlParameterSource("ids", rawVideoIds), (rs, row) -> rs.getObject(1, UUID.class));
+    }
+
+    public void configureAggregationTransaction() {
+        jdbcTemplate.getJdbcTemplate().execute("set local lock_timeout = '2s'");
+    }
+
+    public void lockUnifiedVideos(Collection<UUID> unifiedVideoIds) {
+        if (unifiedVideoIds == null || unifiedVideoIds.isEmpty()) { return; }
+        jdbcTemplate.query("select id from unified_videos where id in (:ids) order by id for update",
+                new MapSqlParameterSource("ids", unifiedVideoIds), (rs, row) -> rs.getObject(1, UUID.class));
+    }
+
+    public List<UnifiedVideoAggregationCandidate> findUnifiedCandidatesByIds(Collection<UUID> ids) {
+        return candidateRepository.queryUnifiedCandidatesByIdsForWrite(List.copyOf(ids));
+    }
+
+    public boolean isAdultAssessmentPending(UUID unifiedVideoId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "select exists(select 1 from unified_videos where id=:id and adult_checked_at is null)",
+                new MapSqlParameterSource("id", unifiedVideoId), Boolean.class));
     }
 
     public List<UUID> findRawIdsForUnified(UUID unifiedVideoId) {
@@ -192,7 +221,6 @@ public class JdbcAggregationRepository {
                  where metadata_status = 'DIRTY'
                  order by updated_at asc nulls first, id
                  limit :limit
-                 for update skip locked
                 """,
                 new MapSqlParameterSource("limit", Math.max(1, limit)),
                 UUID.class);
@@ -620,6 +648,19 @@ public class JdbcAggregationRepository {
     }
 
     boolean applyAdultAssessment(AdultAssessmentSnapshot snapshot, AdultAssessment assessment) {
+        try {
+            return applyAdultAssessmentWithLocks(snapshot, assessment);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+                if (cause instanceof SQLException sql && "55P03".equals(sql.getSQLState())) {
+                    throw new AdultAssessmentDeferredException("CONTENT_SAFETY_SNAPSHOT_CHANGED", 2);
+                }
+            }
+            throw ex;
+        }
+    }
+
+    private boolean applyAdultAssessmentWithLocks(AdultAssessmentSnapshot snapshot, AdultAssessment assessment) {
         lockAdultAssessmentRow(snapshot.id());
         if (adultFieldsLocked(snapshot.id())) { return false; }
         // Lock existing inputs before a new READ COMMITTED statement rechecks their digest.
@@ -628,13 +669,13 @@ public class JdbcAggregationRepository {
         jdbcTemplate.query("""
                 select links.raw_video_id from raw_video_unified_video links
                 join raw_videos rv on rv.id=links.raw_video_id
-                where links.unified_video_id=:id order by rv.id for share of links, rv
+                where links.unified_video_id=:id order by rv.id for share of links, rv nowait
                 """, params, (rs, row) -> rs.getObject(1, UUID.class));
         for (String sourceLock : List.of(
-                "select ds.id from data_sources ds where ds.id in (select rv.data_source_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ds.id for share",
-                "select ci.id from cover_images ci where ci.id in (select rv.cover_image_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ci.id for share",
-                "select sd.id from source_domains sd where sd.id in (select ci.source_domain_id from cover_images ci join raw_videos rv on rv.cover_image_id=ci.id join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by sd.id for share",
-                "select sc.id from standard_category sc where sc.slug=(select uv.category_code from unified_videos uv where uv.id=:id) for share")) {
+                "select ds.id from data_sources ds where ds.id in (select rv.data_source_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ds.id for share nowait",
+                "select ci.id from cover_images ci where ci.id in (select rv.cover_image_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ci.id for share nowait",
+                "select sd.id from source_domains sd where sd.id in (select ci.source_domain_id from cover_images ci join raw_videos rv on rv.cover_image_id=ci.id join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by sd.id for share nowait",
+                "select sc.id from standard_category sc where sc.slug=(select uv.category_code from unified_videos uv where uv.id=:id) for share nowait")) {
             jdbcTemplate.query(sourceLock, params, (rs, row) -> rs.getObject(1));
         }
         return jdbcTemplate.update("""
@@ -688,6 +729,10 @@ public class JdbcAggregationRepository {
             return;
         }
 
+        List<UUID> allIds = new ArrayList<>(victims);
+        allIds.add(rootUnifiedVideoId);
+        lockUnifiedVideos(allIds);
+
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("rootId", rootUnifiedVideoId)
                 .addValue("victimIds", victims);
@@ -730,7 +775,17 @@ public class JdbcAggregationRepository {
     }
 
     public int markPending(UUID rawVideoId) {
-        return updateAggregationStatus(rawVideoId, "PENDING");
+        // A queue item can outlive the work it described (ops backfill, manual status edits), so a
+        // blind `PENDING` write would demote an already BOUND row and re-queue it indefinitely.
+        return jdbcTemplate.update(
+                """
+            update raw_videos
+            set aggregation_status = 'PENDING',
+                aggregation_status_updated_at = now()
+            where id = :rawVideoId
+              and aggregation_status not in ('BOUND', 'PENDING')
+                """,
+                new MapSqlParameterSource().addValue("rawVideoId", rawVideoId));
     }
 
     public int resetStuckProcessing(int timeoutMinutes, int limit) {
@@ -1099,6 +1154,8 @@ public class JdbcAggregationRepository {
     }
 
     private void fillUnifiedExternalId(String column, MapSqlParameterSource params) {
+        String provider = externalIdProvider(column);
+        params.addValue("rejectedExternalIdValues", matchingStrategy.rejectedExternalIdValues(provider));
         jdbcTemplate.update(
                 """
                 update unified_videos
@@ -1243,7 +1300,18 @@ public class JdbcAggregationRepository {
     }
 
     private String validExternalIdExpression(String column) {
-        return "nullif(trim(%s), '') is not null and trim(%s) <> '0'".formatted(column, column);
+        return ("nullif(trim(%s), '') is not null and lower(trim(%s)) not in (:rejectedExternalIdValues) "
+                + "and regexp_replace(trim(%s), '^0+([.]0+)?$', '') <> ''").formatted(column, column, column);
+    }
+
+    private String externalIdProvider(String column) {
+        return switch (column) {
+            case "douban_id" -> "douban";
+            case "tmdb_id" -> "tmdb";
+            case "imdb_id" -> "imdb";
+            case "rotten_tomatoes_id" -> "rt";
+            default -> throw new IllegalArgumentException("Unsupported external identifier column: " + column);
+        };
     }
 
     private void rebuildUnifiedFlatMetadata(UUID unifiedVideoId, Set<String> lockedFields) {
@@ -1801,15 +1869,31 @@ public class JdbcAggregationRepository {
                 rs.getString("rotten_tomatoes_id"),
                 rs.getString("normalization_status"),
                 rs.getString("enrichment_status"),
-                rs.getString("aggregation_status"));
+                rs.getString("aggregation_status"))
+                .withMetadata(JsonStringArrays.readSet(objectMapper, rs.getString("actor_names")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("director_names")),
+                        JsonStringArrays.readSet(objectMapper, rs.getString("area_codes")));
     }
 
     private void evictMetadataNameCache(MetadataNameOwnerType ownerType, Collection<UUID> ownerIds) {
-        metadataNameRepository.evictOwner(ownerType, ownerIds);
+        List<UUID> ids = List.copyOf(ownerIds);
+        afterCommitOrNow(() -> metadataNameRepository.evictOwner(ownerType, ids));
     }
 
     private void evictAllMetadataNameCache() {
-        metadataNameRepository.evictAll();
+        afterCommitOrNow(metadataNameRepository::evictAll);
+    }
+
+    private void afterCommitOrNow(Runnable invalidation) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() { invalidation.run(); }
+                    });
+        } else {
+            invalidation.run();
+        }
     }
 
     private MapSqlParameterSource paramsForUnified(UUID unifiedVideoId, RawVideoAggregationRecord rawVideo) {
@@ -1828,10 +1912,14 @@ public class JdbcAggregationRepository {
                 .addValue("season", rawVideo.season())
                 .addValue("categoryCode", trimToLength(rawVideo.categoryCode(), 100))
                 .addValue("allowedCategoryCodes", ALLOWED_CATEGORY_CODES)
-                .addValue("doubanId", trimToLength(validOrNull(rawVideo.doubanId()), 20))
-                .addValue("tmdbId", trimToLength(validOrNull(rawVideo.tmdbId()), 20))
-                .addValue("imdbId", trimToLength(validOrNull(rawVideo.imdbId()), 20))
-                .addValue("rottenTomatoesId", trimToLength(validOrNull(rawVideo.rottenTomatoesId()), 50));
+                .addValue("doubanId", trimToLength(usableExternalIdOrNull("douban", rawVideo.doubanId()), 20))
+                .addValue("tmdbId", trimToLength(usableExternalIdOrNull("tmdb", rawVideo.tmdbId()), 20))
+                .addValue("imdbId", trimToLength(usableExternalIdOrNull("imdb", rawVideo.imdbId()), 20))
+                .addValue("rottenTomatoesId", trimToLength(usableExternalIdOrNull("rt", rawVideo.rottenTomatoesId()), 50));
+    }
+
+    private String usableExternalIdOrNull(String provider, String value) {
+        return matchingStrategy.isUsableExternalId(provider, value) ? value.trim() : null;
     }
 
     private boolean isValidExternalId(String value) {

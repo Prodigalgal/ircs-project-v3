@@ -15,6 +15,21 @@ import org.springframework.util.StringUtils;
 /** Local adapter to the tracked DistributedRuntimeWorkQueue storage protocol; see module docs. */
 @Component
 final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferrer {
+    private static final DefaultRedisScript<Long> RENEW = new DefaultRedisScript<>("""
+            if redis.call('HGET', KEYS[1], 'taskType') ~= ARGV[1]
+                or redis.call('HGET', KEYS[1], 'taskId') ~= ARGV[2]
+                or redis.call('HGET', KEYS[1], 'submissionId') ~= ARGV[3]
+                or redis.call('HGET', KEYS[1], 'status') ~= 'PROCESSING'
+                or redis.call('HGET', KEYS[1], 'ownerId') ~= ARGV[4]
+                or redis.call('HGET', KEYS[1], 'attempt') ~= ARGV[5] then return 0 end
+            local deadline = tonumber(redis.call('HGET', KEYS[1], 'visibleAt') or '0')
+            local inflight = tonumber(redis.call('ZSCORE', KEYS[2], ARGV[2]) or '0')
+            if deadline <= tonumber(ARGV[6]) or inflight <= tonumber(ARGV[6]) then return 0 end
+            local renewed = math.max(deadline, tonumber(ARGV[7]))
+            redis.call('HSET', KEYS[1], 'visibleAt', tostring(renewed))
+            redis.call('ZADD', KEYS[2], renewed, ARGV[2])
+            return 1
+            """, Long.class);
     private static final DefaultRedisScript<Long> DEFER = new DefaultRedisScript<>("""
             if redis.call('HGET', KEYS[1], 'taskType') ~= ARGV[1]
                 or redis.call('HGET', KEYS[1], 'taskId') ~= ARGV[2]
@@ -36,7 +51,7 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
             redis.call('ZREM', KEYS[4], ARGV[2])
             redis.call('ZADD', KEYS[2], ARGV[7], ARGV[2])
             redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[9], '*',
-                'event', 'assessment_wait_scheduled', 'taskType', ARGV[1], 'taskId', ARGV[2],
+                'event', ARGV[10], 'taskType', ARGV[1], 'taskId', ARGV[2],
                 'submissionId', ARGV[3], 'reason', ARGV[8], 'dueAt', ARGV[7])
             return 1
             """, Long.class);
@@ -60,7 +75,7 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
 
     @Override
     public boolean defer(RuntimeWorkItem item, Duration delay, String reason) {
-        if (!valid(item) || !AdultAssessmentDeferredException.isWaitingReason(reason)) { return false; }
+        if (!valid(item) || !isWaitingReason(reason)) { return false; }
         long seconds = delay == null ? 2 : Math.max(2, Math.min(604800, delay.getSeconds()));
         long now = clock.millis();
         String typePrefix = prefix + ":" + AggregationWorkTypes.RAW_VIDEO;
@@ -68,8 +83,27 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
                 List.of(taskKey(item), typePrefix + ":pending", typePrefix + ":inflight",
                         typePrefix + ":dlq", prefix + ":events"),
                 item.taskType(), item.taskId(), item.submissionId(), item.ownerId(), Integer.toString(item.attempt()),
-                Long.toString(now), Long.toString(now + seconds * 1000), reason, Integer.toString(streamMaxLen));
+                Long.toString(now), Long.toString(now + seconds * 1000), reason, Integer.toString(streamMaxLen),
+                AdultAssessmentDeferredException.isWaitingReason(reason)
+                        ? "assessment_wait_scheduled" : "aggregation_wait_scheduled");
         return Long.valueOf(1).equals(result);
+    }
+
+    @Override
+    public boolean renew(RuntimeWorkItem item, Duration visibility) {
+        if (!valid(item)) { return false; }
+        long now = clock.millis();
+        long millis = visibility == null ? 600000 : Math.max(1000, Math.min(604800000, visibility.toMillis()));
+        Long result = redis.execute(RENEW,
+                List.of(taskKey(item), prefix + ":" + AggregationWorkTypes.RAW_VIDEO + ":inflight"),
+                item.taskType(), item.taskId(), item.submissionId(), item.ownerId(), Integer.toString(item.attempt()),
+                Long.toString(now), Long.toString(now + millis));
+        return Long.valueOf(1).equals(result);
+    }
+
+    private static boolean isWaitingReason(String reason) {
+        return AdultAssessmentDeferredException.isWaitingReason(reason)
+                || AggregationDeferredException.isWaitingReason(reason);
     }
 
     @Override

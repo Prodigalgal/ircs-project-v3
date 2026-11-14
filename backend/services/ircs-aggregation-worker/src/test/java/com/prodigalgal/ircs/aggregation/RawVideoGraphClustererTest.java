@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class RawVideoGraphClustererTest {
 
-    private final RawVideoGraphClusterer clusterer = new RawVideoGraphClusterer(new AggregationMatchingStrategy());
+    private final RawVideoGraphClusterer clusterer = new RawVideoGraphClusterer(AggregationTestFixtures.matchingStrategy());
 
     @Test
     void clustersSameBatchRawVideosThroughJgraphtConnectedComponents() {
@@ -47,7 +47,7 @@ class RawVideoGraphClustererTest {
     }
 
     @Test
-    void usesV1YearBucketsForRawEdges() {
+    void toleratesOneYearReleaseDifferenceAndUnknownYearWithoutInventingConflict() {
         RawVideoAggregationRecord year2025 = rawVideo(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 "Codex Signal",
@@ -75,9 +75,8 @@ class RawVideoGraphClustererTest {
 
         List<RawVideoAggregationCluster> clusters = clusterer.cluster(List.of(year2025, year2026, unknownYear));
 
-        assertEquals(2, clusters.size());
-        assertEquals(List.of(year2026.id(), year2025.id()), clusters.get(0).rawVideoIds());
-        assertEquals(List.of(unknownYear.id()), clusters.get(1).rawVideoIds());
+        assertEquals(1, clusters.size());
+        assertEquals(List.of(year2026.id(), year2025.id(), unknownYear.id()), clusters.getFirst().rawVideoIds());
     }
 
     @Test
@@ -296,7 +295,10 @@ class RawVideoGraphClustererTest {
     }
 
     @Test
-    void unknownCategoryOnlyComparesWithUnknownCategoryLikeV1() {
+    void unknownCategoryBridgesToConcreteCategoryBecauseMissingClassificationIsNotAConflict() {
+        // A missing category means "not classified yet", not "a different work". Treating it as its own
+        // bucket kept unclassified rows permanently isolated from their real work, so the raw row and
+        // the unified context now merge on title alone.
         RawVideoAggregationRecord unknown = rawVideo(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 "Codex Signal",
@@ -325,10 +327,9 @@ class RawVideoGraphClustererTest {
                 List.of(unknown, concrete),
                 List.of(unknownContext));
 
-        assertEquals(2, clusters.size());
-        assertEquals(List.of(unknown.id()), clusters.get(0).rawVideoIds());
-        assertEquals(List.of(unknownContext.id()), clusters.get(0).contextUnifiedVideoIds());
-        assertEquals(List.of(concrete.id()), clusters.get(1).rawVideoIds());
+        assertEquals(1, clusters.size());
+        assertEquals(List.of(unknown.id(), concrete.id()), clusters.getFirst().rawVideoIds());
+        assertEquals(List.of(unknownContext.id()), clusters.getFirst().contextUnifiedVideoIds());
     }
 
     @Test
@@ -413,6 +414,49 @@ class RawVideoGraphClustererTest {
         assertEquals(2, clusters.size());
         assertEquals(List.of(oneEpisode.id()), clusters.get(0).rawVideoIds());
         assertEquals(List.of(twelveEpisodes.id()), clusters.get(1).rawVideoIds());
+    }
+
+    @Test
+    void everyMemberPairMustMeetConsistencyThresholdEvenThroughMetadataPoorLeader() {
+        RawVideoAggregationRecord leader = rawVideoWithMetadata(
+                UUID.randomUUID(), "Codex Signal 1080p", "2026", "电影", "12",
+                Set.of(), Set.of(), Set.of());
+        RawVideoAggregationRecord first = rawVideoWithMetadata(
+                UUID.randomUUID(), "Codex Signal", "2026", "电影", "12",
+                Set.of("Actor A", "Actor B", "Actor C"), Set.of(), Set.of());
+        RawVideoAggregationRecord second = rawVideoWithMetadata(
+                UUID.randomUUID(), "Codex Signal", "2026", "电影", "12",
+                Set.of("Actor A", "Actor B", "Actor D"), Set.of(), Set.of());
+
+        // Leader agrees with each at .95; first/second agree only at .85.
+        List<RawVideoAggregationCluster> clusters = clusterer.cluster(List.of(leader, first, second));
+
+        assertEquals(2, clusters.size());
+        assertEquals(2, clusters.stream().mapToInt(cluster -> cluster.members().size()).max().orElseThrow());
+    }
+
+    @Test
+    void unknownCategoryCannotBridgeKnownConflictingCategories() {
+        RawVideoAggregationRecord unknown = rawVideo(UUID.randomUUID(), "Codex Signal 1080p", null, "2026", null, null, null);
+        RawVideoAggregationRecord movie = rawVideo(UUID.randomUUID(), "Codex Signal", null, "2026", "电影", null, null);
+        RawVideoAggregationRecord series = rawVideo(UUID.randomUUID(), "Codex Signal", null, "2026", "电视剧", null, null);
+
+        List<RawVideoAggregationCluster> clusters = clusterer.cluster(List.of(unknown, movie, series));
+
+        assertEquals(2, clusters.size());
+        assertEquals(2, clusters.stream().mapToInt(cluster -> cluster.members().size()).max().orElseThrow());
+    }
+
+    @Test
+    void unknownYearCannotBridgeKnownYearsOutsideReleaseTolerance() {
+        RawVideoAggregationRecord unknown = rawVideo(UUID.randomUUID(), "Codex Signal 1080p", null, null, "电影", null, null);
+        RawVideoAggregationRecord older = rawVideo(UUID.randomUUID(), "Codex Signal", null, "2025", "电影", null, null);
+        RawVideoAggregationRecord newer = rawVideo(UUID.randomUUID(), "Codex Signal", null, "2027", "电影", null, null);
+
+        List<RawVideoAggregationCluster> clusters = clusterer.cluster(List.of(unknown, older, newer));
+
+        assertEquals(2, clusters.size());
+        assertEquals(2, clusters.stream().mapToInt(cluster -> cluster.members().size()).max().orElseThrow());
     }
 
     private RawVideoAggregationRecord rawVideo(

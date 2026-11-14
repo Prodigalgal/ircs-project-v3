@@ -17,6 +17,7 @@ final class AdultAssessmentDeferredException extends RuntimeException {
 
     static boolean isWaitingReason(String reason) {
         return "QUEUE_PENDING".equals(reason) || "QUEUE_FULL".equals(reason)
-                || "QUOTA_WAIT".equals(reason) || "COOLDOWN".equals(reason);
+                || "QUOTA_WAIT".equals(reason) || "COOLDOWN".equals(reason)
+                || "CONTENT_SAFETY_SNAPSHOT_CHANGED".equals(reason);
     }
 }

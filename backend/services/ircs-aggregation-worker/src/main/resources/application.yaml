@@ -36,6 +36,10 @@ spring:
 
 app:
   aggregation:
+    auto-unified-merge:
+      enabled: ${APP_AGGREGATION_AUTO_UNIFIED_MERGE_ENABLED:false}
+    identity:
+      rejected-external-ids: ${APP_AGGREGATION_IDENTITY_REJECTED_EXTERNAL_IDS:douban:123}
     work-queue:
       worker:
         initial-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_INITIAL_DELAY_MS:10000}
@@ -47,6 +51,10 @@ app:
         max-retries: ${APP_AGGREGATION_WORK_QUEUE_MAX_RETRIES:8}
         max-backoff-seconds: ${APP_AGGREGATION_WORK_QUEUE_MAX_BACKOFF_SECONDS:900}
         worker-id: ${APP_AGGREGATION_WORK_QUEUE_WORKER_ID:}
+        dependency-delay-seconds: ${APP_AGGREGATION_DEPENDENCY_DELAY_SECONDS:30}
+        contention-delay-seconds: ${APP_AGGREGATION_CONTENTION_DELAY_SECONDS:2}
+        review-delay-seconds: ${APP_AGGREGATION_REVIEW_DELAY_SECONDS:3600}
+        wait-warning-seconds: ${APP_AGGREGATION_WAIT_WARNING_SECONDS:3600}
     jdbc:
       query-timeout-seconds: ${APP_AGGREGATION_JDBC_QUERY_TIMEOUT_SECONDS:30}
     pipeline:
@@ -59,6 +67,8 @@ app:
     context-search:
       enabled: ${APP_AGGREGATION_CONTEXT_SEARCH_ENABLED:true}
       base-url: ${APP_AGGREGATION_CONTEXT_SEARCH_BASE_URL:${APP_SEARCH_SERVICE_BASE_URL:http://ircs-search-service:8080}}
+      connect-timeout: ${APP_AGGREGATION_CONTEXT_SEARCH_CONNECT_TIMEOUT:PT2S}
+      request-timeout: ${APP_AGGREGATION_CONTEXT_SEARCH_REQUEST_TIMEOUT:PT3S}
     content-safety:
       enabled: ${APP_AGGREGATION_CONTENT_SAFETY_ENABLED:true}
       base-url: ${APP_AGGREGATION_CONTENT_SAFETY_BASE_URL:${APP_CONTENT_SAFETY_SERVICE_BASE_URL:http://ircs-content-safety-service:8080}}
