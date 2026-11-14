@@ -19,6 +19,12 @@ final class AggregationCandidateRepository {
 
     private static final double TITLE_RECALL_THRESHOLD = 0.35;
     private static final int TITLE_RECALL_LIMIT = 20;
+    private static final int TITLE_BUCKET_LIMIT = 100;
+    private static final String COMPLETE_TITLE_SQL = "(coalesce(title, '') || ' ' || coalesce(subtitle, ''))";
+    private static final String RECALL_COLUMNS = """
+            id, title, alias_title, subtitle, year, total_episodes, duration, remarks, category_code,
+            douban_id, tmdb_id, imdb_id, rotten_tomatoes_id, season, actor_names, director_names, updated_at
+            """;
     private static final int CONTEXT_BATCH_SIZE = 100;
     private static final int ID_LOOKUP_BATCH_SIZE = 100;
     private static final Set<String> UNKNOWN_YEARS = Set.of(
@@ -282,6 +288,7 @@ final class AggregationCandidateRepository {
         YearRecall yearRecall = yearRecall(rawVideo.year());
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("titleRecallThreshold", TITLE_RECALL_THRESHOLD)
+                .addValue("bucketLimit", TITLE_BUCKET_LIMIT)
                 .addValue("limit", TITLE_RECALL_LIMIT);
         List<String> titleScores = new ArrayList<>();
         List<String> titleContains = new ArrayList<>();
@@ -289,9 +296,10 @@ final class AggregationCandidateRepository {
             String parameter = index == 0 ? "title" : "title" + index;
             params.addValue(parameter, titles.get(index));
             params.addValue(parameter + "Like", "%" + escapeLike(titles.get(index).toLowerCase(Locale.ROOT)) + "%");
+            params.addValue(parameter + "Exact", escapeLike(titles.get(index)));
             titleScores.add("similarity(title, :" + parameter + ")");
             titleScores.add("similarity(coalesce(alias_title, ''), :" + parameter + ")");
-            titleScores.add("similarity(concat_ws(' ', title, subtitle), :" + parameter + ")");
+            titleScores.add("similarity(" + COMPLETE_TITLE_SQL + ", :" + parameter + ")");
             titleContains.add("lower(title) like :" + parameter + "Like");
             titleContains.add("lower(coalesce(alias_title, '')) like :" + parameter + "Like");
         }
@@ -299,27 +307,26 @@ final class AggregationCandidateRepository {
         String actors = peoplePredicate("actor_names", "bucketActors", rawVideo.actorNames(), params);
         String directors = peoplePredicate("director_names", "bucketDirectors", rawVideo.directorNames(), params);
         List<String> buckets = new ArrayList<>();
-        buckets.add(titleScore + " >= :titleRecallThreshold");
+        buckets.add("recall_title_score >= :titleRecallThreshold");
         buckets.addAll(titleContains);
-        String ranking = titleScore;
+        String ranking = "recall_title_score";
+        String bucketBonus = "";
         if (AggregationTitleNormalizer.isDistinctiveSecondaryTitle(rawVideo.subtitle())) {
             // The base-title bucket may be exact for hundreds of different works. Rank the
             // complete identity independently so an older matching subtitle survives top-K.
-            ranking += " + 0.20 * greatest(similarity(title, :title),"
-                    + " similarity(coalesce(alias_title, ''), :title),"
-                    + " similarity(concat_ws(' ', title, subtitle), :title))";
+            ranking += " + 0.20 * recall_complete_score";
         }
         if (actors != null) {
-            buckets.add("(" + actors + " and " + titleScore + " >= 0.25)");
-            ranking += " + case when " + actors + " then 0.03 else 0 end";
+            buckets.add("(" + actors + " and recall_title_score >= 0.25)");
+            bucketBonus += " + case when " + actors + " then 0.03 else 0 end";
         }
         if (directors != null) {
-            buckets.add("(" + directors + " and " + titleScore + " >= 0.20)");
-            ranking += " + case when " + directors + " then 0.05 else 0 end";
+            buckets.add("(" + directors + " and recall_title_score >= 0.20)");
+            bucketBonus += " + case when " + directors + " then 0.05 else 0 end";
         }
         if (rawVideo.season() != null) {
             params.addValue("bucketSeason", rawVideo.season());
-            ranking += " + case when season = :bucketSeason then 0.05 else 0 end";
+            bucketBonus += " + case when season = :bucketSeason then 0.05 else 0 end";
         }
         String yearPredicate = "";
         if (!yearRecall.buckets().isEmpty()) {
@@ -331,15 +338,54 @@ final class AggregationCandidateRepository {
             yearPredicate = "(year = :year or year is null or btrim(year) = ''"
                     + " or lower(btrim(year)) in (:unknownYears)) and";
         }
-        return queryUnifiedCandidates(
-                """
-                where %s
-                  (%s)
-                order by (%s) desc, updated_at desc, id
+        List<String> titleBuckets = new ArrayList<>();
+        for (int index = 0; index < titles.size(); index++) {
+            String parameter = index == 0 ? "title" : "title" + index;
+            // The service pool fixes pg_trgm.similarity_threshold at 0.19, below both
+            // people-assisted score floors. All three expressions have matching GIN indexes.
+            String prefilter = titles.get(index).codePointCount(0, titles.get(index).length()) < 3
+                    ? "(title ilike :" + parameter + "Exact or alias_title ilike :" + parameter
+                            + "Exact or " + COMPLETE_TITLE_SQL + " ilike :" + parameter + "Exact)"
+                    : "(title % :" + parameter + " or alias_title % :" + parameter
+                            + " or " + COMPLETE_TITLE_SQL + " % :" + parameter
+                            + " or title ilike :" + parameter + "Like or alias_title ilike :" + parameter + "Like)";
+            String bucketScore = "greatest(similarity(title, :" + parameter + "),"
+                    + " similarity(coalesce(alias_title, ''), :" + parameter + "),"
+                    + " similarity(" + COMPLETE_TITLE_SQL + ", :" + parameter + "))";
+            titleBuckets.add("""
+                    (select %s
+                       from unified_videos
+                      where %s %s
+                      order by case when title = :title or %s = :title then 0 else 1 end,
+                               (%s%s) desc, updated_at desc, id
+                      limit :bucketLimit)
+                    """.formatted(RECALL_COLUMNS, yearPredicate, prefilter, COMPLETE_TITLE_SQL, bucketScore, bucketBonus));
+        }
+        // Materialize before evaluating the complete multi-key score: at most six buckets
+        // of 100 rows each, instead of repeated similarity/JSON work across the whole catalog.
+        String sql = """
+                with recall_pool as materialized (
+                    select distinct on (id) * from (
+                        %s
+                    ) bucket_candidates order by id
+                ), scored_candidates as materialized (
+                    select *, %s as recall_title_score,
+                        greatest(similarity(title, :title), similarity(coalesce(alias_title, ''), :title),
+                                 similarity(%s, :title)) as recall_complete_score
+                    from recall_pool
+                )
+                select r.id, r.title, r.alias_title, r.subtitle, r.year,
+                       r.total_episodes, r.duration, r.remarks, sc.name as category_name,
+                       r.douban_id, r.tmdb_id, r.imdb_id, r.rotten_tomatoes_id, r.season
+                from scored_candidates r
+                left join standard_category sc on sc.slug = r.category_code
+                where (%s)
+                order by (%s%s) desc, r.updated_at desc, r.id
                 limit :limit
-                """.formatted(yearPredicate, String.join(" or ", buckets), ranking),
-                params,
-                populateMetadata);
+                """.formatted(String.join("\nunion all\n", titleBuckets), titleScore, COMPLETE_TITLE_SQL,
+                        String.join(" or ", buckets), ranking, bucketBonus);
+        List<UnifiedVideoAggregationCandidate> candidates = jdbcTemplate.query(sql, params, this::mapUnifiedCandidate);
+        return populateMetadata ? metadataNameRepository.populateUnifiedMetadata(candidates) : candidates;
     }
 
     private String peoplePredicate(String column, String parameter, Set<String> names, MapSqlParameterSource params) {

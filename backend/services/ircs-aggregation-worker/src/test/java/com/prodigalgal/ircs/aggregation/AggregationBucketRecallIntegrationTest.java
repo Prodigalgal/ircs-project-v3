@@ -45,7 +45,8 @@ class AggregationBucketRecallIntegrationTest {
         pool.setPassword(password);
         pool.setMaximumPoolSize(1);
         pool.setMinimumIdle(0);
-        pool.setConnectionInitSql("set search_path to " + schema + ", public");
+        pool.setConnectionInitSql("set search_path to " + schema
+                + ", public; set pg_trgm.similarity_threshold = 0.19");
         jdbc = new JdbcTemplate(pool);
         jdbc.execute("""
                 create table standard_category(slug text primary key, name text);
@@ -56,6 +57,10 @@ class AggregationBucketRecallIntegrationTest {
                     actor_names jsonb default '[]', director_names jsonb default '[]',
                     area_codes jsonb default '[]', updated_at timestamptz default now());
                 insert into standard_category values ('movie', 'Movie');
+                create index on unified_videos using gin (title gin_trgm_ops);
+                create index on unified_videos using gin (alias_title gin_trgm_ops);
+                create index on unified_videos using gin
+                    ((coalesce(title, '') || ' ' || coalesce(subtitle, '')) gin_trgm_ops);
                 """);
         search = mock(AggregationContextSearchClient.class);
         when(search.findCandidateUnifiedVideoIds(org.mockito.ArgumentMatchers.anyString(),
@@ -78,7 +83,7 @@ class AggregationBucketRecallIntegrationTest {
     }
 
     @Test
-    void retainsOlderCompleteSubtitleMatchBeyondTwentyNewerNamesakes() {
+    void retainsOlderCompleteSubtitleMatchBeyondHundredCandidatePrefilter() {
         addNamesakes();
         UUID correct = insert("Echo", "Last Voyage", "2026", null, null, 0);
 
@@ -88,14 +93,16 @@ class AggregationBucketRecallIntegrationTest {
     }
 
     @Test
-    void retainsOlderCastAndDirectorMatchBeyondTwentyNewerNamesakes() {
+    void retainsOlderCastAndDirectorMatchWithoutSubtitleBeyondHundredCandidatePrefilter() {
         addNamesakes();
-        UUID correct = insert("Echo", "Last Voyage", "2026", "Mira Vale", "Arun West", 0);
+        UUID correct = insert("Echo", null, "2026", "Mira Vale", "Arun West", 0);
 
-        List<UUID> recalled = recall(raw("Echo", "Last Voyage", "2026",
+        List<UUID> recalled = recall(raw("Echo", null, "2026",
                 Set.of("Mira Vale"), Set.of("Arun West")));
 
         assertThat(recalled).hasSize(20).contains(correct);
+        assertThat(recall(raw("Echo", null, "2026", Set.of(), Set.of())))
+                .hasSize(20).doesNotContain(correct);
     }
 
     @Test
@@ -162,7 +169,7 @@ class AggregationBucketRecallIntegrationTest {
     }
 
     private void addNamesakes() {
-        for (int index = 1; index <= 25; index++) {
+        for (int index = 1; index <= 125; index++) {
             insert("Echo", "Other Story " + index, "2026", "Other Actor " + index,
                     "Other Director " + index, index);
         }
