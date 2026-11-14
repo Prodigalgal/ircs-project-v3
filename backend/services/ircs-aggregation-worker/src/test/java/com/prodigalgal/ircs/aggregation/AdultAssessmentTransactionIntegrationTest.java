@@ -205,8 +205,9 @@ class AdultAssessmentTransactionIntegrationTest {
     void refusesLateResultAfterContentSourceOverrideBindingOrDeletionChanges(String mutation) {
         AdultAssessmentSnapshot snapshot = capture();
         jdbc.update(mutation);
-        assertThat(transaction.execute(status -> repository.applyAdultAssessment(snapshot, AdultAssessment.safe("late"))))
-                .isFalse();
+        Boolean applied = transaction.execute(
+                status -> repository.applyAdultAssessment(snapshot, AdultAssessment.safe("late")));
+        assertThat(applied).isFalse();
         assertThat(jdbc.queryForObject("select count(*) from unified_videos where adult_assessment->>'ruleVersion'='late'", Integer.class)).isZero();
     }
 
