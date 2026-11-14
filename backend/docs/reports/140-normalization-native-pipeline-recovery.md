@@ -1,6 +1,6 @@
 # 规范化与元数据 Native 运行阻断、聚合上游恢复
 
-2026-11-14，规范化与聚合 3.4.5 已通过门禁并恢复消费，元数据 3.4.6 候选待 GitHub Actions 验证。本文按阶段区分恢复效果，不代表历史积压已经清空。
+2026-11-14，规范化与聚合 3.4.5、元数据 3.4.6 均通过门禁并恢复消费。本文按阶段区分恢复效果，不代表历史积压已经清空。
 
 生产只读统计发现，7,937 条聚合 PENDING 中，7,174 条仍是 normalization=PENDING / enrichment=PENDING；666 条 READY/SUCCESS，71 条 READY/PENDING，26 条 READY/PERMANENT_FAILURE。Ops 队列指标同时记录 normalization DLQ=7,270、inflight=200。规范化日志持续出现 `NoClassDefFoundError: Could not initialize class com.github.houbb.opencc4j.util.ZhJpConverterUtil`，这会使错误逃出 RuntimeException 分支，留下等待超时回收的 claim。以上为当时快照，不能将队列数量与数据库记录逐条等同。
 
@@ -23,3 +23,5 @@ Native runtime smoke 新增实际规范化队列任务：隔离 PostgreSQL 插�
 补全阶段继续暴露旧 metadata Native 镜像的真实错误：无法创建 `ProviderCredentialLease`（缺少反射构造器/属性）。该类型为 Lombok JavaBean，未命中公共 hints 的后缀/record 发现规则。3.4.6 仅在 metadata 的凭据边界使用 `RegisterReflectionForBinding`，并在领取任务前用生产同型的数组 JSON 检查 UUID、时间、限额与 secretPayload 的完整绑定，不执行外部请求，不读取真实密钥。JVM 用例覆盖正常绑定和字段缺失拒绝启动；双架构 Native runtime 的启动门禁实际执行此检查。避免为这一模块的缺陷改动共享 hints 并重建所有服务。
 
 GitOps 6a42eb7 临时将 metadata 从 1 副本改为 0，保留其队列和任务，停止无效重试消耗。规范化正常继续推进；聚合的依赖等待沿用持久 defer，不扣失败次数。50 条历史就绪输入在补入队前检查未有 PENDING/PROCESSING task，再通过现有内部鉴权接口有界入队；未全量 reset 或删除历史 DLQ。补全修复后的实测结果仍须记录。
+
+3.4.6 / [43582998730](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43582998730) 的 31 套件、99 项 metadata 应用测试零失败/错误/跳过，双架构 Native 构建和启动时完整凭据数组绑定检查、manifest 与自动 GitOps 全部成功。只构建 metadata 镜像；6fce6a4 更新其引用，随后移除 hold 并恢复原 1 副本。恢复前规范化 PENDING 已降至 6,004，聚合 BOUND 从 43,920 增至 43,953；聚合池的等待和超时计数均为 0。下一阶段仍检查真实 provider 调用和 enrichment 状态，启动门禁不能代替这些运行结果。

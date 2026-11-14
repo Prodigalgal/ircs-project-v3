@@ -160,6 +160,21 @@ class AdultAssessmentTransactionIntegrationTest {
     }
 
     @Test
+    void dependencyWaitLeavesPostgresRowVersionAndTimestampUntouched() {
+        jdbc.update("update raw_videos set normalization_status='PENDING',enrichment_status='PENDING',"
+                + "aggregation_status='PENDING',updated_at='2026-01-01T00:00:00Z' where id=?", rawId);
+        String before = jdbc.queryForObject("select xmin::text||':'||xmax::text||':'||updated_at::text "
+                + "from raw_videos where id=?", String.class, rawId);
+
+        assertThat(service.aggregateRuntimeWork(rawId).status()).isEqualTo("WAITING_DEPENDENCIES");
+
+        assertThat(jdbc.queryForObject("select xmin::text||':'||xmax::text||':'||updated_at::text "
+                + "from raw_videos where id=?", String.class, rawId)).isEqualTo(before);
+        assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+        verifyNoInteractions(search, work);
+    }
+
+    @Test
     void committedLocalAdultRestrictionIsIndexedBeforeOtherItemPendingCanDeferBatch() {
         UUID pending = UUID.randomUUID();
         jdbc.update("update data_sources set adult_restricted=true where id=?", sourceId);

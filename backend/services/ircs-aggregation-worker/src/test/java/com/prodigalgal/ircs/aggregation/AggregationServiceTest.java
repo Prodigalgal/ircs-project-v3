@@ -408,6 +408,25 @@ class AggregationServiceTest {
     }
 
     @Test
+    void pendingDependencyWaitDoesNotStartWriteTransactionsOrRetouchTheRawRow() {
+        UUID id = UUID.randomUUID();
+        RawVideoAggregationRecord raw = new RawVideoAggregationRecord(id, "Pending fixture", null, null, "2026",
+                null, null, null, "电影", null, null, null, null, null, null, null, null,
+                "PENDING", "PENDING", "PENDING");
+        when(repository.findRawVideo(id)).thenReturn(Optional.of(raw));
+
+        AggregationResult result = service.aggregateRuntimeWork(id);
+
+        assertEquals("WAITING_DEPENDENCIES", result.status());
+        verifyNoInteractions(transactionManager, publisher, storageCommandPublisher, aggregationPipelineRuntime,
+                matchKeyLock, rawVideoGraphClusterer);
+        verify(repository, never()).configureAggregationTransaction();
+        verify(repository, never()).lockAggregationShared();
+        verify(repository, never()).lockRawVideos(anyCollection());
+        verify(repository, never()).markPending(any());
+    }
+
+    @Test
     void pipelineFailureKeepsRawPendingDirtyUnifiedAndSuppressesSideEffects() {
         UUID rawVideoId = UUID.randomUUID();
         UUID unifiedVideoId = UUID.randomUUID();

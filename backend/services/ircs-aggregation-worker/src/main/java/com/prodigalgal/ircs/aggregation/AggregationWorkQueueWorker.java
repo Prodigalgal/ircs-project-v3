@@ -31,6 +31,7 @@ class AggregationWorkQueueWorker {
 
     private static final String JOB_TYPE = "runtime-work-queue";
     private static final String JOB_NAME = "aggregation.raw-video";
+    private static final long CONSUMER_HEARTBEAT_INTERVAL_NANOS = Duration.ofSeconds(15).toNanos();
 
     private final RuntimeWorkQueue workQueue;
     private final ObjectMapper objectMapper;
@@ -41,6 +42,7 @@ class AggregationWorkQueueWorker {
             ScheduledTriggers.virtualThreadExecutor("ircs-aggregation-trigger-vt-");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong consecutiveFailures = new AtomicLong(0);
+    private final AtomicLong nextHeartbeatAtNanos = new AtomicLong(System.nanoTime());
     private volatile Instant lastRunAt;
     private volatile Instant lastSuccessAt;
     private volatile Instant lastFailureAt;
@@ -194,6 +196,11 @@ class AggregationWorkQueueWorker {
     }
 
     private void heartbeat(String resolvedWorkerId) {
+        long now = System.nanoTime();
+        long next = nextHeartbeatAtNanos.get();
+        if (now - next < 0 || !nextHeartbeatAtNanos.compareAndSet(next, now + CONSUMER_HEARTBEAT_INTERVAL_NANOS)) {
+            return;
+        }
         try {
             workQueue.heartbeatConsumer(
                     AggregationWorkTypes.RAW_VIDEO,

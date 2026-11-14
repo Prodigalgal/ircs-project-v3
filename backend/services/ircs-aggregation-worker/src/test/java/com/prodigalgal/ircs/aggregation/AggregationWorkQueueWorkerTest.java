@@ -32,6 +32,43 @@ class AggregationWorkQueueWorkerTest {
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
 
     @Test
+    void batchesConsumerHeartbeatsInsteadOfWritingPresenceForEveryTaskStage() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        List<UUID> ids = java.util.stream.IntStream.range(0, 25).mapToObj(ignored -> UUID.randomUUID()).toList();
+        for (UUID id : ids) { queue.items.add(item(id, 1)); }
+        when(aggregationService.aggregateRuntimeWorkBatch(any())).thenAnswer(invocation -> {
+            List<UUID> chunk = invocation.getArgument(0);
+            return chunk.stream().map(id -> AggregationResult.skipped(id, "WAITING_DEPENDENCIES")).toList();
+        });
+        AggregationWorkDeferrer deferrer = deferrer();
+        AggregationWorkQueueWorker worker = worker(queue, deferrer);
+        set(worker, "batchSize", 25);
+
+        assertThat(worker.runOnce()).isEqualTo(25);
+
+        assertThat(queue.heartbeats).isEqualTo(1);
+        verify(deferrer, times(25)).defer(any(), org.mockito.ArgumentMatchers.eq(Duration.ofSeconds(30)),
+                org.mockito.ArgumentMatchers.eq("WAITING_DEPENDENCIES"));
+        assertThat(queue.failures).isEmpty();
+    }
+
+    @Test
+    void refreshesPresenceAgainWhenItsMonotonicHeartbeatDeadlineIsDue() throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        AggregationWorkQueueWorker worker = worker(queue);
+        worker.runOnce();
+        worker.runOnce();
+        assertThat(queue.heartbeats).isEqualTo(1);
+
+        Field deadline = AggregationWorkQueueWorker.class.getDeclaredField("nextHeartbeatAtNanos");
+        deadline.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicLong) deadline.get(worker)).set(System.nanoTime() - 1);
+        worker.runOnce();
+
+        assertThat(queue.heartbeats).isEqualTo(2);
+    }
+
+    @Test
     void completesBoundAggregationWork() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         UUID rawVideoId = UUID.randomUUID();

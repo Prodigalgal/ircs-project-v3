@@ -81,8 +81,17 @@ public class AggregationService {
         } else {
             eligible.forEach(raw -> clusters.add(new RawVideoAggregationCluster(raw, List.of(raw))));
         }
-        rawVideos.stream().filter(raw -> !raw.isAggregationEligible())
-                .forEach(raw -> clusters.add(new RawVideoAggregationCluster(raw, List.of(raw))));
+        for (RawVideoAggregationRecord raw : rawVideos) {
+            if (!raw.isAggregationEligible()) {
+                if ("PENDING".equals(raw.aggregationStatus())) {
+                    // A read-only wait needs neither row locks nor another PENDING write.
+                    // A dependency becoming ready concurrently is handled by its normal handoff or durable defer.
+                    results.put(raw.id(), AggregationResult.skipped(raw.id(), "WAITING_DEPENDENCIES"));
+                } else {
+                    clusters.add(new RawVideoAggregationCluster(raw, List.of(raw)));
+                }
+            }
+        }
         return withDeferredAdultAssessments(() -> {
             for (RawVideoAggregationCluster cluster : clusters) {
                 if (!cluster.isMultiRawCluster()) {
