@@ -48,6 +48,14 @@ def validate_run(run, revision, version):
         raise ValueError('Workflow run is not a completed canonical main or reserved-version tag candidate')
 
 
+def candidate_version(revision):
+    version = git('show', revision + ':VERSION')
+    if (not re.fullmatch(r'\d+\.\d+\.\d+', version)
+            or git('rev-parse', '--verify', 'refs/tags/v' + version + '^{commit}') != revision):
+        raise ValueError('Candidate does not own its reserved business version tag')
+    return version
+
+
 def parse_plan_archive(archive, revision):
     # Do not extract an Actions archive onto the checkout or execute its contents.
     if len(archive) > 4 * 1024 * 1024:
@@ -175,9 +183,7 @@ def main():
     if repository != CANONICAL_REPOSITORY:
         raise SystemExit('Publish-only recovery is restricted to the canonical source repository')
     run = api(f'repos/{repository}/actions/runs/{args.run_id}')
-    version = git('show', args.source_revision + ':VERSION')
-    if not re.fullmatch(r'\d+\.\d+\.\d+', version) or git('rev-list', '-n', '1', 'v' + version) != args.source_revision:
-        raise SystemExit('Candidate does not own its reserved business version')
+    version = candidate_version(args.source_revision)
     validate_run(run, args.source_revision, version)
     settings = git('show', args.source_revision + ':backend/settings.gradle')
     java_images = sorted({module.split(':')[-1] for module in re.findall(

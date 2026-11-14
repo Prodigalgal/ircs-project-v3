@@ -3,6 +3,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 from zipfile import ZipFile
@@ -149,6 +150,13 @@ class PromotionGuardTests(unittest.TestCase):
             with self.subTest(run=run), self.assertRaises(ValueError):
                 verified.validate_run(run, self.revision, '3.3.2')
 
+    def test_reserved_version_is_checked_against_explicit_tag_ref_not_a_same_named_branch(self):
+        with patch.object(verified, 'git', side_effect=['3.3.2', self.revision]) as git:
+            self.assertEqual(verified.candidate_version(self.revision), '3.3.2')
+            self.assertEqual(git.call_args.args, ('rev-parse', '--verify', 'refs/tags/v3.3.2^{commit}'))
+        with patch.object(verified, 'git', side_effect=['3.3.2', 'b' * 40]), self.assertRaises(ValueError):
+            verified.candidate_version(self.revision)
+
     def test_artifact_is_read_in_memory_and_binds_exact_candidate_sha(self):
         self.assertEqual(verified.parse_plan_archive(self.archive(), self.revision), self.plan())
         for archive in (self.archive({**self.plan(), 'head': 'b' * 40}),
@@ -183,6 +191,49 @@ class PromotionGuardTests(unittest.TestCase):
         with patch.object(verified.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'git')):
             with self.assertRaises(subprocess.CalledProcessError):
                 verified.validate_freshness(self.revision, 'b' * 40)
+
+    def test_tag_recovery_outputs_only_three_verified_images_without_rebuilding_other_components(self):
+        allowed = [*self.modules, *(f'ircs-extra-{index}' for index in range(19))]
+        settings = '\n'.join("include 'services:"+image+"'" for image in allowed)
+
+        def git(*args):
+            if args == ('show', self.revision+':VERSION'):
+                return '3.3.2'
+            if args == ('rev-parse', '--verify', 'refs/tags/v3.3.2^{commit}'):
+                return self.revision
+            if args == ('show', self.revision+':backend/settings.gradle'):
+                return settings
+            if args[:2] == ('diff', '--name-only'):
+                return '.github/scripts/promote-verified.py'
+            if args[:3] == ('show', '-s', '--format=%cI'):
+                return '2026-11-13T12:00:00+08:00'
+            raise AssertionError(args)
+
+        def api(path):
+            if '/jobs?' in path:
+                return {'jobs': self.partial_jobs()}
+            if '/artifacts?' in path:
+                return {'artifacts': [{'name': 'affected-plan', 'id': 123, 'expired': False,
+                                       'workflow_run': {'id': 456, 'head_sha': self.revision}}]}
+            if path.endswith('/commits/main'):
+                return {'sha': 'b' * 40}
+            if path.endswith('/actions/runs/456'):
+                return self.candidate_run('v3.3.2')
+            raise AssertionError(path)
+
+        with tempfile.TemporaryDirectory(prefix='ircs-publish-unit-') as temporary:
+            output = Path(temporary)/'output'
+            with patch.object(verified, 'git', side_effect=git), patch.object(verified, 'api', side_effect=api), \
+                    patch.object(verified.subprocess, 'run'), patch.object(verified.subprocess, 'check_output', return_value=self.archive()), \
+                    patch.dict(verified.os.environ, {'GITHUB_REPOSITORY': verified.CANONICAL_REPOSITORY, 'GITHUB_OUTPUT': str(output)}), \
+                    patch('sys.argv', ['promote-verified.py', '--run-id', '456', '--source-revision', self.revision]):
+                verified.main()
+            values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            self.assertEqual(json.loads(values['selected_images']), sorted(self.modules))
+            self.assertEqual(json.loads(values['java_images']), sorted(self.modules))
+            self.assertEqual(values['version'], '3.3.2')
+            self.assertEqual(values['source_revision'], self.revision)
+            self.assertEqual(values['release_tag'], '20261113-v3.3.2-production-test.1-' + self.revision[:12])
 
 
 if __name__ == '__main__':
