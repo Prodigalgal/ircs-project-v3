@@ -7,9 +7,6 @@ import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueSnaps
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueues;
 import com.prodigalgal.ircs.ops.queue.domain.QueueState;
 import com.prodigalgal.ircs.ops.dashboard.dto.KeyValueMetricResponse;
-import com.prodigalgal.ircs.contracts.queue.QueueTopic;
-import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
@@ -28,34 +25,10 @@ public class SystemMetricsDataReader {
 
     private final RabbitAdmin rabbitAdmin;
     private final RedisConnectionFactory redisConnectionFactory;
-    private final MeterRegistry meterRegistry;
     private final ObjectProvider<RuntimeWorkQueue> runtimeWorkQueueProvider;
     private final ObjectProvider<AggregationOpsStatsClient> aggregationOpsStatsClientProvider;
     private final BrokerManagementQueueClient rabbitManagementQueueClient;
     private volatile CachedRabbitQueues cachedRabbitQueues;
-
-    public void registerRabbitQueueGauges() {
-        for (QueueTopic topic : QueueTopic.values()) {
-            registerQueueGauges(topic, topic.queueName(), "main", false);
-            registerQueueGauges(topic, topic.retryName(), "retry", false);
-            registerQueueGauges(topic, topic.dlqName(), "dlq", true);
-        }
-    }
-
-    public void registerRuntimeWorkGauges(String taskType) {
-        Gauge.builder("ircs.valkey.runtime_work.pending", () -> runtimeWorkCounts(taskType).pending())
-                .description("Valkey runtime work pending task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.runtime_work.inflight", () -> runtimeWorkCounts(taskType).inflight())
-                .description("Valkey runtime work inflight task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-        Gauge.builder("ircs.valkey.runtime_work.dlq", () -> runtimeWorkCounts(taskType).dlq())
-                .description("Valkey runtime work DLQ task count observed by ops-service")
-                .tag("task_type", taskType)
-                .register(meterRegistry);
-    }
 
     public QueueState queueState(String queueName) {
         BrokerManagementQueueSnapshot snapshot = nativeQueueSnapshot(queueName);
@@ -160,23 +133,6 @@ public class SystemMetricsDataReader {
         } catch (RuntimeException ignored) {
             return Map.of();
         }
-    }
-
-    private void registerQueueGauges(QueueTopic topic, String queueName, String queueRole, boolean dlq) {
-        Gauge.builder("ircs.rabbit.queue.messages", () -> queueState(queueName).messageCount())
-                .description("RabbitMQ queue message depth observed by ops-service")
-                .tag("topic", topic.name())
-                .tag("queue", queueName)
-                .tag("queue_role", queueRole)
-                .tag("dlq", String.valueOf(dlq))
-                .register(meterRegistry);
-        Gauge.builder("ircs.rabbit.queue.consumers", () -> queueState(queueName).consumerCount())
-                .description("RabbitMQ queue consumer count observed by ops-service")
-                .tag("topic", topic.name())
-                .tag("queue", queueName)
-                .tag("queue_role", queueRole)
-                .tag("dlq", String.valueOf(dlq))
-                .register(meterRegistry);
     }
 
     private RuntimeWorkQueueCounts emptyRuntimeWorkCounts() {

@@ -9,7 +9,6 @@ import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueClien
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueSnapshot;
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueues;
 import com.prodigalgal.ircs.ops.queue.domain.QueueState;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -32,7 +31,6 @@ class SystemMetricsDataReaderTest {
     private final SystemMetricsDataReader reader = new SystemMetricsDataReader(
             rabbitAdmin,
             redisConnectionFactory,
-            new SimpleMeterRegistry(),
             runtimeWorkQueueProvider,
             aggregationOpsStatsClientProvider,
             rabbitManagementQueueClient);

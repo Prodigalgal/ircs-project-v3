@@ -25,7 +25,6 @@ import com.prodigalgal.ircs.ops.dashboard.infrastructure.AggregationOpsStatsClie
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.BrokerManagementRateProbe;
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SystemMetricsDataReader;
 import com.prodigalgal.ircs.ops.infrastructure.broker.BrokerManagementQueueClient;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import java.util.Map;
 import java.util.Properties;
@@ -58,11 +57,9 @@ class SystemMetricsServiceTest {
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
     private final BrokerManagementQueueClient rabbitManagementQueueClient =
             org.mockito.Mockito.mock(BrokerManagementQueueClient.class);
-    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final SystemMetricsDataReader dataReader = new SystemMetricsDataReader(
             rabbitAdmin,
             redisConnectionFactory,
-            meterRegistry,
             runtimeWorkQueueProvider,
             aggregationOpsStatsClientProvider,
             rabbitManagementQueueClient);

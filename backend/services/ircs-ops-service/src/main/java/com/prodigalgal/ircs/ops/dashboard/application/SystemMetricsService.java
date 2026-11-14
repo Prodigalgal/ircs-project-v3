@@ -22,7 +22,6 @@ import com.prodigalgal.ircs.ops.dashboard.infrastructure.BrokerManagementRatePro
 import com.prodigalgal.ircs.ops.dashboard.infrastructure.SystemMetricsDataReader;
 import com.prodigalgal.ircs.contracts.queue.QueueTopic;
 import jakarta.annotation.PreDestroy;
-import jakarta.annotation.PostConstruct;
 import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -52,13 +51,6 @@ public class SystemMetricsService {
             VirtualThreadExecutors.newPerTaskExecutor("ops-metrics-refresh-");
     private final AtomicBoolean metricsRefreshRunning = new AtomicBoolean(false);
     private volatile CachedMetrics cachedMetrics;
-
-    @PostConstruct
-    void registerRabbitQueueGauges() {
-        dataReader.registerRabbitQueueGauges();
-        RuntimeWorkQueueCatalog.descriptors()
-                .forEach(descriptor -> dataReader.registerRuntimeWorkGauges(descriptor.taskType()));
-    }
 
     public SystemMetricsResponse currentMetrics() {
         Duration cacheTtl = metricsCacheTtl();
