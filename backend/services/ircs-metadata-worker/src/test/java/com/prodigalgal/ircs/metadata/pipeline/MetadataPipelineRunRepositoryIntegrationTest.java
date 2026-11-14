@@ -1,8 +1,24 @@
 package com.prodigalgal.ircs.metadata.pipeline;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
+import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
+import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
+import com.prodigalgal.ircs.metadata.result.application.MetadataResultCollectorService;
+import com.prodigalgal.ircs.metadata.result.infrastructure.RawVideoMetadataRepository;
+import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
+import tools.jackson.databind.json.JsonMapper;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -25,6 +41,9 @@ class MetadataPipelineRunRepositoryIntegrationTest {
     private MetadataPipelineRunRepository repository;
     private TransactionTemplate transaction;
     private String schema;
+    private MetadataResultCollectorService collector;
+    private RawSearchSyncPublisher search;
+    private AggregationWorkPublisher aggregation;
 
     @BeforeEach
     void setUp() {
@@ -37,6 +56,13 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         properties.setProperty("currentSchema", schema);
         scoped.setConnectionProperties(properties);
         jdbc = new JdbcTemplate(scoped);
+        jdbc.execute("""
+                create table raw_videos(id uuid primary key, douban_id text, tmdb_id text, imdb_id text,
+                    rotten_tomatoes_id text, description text default 'preserved description', score numeric,
+                    year text, alias_title text, raw_metadata jsonb default '{}', locked_fields jsonb default '[]',
+                    enrichment_status text default 'PENDING', enrichment_retry_count integer default 2,
+                    aggregation_status text default 'PENDING', data_hash text, updated_at timestamptz default now())
+                """);
         jdbc.execute("""
                 create table raw_video_pipeline_runs (
                     raw_video_id uuid not null, pipeline_version text not null, step text not null,
@@ -59,7 +85,17 @@ class MetadataPipelineRunRepositoryIntegrationTest {
                 )
                 """);
         repository = new MetadataPipelineRunRepository(new NamedParameterJdbcTemplate(scoped));
-        transaction = new TransactionTemplate(new DataSourceTransactionManager(scoped));
+        var manager = new DataSourceTransactionManager(scoped);
+        transaction = new TransactionTemplate(manager);
+        var mapper = JsonMapper.builder().build();
+        search = mock(RawSearchSyncPublisher.class);
+        aggregation = mock(AggregationWorkPublisher.class);
+        var target = new MetadataResultCollectorService(new RawVideoMetadataRepository(jdbc, mapper), search,
+                repository, mock(MetadataEnrichPublisher.class), aggregation, mock(MetadataConfigValues.class), mapper);
+        var proxy = new ProxyFactory(target);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
+        collector = (MetadataResultCollectorService) proxy.getProxy();
     }
 
     @AfterEach
@@ -68,6 +104,91 @@ class MetadataPipelineRunRepositoryIntegrationTest {
             // The generated schema is unique to this test; no shared tables or schemas are touched.
             admin.execute("drop schema " + schema + " cascade");
         }
+    }
+
+    @Test
+    void reconcilesTerminalSuccessWithoutChangingMetadataOrCountingProviderCompletionTwice() {
+        UUID id = raw("hash-v1", "12345");
+        complete(id, true);
+        Map<String, Object> counts = pipeline(id);
+
+        assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("SUCCESS");
+        assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("SUCCESS");
+
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
+                .isEqualTo("SUCCESS");
+        assertThat(jdbc.queryForObject("select description from raw_videos where id=?", String.class, id))
+                .isEqualTo("preserved description");
+        assertThat(jdbc.queryForObject("select tmdb_id from raw_videos where id=?", String.class, id)).isEqualTo("12345");
+        assertThat(pipeline(id).get("completed_count")).isEqualTo(counts.get("completed_count"));
+        assertThat(pipeline(id).get("success_count")).isEqualTo(counts.get("success_count"));
+        verify(search, times(1)).publishIndex(id);
+        verify(aggregation, times(1)).enqueue(id, "hash-v1", "metadata-completed-run-reconciled");
+    }
+
+    @Test
+    void terminalNoMatchFinalizesFailureWithoutRepeatingTheProviderOrSpendingAnotherRetry() {
+        UUID id = raw("hash-v1", null);
+        complete(id, false);
+
+        assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("PERMANENT_FAILURE");
+
+        assertThat(jdbc.queryForObject("select enrichment_retry_count from raw_videos where id=?", Integer.class, id))
+                .isEqualTo(2);
+        assertThat(pipeline(id).get("completed_count")).isEqualTo(1);
+        verify(aggregation).enqueue(id, "hash-v1", "metadata-completed-run-reconciled");
+    }
+
+    @Test
+    void oldCompletedRunCannotOverwriteANewerRawInputVersion() {
+        UUID id = raw("hash-v2", "12345");
+        complete(id, true);
+
+        assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("STALE");
+
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
+                .isEqualTo("PENDING");
+        verifyNoInteractions(search, aggregation);
+    }
+
+    @Test
+    void pendingProviderRunCannotBeReconciledAsACompletedRun() {
+        UUID id = raw("hash-v1", null);
+        prepare(id, ProviderType.TMDB, ProviderType.DOUBAN);
+        transaction.execute(ignored -> repository.completeProvider(id, "hash-v1", ProviderType.TMDB,
+                true, false, null, null, 0));
+
+        assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("PENDING");
+
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
+                .isEqualTo("PENDING");
+        verifyNoInteractions(search, aggregation);
+    }
+
+    @Test
+    void failedLocalHandoffRollsBackBothRawFinalizationAndRunStatus() {
+        UUID id = raw("hash-v1", "12345");
+        complete(id, true);
+        doThrow(new IllegalStateException("submit unavailable")).when(search).publishIndex(id);
+
+        assertThrows(IllegalStateException.class, () -> collector.reconcileCompletedRun(id, "hash-v1"));
+
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
+                .isEqualTo("PENDING");
+        assertThat(pipeline(id).get("status")).isEqualTo("PENDING");
+        verifyNoInteractions(aggregation);
+    }
+
+    private UUID raw(String hash, String tmdbId) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("insert into raw_videos(id,data_hash,tmdb_id) values (?,?,?)", id, hash, tmdbId);
+        return id;
+    }
+
+    private void complete(UUID id, boolean success) {
+        prepare(id, ProviderType.TMDB);
+        transaction.execute(ignored -> repository.completeProvider(id, "hash-v1", ProviderType.TMDB,
+                success, false, success ? null : "NOT_FOUND", null, 0));
     }
 
     @Test
@@ -126,8 +247,8 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         assertThat(run.get("retryable_failure_count")).isEqualTo(0);
     }
 
-    private List<ProviderType> prepare(UUID id, ProviderType provider) {
-        return transaction.execute(ignored -> repository.prepareDispatch(id, "hash-v1", List.of(provider)));
+    private List<ProviderType> prepare(UUID id, ProviderType... providers) {
+        return transaction.execute(ignored -> repository.prepareDispatch(id, "hash-v1", List.of(providers)));
     }
 
     private Map<String, Object> pipeline(UUID id) {

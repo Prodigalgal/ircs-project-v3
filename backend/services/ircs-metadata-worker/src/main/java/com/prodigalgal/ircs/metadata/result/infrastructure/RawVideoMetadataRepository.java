@@ -47,12 +47,27 @@ public class RawVideoMetadataRepository {
     private final ObjectMapper objectMapper;
 
     public Optional<RawVideoMetadataRecord> findById(UUID id) {
-        return jdbcTemplate.query(SELECT_BY_ID, ps -> ps.setObject(1, id), rs -> {
+        return findById(id, false);
+    }
+
+    public Optional<RawVideoMetadataRecord> findByIdForUpdate(UUID id) {
+        return findById(id, true);
+    }
+
+    private Optional<RawVideoMetadataRecord> findById(UUID id, boolean forUpdate) {
+        return jdbcTemplate.query(SELECT_BY_ID + (forUpdate ? "\nfor update" : ""), ps -> ps.setObject(1, id), rs -> {
             if (!rs.next()) {
                 return Optional.empty();
             }
             return Optional.of(mapRow(rs));
         });
+    }
+
+    public int updateEnrichmentStatusIfPending(UUID id, String dataHash, String status, Integer retryCount) {
+        return jdbcTemplate.update("""
+                update raw_videos set enrichment_status=?, enrichment_retry_count=?, updated_at=now()
+                where id=? and data_hash is not distinct from ? and enrichment_status='PENDING'
+                """, status, retryCount, id, dataHash);
     }
 
     public int save(RawVideoMetadataRecord record) {

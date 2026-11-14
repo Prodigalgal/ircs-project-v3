@@ -1,6 +1,6 @@
 # 规范化与元数据 Native 运行阻断、聚合上游恢复
 
-2026-11-14，规范化与聚合 3.4.5、元数据 3.4.6 均通过门禁并恢复消费。本文按阶段区分恢复效果，不代表历史积压已经清空。
+2026-11-14，规范化 3.4.5 与聚合 3.4.7 正常消费；元数据 3.4.8 完成状态修复候选待 GitHub Actions 验证。原规范化积压已清空，剩余补全/聚合个案按原因继续处理。
 
 生产只读统计发现，7,937 条聚合 PENDING 中，7,174 条仍是 normalization=PENDING / enrichment=PENDING；666 条 READY/SUCCESS，71 条 READY/PENDING，26 条 READY/PERMANENT_FAILURE。Ops 队列指标同时记录 normalization DLQ=7,270、inflight=200。规范化日志持续出现 `NoClassDefFoundError: Could not initialize class com.github.houbb.opencc4j.util.ZhJpConverterUtil`，这会使错误逃出 RuntimeException 分支，留下等待超时回收的 claim。以上为当时快照，不能将队列数量与数据库记录逐条等同。
 
@@ -25,3 +25,7 @@ Native runtime smoke 新增实际规范化队列任务：隔离 PostgreSQL 插�
 GitOps 6a42eb7 临时将 metadata 从 1 副本改为 0，保留其队列和任务，停止无效重试消耗。规范化正常继续推进；聚合的依赖等待沿用持久 defer，不扣失败次数。50 条历史就绪输入在补入队前检查未有 PENDING/PROCESSING task，再通过现有内部鉴权接口有界入队；未全量 reset 或删除历史 DLQ。补全修复后的实测结果仍须记录。
 
 3.4.6 / [43582998730](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43582998730) 的 31 套件、99 项 metadata 应用测试零失败/错误/跳过，双架构 Native 构建和启动时完整凭据数组绑定检查、manifest 与自动 GitOps 全部成功。只构建 metadata 镜像；6fce6a4 更新其引用，随后移除 hold 并恢复原 1 副本。恢复前规范化 PENDING 已降至 6,004，聚合 BOUND 从 43,920 增至 43,953；聚合池的等待和超时计数均为 0。下一阶段仍检查真实 provider 调用和 enrichment 状态，启动门禁不能代替这些运行结果。
+
+后续确认原 7,174 条规范化 PENDING 全部成为 READY，无 FAILED。c507806 回收临时规范化副本至原 1；聚合保持 2 副本，每副本主池 3。管理脚本在数据库输入已就绪且至少 2 分钟未变化的条件下，原子补齐 636 条缺失聚合任务；已有 160 条任务不改动，未删除 DLQ 或重置已有 claim。另补齐 71 条缺失补全分发任务，保留已有 12 条；管理补入队有独立审计报告与提交事件，不冒充应用提交速率计数。
+
+存量 83 条 enrichment=PENDING 中，71 条已有完成的持久 run（51 SUCCESS、20 PERMANENT_FAILURE），12 条 run 仍 PENDING、对应 provider runtime task 在 DLQ。分发器对前者直接报“无可分发 provider”导致状态无法收尾。3.4.8 在没有 pending provider 时按 pipeline -> raw 顺序短事务锁定运行与当前输入，复用现有最终状态判定，仅 CAS 更新仍 PENDING 且 hash 一致的状态/重试数，不重写标题、元数据、provider 计数或重复请求供应商。数据库提交后交接搜索和聚合；终态分发重试可补发下游交接。新增真实 Spring 代理/PG 的终态成功、无匹配、版本过期、尚未完成、失败回滚回归，以及分发单测。GitOps d7bebc2 暂停无效分发重试，队列完整保留；门禁通过后恢复。

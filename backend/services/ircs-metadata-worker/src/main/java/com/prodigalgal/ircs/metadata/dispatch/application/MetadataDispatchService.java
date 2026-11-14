@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.metadata.dispatch.infrastructure.RawVideoEnrichmentR
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
+import com.prodigalgal.ircs.metadata.result.application.MetadataResultCollectorService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +31,7 @@ public class MetadataDispatchService {
     private final MetadataProviderTaskPublisher providerTaskPublisher;
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final AggregationWorkPublisher aggregationWorkPublisher;
+    private final MetadataResultCollectorService resultCollector;
 
     public MetadataDispatchResult dispatch(UUID videoId, String pipelineVersion) {
         Optional<RawVideoEnrichmentRecord> recordOpt = repository.findById(videoId);
@@ -45,6 +47,8 @@ public class MetadataDispatchService {
 
         if ("SUCCESS".equals(record.getEnrichmentStatus())
                 || "PERMANENT_FAILURE".equals(record.getEnrichmentStatus())) {
+            searchSyncPublisher.publishIndex(videoId);
+            aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-already-finalized");
             return new MetadataDispatchResult(videoId, true, record.getEnrichmentStatus(), List.of());
         }
 
@@ -60,6 +64,10 @@ public class MetadataDispatchService {
         List<ProviderType> pendingProviders =
                 pipelineRunRepository.prepareDispatch(videoId, record.getDataHash(), providers);
         if (pendingProviders.isEmpty()) {
+            var reconciled = resultCollector.reconcileCompletedRun(videoId, record.getDataHash());
+            if (reconciled != null && (!reconciled.videoFound() || !"PENDING".equals(reconciled.enrichmentStatus()))) {
+                return new MetadataDispatchResult(videoId, reconciled.videoFound(), reconciled.enrichmentStatus(), List.of());
+            }
             throw new IllegalStateException("Metadata providers require enrichment but no provider run is dispatchable: " + videoId);
         }
         pendingProviders.forEach(provider -> providerTaskPublisher.publish(provider, context));

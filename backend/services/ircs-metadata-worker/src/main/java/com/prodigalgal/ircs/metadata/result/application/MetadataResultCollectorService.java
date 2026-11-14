@@ -40,6 +40,36 @@ public class MetadataResultCollectorService {
     private final MetadataConfigValues configValues;
     private final ObjectMapper objectMapper;
 
+    @Transactional(timeout = 30)
+    public MetadataResultProcessingResult reconcileCompletedRun(UUID videoId, String pipelineVersion) {
+        // Match the normal result writer's pipeline -> raw lock order. This path has no provider HTTP calls.
+        ProviderCompletion completion = pipelineRunRepository.findCompletionForUpdate(videoId, pipelineVersion)
+                .orElse(ProviderCompletion.untracked());
+        if (!completion.allCompleted()) {
+            return new MetadataResultProcessingResult(videoId, true, "PENDING");
+        }
+        Optional<RawVideoMetadataRecord> current = repository.findByIdForUpdate(videoId);
+        if (current.isEmpty()) {
+            return new MetadataResultProcessingResult(videoId, false, null);
+        }
+        RawVideoMetadataRecord record = current.orElseThrow();
+        if (isStale(pipelineVersion, record.getDataHash())) {
+            return new MetadataResultProcessingResult(videoId, true, "STALE");
+        }
+        if (!"PENDING".equals(record.getEnrichmentStatus())) {
+            return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
+        }
+        finalizeVideoStatus(record, completion, false);
+        if (repository.updateEnrichmentStatusIfPending(videoId, record.getDataHash(), record.getEnrichmentStatus(),
+                record.getEnrichmentRetryCount()) != 1) {
+            return new MetadataResultProcessingResult(videoId, true, "STALE");
+        }
+        pipelineRunRepository.markRunFinished(videoId, record.getDataHash(), record.getEnrichmentStatus());
+        searchSyncPublisher.publishIndex(videoId);
+        aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-completed-run-reconciled");
+        return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
+    }
+
     @Transactional
     public MetadataResultProcessingResult process(EnrichmentResultMsg message, int expectedAttempt) {
         if (expectedAttempt < 0) {

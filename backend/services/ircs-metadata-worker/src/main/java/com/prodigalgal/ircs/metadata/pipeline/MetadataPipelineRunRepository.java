@@ -243,6 +243,15 @@ public class MetadataPipelineRunRepository {
             UUID rawVideoId,
             String pipelineVersion,
             boolean newlyCompleted) {
+        return findCompletion(rawVideoId, pipelineVersion, newlyCompleted, false);
+    }
+
+    public Optional<ProviderCompletion> findCompletionForUpdate(UUID rawVideoId, String pipelineVersion) {
+        return findCompletion(rawVideoId, normalizeVersion(pipelineVersion), false, true);
+    }
+
+    private Optional<ProviderCompletion> findCompletion(
+            UUID rawVideoId, String pipelineVersion, boolean newlyCompleted, boolean forUpdate) {
         List<ProviderCompletion> completions = jdbcTemplate.query(
                 """
                 select expected_count, completed_count, success_count, failure_count,
@@ -251,7 +260,7 @@ public class MetadataPipelineRunRepository {
                 where raw_video_id = :rawVideoId
                   and pipeline_version = :pipelineVersion
                   and step = :step
-                """,
+                """ + (forUpdate ? "\nfor update" : ""),
                 new MapSqlParameterSource()
                         .addValue("rawVideoId", rawVideoId)
                         .addValue("pipelineVersion", pipelineVersion)

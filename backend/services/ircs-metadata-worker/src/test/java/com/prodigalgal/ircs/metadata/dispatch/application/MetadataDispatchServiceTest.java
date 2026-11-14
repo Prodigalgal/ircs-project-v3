@@ -18,6 +18,8 @@ import com.prodigalgal.ircs.metadata.dispatch.infrastructure.RawVideoEnrichmentR
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
+import com.prodigalgal.ircs.metadata.result.application.MetadataResultCollectorService;
+import com.prodigalgal.ircs.metadata.result.dto.MetadataResultProcessingResult;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +50,51 @@ class MetadataDispatchServiceTest {
 
     @Mock
     private MetadataConfigValues configValues;
+
+    @Mock
+    private MetadataResultCollectorService resultCollector;
+
+    @Test
+    void reconcilesCompletedProviderRunsWithoutRequestingTheProviderAgain() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.of(record(id)));
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB))).thenReturn(List.of());
+        when(resultCollector.reconcileCompletedRun(id, "hash-v1"))
+                .thenReturn(new MetadataResultProcessingResult(id, true, "PERMANENT_FAILURE"));
+
+        MetadataDispatchResult result = newService(true).dispatch(id, "hash-v1");
+
+        assertEquals("PERMANENT_FAILURE", result.status());
+        verify(resultCollector).reconcileCompletedRun(id, "hash-v1");
+        org.mockito.Mockito.verifyNoInteractions(providerTaskPublisher);
+    }
+
+    @Test
+    void incompleteDurableRunDoesNotPretendEnrichmentHasFinished() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.of(record(id)));
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB))).thenReturn(List.of());
+        when(resultCollector.reconcileCompletedRun(id, "hash-v1"))
+                .thenReturn(new MetadataResultProcessingResult(id, true, "PENDING"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> newService(true).dispatch(id, "hash-v1"));
+        org.mockito.Mockito.verifyNoInteractions(providerTaskPublisher);
+    }
+
+    @Test
+    void terminalDispatchRetryRepublishesIdempotentDownstreamHandoffs() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord raw = record(id);
+        raw.setEnrichmentStatus("SUCCESS");
+        when(repository.findById(id)).thenReturn(Optional.of(raw));
+
+        assertEquals("SUCCESS", newService(false).dispatch(id, "hash-v1").status());
+
+        verify(searchSyncPublisher).publishIndex(id);
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-already-finalized");
+        org.mockito.Mockito.verifyNoInteractions(providerTaskPublisher, pipelineRunRepository, resultCollector);
+    }
 
     @AfterEach
     void tearDown() {
@@ -118,7 +165,8 @@ class MetadataDispatchServiceTest {
                 pipelineRunRepository,
                 publisher,
                 searchSyncPublisher,
-                aggregationWorkPublisher);
+                aggregationWorkPublisher,
+                resultCollector);
 
         MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
@@ -161,7 +209,8 @@ class MetadataDispatchServiceTest {
                 pipelineRunRepository,
                 publisher,
                 searchSyncPublisher,
-                aggregationWorkPublisher);
+                aggregationWorkPublisher,
+                resultCollector);
 
         MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
@@ -207,7 +256,8 @@ class MetadataDispatchServiceTest {
                 pipelineRunRepository,
                 providerTaskPublisher,
                 searchSyncPublisher,
-                aggregationWorkPublisher);
+                aggregationWorkPublisher,
+                resultCollector);
     }
 
     private RawVideoEnrichmentRecord record(UUID id) {
