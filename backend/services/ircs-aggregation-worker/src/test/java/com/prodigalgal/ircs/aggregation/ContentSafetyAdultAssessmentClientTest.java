@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.adult.AdultAssessmentInput;
+import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentBatchResponse;
+import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentModelResult;
+import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentResult;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -69,11 +72,8 @@ class ContentSafetyAdultAssessmentClientTest {
     @Test
     void googleQuotaUnavailabilityDefersInsteadOfFallingBackToSafe() throws Exception {
         UUID id = UUID.randomUUID();
-        String body = """
-                {"items":[{"id":"%s","level":"SUSPECT","signals":[],"model":{
-                "available":false,"raw":{"provider":"GOOGLE_DECISIONS","retryable":true,
-                "reason":"QUOTA_WAIT","retryAfterSeconds":86400}}}]}
-                """.formatted(id);
+        String body = response(result(id, "SUSPECT", false, 0,
+                unavailableGoogleModel(true, "QUOTA_WAIT", 86400)));
         withResponse(200, body, client -> {
             var exception = assertThrows(AdultAssessmentDeferredException.class,
                     () -> client.assess(Map.of(id, input())));
@@ -86,14 +86,9 @@ class ContentSafetyAdultAssessmentClientTest {
     void mixedBatchUsesLongestRealQuotaWaitRatherThanPollingDayQuotaEveryTwoSeconds() throws Exception {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
-        String body = """
-                {"items":[
-                {"id":"%s","level":"SUSPECT","model":{"available":false,
-                "raw":{"provider":"GOOGLE_DECISIONS","retryable":true,"reason":"QUEUE_PENDING","retryAfterSeconds":2}}},
-                {"id":"%s","level":"SUSPECT","model":{"available":false,
-                "raw":{"provider":"GOOGLE_DECISIONS","retryable":true,"reason":"QUOTA_WAIT","retryAfterSeconds":86400}}}
-                ]}
-                """.formatted(first, second);
+        String body = response(
+                result(first, "SUSPECT", false, 0, unavailableGoogleModel(true, "QUEUE_PENDING", 2)),
+                result(second, "SUSPECT", false, 0, unavailableGoogleModel(true, "QUOTA_WAIT", 86400)));
         withResponse(200, body, client -> {
             var exception = assertThrows(AdultAssessmentDeferredException.class,
                     () -> client.assess(Map.of(first, input(), second, input())));
@@ -105,11 +100,8 @@ class ContentSafetyAdultAssessmentClientTest {
     @Test
     void definiteAdultResultRemainsRestrictedDespiteAuxiliaryGooglePending() throws Exception {
         UUID id = UUID.randomUUID();
-        String body = """
-                {"items":[{"id":"%s","level":"ADULT","adultRestricted":true,"confidence":100,
-                "signals":[],"model":{"available":false,"raw":{"provider":"GOOGLE_DECISIONS",
-                "retryable":true,"reason":"QUEUE_PENDING","retryAfterSeconds":2}}}]}
-                """.formatted(id);
+        String body = response(result(id, "ADULT", true, 100,
+                unavailableGoogleModel(true, "QUEUE_PENDING", 2)));
         withResponse(200, body, client -> {
             var assessment = client.assess(Map.of(id, input())).get(id);
             assertTrue(assessment.adultRestricted());
@@ -120,11 +112,8 @@ class ContentSafetyAdultAssessmentClientTest {
     @Test
     void permanentReviewResultCompletesAsSuspectWithoutRetry() throws Exception {
         UUID id = UUID.randomUUID();
-        String body = """
-                {"items":[{"id":"%s","level":"SUSPECT","confidence":30,"signals":[],"model":{
-                "available":false,"raw":{"provider":"GOOGLE_DECISIONS","retryable":false,
-                "reason":"LOW_CONFIDENCE"}}}]}
-                """.formatted(id);
+        String body = response(result(id, "SUSPECT", false, 30,
+                unavailableGoogleModel(false, "LOW_CONFIDENCE", 60)));
         withResponse(200, body, client -> assertEquals(
                 com.prodigalgal.ircs.common.adult.AdultAssessmentLevel.SUSPECT,
                 client.assess(Map.of(id, input())).get(id).level()));
@@ -157,6 +146,21 @@ class ContentSafetyAdultAssessmentClientTest {
     private AdultAssessmentInput input() {
         return new AdultAssessmentInput("title", null, null, null, null, "movie", "Movie",
                 List.of(), List.of(), List.of(), List.of());
+    }
+
+    private String response(AdultAssessmentResult... items) throws Exception {
+        return objectMapper.writeValueAsString(new AdultAssessmentBatchResponse("test", List.of(items)));
+    }
+
+    private AdultAssessmentResult result(UUID id, String level, boolean adultRestricted, int confidence,
+            AdultAssessmentModelResult model) {
+        return new AdultAssessmentResult(id, "test", level, adultRestricted, confidence, List.of(), model);
+    }
+
+    private AdultAssessmentModelResult unavailableGoogleModel(boolean retryable, String reason, long retryAfterSeconds) {
+        return new AdultAssessmentModelResult("gemini-decision-1", "v1beta", false, 0.0d, "UNAVAILABLE",
+                Map.of("provider", "GOOGLE_DECISIONS", "retryable", retryable, "reason", reason,
+                        "retryAfterSeconds", retryAfterSeconds));
     }
 
     private void withResponse(int status, String body, java.util.function.Consumer<ContentSafetyAdultAssessmentClient> test)
