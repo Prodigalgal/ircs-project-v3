@@ -204,11 +204,11 @@ class AggregationCandidateRepositoryTest {
 
     @Test
     void titleRecallIncludesAdjacentFourDigitYearsAndUnknownYearBuckets() {
-        assertTitleYearRecall("2020", "(year in (:yearBuckets) or year is null or btrim(year) = '')",
+        assertTitleYearRecall("2020", "(year in (:yearBuckets) or year is null or btrim(year) = '' or lower(btrim(year)) in (:unknownYears))",
                 List.of("2019", "2020", "2021"));
-        assertTitleYearRecall("1999", "(year in (:yearBuckets) or year is null or btrim(year) = '')",
+        assertTitleYearRecall("1999", "(year in (:yearBuckets) or year is null or btrim(year) = '' or lower(btrim(year)) in (:unknownYears))",
                 List.of("1998", "1999", "2000"));
-        assertTitleYearRecall("2020/21", "(year = :year or year is null or btrim(year) = '')", "2020/21");
+        assertTitleYearRecall("2020/21", "(year = :year or year is null or btrim(year) = '' or lower(btrim(year)) in (:unknownYears))", "2020/21");
         assertTitleYearRecall("unknown", "similarity(title, :title)", null);
     }
 

@@ -376,4 +376,6 @@ PostgreSQL 保存当前输入版本的结果事实，现有运行队列负责派
 - 恢复后 IRCS 三个 Argo 应用 Synced/Healthy，五个 PVC 的 UID/卷名保留，悬空绑定为 0。
 - 新候选使用新的正式版本；应用验证、上线和同批数据对照结果在取得证据后追加。设计中的建议值与后续能力不作为本轮已交付事实。
 
+3.4.9（`7bd1a3d`，Actions `43607035588`）在应用检查阶段被拦截：采集模块新增列表类型缺少 import；聚合的旧 SQL 文本断言没有包含本轮新增的未知年份条件。聚合 292 项中 291 项通过，包含新增的真实 PG 分桶场景；本候选没有进入 Native 构建或生产。修正后使用新的 3.4.10 候选。
+
 本地运行证据位于服务器管理现有 `docs/`：`ircs-aggregation-recovery-2026-11-14.json`、`ircs-collection-redesign-baseline-2026-11-14.json`、`ircs-aggregation-identity-review-2026-11-14.json`。它们不进入源码发布，也不把业务明细复制成公共 fixture。
