@@ -113,7 +113,7 @@ class AggregationEvaluationServiceTest {
         var decision = service.evaluate(List.of(id)).decisions().getFirst();
 
         assertThat(decision.decision()).isEqualTo("IDENTITY_CONFLICT");
-        assertThat(decision.reason()).isEqualTo("RAW_AND_TARGET_IDENTITY_CONFLICT");
+        assertThat(decision.reason()).isEqualTo("RAW_AND_TARGET_IDENTITY_CONFLICT:EXTERNAL_ID_CONFLICT_TMDB");
         verify(repository, never()).findMatchPlan(any());
     }
 
@@ -232,6 +232,18 @@ class AggregationEvaluationServiceTest {
         assertThatThrownBy(() -> service.evaluate(withNull)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.evaluate(java.util.Collections.nCopies(101, UUID.randomUUID())))
                 .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void rejectsEmptyTransactionSynchronizationBeforeItCanRetainAConnection() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThatThrownBy(() -> service.evaluate(List.of(UUID.randomUUID())))
+                    .isInstanceOf(IllegalStateException.class);
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
         verifyNoInteractions(repository);
     }
 

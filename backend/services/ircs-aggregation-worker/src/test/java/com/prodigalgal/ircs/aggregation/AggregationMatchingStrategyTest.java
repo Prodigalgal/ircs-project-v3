@@ -478,7 +478,11 @@ class AggregationMatchingStrategyTest {
                 UUID.randomUUID(), "Codex Chronicles S1", null, "2026", "9001", null, null, null, 1, null);
 
         assertEquals(0.0, strategy.calculateSimilarity(unknown, firstSeason));
-        assertFalse(strategy.isCompatibleBinding(unknown, firstSeason));
+        assertTrue(strategy.isCompatibleBinding(unknown, firstSeason));
+        RawVideoAggregationRecord secondSeason = rawVideo(
+                "Codex Chronicles S2", null, "2026", "9001", null, null, null, 2, null);
+        assertFalse(strategy.isCompatibleBinding(secondSeason, firstSeason));
+        assertEquals("SEASON_CONFLICT", strategy.bindingConflictReason(secondSeason, firstSeason));
     }
 
     @Test

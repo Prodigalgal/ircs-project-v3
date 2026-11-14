@@ -1,6 +1,6 @@
 # 聚合优化实施与验证记录
 
-**状态：3.4.1 候选修复已实现，应用测试与 Native 构建待 GitHub Actions 验证；未恢复生产聚合，未修复历史数据。禁止本地应用编译。**
+**状态：3.4.1 已通过 267 项应用测试及双架构 Native 构建/运行验证，并完成 200 条生产只读评估。3.4.2 进一步修复 Spring 空事务连接占用和增量自动发布，待 GHA 验证；未恢复生产聚合，未修复历史数据。禁止本地应用编译。**
 
 ## 目标与边界
 
@@ -78,7 +78,7 @@
 - 队列：依赖/竞争/源变化/快照变化/人工核验持久延期，不计供应商失败预算；默认依赖 30 秒、竞争 2 秒、核验 1 小时。严格 submission/owner/attempt/期限 CAS，整批未终结任务续期；事务内 ownership 检查不等待续期网络。
 - 只读评估：内部鉴权保护的 `POST /internal/v1/aggregation/evaluate` 接收 1..100 个 UUID，去重后返回旧绑定、拟 root/victims、决策和原因。明确标注 `SNAPSHOT_ONLY`；没有批量图和提交授权，不执行写入、成人判断、索引或队列。
 
-配置、DTO、并发和 Native HTTP 回归已经加入候选，待 GHA 执行。CI 脚本静态单测、版本契约和 workflow lint 可在本地校验；它们不等于应用测试或 Native 运行成功。本轮源码/版本一致使用 3.4.1，未变化组件继续复用发布账本中不可变镜像，不因元数据提升重建前端或 Python 服务。
+配置、DTO、并发和 Native HTTP 回归已经加入候选。CI 脚本静态单测、版本契约和 workflow lint 可在本地校验；它们不等于应用测试或 Native 运行成功。最新源码/版本一致使用 3.4.2，未变化组件继续复用发布账本中不可变镜像，不因元数据提升重建前端或 Python 服务。
 
 未创建数据库迁移、未全量 reset、未自动拆修历史污染作品。尚无权威 ID/来源信任账本；真实误聚率、召回率、吞吐和连接占用变化均需标注样本与运行证据。回滚使用上一不可变镜像并保留 audit hold；切换 worker 前暂停消费，避免不同锁键格式滚动混跑。
 
@@ -86,4 +86,12 @@
 
 - 3.4.0 / `fdd6ea1` / [43573590114](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43573590114)：生产和测试代码编译通过，262 项应用测试中 4 项失败，Native 和发布被阻断。两项为旧召回契约/批次 mock 未同步；两项发现外部 ID 填充条件的 `NOT` 缺少完整括号，导致空值/无效值无法填充。已修复 SQL，并增加真实 PostgreSQL 的空值/占位值/拒绝值与 provider 隔离回归。
 - CI 脚本静态单测 76 项、版本契约与 workflow lint 通过；这些测试不会启动本地应用或编译 Java。
-- 3.4.1：修复候选待验证，不复用已占用的 3.4.0 tag 或制品。
+- 3.4.1 / `2f3c160` / [43574037667](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43574037667)：29 套件、267 项应用测试，零失败/错误/跳过；26 项真实 PostgreSQL 事务用例、12 项真实 Valkey defer/renew 用例通过。amd64/arm64 Native 构建与两架构真实 HTTP runtime smoke、multiarch manifest 全通过。自动 GitOps 任务因依赖链存在跳过矩阵而被跳过，未按成功构建冒充已部署。
+- 3.4.1 生产只读评估：固定 seed 各抽 100 条 BOUND/PENDING，耗时分别 3.609/2.344 秒。BOUND 为 93 兼容、7 身份冲突线索；PENDING 为 91 等待规范化/补全、8 旧绑定兼容、1 冲突线索。没有人工真值标签，不能把这些比例称作准确率或误聚率，也不能将接口评估耗时等同消费吞吐。前后 raw/unified/binding 为 51857/16272/45230，无变化，评估数据库会话无 idle-in-transaction；临时 Job/转发已清理。证据与可重跑脚本保存于服务器管理目录。
+
+## 3.4.2 收尾
+
+- 编排入口取消 `NEVER` 事务注解，用显式入口校验拒绝实际事务和空 synchronization 上下文，再按短 TransactionTemplate 写入。Spring 的空 synchronization 也可能绑定 JdbcTemplate 连接，单纯检查 `isActualTransactionActive=false` 不足以证明连接已释放。PostgreSQL 单连接池测试统一经过真实 Spring TransactionInterceptor/CGLIB 代理，覆盖准备查询、成人远端等待与重试。
+- 已有绑定刷新对缺失季字段采用“缺少证据”处理，明确 S1/S2 冲突仍拒绝；新绑定及作品合并继续严格处理未知季，避免把未知直接当作 S1。只读冲突返回 provider/category/year/season/version/event 等具体维度，便于核验。
+- 增量发布条件使用 `always()`、未取消、main、prepare 成功、有选中组件、manifest 成功的组合，处理上游未变模块矩阵跳过导致的传递跳过，同时保留全部成功门禁；语义依据 [GitHub needs 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)。新增静态回归，实际发布结果待新候选验证。
+- 最新候选占用 3.4.2；不复用已占用的 3.4.0/3.4.1 tag 或制品。

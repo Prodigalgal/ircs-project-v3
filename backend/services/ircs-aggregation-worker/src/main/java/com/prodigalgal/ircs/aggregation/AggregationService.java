@@ -18,7 +18,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -40,7 +39,6 @@ public class AggregationService {
     private final AggregationMatchingStrategy matchingStrategy;
     private final AggregationSafetyPolicy safetyPolicy;
 
-    @Transactional(propagation = Propagation.NEVER)
     public AggregationResult aggregateOne(UUID rawVideoId) {
         return withDeferredAdultAssessments(() -> {
             repository.lockAggregationShared();
@@ -49,7 +47,6 @@ public class AggregationService {
         }, false);
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public AggregationResult aggregateRuntimeWork(UUID rawVideoId) {
         return aggregateRuntimeWorkBatch(List.of(rawVideoId)).stream()
                 .filter(result -> rawVideoId.equals(result.rawVideoId()))
@@ -57,11 +54,8 @@ public class AggregationService {
                 .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public List<AggregationResult> aggregateRuntimeWorkBatch(List<UUID> rawVideoIds) {
-        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("Aggregation preparation must run outside a database transaction");
-        }
+        assertOutsideTransaction();
         List<UUID> orderedIds = rawVideoIds == null ? List.of() : rawVideoIds.stream()
                 .filter(Objects::nonNull).distinct().toList();
         if (orderedIds.size() > 100) { throw new IllegalArgumentException("Aggregation batch cannot exceed 100 raw videos"); }
@@ -182,9 +176,7 @@ public class AggregationService {
 
     private <T> T withDeferredAdultAssessments(
             Supplier<T> action, boolean retryClaimedWork, boolean transactionalAction) {
-        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("Aggregation orchestration must start outside a database transaction");
-        }
+        assertOutsideTransaction();
         try (DeferredAdultAssessments scope = DeferredAdultAssessments.open()) {
             T result = transactionalAction ? inTransaction(action) : action.get();
             // execute() has completed transaction synchronizations, released JDBC and match/advisory locks.
@@ -297,7 +289,6 @@ public class AggregationService {
                 .orElseGet(() -> AggregationResult.skipped(rawVideoId, "MISSING_RAW_VIDEO"));
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public int recalculateUnified(UUID unifiedVideoId) {
         // Refresh derives fields from the existing membership; it must neither demote BOUND
         // members nor rerun the complete pipeline once for every source of the same work.
@@ -318,8 +309,8 @@ public class AggregationService {
         }, false);
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public AggregationMaintenanceRunResponse recalculateDirtyUnified(int limit) {
+        assertOutsideTransaction();
         List<UUID> unifiedVideoIds = repository.findDirtyUnifiedIds(Math.max(1, limit));
         int processed = 0;
         for (UUID unifiedVideoId : unifiedVideoIds) {
@@ -364,12 +355,10 @@ public class AggregationService {
                         .toList());
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit) {
         return backfillUnifiedAdultAssessments(limit, true);
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public AggregationMaintenanceRunResponse backfillUnifiedAdultAssessments(int limit, boolean publishSearch) {
         return withDeferredAdultAssessments(() -> backfillUnifiedAdultAssessmentsInTransaction(limit, publishSearch), false);
     }
@@ -388,7 +377,6 @@ public class AggregationService {
                 processedIds);
     }
 
-    @Transactional(propagation = Propagation.NEVER)
     public ManualUnifiedMergeResponse mergeUnifiedVideos(List<UUID> unifiedVideoIds) {
         return withDeferredAdultAssessments(() -> mergeUnifiedVideosInTransaction(unifiedVideoIds), false);
     }
@@ -716,6 +704,15 @@ public class AggregationService {
                 .map(results::get)
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private void assertOutsideTransaction() {
+        // Even an empty NEVER transaction scope can retain a JDBC connection through Spring's
+        // synchronization. Orchestration uses explicit short TransactionTemplates exclusively.
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
+                || org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("Aggregation orchestration requires an unbound database context");
+        }
     }
 
     private List<UUID> normalizeManualMergeIds(List<UUID> unifiedVideoIds) {

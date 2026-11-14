@@ -11,8 +11,6 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 /** Read-only single-raw shadow decisions. Each database/search read may observe a newer snapshot. */
 @Service
@@ -22,8 +20,11 @@ class AggregationEvaluationService {
     private final AggregationMatchingStrategy matchingStrategy;
     private final AggregationSafetyPolicy safetyPolicy;
 
-    @Transactional(propagation = Propagation.NEVER)
     public EvaluationResponse evaluate(List<UUID> rawVideoIds) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
+                || org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("Aggregation evaluation requires an unbound database context");
+        }
         if (rawVideoIds == null || rawVideoIds.isEmpty() || rawVideoIds.size() > 100
                 || rawVideoIds.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException("rawVideoIds must contain 1 to 100 non-null UUIDs");
@@ -90,8 +91,9 @@ class AggregationEvaluationService {
         }
         UnifiedVideoAggregationCandidate root = candidates.stream()
                 .filter(candidate -> plan.rootUnifiedVideoId().equals(candidate.id())).findFirst().orElseThrow();
-        if (!matchingStrategy.isCompatibleBinding(raw, root)) {
-            return decision(raw, original, plan, "IDENTITY_CONFLICT", "RAW_AND_TARGET_IDENTITY_CONFLICT");
+        String conflictReason = matchingStrategy.bindingConflictReason(raw, root);
+        if (conflictReason != null) {
+            return decision(raw, original, plan, "IDENTITY_CONFLICT", "RAW_AND_TARGET_IDENTITY_CONFLICT:" + conflictReason);
         }
         if (existing.isEmpty() && matchingStrategy.findBestMatch(raw, List.of(root)).isEmpty()) {
             return decision(raw, original, plan, "SOURCE_CHANGED", "FRESH_TARGET_NO_LONGER_MEETS_MATCH_RULES");

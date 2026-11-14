@@ -570,9 +570,31 @@ public class AggregationMatchingStrategy {
     }
 
     boolean isCompatibleBinding(RawVideoAggregationRecord raw, UnifiedVideoAggregationCandidate unified) {
-        return raw != null && unified != null
-                && isHardIdentityCompatible(raw, unified)
-                && !hasConflictingEventIdentity(raw.title(), unified.title());
+        return bindingConflictReason(raw, unified) == null;
+    }
+
+    String bindingConflictReason(RawVideoAggregationRecord raw, UnifiedVideoAggregationCandidate unified) {
+        if (raw == null || unified == null) { return "MISSING_IDENTITY"; }
+        VideoFingerprint left = fingerprint(raw);
+        VideoFingerprint right = fingerprint(unified);
+        if (!AggregationSafetyPolicy.categoriesCompatible(raw.categoryName(), unified.categoryName())) {
+            return "CATEGORY_CONFLICT";
+        }
+        if (!yearsCompatible(left.year(), right.year())) { return "YEAR_CONFLICT"; }
+        // Refresh preserves an existing relationship when a field is simply missing. New
+        // matching still uses strict season evidence and does not assume that unknown is S1.
+        if (left.season() != null && right.season() != null && !left.season().equals(right.season())) {
+            return "SEASON_CONFLICT";
+        }
+        if (!isVersionCompatible(left.version(), right.version())) { return "VERSION_CONFLICT"; }
+        for (String provider : EXTERNAL_ID_PROVIDERS) {
+            String leftId = left.externalIds().get(provider);
+            String rightId = right.externalIds().get(provider);
+            if (leftId != null && rightId != null && !leftId.equals(rightId)) {
+                return "EXTERNAL_ID_CONFLICT_" + provider.toUpperCase(Locale.ROOT);
+            }
+        }
+        return hasConflictingEventIdentity(left, right) ? "EVENT_CONFLICT" : null;
     }
 
     boolean isHardIdentityCompatible(UnifiedVideoAggregationCandidate left, UnifiedVideoAggregationCandidate right) {

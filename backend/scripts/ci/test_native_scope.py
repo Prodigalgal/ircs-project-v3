@@ -20,6 +20,16 @@ SETTINGS = "include 'services:ircs-api-gateway'\ninclude 'services:ircs-ops-serv
 
 
 class NativeMatrixTest(unittest.TestCase):
+    def test_incremental_promotion_survives_skipped_unrelated_matrices_and_keeps_success_gates(self):
+        workflow = (Path(__file__).resolve().parents[3] / '.github/workflows/native-build.yml').read_text()
+        job = workflow.split('\n  gitops:\n', 1)[1].split('\n    runs-on:', 1)[0]
+        condition = next(line.strip()[4:] for line in job.splitlines() if line.strip().startswith('if: '))
+        self.assertTrue(condition.startswith('always() && !cancelled() &&'))
+        for gate in ("github.ref == 'refs/heads/main'", "needs.prepare.result == 'success'",
+                     "needs.prepare.outputs.has_selected == 'true'", "needs.manifests.result == 'success'"):
+            self.assertIn(gate, condition)
+        self.assertNotIn('||', condition)
+
     def test_empty_plan_means_empty_application_matrices(self):
         result = matrix.outputs_for({}, SETTINGS)
         self.assertFalse(result['has_selected'])

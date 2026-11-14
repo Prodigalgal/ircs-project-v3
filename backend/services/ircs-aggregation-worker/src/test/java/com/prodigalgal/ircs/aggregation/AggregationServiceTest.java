@@ -973,6 +973,18 @@ class AggregationServiceTest {
         verify(repository, never()).evaluateAdultAssessments(any());
     }
 
+    @Test
+    void rejectsEmptyTransactionSynchronizationBeforePreparingAWorkBatch() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> service.aggregateRuntimeWorkBatch(List.of(UUID.randomUUID())));
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+        verifyNoInteractions(repository);
+    }
+
     private RawVideoAggregationRecord readyRawVideo(UUID rawVideoId) {
         return readyRawVideo(rawVideoId, "1234567");
     }

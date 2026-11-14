@@ -127,6 +127,11 @@ class AdultAssessmentTransactionIntegrationTest {
                 mock(AggregationStorageCommandPublisher.class), mock(RawVideoGraphClusterer.class),
                 mock(AggregationPipelineRuntime.class), mock(AggregationMatchKeyLock.class), work, manager,
                 AggregationTestFixtures.matchingStrategy(), AggregationTestFixtures.safetyPolicy());
+        org.springframework.aop.framework.ProxyFactory proxy = new org.springframework.aop.framework.ProxyFactory(service);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(manager,
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        service = (AggregationService) proxy.getProxy();
     }
 
     @AfterEach

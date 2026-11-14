@@ -499,7 +499,7 @@ jobs:
   gitops:
     name: Promote verified V3 images to GitOps
     needs: [prepare, manifests]
-    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.has_selected == 'true' && needs.manifests.result == 'success'
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && needs.prepare.result == 'success' && needs.prepare.outputs.has_selected == 'true' && needs.manifests.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
