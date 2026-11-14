@@ -299,6 +299,8 @@ def plan_changes(changes: Sequence[str | Mapping[str, str]], before: Mapping[str
     images = sorted(module.split(":")[-1] for module in affected & deployable)
     test_modules = sorted(java_test & set(head_graph))
     any_build = bool(images or frontend_build or python_build)
+    requires_promoted_baseline = bool(
+        any_build or test_modules or frontend_test or python_test or deployment_config)
     return {
         "schema_version": 1, "initial": initial,
         "java_images": images, "java_changed_modules": sorted(java_direct),
@@ -308,6 +310,7 @@ def plan_changes(changes: Sequence[str | Mapping[str, str]], before: Mapping[str
         "python_changed": python_build, "python_tests": python_test,
         "runtime_smoke": any_build or deployment_config,
         "config_only": deployment_config and not any_build,
+        "requires_promoted_baseline": requires_promoted_baseline,
         "ci_validation": bool(paths) or initial,
         "changed_paths": paths, "ignored_metadata": sorted(ignored), "reasons": reasons,
     }

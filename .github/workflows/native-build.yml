@@ -54,6 +54,7 @@ jobs:
         name: Plan this event without accessing private credentials
         env:
           EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
           FORCE_SCOPE: ${{ inputs.build_scope || 'auto' }}
         run: |
           set -euo pipefail
@@ -66,14 +67,15 @@ jobs:
           import json, os
           from pathlib import Path
           plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'fast-plan.json').read_text())
-          applications = bool(plan['java_images'] or plan['frontends'] or plan['python_changed'])
-          applications = applications or os.environ['FORCE_SCOPE'] not in ('', 'auto')
+          requires_baseline = bool(plan['requires_promoted_baseline'])
+          requires_baseline = requires_baseline or os.environ['EVENT_NAME'] == 'workflow_dispatch'
+          requires_baseline = requires_baseline or os.environ['FORCE_SCOPE'] not in ('', 'auto')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('application_changes=' + str(applications).lower() + '\n')
+              output.write('requires_baseline=' + str(requires_baseline).lower() + '\n')
           PY
           cp "$RUNNER_TEMP/fast-plan.json" "$RUNNER_TEMP/affected-plan.json"
       - name: Read last promoted component ledger and include unpromoted changes
-        if: steps.fast.outputs.application_changes == 'true'
+        if: steps.fast.outputs.requires_baseline == 'true'
         env:
           GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
           GH_TOKEN: ${{ github.token }}

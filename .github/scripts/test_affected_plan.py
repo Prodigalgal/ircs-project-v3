@@ -87,11 +87,30 @@ class AffectedPlanTest(unittest.TestCase):
         self.assert_no_builds(result)
         self.assertTrue(result["java_tests"])
         self.assertFalse(result["runtime_smoke"])
+        self.assertTrue(result["requires_promoted_baseline"])
+
+    def test_test_only_fix_replans_unpromoted_application_changes_from_release_baseline(self):
+        source = "backend/services/ircs-gateway/src/main/java/Gateway.java"
+        test = "backend/services/ircs-gateway/src/test/java/GatewayTest.java"
+        self.before[source] = "class Gateway {}"
+        self.after[source] = "class Gateway { int pendingFix = 1; }"
+        self.before[test] = "class GatewayTest {}"
+        self.after[test] = "class GatewayTest { void regression() {} }"
+
+        fast_plan = self.plan(test)
+        self.assert_no_builds(fast_plan)
+        self.assertTrue(fast_plan["requires_promoted_baseline"])
+
+        promoted_baseline_plan = self.plan(source, test)
+        self.assertEqual(["ircs-gateway"], promoted_baseline_plan["java_images"])
+        self.assertEqual(["services:ircs-gateway"], promoted_baseline_plan["java_test_modules"])
+        self.assertTrue(promoted_baseline_plan["requires_promoted_baseline"])
 
     def test_shared_test_only_does_not_rebuild_consumers(self):
         result = self.plan("backend/shared/ircs-common/src/test/java/CommonTest.java")
         self.assert_no_builds(result)
         self.assertEqual(["shared:ircs-common"], result["java_test_modules"])
+        self.assertTrue(result["requires_promoted_baseline"])
 
     def test_admin_and_huawai_are_independent(self):
         for frontend in ("admin", "huawai"):
@@ -106,6 +125,7 @@ class AffectedPlanTest(unittest.TestCase):
         result = self.plan("frontends/admin/tests/videos.test.mjs")
         self.assert_no_builds(result)
         self.assertEqual(["admin"], result["frontend_tests"])
+        self.assertTrue(result["requires_promoted_baseline"])
 
     def test_python_source_is_independent(self):
         result = self.plan(planner.PYTHON_ROOT + "app/classifier.py")
@@ -118,6 +138,7 @@ class AffectedPlanTest(unittest.TestCase):
         result = self.plan(planner.PYTHON_ROOT + "tests/test_http.py", planner.PYTHON_ROOT + "requirements-test.txt")
         self.assert_no_builds(result)
         self.assertTrue(result["python_tests"])
+        self.assertTrue(result["requires_promoted_baseline"])
 
     def test_docs_and_workflows_only_validate_ci(self):
         result = self.plan("AGENTS.md", "backend/docs/reports/check.md", ".github/workflows/native-build.yml",
@@ -126,6 +147,7 @@ class AffectedPlanTest(unittest.TestCase):
         self.assertTrue(result["ci_validation"])
         self.assertFalse(result["java_tests"])
         self.assertFalse(result["runtime_smoke"])
+        self.assertFalse(result["requires_promoted_baseline"])
 
     def test_package_root_version_only_is_ignored(self):
         result = self.changed_content("frontends/admin/package.json",
@@ -189,6 +211,7 @@ class AffectedPlanTest(unittest.TestCase):
         result = self.plan("VERSION", "backend/build-image-manifest.txt")
         self.assert_no_builds(result)
         self.assertTrue(result["ci_validation"])
+        self.assertFalse(result["requires_promoted_baseline"])
 
     def test_gradle_and_wrapper_native_recipe_changes_affect_all_java_only(self):
         for path in ("backend/build.gradle", "backend/gradle/libs.versions.toml", "backend/gradlew",

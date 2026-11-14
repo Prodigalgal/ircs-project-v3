@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: Completed full Native run with successful build, runtime and manifest gates
+        description: Completed main or reserved-version tag Native run with verified scoped images, tests, runtime and manifests
         required: true
       source_revision:
         description: Exact 40-character source SHA reserved by the candidate version
