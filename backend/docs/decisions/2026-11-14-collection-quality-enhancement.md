@@ -2,7 +2,7 @@
 
 日期：2026-11-14
 
-状态：按用户后续授权进入四服务实施；本文区分本轮落地与后续设计。其他任务保持暂停。
+状态：首轮 3.4.11 已部署并验收；本文区分本轮落地、运行证据与后续设计。其他任务保持暂停。
 
 适用：现有 V3 采集、规范化、元数据补齐、聚合链路。
 
@@ -387,3 +387,95 @@ PostgreSQL 保存当前输入版本的结果事实，现有运行队列负责派
 为在应用发布前验证计划，已按该迁移 SQL 提前创建唯一的新增索引（7,077,888 字节），确认 valid/ready、业务行数不变。尚未提前写 Liquibase 账本，正式迁移器将验证并登记。相同两样本的新执行为 11.075/7.494ms，计规划总计 31.605/25.903ms；命中三种 GIN，未全扫 unified，复杂评分分别仅处理 51/10 行。该两次单查询结果不能代替并发容量验证或业务准确率。
 
 本地运行证据位于服务器管理现有 `docs/`：`ircs-aggregation-recovery-2026-11-14.json`、`ircs-collection-redesign-baseline-2026-11-14.json`、`ircs-aggregation-identity-review-2026-11-14.json`。它们不进入源码发布，也不把业务明细复制成公共 fixture。
+
+## 14. 2026-11-15 部署、运行与数据修复验收
+
+### 14.1 制品与部署
+
+应用源码 `703ebec3c55497e0863777910bd954c0ebae26f3`，不可变 tag `v3.4.11`。
+[Actions 43609836393](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/43609836393) 全部通过：
+
+| 模块 | 测试 |
+| --- | ---: |
+| aggregation-worker | 292 |
+| metadata-worker | 132 |
+| normalization-worker | 99 |
+| scraper-service | 79 |
+| migrator | 12 |
+| 合计 | 614 |
+
+101 套件，失败、错误、跳过均为 0；五个受影响制品的十个 amd64/arm64 Native 构建、两个架构的实际 Native 运行门禁、manifest 和自动 GitOps 发布成功。没有本地应用编译或应用测试。前端、Python 及其他服务镜像没有重建。
+
+GitOps `ab3c40d` 提升上述制品。四服务当前均运行 `20261114-v3.4.11-production-test.1-703ebec3c554`；采集、规范化、元数据各 1 副本，聚合 2 副本。完整标题索引 valid/ready，Liquibase changeset 已登记一次。
+
+### 14.2 数据位置与整体耗时
+
+同版固定 150 条只读评估的三次观测：
+
+| 位置 | API 处理时间 | 判断计数 |
+| --- | ---: | --- |
+| 原两个聚合副本均在悉尼 | 43.312s | 101 ALREADY_BOUND / 31 IDENTITY_CONFLICT / 18 AMBIGUOUS |
+| 数据库所在节点 | 2.516s | 同上 |
+| 另一节点 | 31.109s | 同上 |
+
+三次对应的 150 条输入及既有绑定指纹一致，评估期间业务行数和样本指纹不变，端口转发均关闭。差异说明数据位置和跨节点往返仍需纳入优化；这些单次观测没有分离所有缓存、网络和调度成本，不能作为全量吞吐或并发 SLO。
+
+GitOps `af29100` 将聚合的组件级分散和不同节点反亲和设为硬约束，整体应用分布作为偏好，并优先与 PostgreSQL 就近。当前两个聚合副本分别在数据库节点和控制节点，应用 Pod 数为 12/9/9，三个节点 Ready。只调整聚合调度，没有改动其他组件镜像或扩大全局连接池。
+
+与前一版 3.4.7 的 150 条基线相比，有 32 条输入或既有目标指纹已经变化，只对其余 118 条作规则差异检查。发现两条新增赛事身份冲突：同一天但参赛双方不同，或篮球和足球身份混杂；已核对字段证据。它们需要结合既有 unified 的完整来源成员再做局部纠错，本轮没有直接迁移绑定或猜测历史观看归属。
+
+### 14.3 遗留任务恢复
+
+先核对当前输入 hash、持久 provider run 和运行队列，再使用应用自身的 canonical replay Lua：
+
+- 71 条补齐分发任务：17 条旧“无可分发 provider”，54 条旧可见性过期；持久 provider 均已结束。
+- 12 条 provider 任务：7 条旧 Native 凭据绑定错误，5 条旧可见性过期。
+- 全部保留 payload、submissionId 和累计尝试数；核对无活动 claim、精确 DLQ 名单和失败指纹后，重放各一次。没有全局清理或重置。
+- 最终 71 条分发与 12 条 provider 执行任务均 SUCCESS，两个相关 DLQ 为 0，raw enrichment PENDING 从 83 降为 0。
+
+执行任务 SUCCESS 表示处理结束，不等于权威数据匹配成功。无权威 ID 的终态按既有规则继续使用来源证据；本轮没有将未匹配记录冒充经过核验的权威身份。
+
+### 14.4 六条已确认的历史清洗损伤
+
+剩余六条旧聚合死信的当前只读判断均为 WAITING_DEPENDENCIES，不能盲目重试。逐条核对发现：旧规则把纯韩文标题清空，原始 `raw_metadata.title` 完整，规范化状态却为 READY。
+
+按已验证的 Unicode 保留规则，只处理这六条纯 Hangul 与 ASCII 空格标题：
+
+1. 核对原文、空标题、READY/SUCCESS/PENDING 状态、人工字段锁与整行指纹。
+2. 排序锁定六行，短事务 CAS 恢复 `title`，仅同时更新时间。其他字段校验和保持不变，原始载荷、ID、hash、补齐与资源字段均保留。
+3. 修复后再次只读评估，六条均可 CREATE_NEW。
+4. 六条原重放计数为五条 3、另一条 4。仅为已修复的这六条增加一次恢复周期，各计数加 1；没有改变全局重放政策或清除累计尝试数。
+5. 实际消费完成，六条均 BOUND，任务 SUCCESS；复核均 ALREADY_BOUND。新增六个独立 unified，未合并既有作品。
+
+### 14.5 当前验收边界
+
+2026-11-15 10:19 左右（北京时间）的运行证据：
+
+| 指标 | 当前值 |
+| --- | ---: |
+| raw | 54,102 |
+| normalization PENDING | 0 |
+| enrichment PENDING | 0 |
+| READY 空标题 | 0 |
+| aggregation BOUND | 53,847 |
+| aggregation PENDING | 255 |
+| unified / 绑定关系 | 18,895 / 53,959 |
+| 悬空绑定 | 0 |
+
+255 条聚合 PENDING 的已核对原因为 143 条多候选歧义、112 条身份冲突。仍有 15 条历史 enrichment FAILED 且已有绑定；未将它们修改成虚假的补齐成功。人工真值和全量准确率尚未建立，不能由 BOUND 数量、索引耗时或 Pod 就绪推断。
+
+四服务主池上限均为 3，观测到的连接等待和连接超时计数均为 0；聚合两个实例分别核对。五个 PVC 的 UID/卷名与基线一致，未执行全量 reset、删除收藏、历史或原始业务记录。生产快照另观察到 ingestion/magnet 的短时 idle-in-transaction，未在本轮扩展改动这两个服务。
+
+后续重点是批量读取以减少跨节点往返、独立标注与精度评测、255 条身份事项的局部裁决，以及更多清洗规则版本的有界历史回放。当前保留了实际跨节点延迟和失败状态，没有用清空状态替代修复。
+
+完整私有运行证据保留在服务器管理既有目录：
+
+- `docs/ircs-v3-pipeline-quality-acceptance-2026-11-15.json`
+- `docs/ircs-aggregation-quality-comparison-2026-11-14.json`
+- `docs/ircs-aggregation-indexed-recall-audit-2026-11-14.json`
+- `docs/ircs-metadata-reviewed-work-applied-2026-11-15.json`
+- `docs/ircs-six-unicode-title-repair-2026-11-15.json`
+- `docs/ircs-six-repaired-title-replay-2026-11-15.json`
+- `docs/ircs-aggregation-legacy-six-review-2026-11-15.json`
+
+回滚应用使用各组件上一不可变镜像；新增读索引可保留。调度可回退 `af29100`，保留当前业务数据；回滚代码不自动撤销已提交的绑定。六条标题修复有明确字段、前置指纹与审计，任何反向处理同样需核对后续变化。
