@@ -56,7 +56,6 @@ app:
         worker-id: ${APP_AGGREGATION_WORK_QUEUE_WORKER_ID:}
         dependency-delay-seconds: ${APP_AGGREGATION_DEPENDENCY_DELAY_SECONDS:30}
         contention-delay-seconds: ${APP_AGGREGATION_CONTENTION_DELAY_SECONDS:2}
-        review-delay-seconds: ${APP_AGGREGATION_REVIEW_DELAY_SECONDS:3600}
         wait-warning-seconds: ${APP_AGGREGATION_WAIT_WARNING_SECONDS:3600}
     jdbc:
       query-timeout-seconds: ${APP_AGGREGATION_JDBC_QUERY_TIMEOUT_SECONDS:30}

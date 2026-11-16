@@ -79,9 +79,6 @@ class AggregationWorkQueueWorker {
     @Value("${app.aggregation.work-queue.worker.contention-delay-seconds:2}")
     private long contentionDelaySeconds;
 
-    @Value("${app.aggregation.work-queue.worker.review-delay-seconds:3600}")
-    private long reviewDelaySeconds;
-
     @Value("${app.aggregation.work-queue.worker.wait-warning-seconds:3600}")
     private long waitWarningSeconds;
 
@@ -369,7 +366,20 @@ class AggregationWorkQueueWorker {
             return defer(item, rawVideoId, boundedDelay(dependencyDelaySeconds), result.status());
         }
         if ("IDENTITY_CONFLICT".equals(result.status()) || "MERGE_AMBIGUOUS".equals(result.status())) {
-            return defer(item, rawVideoId, boundedDelay(reviewDelaySeconds), result.status());
+            // Repeating the same input cannot supply missing identity evidence or approve a merge.
+            // Retain the versioned task in the existing DLQ for review; a new input submission
+            // can reopen it through the normal queue protocol.
+            if (!AggregationQueueClaimGuard.finishCurrent(
+                    item, () -> workQueue.fail(item, false, Duration.ZERO, result.status()))) {
+                recordStaleClaim(item, rawVideoId, "REVIEW_PARK_REJECTED");
+                return FinishOutcome.FAILED;
+            }
+            recordAudit(WorkerJobAuditEvent.failed(
+                    JOB_TYPE, JOB_NAME, correlationId(rawVideoId, item), elapsedSince(startedAt),
+                    new AggregationWorkQueueException("REVIEW_REQUIRED: " + result.status())));
+            log.warn("Aggregation requires identity review: rawVideoId={}, taskId={}, reason={}",
+                    rawVideoId, item.taskId(), result.status());
+            return FinishOutcome.PARKED_FOR_REVIEW;
         }
         if ("MISSING_RAW_VIDEO".equals(result.status())) {
             if (!AggregationQueueClaimGuard.finishCurrent(
@@ -562,7 +572,7 @@ class AggregationWorkQueueWorker {
         }
     }
 
-    private enum FinishOutcome { COMPLETED, DEFERRED, FAILED }
+    private enum FinishOutcome { COMPLETED, DEFERRED, PARKED_FOR_REVIEW, FAILED }
 
     private record ProcessResult(int processed, int failed, int deferred) {
         static ProcessResult empty() {

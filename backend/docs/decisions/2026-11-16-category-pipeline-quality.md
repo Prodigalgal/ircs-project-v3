@@ -83,3 +83,11 @@
 本轮机器证据与受控回填脚本放在既有 `D:\WorkSpace\Project\服务器管理\docs` 和 `k8s-dualstack\scripts` 下，前缀为 `ircs-v352-`；随机样本为 `ircs-random-quality-sample-v352-2026-11-16.json`，固定 cohort 历史为 `ircs-random-quality-all-members-evaluation-2026-11-16.json`。其中两份中间 binding 子集假设文件已明确标注：不适用的减集方法产生的指纹不等不能作为删除结论，应使用最终引用验证、写入计数与固定 cohort 对比。
 
 回滚只恢复上一版 IRCS core 镜像账本/清单，不回滚整个共享 GitOps 仓库，不删除新增业务数据，也不把 NULL 还原成错误占位。历史混聚的审核拆分、已碎片化的旧外文姓名重建及全量旧标题重清仍是独立存量治理工作；保留原始证据、人工锁、作品 ID 与用户引用后再实施。
+
+## 3.5.3 补充：身份审核与故障重试分开
+
+最终队列巡检发现仍有 239 条聚合 PENDING，其中 IDENTITY_CONFLICT 115、MERGE_AMBIGUOUS 124，均为未来定时重试；有任务已消费 221 次。它们缺少身份证据或合并授权，同一版本的重复消费不会改变结果，不能归为待上游恢复的临时故障。
+
+补充候选 3.5.3 将这两类当前输入停放在既有 DLQ，保留 payload、dataHash、submissionId 和错误原因；新输入提交或审核后仍可通过现有协议恢复。不删除数据、不伪装成已聚合成功、不新增前端状态枚举。拒绝旧 owner 的终结 CAS 仍要可观察；审核停放成功时消费者保持健康，业务审计显式记录 REVIEW_REQUIRED。SOURCE_CHANGED、MATCH_LOCK_BUSY、等待增强/AI、外部失败的原有延迟或有界重试语义保留。旧 review-delay-seconds 配置不再用于反复消耗这两类审核工作。
+
+本次只涉及 aggregation-worker，继续按需构建；已执行的 3.5.2 迁移与数据库 tag 不改写，不重跑。当前为候选实现，云端验证及生产停放结果另行补充。

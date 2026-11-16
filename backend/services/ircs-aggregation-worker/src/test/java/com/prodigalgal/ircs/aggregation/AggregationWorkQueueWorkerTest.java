@@ -280,7 +280,7 @@ class AggregationWorkQueueWorkerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"WAITING_DEPENDENCIES", "SOURCE_CHANGED", "IDENTITY_CONFLICT", "MERGE_AMBIGUOUS"})
+    @ValueSource(strings = {"WAITING_DEPENDENCIES", "SOURCE_CHANGED"})
     void waitingResultsRetainDurableQueueWorkAndUseReasonSpecificDelay(String status) throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         UUID id = UUID.randomUUID();
@@ -293,7 +293,7 @@ class AggregationWorkQueueWorkerTest {
 
         worker.runOnce();
 
-        long seconds = "SOURCE_CHANGED".equals(status) ? 2 : "WAITING_DEPENDENCIES".equals(status) ? 30 : 3600;
+        long seconds = "SOURCE_CHANGED".equals(status) ? 2 : 30;
         verify(deferrer).defer(claimed, Duration.ofSeconds(seconds), status);
         assertThat(queue.completed).isEmpty();
         assertThat(queue.failures).isEmpty();
@@ -303,7 +303,33 @@ class AggregationWorkQueueWorkerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"BOUND", "MISSING_RAW_VIDEO", "PROVIDER_ERROR", "WAITING_DEPENDENCIES", "QUOTA_WAIT"})
+    @ValueSource(strings = {"IDENTITY_CONFLICT", "MERGE_AMBIGUOUS"})
+    void unresolvedIdentityIsParkedForReviewWithoutRepeatedConsumptionOrConsumerFailure(String status) throws Exception {
+        FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
+        UUID id = UUID.randomUUID();
+        RuntimeWorkItem claimed = item(id, 221);
+        queue.items.add(claimed);
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(id)))
+                .thenReturn(List.of(AggregationResult.skipped(id, status)));
+        AggregationWorkDeferrer deferrer = deferrer();
+        AggregationWorkQueueWorker worker = worker(queue, deferrer);
+        try {
+            worker.runOnce();
+            assertThat(queue.completed).isEmpty();
+            assertThat(queue.failures).containsExactly(new Failure(claimed, false, Duration.ZERO, status));
+            org.mockito.Mockito.verify(deferrer, org.mockito.Mockito.never()).defer(any(), any(), anyString());
+            assertThat(worker.state().lastFailed()).isZero();
+            assertThat(worker.state().lastRequeued()).isZero();
+            assertThat(worker.state().lastRunState()).isEqualTo("HEALTHY");
+            verify(auditWriter).record(org.mockito.ArgumentMatchers.argThat(event ->
+                    "failed".equals(event.status()) && event.error() != null
+                    && event.error().getMessage().equals("REVIEW_REQUIRED: " + status)));
+        } finally { worker.shutdownTriggerExecutor(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"BOUND", "MISSING_RAW_VIDEO", "PROVIDER_ERROR", "WAITING_DEPENDENCIES", "QUOTA_WAIT",
+            "IDENTITY_CONFLICT", "MERGE_AMBIGUOUS"})
     void rejectedTerminalCasIsObservableAndNeverRecordsSuccess(String status) throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         UUID id = UUID.randomUUID();
@@ -409,7 +435,6 @@ class AggregationWorkQueueWorkerTest {
         set(worker, "maxBackoffSeconds", 300L);
         set(worker, "dependencyDelaySeconds", 30L);
         set(worker, "contentionDelaySeconds", 2L);
-        set(worker, "reviewDelaySeconds", 3600L);
         set(worker, "waitWarningSeconds", 3600L);
         set(worker, "workerId", "test-worker");
         set(worker, "applicationName", "ircs-aggregation-worker");
