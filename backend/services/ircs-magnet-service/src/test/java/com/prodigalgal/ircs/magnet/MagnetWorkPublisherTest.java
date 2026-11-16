@@ -58,7 +58,7 @@ class MagnetWorkPublisherTest {
                 request.taskId().equals(MagnetWorkTypes.searchTaskId(job.id()))
                         && request.payload().contains(job.id().toString())
                         && request.payload().contains(job.unifiedVideoId().toString())
-                        && request.payload().contains("manual"))));
+                        && request.payload().contains("manual")));
     }
 
     @Test
