@@ -4,6 +4,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.github.houbb.opencc4j.util.ZhJpConverterUtil;
 import com.hankcs.hanlp.HanLP;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
+import com.prodigalgal.ircs.contentmetadata.PersonNames;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.util.HashSet;
@@ -51,9 +53,9 @@ public class RawVideoTextNormalizer {
     private static final Pattern MONOLINGUAL_REPEAT = Pattern.compile("^(.+?)[\\s:：-]*\\1$");
     private static final Pattern CHINESE_ORDINAL = Pattern.compile("第([零一二三四五六七八九十百两]+)([季部])");
     private static final Pattern SEASON_PATTERN = Pattern.compile(
-            "(?i)(?:第\\s*([0-9]{1,3})\\s*[季部]|\\bseason\\s*[-_:]?\\s*([0-9]{1,3})\\b|\\bs\\s*([0-9]{1,3})\\b)");
+            "(?i)(?:第\\s*([0-9]{1,3})\\s*季|\\bseason\\s*[-_:]?\\s*([0-9]{1,3})\\b|\\bs\\s*([0-9]{1,3})\\b)");
     private static final Pattern SEASON_ONLY_PATTERN = Pattern.compile(
-            "(?i)^(?:第\\s*[0-9]{1,3}\\s*[季部]|season\\s*[-_:]?\\s*[0-9]{1,3}|s\\s*[0-9]{1,3})$");
+            "(?i)^(?:第\\s*[0-9]{1,3}\\s*季|season\\s*[-_:]?\\s*[0-9]{1,3}|s\\s*[0-9]{1,3})$");
     private static final Pattern COLON_TITLE_SPLIT = Pattern.compile("^(.+?)\\s*:\\s*(.+)$");
     private static final Pattern DASH_TITLE_SPLIT = Pattern.compile("^(.+?)\\s+[—–-]\\s+(.+)$");
     private static final Pattern HAN_SPACE_TITLE_SPLIT = Pattern.compile("^(\\S.+?)\\s+([^\\s].+)$");
@@ -61,6 +63,9 @@ public class RawVideoTextNormalizer {
     private static final Pattern COMPACT_CN_SPLIT = Pattern.compile("^([\\u4e00-\\u9fa5]{2,})(\\d+)([^\\d\\s].*)$");
     private static final Pattern TRAILING_NUM_PATTERN = Pattern.compile("^(.+?)\\s*(?<!\\d)(\\d{1,2})$");
     private static final Pattern UNICODE_ROMAN_PATTERN = Pattern.compile("[\\u2160-\\u216B]");
+    private static final Pattern SPORTS_MATCHUP_PATTERN = Pattern.compile(
+            "^(.+?)\\s+([^\\s]+\\s*(?i:vs|对阵)\\s*[^\\s]+(?:\\s.*)?)$");
+    private static final Pattern SHORT_DRAMA_COMMA_SPLIT = Pattern.compile("^(.+?)[,，]\\s*(.+)$");
     private static final Pattern RELATION_SPLIT_PATTERN = Pattern.compile("[,，、/|;；]+");
 
     private final ObjectMapper objectMapper;
@@ -85,6 +90,7 @@ public class RawVideoTextNormalizer {
 
     public RawVideoPatch normalize(RawVideoRecord record, JsonNode metadata) {
         Set<String> locked = parseLockedFields(record.lockedFields());
+        NormalizationProfile profile = NormalizationProfile.select(record, metadata);
         String title = record.title();
         String aliasTitle = record.aliasTitle();
         Integer season = record.season();
@@ -109,13 +115,15 @@ public class RawVideoTextNormalizer {
             year = normalizeYear(firstText(metadata, year, "year", "releaseYear"));
         }
         String sourceTitle = firstText(metadata, title, "title", "name");
-        TitleStructure titleStructure = extractTitleStructure(sourceTitle, year);
+        TitleStructure titleStructure = profile == NormalizationProfile.SPORTS
+                ? extractSportsTitleStructure(sourceTitle)
+                : extractTitleStructure(sourceTitle, year, profile);
         if (!locked.contains("title")) {
             title = StringUtils.hasText(titleStructure.mainTitle())
                     ? titleStructure.mainTitle()
                     : cleanTitle(sourceTitle, year);
         }
-        if (!locked.contains("season")) {
+        if (!locked.contains("season") && profile.usesScreenSeasons()) {
             season = parseSeason(firstText(metadata, null, "season"));
             if (season == null) {
                 season = titleStructure.season();
@@ -124,8 +132,13 @@ public class RawVideoTextNormalizer {
                 season = record.season();
             }
         }
+        if (!locked.contains("season") && !profile.usesScreenSeasons()) {
+            season = null;
+        }
         if (!isSubtitleLocked(locked)) {
-            subtitle = cleanSubtitle(firstText(metadata, subtitle, "subtitle", "sub_title"), year);
+            subtitle = profile.preserveIdentityPunctuation()
+                    ? cleanIdentityTitle(firstText(metadata, subtitle, "subtitle", "sub_title"))
+                    : cleanSubtitle(firstText(metadata, subtitle, "subtitle", "sub_title"), year);
             if (!StringUtils.hasText(subtitle)) {
                 subtitle = titleStructure.subtitle();
             }
@@ -163,23 +176,24 @@ public class RawVideoTextNormalizer {
             duration = trimToLength(firstText(metadata, duration, "duration", "runtime"), 50);
         }
         if (!locked.contains("doubanId")) {
-            doubanId = normalizeId(firstText(metadata, doubanId, "doubanId"), 20);
+            doubanId = AuthoritativeIds.normalizeDouban(firstRawText(metadata, doubanId, "doubanId"));
         }
         if (!locked.contains("tmdbId")) {
-            tmdbId = normalizeId(firstText(metadata, tmdbId, "tmdbId"), 20);
+            tmdbId = AuthoritativeIds.normalizeTmdb(firstRawText(metadata, tmdbId, "tmdbId"));
         }
         if (!locked.contains("imdbId")) {
-            imdbId = normalizeId(firstText(metadata, imdbId, "imdbId"), 20);
+            imdbId = AuthoritativeIds.normalizeImdb(firstRawText(metadata, imdbId, "imdbId"));
         }
         if (!locked.contains("rottenTomatoesId")) {
-            rottenTomatoesId = normalizeId(firstText(metadata, rottenTomatoesId, "rottenTomatoesId", "rtId"), 50);
+            rottenTomatoesId = AuthoritativeIds.normalizeRottenTomatoes(
+                    firstRawText(metadata, rottenTomatoesId, "rottenTomatoesId", "rtId"));
         }
         if (!isCategoryLocked(locked)) {
             rawCategoryDataSourceId = firstUuid(metadata, record.dataSourceId(), "dataSourceId");
             rawCategorySourceCode = normalizeId(firstText(
-                    metadata, null, "rawTypeId", "categoryId", "categoryCode", "typeId"), 100);
+                    metadata, null, "rawTypeId", "sourceCategoryCode", "categoryId", "categoryCode", "typeId"), 100);
             rawCategorySourceName = trimToLength(firstText(
-                    metadata, null, "rawTypeName", "categoryName", "category", "type", "videoType"), 255);
+                    metadata, null, "rawTypeName", "sourceCategoryName", "categoryName", "category", "type", "videoType"), 255);
             if (!StringUtils.hasText(rawCategorySourceCode) && StringUtils.hasText(rawCategorySourceName)) {
                 rawCategorySourceCode = normalizeId(rawCategorySourceName, 100);
             }
@@ -204,18 +218,26 @@ public class RawVideoTextNormalizer {
                 : rawRelationAliasPolicy.expandAreas(relationValues(metadata, "area", "region"));
         Set<String> actorValues = locked.contains("actors")
                 ? Set.of()
-                : relationValues(metadata, 255, "actorNames", "actors", "actor");
+                : personValues(metadata, "actorNames", "actors", "actor");
         Set<String> directorValues = locked.contains("directors")
                 ? Set.of()
-                : relationValues(metadata, 255, "directorNames", "directors", "director");
+                : personValues(metadata, "directorNames", "directors", "director");
+        if (!locked.contains("actors") && (profile == NormalizationProfile.MUSIC || profile == NormalizationProfile.EDUCATION)) {
+            LinkedHashSet<String> performers = new LinkedHashSet<>(actorValues);
+            performers.addAll(profile == NormalizationProfile.MUSIC
+                    ? personValues(metadata, "artistNames", "artists", "singers", "performers")
+                    : personValues(metadata, "lecturerNames", "instructors", "teachers"));
+            actorValues = PersonNames.normalize(performers);
+        }
         if (shouldExtractPeopleFromDescription(locked, actorValues, directorValues, description)) {
             DescriptionMetadataExtractor.ExtractedMetadata extracted =
-                    descriptionMetadataExtractor.extract(description);
+                    descriptionMetadataExtractor.extract(PersonNames.normalizeText(firstRawText(
+                            metadata, record.description(), "description", "desc", "plot")));
             if (!locked.contains("actors") && actorValues.isEmpty()) {
-                actorValues = trimRelationValues(extracted.actors(), 255);
+                actorValues = trimPersonValues(extracted.actors());
             }
             if (!locked.contains("directors") && directorValues.isEmpty()) {
-                directorValues = trimRelationValues(extracted.directors(), 255);
+                directorValues = trimPersonValues(extracted.directors());
             }
         }
 
@@ -282,6 +304,19 @@ public class RawVideoTextNormalizer {
         } catch (Exception ignored) {
         }
         return locked;
+    }
+
+    private String firstRawText(JsonNode metadata, String fallback, String... names) {
+        for (String name : names) {
+            JsonNode value = metadata.get(name);
+            if (value != null && !value.isNull()) {
+                String text = value.isTextual() ? value.asText() : value.toString();
+                if (StringUtils.hasText(text)) {
+                    return text.trim();
+                }
+            }
+        }
+        return fallback;
     }
 
     private String firstText(JsonNode metadata, String fallback, String... names) {
@@ -363,13 +398,20 @@ public class RawVideoTextNormalizer {
         return title;
     }
 
-    private TitleStructure extractTitleStructure(String sourceTitle, String year) {
-        String processing = cleanTitle(sourceTitle, year);
+    private TitleStructure extractTitleStructure(String sourceTitle, String year, NormalizationProfile profile) {
+        String processing = profile.preserveIdentityPunctuation()
+                ? cleanIdentityTitle(sourceTitle) : cleanTitle(sourceTitle, year);
         if (!StringUtils.hasText(processing)) {
             return new TitleStructure(null, null, null);
         }
+        if (profile.retainsUnstructuredIdentity()) {
+            return new TitleStructure(processing, null, null);
+        }
+        if (profile.usesScreenSeasons()) {
+            processing = normalizeChineseOrdinals(processing);
+        }
         String cleanedTitle = processing;
-        SeasonMatch seasonMatch = findSeasonMatch(processing);
+        SeasonMatch seasonMatch = findSeasonMatch(processing, profile);
         Integer season = seasonMatch == null ? null : seasonMatch.season();
         String subtitle = null;
 
@@ -380,7 +422,8 @@ public class RawVideoTextNormalizer {
             if (StringUtils.hasText(pre)) {
                 processing = cleanTitleEdges(pre);
                 String cleanSub = cleanTitleEdges(removeSeasonPatterns(post));
-                if (StringUtils.hasText(cleanSub) && !isV1NoiseContent(cleanSub)) {
+                if (StringUtils.hasText(cleanSub)
+                        && (profile == NormalizationProfile.SHORT_DRAMA || !isV1NoiseContent(cleanSub))) {
                     subtitle = cleanSub;
                 }
             } else {
@@ -389,11 +432,12 @@ public class RawVideoTextNormalizer {
         }
 
         if (!StringUtils.hasText(subtitle)) {
-            TitleSplit split = splitV1TitleStructure(processing, year);
+            TitleSplit split = profile == NormalizationProfile.SHORT_DRAMA
+                    ? splitShortDramaTitle(processing) : splitV1TitleStructure(processing, year);
             if (split != null) {
                 processing = split.mainTitle();
                 subtitle = split.subtitle();
-            } else if (season == null) {
+            } else if (season == null && profile.inferBareSequence()) {
                 Matcher compact = COMPACT_CN_SPLIT.matcher(processing);
                 if (compact.find()) {
                     String number = compact.group(2);
@@ -409,14 +453,15 @@ public class RawVideoTextNormalizer {
                 }
             }
         }
-        if (!StringUtils.hasText(subtitle) && containsHan(processing)) {
+        if (!StringUtils.hasText(subtitle) && containsHan(processing)
+                && profile != NormalizationProfile.SHORT_DRAMA) {
             TitleSplit split = splitHanSpaceTitle(processing, year);
             if (split != null) {
                 processing = split.mainTitle();
                 subtitle = split.subtitle();
             }
         }
-        if (season == null && StringUtils.hasText(processing) && !processing.matches("^\\d+$")) {
+        if (season == null && profile.inferBareSequence() && StringUtils.hasText(processing) && !processing.matches("^\\d+$")) {
             Matcher trailing = TRAILING_NUM_PATTERN.matcher(processing);
             if (trailing.find()) {
                 String potentialTitle = trailing.group(1).trim();
@@ -434,12 +479,16 @@ public class RawVideoTextNormalizer {
             }
         }
         if (StringUtils.hasText(subtitle)) {
-            subtitle = cleanSubtitle(subtitle, year);
-            if (!StringUtils.hasText(subtitle) || isV1NoiseContent(subtitle)) {
+            subtitle = profile.preserveIdentityPunctuation()
+                    ? cleanIdentityTitle(subtitle) : cleanSubtitle(subtitle, year);
+            if (!StringUtils.hasText(subtitle)
+                    || (!profile.preserveIdentityPunctuation() && isV1NoiseContent(subtitle))) {
                 subtitle = null;
             }
         }
-        processing = removeSeasonPatterns(processing);
+        if (profile.usesScreenSeasons()) {
+            processing = removeSeasonPatterns(processing);
+        }
         if (StringUtils.hasText(subtitle) && processing.endsWith(subtitle)) {
             processing = processing.substring(0, processing.length() - subtitle.length()).trim();
         }
@@ -447,18 +496,21 @@ public class RawVideoTextNormalizer {
         return new TitleStructure(StringUtils.hasText(mainTitle) ? mainTitle : cleanedTitle, season, subtitle);
     }
 
-    private SeasonMatch findSeasonMatch(String value) {
-        if (!StringUtils.hasText(value)) {
+    private SeasonMatch findSeasonMatch(String value, NormalizationProfile profile) {
+        if (!StringUtils.hasText(value) || !profile.usesScreenSeasons()) {
             return null;
         }
         Matcher matcher = SEASON_PATTERN.matcher(value);
-        if (matcher.find()) {
+        while (matcher.find()) {
             for (int i = 1; i <= matcher.groupCount(); i++) {
                 Integer season = parseSeasonToken(matcher.group(i));
                 if (season != null) {
                     return new SeasonMatch(season, matcher.start(), matcher.end());
                 }
             }
+        }
+        if (!profile.inferBareSequence()) {
+            return null;
         }
         matcher = UNICODE_ROMAN_PATTERN.matcher(value);
         while (matcher.find()) {
@@ -995,18 +1047,78 @@ public class RawVideoTextNormalizer {
         }
     }
 
-    private Set<String> trimRelationValues(Set<String> values, int maxLength) {
-        Set<String> normalized = new LinkedHashSet<>();
-        if (values == null) {
-            return normalized;
+    private Set<String> personValues(JsonNode metadata, String... names) {
+        Set<String> values = new LinkedHashSet<>();
+        for (String name : names) {
+            collectPersonValues(metadata.get(name), values);
         }
-        values.forEach(value -> {
-            String trimmed = trimToLength(standardize(value), maxLength);
-            if (StringUtils.hasText(trimmed)) {
-                normalized.add(trimmed);
-            }
-        });
+        return trimPersonValues(values);
+    }
+
+    private void collectPersonValues(JsonNode node, Set<String> values) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isArray()) {
+            node.forEach(item -> collectPersonValues(item, values));
+        } else if (node.isTextual()) {
+            values.add(node.asText());
+        }
+    }
+
+    private Set<String> trimPersonValues(Set<String> values) {
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String value : PersonNames.normalize(values)) {
+            normalized.add(trimToLength(value, 255));
+        }
         return normalized;
+    }
+
+    private TitleStructure extractSportsTitleStructure(String value) {
+        String title = cleanIdentityTitle(value);
+        if (!StringUtils.hasText(title)) {
+            return new TitleStructure(null, null, null);
+        }
+        // Split only an explicit matchup suffix. A score colon and a season range are identity.
+        Matcher matchup = SPORTS_MATCHUP_PATTERN
+                .matcher(title);
+        if (matchup.matches()) {
+            return new TitleStructure(matchup.group(1).trim(), null, matchup.group(2).trim());
+        }
+        return new TitleStructure(title, null, null);
+    }
+
+    private TitleSplit splitShortDramaTitle(String title) {
+        for (Pattern separator : new Pattern[]{
+                COLON_TITLE_SPLIT, DASH_TITLE_SPLIT, SHORT_DRAMA_COMMA_SPLIT,
+                BRACKET_SUBTITLE_SPLIT, HAN_SPACE_TITLE_SPLIT}) {
+            Matcher matcher = separator.matcher(title);
+            if (!matcher.matches()) {
+                continue;
+            }
+            String main = cleanIdentityTitle(matcher.group(1));
+            String subtitle = cleanIdentityTitle(matcher.group(2));
+            if (StringUtils.hasText(main) && StringUtils.hasText(subtitle)
+                    && (separator != HAN_SPACE_TITLE_SPLIT || containsHan(main))) {
+                return new TitleSplit(main, subtitle);
+            }
+        }
+        return null;
+    }
+
+    // Sports dates, scores, rounds and short-drama clauses are work identity, not seasons.
+    // Keep punctuation and numeric brackets; only remove technical release noise.
+    private String cleanIdentityTitle(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String title = standardize(Parser.unescapeEntities(value, false));
+        title = normalizeTitleSymbols(title);
+        title = URL_PATTERN.matcher(title).replaceAll("");
+        title = FILE_EXTENSION_PATTERN.matcher(title).replaceAll("");
+        title = RELEASE_NOISE.matcher(title).replaceAll("");
+        title = SPACE_PATTERN.matcher(title).replaceAll(" ").trim();
+        return StringUtils.hasText(title) ? title : null;
     }
 
     private String normalizeId(String value, int maxLength) {

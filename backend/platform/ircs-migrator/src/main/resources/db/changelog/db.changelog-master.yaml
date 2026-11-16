@@ -165,3 +165,11 @@ databaseChangeLog:
       file: db/changelog/2026/11/12-01-add-audit-poll-read-indexes.sql
   - include:
       file: db/changelog/2026/11/14-01-add-aggregation-full-title-index.sql
+  - include:
+      file: db/changelog/2026/11/16-01-clear-authoritative-id-placeholders.sql
+  - changeSet:
+      id: 1785900000006-tag-3.5.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 3.5.0

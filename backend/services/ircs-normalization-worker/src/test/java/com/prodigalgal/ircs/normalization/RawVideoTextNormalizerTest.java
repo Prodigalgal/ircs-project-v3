@@ -199,9 +199,9 @@ class RawVideoTextNormalizerTest {
 
     @Test
     void cleansBilingualAndReleaseNoiseButKeepsNumberSensitiveTitles() throws Exception {
-        assertEquals("钢铁侠", normalizedTitle("钢铁侠3 Iron Man 3 2023 1080p WEB-DL", "2023"));
+        assertEquals("钢铁侠3", normalizedTitle("钢铁侠3 Iron Man 3 2023 1080p WEB-DL", "2023"));
         assertEquals("高达00", normalizedTitle("高达00 2023 1080p", "2023"));
-        assertEquals("洛克王国", normalizedTitle("洛克王国4 2023 1080p", "2023"));
+        assertEquals("洛克王国4", normalizedTitle("洛克王国4 2023 1080p", "2023"));
         assertEquals("Title", normalizedTitle("Title (2023).mkv 1080p", "2023"));
         assertEquals("庆余年", normalizedTitle("庆余年 第二季 2024 1080p", "2024"));
     }
@@ -571,14 +571,14 @@ class RawVideoTextNormalizerTest {
     }
 
     @Test
-    void retainsNumberedBilingualSourceAsAliasWhileKeepingLegacySequelStructure() throws Exception {
+    void retainsNumberedMovieIdentityAndBilingualSourceAlias() throws Exception {
         RawVideoPatch patch = normalizer.normalize(
-                record("[]", "钢铁侠3 Iron Man 3", "2023", null),
+                categorizedRecord(record("[]", "钢铁侠3 Iron Man 3", "2023", null), "movie"),
                 objectMapper.readTree("""
                         {"title": "钢铁侠3 Iron Man 3 2023 1080p WEB-DL", "year": "2023"}
                         """));
-        assertEquals("钢铁侠", patch.title());
-        assertEquals(3, patch.season());
+        assertEquals("钢铁侠3", patch.title());
+        assertNull(patch.season());
         assertEquals("钢铁侠3 Iron Man 3", patch.aliasTitle());
     }
 
@@ -590,7 +590,7 @@ class RawVideoTextNormalizerTest {
             assertEquals(title, patch.title(), title);
             assertNull(patch.season(), title);
         }
-        assertEquals("洛克王国", normalizedTitle("洛克王国4 2023 1080p", "2023"));
+        assertEquals("洛克王国4", normalizedTitle("洛克王国4 2023 1080p", "2023"));
     }
 
     @Test
@@ -716,7 +716,7 @@ class RawVideoTextNormalizerTest {
                 null,
                 null,
                 null,
-                "hash-v1");
+                "hash-v1", "series", null);
     }
 
     private DescriptionMetadataExtractor extractor(Set<String> actors, Set<String> directors) {
@@ -735,8 +735,17 @@ class RawVideoTextNormalizerTest {
                 new RawRelationAliasPolicy());
     }
 
+    private RawVideoRecord categorizedRecord(RawVideoRecord record, String category) {
+        return new RawVideoRecord(record.id(), record.normalizationStatus(), record.normalizationRetryCount(),
+                record.rawMetadata(), record.lockedFields(), record.title(), record.aliasTitle(), record.season(),
+                record.subtitle(), record.description(), record.year(), record.area(), record.rawLanguageStr(),
+                record.remarks(), record.score(), record.totalEpisodes(), record.duration(), record.doubanId(),
+                record.tmdbId(), record.imdbId(), record.rottenTomatoesId(), record.dataSourceId(), record.dataHash(),
+                category, null);
+    }
+
     private String normalizedTitle(String title, String year) throws Exception {
-        RawVideoRecord record = record("[]", title, year, null);
+        RawVideoRecord record = categorizedRecord(record("[]", title, year, null), "movie");
         JsonNode metadata = objectMapper.readTree("""
                 {
                   "title": %s,

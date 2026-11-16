@@ -1,5 +1,6 @@
 dependencies {
     implementation project(':shared:ircs-common')
+    implementation project(':shared:ircs-content-metadata')
     implementation project(':shared:ircs-messaging')
     implementation 'org.springframework.boot:spring-boot-starter-amqp'
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'

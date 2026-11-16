@@ -8,7 +8,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
@@ -17,6 +20,18 @@ class NormalizationMaintenanceInternalController {
 
     private final RawVideoNormalizationService normalizationService;
     private final NormalizationInternalAccessPolicy accessPolicy;
+
+    @PostMapping("/preview")
+    List<NormalizationPreviewResult> preview(
+            @RequestBody PreviewRequest request,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_ID, required = false) String serviceId,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
+            @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
+        accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
+        return normalizationService.preview(request.rawVideoIds());
+    }
+
+    record PreviewRequest(List<UUID> rawVideoIds) {}
 
     @PostMapping("/raw-videos/reset-normalization")
     ResponseEntity<NormalizationMaintenanceRunResponse> resetNormalization(

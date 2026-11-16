@@ -2,6 +2,7 @@ rootProject.name = 'ircs-project-v3'
 
 include 'shared:ircs-common'
 include 'shared:ircs-contracts'
+include 'shared:ircs-content-metadata'
 include 'shared:ircs-messaging'
 include 'shared:ircs-observability'
 

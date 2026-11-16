@@ -9,6 +9,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
+import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
+import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
@@ -61,7 +63,9 @@ class MetadataPipelineRunRepositoryIntegrationTest {
                     rotten_tomatoes_id text, description text default 'preserved description', score numeric,
                     year text, alias_title text, raw_metadata jsonb default '{}', locked_fields jsonb default '[]',
                     enrichment_status text default 'PENDING', enrichment_retry_count integer default 2,
-                    aggregation_status text default 'PENDING', data_hash text, updated_at timestamptz default now())
+                    aggregation_status text default 'PENDING', data_hash text, updated_at timestamptz default now(),
+                    actor_names jsonb default '[]',director_names jsonb default '[]',area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',genre_codes jsonb default '[]')
                 """);
         jdbc.execute("""
                 create table raw_video_pipeline_runs (
@@ -177,6 +181,58 @@ class MetadataPipelineRunRepositoryIntegrationTest {
                 .isEqualTo("PENDING");
         assertThat(pipeline(id).get("status")).isEqualTo("PENDING");
         verifyNoInteractions(aggregation);
+    }
+
+    @Test
+    void invalidSuccessIsDurablyPermanentFailureAndNeverAppliesProviderFields() {
+        UUID id = raw("hash-v1", "0");
+        jdbc.update("update raw_videos set raw_metadata='{\"sourcePayload\":{\"tmdbId\":0}}' where id=?", id);
+        prepare(id, ProviderType.TMDB);
+        EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
+        metadata.setTmdbId("0");
+        metadata.setDescription("invalid provider description");
+        metadata.addActor("invalid provider actor");
+
+        assertThat(collector.process(EnrichmentResultMsg.builder().videoId(id).pipelineVersion("hash-v1")
+                .providerType(ProviderType.TMDB).success(true).retryable(true).metadata(metadata).build(), 0)
+                .enrichmentStatus()).isEqualTo("PERMANENT_FAILURE");
+
+        assertThat(providerStatus(id)).isEqualTo("PERMANENT_FAILURE");
+        assertThat(jdbc.queryForObject("select error_code from raw_video_enrichment_provider_runs where raw_video_id=?", String.class, id)).isEqualTo("INVALID_PROVIDER_ID");
+        assertThat(jdbc.queryForObject("select retryable from raw_video_enrichment_provider_runs where raw_video_id=?", Boolean.class, id)).isFalse();
+        assertThat(jdbc.queryForObject("select tmdb_id from raw_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select description from raw_videos where id=?", String.class, id)).isEqualTo("preserved description");
+        assertThat(jdbc.queryForObject("select actor_names::text from raw_videos where id=?", String.class, id)).isEqualTo("[]");
+        assertThat(jdbc.queryForObject("select raw_metadata->'sourcePayload'->'tmdbId' from raw_videos where id=?", String.class, id)).isEqualTo("0");
+    }
+
+    @Test
+    void sequentialProvidersPreserveBothIdsAndStructuredPeopleAndIgnoreDuplicatePayload() {
+        UUID id = raw("hash-v1", null);
+        prepare(id, ProviderType.TMDB, ProviderType.DOUBAN);
+        EnrichedMetadataDTO first = new EnrichedMetadataDTO();
+        first.setTmdbId("101");
+        first.addActor("罗予彤");
+        EnrichedMetadataDTO second = new EnrichedMetadataDTO();
+        second.setDoubanId("202");
+        second.addActor("孙乾钊");
+        assertThat(collector.process(providerMessage(id, ProviderType.TMDB, first), 0).enrichmentStatus()).isEqualTo("PENDING");
+        assertThat(collector.process(providerMessage(id, ProviderType.DOUBAN, second), 0).enrichmentStatus()).isEqualTo("SUCCESS");
+        second.addActor("duplicate must not apply");
+        assertThat(collector.process(providerMessage(id, ProviderType.DOUBAN, second), 0).enrichmentStatus()).isEqualTo("SUCCESS");
+
+        assertThat(jdbc.queryForObject("select tmdb_id from raw_videos where id=?", String.class, id)).isEqualTo("101");
+        assertThat(jdbc.queryForObject("select douban_id from raw_videos where id=?", String.class, id)).isEqualTo("202");
+        assertThat(jdbc.queryForObject("select actor_names::text from raw_videos where id=?", String.class, id))
+                .contains("罗予彤", "孙乾钊").doesNotContain("duplicate must not apply");
+        assertThat(pipeline(id).get("completed_count")).isEqualTo(2);
+        assertThat(pipeline(id).get("success_count")).isEqualTo(2);
+        verify(search, times(1)).publishIndex(id);
+    }
+
+    private EnrichmentResultMsg providerMessage(UUID id, ProviderType provider, EnrichedMetadataDTO metadata) {
+        return EnrichmentResultMsg.builder().videoId(id).pipelineVersion("hash-v1").providerType(provider)
+                .success(true).metadata(metadata).build();
     }
 
     private UUID raw(String hash, String tmdbId) {

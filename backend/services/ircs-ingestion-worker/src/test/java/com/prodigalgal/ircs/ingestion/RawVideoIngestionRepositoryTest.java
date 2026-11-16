@@ -76,6 +76,41 @@ class RawVideoIngestionRepositoryTest {
         verify(jdbcTemplate, never()).update(anyString(), org.mockito.ArgumentMatchers.any(SqlParameterSource.class));
     }
 
+    @Test
+    void normalizesAuthorityIdsAtPersistenceBoundaryWithoutChangingRawEvidence() {
+        when(jdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.any(SqlParameterSource.class), eq(UUID.class)))
+                .thenReturn(UUID.randomUUID());
+        IngestionVideoDTO original = video(null);
+        IngestionVideoDTO invalid = withIds(original, "000", "null", "tt0000000", "暂无");
+        repository.upsertRawVideo(invalid, null);
+        MapSqlParameterSource params = captureQueryForObjectCalls().paramsFor("insert into raw_videos");
+        for (String field : List.of("doubanId", "tmdbId", "imdbId", "rottenTomatoesId")) {
+            assertThat(params.getValue(field)).as(field).isNull();
+        }
+        assertThat(params.getValue("sourceVid")).isEqualTo("source-vid");
+        assertThat(params.getValue("rawMetadata")).isEqualTo(original.rawMetadata());
+    }
+
+    @Test
+    void canonicalizesRealIdsInActualInsertParameters() {
+        when(jdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.any(SqlParameterSource.class), eq(UUID.class)))
+                .thenReturn(UUID.randomUUID());
+        repository.upsertRawVideo(withIds(video(null), "00123", "456", " TT1234567 ", "Example_Title"), null);
+        MapSqlParameterSource params = captureQueryForObjectCalls().paramsFor("insert into raw_videos");
+        assertThat(params.getValue("doubanId")).isEqualTo("123");
+        assertThat(params.getValue("tmdbId")).isEqualTo("456");
+        assertThat(params.getValue("imdbId")).isEqualTo("tt1234567");
+        assertThat(params.getValue("rottenTomatoesId")).isEqualTo("example_title");
+    }
+
+    private IngestionVideoDTO withIds(IngestionVideoDTO video, String douban, String tmdb, String imdb, String rt) {
+        return new IngestionVideoDTO(video.sourceVid(), video.sourceHash(), video.dataHash(), video.title(),
+                video.aliasTitle(), video.description(), video.coverImageUrl(), video.year(), video.area(),
+                video.language(), video.remarks(), video.score(), video.publishedAt(), video.totalEpisodes(),
+                video.duration(), douban, tmdb, imdb, rt, video.rawMetadata(), "PENDING", video.dataSourceId(),
+                video.playlists(), 0);
+    }
+
     private CapturedSql captureQueryForObjectCalls() {
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<SqlParameterSource> paramsCaptor = ArgumentCaptor.forClass(SqlParameterSource.class);

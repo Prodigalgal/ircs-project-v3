@@ -9,7 +9,6 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.util.StringUtils;
@@ -35,6 +34,14 @@ final class AggregationMatchKeys {
         addExternalId(keys, "tmdb", rawVideo.tmdbId(), safetyPolicy);
         addExternalId(keys, "imdb", rawVideo.imdbId(), safetyPolicy);
         addExternalId(keys, "rt", rawVideo.rottenTomatoesId(), safetyPolicy);
+        String completeTitle = AggregationTitleNormalizer.completeIdentityTitle(rawVideo.title(), rawVideo.subtitle());
+        if (AggregationCategoryProfile.from(AggregationCategoryProfile.category(rawVideo)) == AggregationCategoryProfile.SPORTS
+                || AggregationSportsIdentity.looksLikeEvent(completeTitle)) {
+            AggregationSportsIdentity event = AggregationSportsIdentity.parse(completeTitle, null);
+            // The year is intentionally omitted: month/day sources can match an explicitly dated
+            // source, and both writers must share one lock before a unified row exists.
+            if (event.date() != null) { keys.add("event:" + digest(event.date() + "|" + event.details())); }
+        }
         addTitleKeys(keys, rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.season());
         if (keys.isEmpty() && rawVideo.id() != null) {
             keys.add("raw:" + rawVideo.id());
@@ -84,7 +91,7 @@ final class AggregationMatchKeys {
         if (!safetyPolicy.isUsableExternalId(provider, value)) {
             return;
         }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        String normalized = safetyPolicy.normalizeExternalId(provider, value);
         keys.add(provider + ":" + digest(normalized));
     }
 
@@ -95,6 +102,7 @@ final class AggregationMatchKeys {
             String subtitle,
             Integer season) {
         List<String> titles = new ArrayList<>();
+        addIfText(titles, AggregationTitleNormalizer.completeIdentityTitle(title, subtitle));
         addIfText(titles, title);
         AggregationTitleNormalizer.splitAliases(aliasTitle).stream()
                 .filter(AggregationTitleNormalizer::isDistinctiveSecondaryTitle).forEach(titles::add);

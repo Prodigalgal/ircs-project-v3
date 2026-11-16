@@ -68,6 +68,40 @@ class AffectedPlanTest(unittest.TestCase):
         result = self.plan("backend/shared/ircs-messaging/src/main/java/Rabbit.java")
         self.assertEqual(["ircs-ingest"], result["java_images"])
 
+    def test_new_content_library_include_only_builds_its_real_consumers(self):
+        module = "shared:ircs-content-metadata"
+        self.after["backend/settings.gradle"] += "\ninclude '" + module + "'"
+        self.after["backend/shared/ircs-content-metadata/build.gradle"] = "plugins { id 'java-library' }"
+        self.after["backend/services/ircs-ingest/build.gradle"] += "\ndependencies { implementation project(':" + module + "') }"
+        result = self.plan("backend/settings.gradle", "backend/shared/ircs-content-metadata/src/main/java/Ids.java",
+                           "backend/services/ircs-ingest/build.gradle")
+        self.assertEqual(["ircs-ingest"], result["java_images"])
+        self.assertIn(module, result["java_test_modules"])
+
+    def test_literal_include_reordering_has_no_application_build(self):
+        self.after["backend/settings.gradle"] = "\n".join(reversed(self.before["backend/settings.gradle"].splitlines()))
+        self.assert_no_builds(self.plan("backend/settings.gradle"))
+
+    def test_removed_include_records_removed_deployment_without_rebuilding_unrelated_services(self):
+        self.after["backend/settings.gradle"] = self.before["backend/settings.gradle"].replace(
+            "include 'platform:ircs-migrator'", "")
+        result = self.plan("backend/settings.gradle")
+        self.assert_no_builds(result)
+        self.assertEqual(["ircs-migrator"], result["removed_java_images"])
+
+    def test_root_name_or_executable_settings_fall_back_to_all_java(self):
+        for suffix in ("\nrootProject.name = 'renamed'", "\ninclude providers.gradleProperty('extra').get()",
+                       "\nif (true) { println('dynamic') }"):
+            self.after["backend/settings.gradle"] = self.before["backend/settings.gradle"] + suffix
+            self.assertEqual(["ircs-catalog", "ircs-gateway", "ircs-ingest", "ircs-migrator"],
+                             self.plan("backend/settings.gradle")["java_images"])
+
+    def test_unchanged_executable_settings_also_make_new_include_conservative(self):
+        self.before["backend/settings.gradle"] += "\nprintln(rootProject.children.size())"
+        self.after["backend/settings.gradle"] = self.before["backend/settings.gradle"] + "\ninclude 'shared:new-lib'"
+        self.assertEqual(["ircs-catalog", "ircs-gateway", "ircs-ingest", "ircs-migrator"],
+                         self.plan("backend/settings.gradle")["java_images"])
+
     def test_combined_root_configure_targets_apply_real_dependencies(self):
         self.after["backend/build.gradle"] += """
             configure(serviceProjects + project(':platform:ircs-migrator')) {

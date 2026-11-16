@@ -465,10 +465,52 @@ public class JdbcAggregationRepository {
 
     public void rebuildUnifiedPipelineExternalIds(UUID unifiedVideoId) {
         MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
-        fillUnifiedExternalId("douban_id", params);
-        fillUnifiedExternalId("tmdb_id", params);
-        fillUnifiedExternalId("imdb_id", params);
-        fillUnifiedExternalId("rotten_tomatoes_id", params);
+        List<String> columns = List.of("douban_id", "tmdb_id", "imdb_id", "rotten_tomatoes_id");
+        List<String[]> roots = jdbcTemplate.query("""
+                select douban_id, tmdb_id, imdb_id, rotten_tomatoes_id, cast(locked_fields as varchar) as external_id_locks
+                  from unified_videos where id = :unifiedVideoId
+                """, params, (rs, rowNum) -> new String[] {
+                        rs.getString("douban_id"), rs.getString("tmdb_id"), rs.getString("imdb_id"), rs.getString("rotten_tomatoes_id"),
+                        rs.getString("external_id_locks")});
+        if (roots.isEmpty()) { return; }
+        String[] observed = roots.getFirst();
+        Set<String> lockedFields = parseLockedFields(observed[4]);
+        boolean[] needsEvidence = new boolean[columns.size()];
+        boolean needsAnyEvidence = false;
+        for (int index = 0; index < columns.size(); index++) {
+            String column = columns.get(index);
+            needsEvidence[index] = !isLocked(lockedFields, column, column.replace("_", ""), "externalIds", "external_ids")
+                    && usableExternalIdOrNull(externalIdProvider(column), observed[index]) == null;
+            needsAnyEvidence |= needsEvidence[index];
+        }
+        if (!needsAnyEvidence) { return; }
+        String[] selected = new String[columns.size()];
+        // One projection over this root's bound members. Keep only four scalar results in memory;
+        // provider syntax belongs to the shared Java contract, not a second SQL approximation.
+        jdbcTemplate.query("""
+                select rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
+                  from raw_video_unified_video rvuv
+                  join raw_videos rv on rv.id = rvuv.raw_video_id
+                 where rvuv.unified_video_id = :unifiedVideoId
+                 order by rv.created_at asc, rv.id asc
+                """, params, (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
+                    for (int index = 0; index < columns.size(); index++) {
+                        if (needsEvidence[index] && selected[index] == null) {
+                            selected[index] = usableExternalIdOrNull(externalIdProvider(columns.get(index)), rs.getString(columns.get(index)));
+                        }
+                    }
+                });
+        for (int index = 0; index < columns.size(); index++) {
+            if (selected[index] == null) { continue; }
+            String column = columns.get(index);
+            jdbcTemplate.update("""
+                    update unified_videos set %s = :selectedId, updated_at = now(), version = coalesce(version, 0) + 1
+                     where id = :unifiedVideoId and coalesce(%s, '') = coalesce(:observedId, '')
+                       and coalesce(cast(locked_fields as varchar), '') = coalesce(:observedLocks, '')
+                    """.formatted(column, column), new MapSqlParameterSource("unifiedVideoId", unifiedVideoId)
+                    .addValue("selectedId", selected[index]).addValue("observedId", observed[index])
+                    .addValue("observedLocks", observed[4]));
+        }
     }
 
     public void rebuildUnifiedPipelineDynamicFields(UUID unifiedVideoId) {
@@ -1156,41 +1198,6 @@ public class JdbcAggregationRepository {
                 params);
     }
 
-    private void fillUnifiedExternalId(String column, MapSqlParameterSource params) {
-        String provider = externalIdProvider(column);
-        params.addValue("rejectedExternalIdValues", matchingStrategy.rejectedExternalIdValues(provider));
-        jdbcTemplate.update(
-                """
-                update unified_videos
-                set %s = (
-                        select trim(%s)
-                        from raw_video_unified_video rvuv
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where rvuv.unified_video_id = :unifiedVideoId
-                          and %s
-                        order by rv.created_at asc, rv.id asc
-                        limit 1
-                    ),
-                    updated_at = now(),
-                    version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
-                  and not (%s)
-                  and exists (
-                      select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
-                        and %s
-                  )
-                """.formatted(
-                        column,
-                        column,
-                        validExternalIdExpression("rv." + column),
-                        validExternalIdExpression(column),
-                        validExternalIdExpression("rv." + column)),
-                params);
-    }
-
     private void updateUnifiedLongestString(String unifiedColumn, String rawColumn, MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
@@ -1300,11 +1307,6 @@ public class JdbcAggregationRepository {
                   )
                 """.formatted(unifiedColumn, rawColumn, rawColumn, rawColumn),
                 params);
-    }
-
-    private String validExternalIdExpression(String column) {
-        return ("nullif(trim(%s), '') is not null and lower(trim(%s)) not in (:rejectedExternalIdValues) "
-                + "and regexp_replace(trim(%s), '^0+([.]0+)?$', '') <> ''").formatted(column, column, column);
     }
 
     private String externalIdProvider(String column) {
@@ -1922,15 +1924,7 @@ public class JdbcAggregationRepository {
     }
 
     private String usableExternalIdOrNull(String provider, String value) {
-        return matchingStrategy.isUsableExternalId(provider, value) ? value.trim() : null;
-    }
-
-    private boolean isValidExternalId(String value) {
-        return StringUtils.hasText(value) && !"0".equals(value.trim());
-    }
-
-    private String validOrNull(String value) {
-        return isValidExternalId(value) ? value.trim() : null;
+        return matchingStrategy.normalizeExternalId(provider, value);
     }
 
     private String trimToLength(String value, int maxLength) {

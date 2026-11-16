@@ -5,6 +5,11 @@ import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.normalization.NormalizationMaintenanceRunResponse;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @Slf4j
@@ -27,6 +34,51 @@ public class RawVideoNormalizationService {
     private final NormalizeVideoPublisher normalizeVideoPublisher;
     private final ObjectMapper objectMapper;
     private final NormalizationConfigValues configValues;
+
+    public List<NormalizationPreviewResult> preview(List<UUID> rawVideoIds) {
+        if (rawVideoIds == null || rawVideoIds.isEmpty() || rawVideoIds.size() > 50
+                || rawVideoIds.stream().anyMatch(java.util.Objects::isNull)
+                || rawVideoIds.stream().distinct().count() != rawVideoIds.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Provide 1..50 distinct raw video IDs");
+        }
+        List<NormalizationPreviewResult> results = new ArrayList<>();
+        for (UUID id : rawVideoIds) {
+            Optional<RawVideoRecord> found = repository.findById(id);
+            if (found.isEmpty()) {
+                results.add(new NormalizationPreviewResult(id, null, null, "MISSING", null));
+                continue;
+            }
+            RawVideoRecord record = found.orElseThrow();
+            String raw = record.rawMetadata();
+            String fingerprint = raw == null ? null : metadataDigest(raw);
+            if (!StringUtils.hasText(raw)) {
+                results.add(new NormalizationPreviewResult(id, record.dataHash(), fingerprint, "INVALID_RAW_METADATA", null));
+                continue;
+            }
+            JsonNode metadata;
+            try {
+                metadata = objectMapper.readTree(raw);
+            } catch (tools.jackson.core.JacksonException error) {
+                results.add(new NormalizationPreviewResult(id, record.dataHash(), fingerprint, "INVALID_RAW_METADATA", null));
+                continue;
+            }
+            if (metadata == null || !metadata.isObject() || metadata.isEmpty()) {
+                results.add(new NormalizationPreviewResult(id, record.dataHash(), fingerprint, "INVALID_RAW_METADATA", null));
+                continue;
+            }
+            results.add(new NormalizationPreviewResult(id, record.dataHash(), fingerprint, "PREVIEW_ONLY",
+                    textNormalizer.normalize(record, metadata)));
+        }
+        return List.copyOf(results);
+    }
+
+    private String metadataDigest(String raw) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("Required SHA-256 digest is unavailable", error);
+        }
+    }
 
     @Transactional
     public NormalizationResult normalize(UUID rawVideoId, String pipelineVersion) {

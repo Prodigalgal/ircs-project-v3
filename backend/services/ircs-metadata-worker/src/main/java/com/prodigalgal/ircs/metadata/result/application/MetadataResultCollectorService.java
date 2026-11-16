@@ -7,6 +7,8 @@ import tools.jackson.databind.node.ObjectNode;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
+import com.prodigalgal.ircs.contracts.metadata.ProviderType;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
@@ -92,19 +94,16 @@ public class MetadataResultCollectorService {
             return new MetadataResultProcessingResult(record.getId(), true, "STALE");
         }
 
-        boolean metadataUpdated = false;
-        if (message.isSuccess() && message.getMetadata() != null) {
-            metadataUpdated = applyMetadata(record, message.getMetadata());
-        }
-
+        boolean validResult = message.isSuccess() && validProviderIdentity(message.getProviderType(), message.getMetadata());
+        boolean invalidSuccess = message.isSuccess() && !validResult;
         ProviderCompletion completion = pipelineRunRepository.completeProvider(
                 record.getId(),
                 record.getDataHash(),
                 message.getProviderType(),
-                message.isSuccess(),
-                message.isRetryable(),
-                message.getErrorCode(),
-                message.getErrorMessage(),
+                validResult,
+                !invalidSuccess && message.isRetryable(),
+                invalidSuccess ? "INVALID_PROVIDER_ID" : message.getErrorCode(),
+                invalidSuccess ? "Provider result did not contain a usable provider identifier" : message.getErrorMessage(),
                 expectedAttempt);
         if (!completion.tracked()) {
             log.warn(
@@ -117,19 +116,57 @@ public class MetadataResultCollectorService {
         if (!completion.newlyCompleted()) {
             return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
         }
+        // completeProvider holds the pipeline lock. Match reconciliation's pipeline -> raw lock order,
+        // then re-read so another provider result or a new scrape cannot be overwritten by our snapshot.
+        Optional<RawVideoMetadataRecord> locked = repository.findByIdForUpdate(record.getId());
+        if (locked.isEmpty()) {
+            return new MetadataResultProcessingResult(record.getId(), false, null);
+        }
+        record = locked.orElseThrow();
+        if (isStale(message.getPipelineVersion(), record.getDataHash())) {
+            return new MetadataResultProcessingResult(record.getId(), true, "STALE");
+        }
+        normalizeIdentifiers(record);
+        boolean metadataUpdated = validResult && applyMetadata(record, message.getMetadata());
         if (!completion.allCompleted()) {
-            repository.save(record);
+            saveCurrent(record);
             return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
         }
 
         finalizeVideoStatus(record, completion, metadataUpdated);
-        repository.save(record);
+        saveCurrent(record);
         pipelineRunRepository.markRunFinished(record.getId(), record.getDataHash(), record.getEnrichmentStatus());
         searchSyncPublisher.publishIndex(record.getId());
         aggregationWorkPublisher.enqueue(record.getId(), record.getDataHash(), "metadata-finalized");
         scheduleRetryIfNeeded(record);
 
         return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
+    }
+
+    private void saveCurrent(RawVideoMetadataRecord record) {
+        if (repository.save(record) != 1) {
+            throw new IllegalStateException("Metadata input changed before projection was saved: " + record.getId());
+        }
+    }
+
+    private boolean validProviderIdentity(ProviderType provider, EnrichedMetadataDTO metadata) {
+        if (provider == null || metadata == null) {
+            return false;
+        }
+        return switch (provider) {
+            case DOUBAN -> AuthoritativeIds.normalizeDouban(metadata.getDoubanId()) != null;
+            case TMDB -> AuthoritativeIds.normalizeTmdb(metadata.getTmdbId()) != null;
+            case ROTTEN_TOMATOES -> AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()) != null;
+            default -> false;
+        };
+    }
+
+    private void normalizeIdentifiers(RawVideoMetadataRecord record) {
+        if (!record.isFieldLocked("doubanId")) record.setDoubanId(AuthoritativeIds.normalizeDouban(record.getDoubanId()));
+        if (!record.isFieldLocked("tmdbId")) record.setTmdbId(AuthoritativeIds.normalizeTmdb(record.getTmdbId()));
+        if (!record.isFieldLocked("imdbId")) record.setImdbId(AuthoritativeIds.normalizeImdb(record.getImdbId()));
+        if (!record.isFieldLocked("rottenTomatoesId")) record.setRottenTomatoesId(
+                AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()));
     }
 
     private void scheduleRetryIfNeeded(RawVideoMetadataRecord record) {
@@ -157,13 +194,16 @@ public class MetadataResultCollectorService {
 
     private boolean applyMetadata(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata) {
         boolean updated = false;
-        updated |= fillAuthoritativeId(record::getDoubanId, record::setDoubanId, metadata.getDoubanId());
-        updated |= fillAuthoritativeId(record::getTmdbId, record::setTmdbId, metadata.getTmdbId());
-        updated |= fillAuthoritativeId(record::getImdbId, record::setImdbId, metadata.getImdbId());
-        updated |= fillAuthoritativeId(
+        updated |= !record.isFieldLocked("doubanId") && fillAuthoritativeId(record::getDoubanId, record::setDoubanId,
+                AuthoritativeIds.normalizeDouban(metadata.getDoubanId()));
+        updated |= !record.isFieldLocked("tmdbId") && fillAuthoritativeId(record::getTmdbId, record::setTmdbId,
+                AuthoritativeIds.normalizeTmdb(metadata.getTmdbId()));
+        updated |= !record.isFieldLocked("imdbId") && fillAuthoritativeId(record::getImdbId, record::setImdbId,
+                AuthoritativeIds.normalizeImdb(metadata.getImdbId()));
+        updated |= !record.isFieldLocked("rottenTomatoesId") && fillAuthoritativeId(
                 record::getRottenTomatoesId,
                 record::setRottenTomatoesId,
-                metadata.getRottenTomatoesId());
+                AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()));
 
         if (!record.isFieldLocked("description") && RawVideoMetadataRecord.hasText(metadata.getDescription())) {
             record.setDescription(metadata.getDescription());
@@ -177,7 +217,7 @@ public class MetadataResultCollectorService {
             record.setYear(metadata.getYear());
             updated = true;
         }
-        if (RawVideoMetadataRecord.hasText(metadata.getOriginalTitle())) {
+        if (!record.isFieldLocked("aliasTitle") && RawVideoMetadataRecord.hasText(metadata.getOriginalTitle())) {
             String originalTitle = metadata.getOriginalTitle();
             if (!RawVideoMetadataRecord.hasText(record.getAliasTitle())) {
                 record.setAliasTitle(originalTitle);
@@ -195,11 +235,11 @@ public class MetadataResultCollectorService {
         ObjectNode merged = readRawMetadata(record.getRawMetadata());
         String before = merged.toString();
 
-        mergeDelimitedText(merged, "area", metadata.getArea(), ", ");
-        mergeDelimitedText(merged, "language", metadata.getLanguage(), "/");
-        mergeArrayValues(merged, "genreNames", metadata.getGenreNames());
-        mergeArrayValues(merged, "actorNames", metadata.getActorNames());
-        mergeArrayValues(merged, "directorNames", metadata.getDirectorNames());
+        if (!record.isFieldLocked("area")) mergeDelimitedText(merged, "area", metadata.getArea(), ", ");
+        if (!record.isFieldLocked("language")) mergeDelimitedText(merged, "language", metadata.getLanguage(), "/");
+        if (!record.isFieldLocked("genres")) mergeArrayValues(merged, "genreNames", metadata.getGenreNames());
+        if (!record.isFieldLocked("actors")) mergeArrayValues(merged, "actorNames", metadata.getActorNames());
+        if (!record.isFieldLocked("directors")) mergeArrayValues(merged, "directorNames", metadata.getDirectorNames());
         putIfAbsent(merged, "posterUrl", metadata.getPosterUrl());
         putIfAbsent(merged, "coverImageUrl", metadata.getPosterUrl());
         putIfAbsent(merged, "backdropUrl", metadata.getBackdropUrl());

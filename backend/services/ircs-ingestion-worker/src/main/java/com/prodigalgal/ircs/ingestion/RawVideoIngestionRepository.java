@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.ingestion;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 
 import com.prodigalgal.ircs.contracts.ingestion.IngestionEpisodeDTO;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionPlaylistDTO;
@@ -77,10 +78,10 @@ public class RawVideoIngestionRepository {
                 .addValue("publishedAt", video.publishedAt() == null ? null : Date.valueOf(video.publishedAt()))
                 .addValue("totalEpisodes", trimToLength(video.totalEpisodes(), 50))
                 .addValue("duration", trimToLength(video.duration(), 50))
-                .addValue("doubanId", trimToLength(video.doubanId(), 20))
-                .addValue("tmdbId", trimToLength(video.tmdbId(), 20))
-                .addValue("imdbId", trimToLength(video.imdbId(), 20))
-                .addValue("rottenTomatoesId", trimToLength(video.rottenTomatoesId(), 50))
+                .addValue("doubanId", AuthoritativeIds.normalizeDouban(video.doubanId()))
+                .addValue("tmdbId", AuthoritativeIds.normalizeTmdb(video.tmdbId()))
+                .addValue("imdbId", AuthoritativeIds.normalizeImdb(video.imdbId()))
+                .addValue("rottenTomatoesId", AuthoritativeIds.normalizeRottenTomatoes(video.rottenTomatoesId()))
                 .addValue("rawMetadata", rawMetadata(video))
                 .addValue("dataSourceId", video.dataSourceId());
 
@@ -120,10 +121,14 @@ public class RawVideoIngestionRepository {
                     published_at = excluded.published_at,
                     total_episodes = excluded.total_episodes,
                     duration = excluded.duration,
-                    douban_id = excluded.douban_id,
-                    tmdb_id = excluded.tmdb_id,
-                    imdb_id = excluded.imdb_id,
-                    rotten_tomatoes_id = excluded.rotten_tomatoes_id,
+                    douban_id = case when coalesce(jsonb_exists(raw_videos.locked_fields, 'doubanId'), false)
+                        then raw_videos.douban_id else excluded.douban_id end,
+                    tmdb_id = case when coalesce(jsonb_exists(raw_videos.locked_fields, 'tmdbId'), false)
+                        then raw_videos.tmdb_id else excluded.tmdb_id end,
+                    imdb_id = case when coalesce(jsonb_exists(raw_videos.locked_fields, 'imdbId'), false)
+                        then raw_videos.imdb_id else excluded.imdb_id end,
+                    rotten_tomatoes_id = case when coalesce(jsonb_exists(raw_videos.locked_fields, 'rottenTomatoesId'), false)
+                        then raw_videos.rotten_tomatoes_id else excluded.rotten_tomatoes_id end,
                     normalization_status = 'PENDING',
                     enrichment_status = 'PENDING',
                     aggregation_status = 'PENDING',

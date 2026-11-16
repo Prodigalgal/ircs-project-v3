@@ -9,6 +9,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.PathNotFoundException;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionEpisodeDTO;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionPlaylistDTO;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionVideoDTO;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
@@ -139,10 +140,10 @@ class ScraperMappingService {
                 draft.publishedAt(),
                 draft.totalEpisodes(),
                 draft.duration(),
-                draft.doubanId(),
-                draft.tmdbId(),
-                draft.imdbId(),
-                draft.rottenTomatoesId(),
+                AuthoritativeIds.normalizeDouban(draft.doubanId()),
+                AuthoritativeIds.normalizeTmdb(draft.tmdbId()),
+                AuthoritativeIds.normalizeImdb(draft.imdbId()),
+                AuthoritativeIds.normalizeRottenTomatoes(draft.rottenTomatoesId()),
                 rawMetadata,
                 "PENDING",
                 draft.dataSourceId(),

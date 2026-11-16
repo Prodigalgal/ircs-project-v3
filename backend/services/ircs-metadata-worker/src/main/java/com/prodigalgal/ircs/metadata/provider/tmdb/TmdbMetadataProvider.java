@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataEnrichmentPolicy;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -28,8 +29,6 @@ public class TmdbMetadataProvider implements MetadataProvider {
 
     private static final int MAX_ACTORS = 15;
     private static final int MAX_SEASON_CANDIDATES = 2;
-    private static final Set<String> MOVIE_SLUGS = Set.of("movie");
-    private static final Set<String> TV_SLUGS = Set.of("series", "tv", "variety", "short-drama");
 
     private final TmdbCredentialRepository credentialRepository;
     private final TmdbRateLimiter rateLimiter;
@@ -45,11 +44,14 @@ public class TmdbMetadataProvider implements MetadataProvider {
 
     @Override
     public boolean supports(MetadataSearchContext context) {
-        return context != null && StringUtils.hasText(context.getFullTitle());
+        return MetadataEnrichmentPolicy.supports(context, getType());
     }
 
     @Override
     public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context) {
+        if (!supports(context)) {
+            return Optional.empty();
+        }
         List<TmdbCredential> credentials = credentialRepository.findEnabled();
         if (credentials.isEmpty()) {
             throw new MetadataProviderRetryableException("POOL_EXHAUSTED", "No enabled TMDB credentials");
@@ -340,20 +342,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
     }
 
     private String determineSearchType(MetadataSearchContext context) {
-        String slug = context.getCategorySlug();
-        if (context.getSeason() != null && context.getSeason() >= 0) {
-            return "tv";
-        }
-        if (slug == null) {
-            return "multi";
-        }
-        if (MOVIE_SLUGS.contains(slug)) {
-            return "movie";
-        }
-        if (TV_SLUGS.contains(slug)) {
-            return "tv";
-        }
-        return "multi";
+        return MetadataEnrichmentPolicy.searchType(context);
     }
 
     private String extractMediaType(JsonNode candidate, String searchType) {
@@ -370,7 +359,8 @@ public class TmdbMetadataProvider implements MetadataProvider {
     }
 
     private boolean isMatch(MetadataSearchContext source, JsonNode candidate, String mediaType) {
-        if (source.getSeason() != null && source.getSeason() >= 0 && "movie".equals(mediaType)) {
+        if (!"movie".equalsIgnoreCase(source.getCategorySlug())
+                && source.getSeason() != null && source.getSeason() >= 0 && "movie".equals(mediaType)) {
             return false;
         }
 

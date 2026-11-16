@@ -11,6 +11,8 @@ import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPubl
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
 import com.prodigalgal.ircs.metadata.result.application.MetadataResultCollectorService;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataEnrichmentPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -45,7 +47,7 @@ public class MetadataDispatchService {
             return new MetadataDispatchResult(videoId, true, "STALE", List.of());
         }
 
-        if ("SUCCESS".equals(record.getEnrichmentStatus())
+        if (("SUCCESS".equals(record.getEnrichmentStatus()) && record.hasAuthoritativeId())
                 || "PERMANENT_FAILURE".equals(record.getEnrichmentStatus())) {
             searchSyncPublisher.publishIndex(videoId);
             aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-already-finalized");
@@ -55,6 +57,9 @@ public class MetadataDispatchService {
         List<ProviderType> providers = providersFor(record);
         if (providers.isEmpty()) {
             String status = finalizeImmediate(record);
+            if ("STALE".equals(status)) {
+                return new MetadataDispatchResult(videoId, true, status, List.of());
+            }
             searchSyncPublisher.publishIndex(videoId);
             aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-immediate-finalized");
             return new MetadataDispatchResult(videoId, true, status, List.of());
@@ -77,29 +82,28 @@ public class MetadataDispatchService {
 
     private String finalizeImmediate(RawVideoEnrichmentRecord record) {
         if (record.hasAuthoritativeId()) {
-            repository.updateStatus(record.getId(), "SUCCESS", 0);
-            return "SUCCESS";
+            return repository.updateStatus(record.getId(), record.getDataHash(), "SUCCESS", 0) == 1 ? "SUCCESS" : "STALE";
         }
 
-        int nextRetry = (record.getEnrichmentRetryCount() == null ? 0 : record.getEnrichmentRetryCount()) + 1;
-        if (nextRetry >= RawVideoEnrichmentRepository.MAX_ENRICHMENT_RETRIES) {
-            repository.updateStatus(record.getId(), "PERMANENT_FAILURE", record.getEnrichmentRetryCount());
-            return "PERMANENT_FAILURE";
-        }
-
-        repository.updateStatus(record.getId(), "FAILED", nextRetry);
-        return "FAILED";
+        // No applicable/configured provider is a terminal source-only outcome, not a transient
+        // external failure. Aggregation is still allowed to use the reliable source evidence.
+        return repository.updateStatus(record.getId(), record.getDataHash(), "PERMANENT_FAILURE", 0) == 1
+                ? "PERMANENT_FAILURE" : "STALE";
     }
 
     private List<ProviderType> providersFor(RawVideoEnrichmentRecord record) {
         List<ProviderType> providers = new ArrayList<>();
-        if (configValues.doubanEnabled() && !RawVideoEnrichmentRecord.hasText(record.getDoubanId())) {
+        MetadataSearchContext context = toContext(record);
+        if (configValues.doubanEnabled() && AuthoritativeIds.normalizeDouban(record.getDoubanId()) == null
+                && MetadataEnrichmentPolicy.supports(context, ProviderType.DOUBAN)) {
             providers.add(ProviderType.DOUBAN);
         }
-        if (configValues.tmdbEnabled() && !RawVideoEnrichmentRecord.hasText(record.getTmdbId())) {
+        if (configValues.tmdbEnabled() && AuthoritativeIds.normalizeTmdb(record.getTmdbId()) == null
+                && MetadataEnrichmentPolicy.supports(context, ProviderType.TMDB)) {
             providers.add(ProviderType.TMDB);
         }
-        if (configValues.rottenTomatoesEnabled() && !RawVideoEnrichmentRecord.hasText(record.getRottenTomatoesId())) {
+        if (configValues.rottenTomatoesEnabled() && AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()) == null
+                && MetadataEnrichmentPolicy.supports(context, ProviderType.ROTTEN_TOMATOES)) {
             providers.add(ProviderType.ROTTEN_TOMATOES);
         }
         return providers;
@@ -115,10 +119,10 @@ public class MetadataDispatchService {
                 .season(record.getSeason())
                 .year(record.getYear())
                 .categorySlug(record.getCategorySlug())
-                .doubanId(record.getDoubanId())
-                .tmdbId(record.getTmdbId())
-                .imdbId(record.getImdbId())
-                .rottenTomatoesId(record.getRottenTomatoesId())
+                .doubanId(AuthoritativeIds.normalizeDouban(record.getDoubanId()))
+                .tmdbId(AuthoritativeIds.normalizeTmdb(record.getTmdbId()))
+                .imdbId(AuthoritativeIds.normalizeImdb(record.getImdbId()))
+                .rottenTomatoesId(AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()))
                 .build();
     }
 

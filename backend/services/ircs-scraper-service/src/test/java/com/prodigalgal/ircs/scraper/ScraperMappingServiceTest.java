@@ -2,6 +2,7 @@ package com.prodigalgal.ircs.scraper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import tools.jackson.databind.JsonNode;
@@ -20,6 +21,38 @@ class ScraperMappingServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ScraperMappingService service = new ScraperMappingService(objectMapper);
+
+    @Test
+    void normalizesAuthorityIdDtoFieldsWhileRetainingOriginalEvidence() throws Exception {
+        ScrapedVideoDraft draft = idDraft("0", " N/A ", "tt0000000", "unknown");
+        IngestionItem item = service.toItem(draft, false);
+        assertNull(item.video().doubanId());
+        assertNull(item.video().tmdbId());
+        assertNull(item.video().imdbId());
+        assertNull(item.video().rottenTomatoesId());
+        JsonNode raw = objectMapper.readTree(item.video().rawMetadata());
+        assertEquals("0", raw.path("doubanId").asText());
+        assertEquals("0", raw.path("rawTypeId").asText());
+        assertTrue(raw.path("sourcePayload").path("douban_id").isInt());
+        assertEquals(0, raw.path("sourcePayload").path("douban_id").asInt());
+        assertEquals("source-zero", raw.path("sourceVid").asText());
+    }
+
+    @Test
+    void canonicalizesRealAuthorityIdsWithoutGuessingSmallPositiveValuesArePlaceholders() {
+        IngestionItem item = service.toItem(idDraft("00123", "456", " TT1234567 ", "Example_Title"), false);
+        assertEquals("123", item.video().doubanId());
+        assertEquals("456", item.video().tmdbId());
+        assertEquals("tt1234567", item.video().imdbId());
+        assertEquals("example_title", item.video().rottenTomatoesId());
+    }
+
+    private ScrapedVideoDraft idDraft(String douban, String tmdb, String imdb, String rottenTomatoes) {
+        return new ScrapedVideoDraft(UUID.randomUUID(), "source-zero", "原题", null, null, null,
+                null, null, null, null, null, null, null, null, douban, tmdb, imdb, rottenTomatoes,
+                "0", "电影", List.of(), List.of("罗予彤"), List.of(), "{\"douban_id\":0}",
+                "{\"original\":0}", List.of());
+    }
 
     @Test
     void mapsDetailJsonToCanonicalRawMetadata() throws Exception {

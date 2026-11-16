@@ -25,6 +25,9 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -87,6 +90,7 @@ class MetadataDispatchServiceTest {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord raw = record(id);
         raw.setEnrichmentStatus("SUCCESS");
+        raw.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(raw));
 
         assertEquals("SUCCESS", newService(false).dispatch(id, "hash-v1").status());
@@ -105,13 +109,14 @@ class MetadataDispatchServiceTest {
     void finalizesImmediatelyWhenAuthoritativeIdExists() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
-        record.setTmdbId("tmdb-1");
+        record.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(repository.updateStatus(id, "hash-v1", "SUCCESS", 0)).thenReturn(1);
 
         MetadataDispatchResult result = newService(false).dispatch(id, "hash-v1");
 
         assertEquals("SUCCESS", result.status());
-        verify(repository).updateStatus(id, "SUCCESS", 0);
+        verify(repository).updateStatus(id, "hash-v1", "SUCCESS", 0);
         verify(searchSyncPublisher).publishIndex(id);
         verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-immediate-finalized");
         verify(providerTaskPublisher, never()).publish(org.mockito.Mockito.any(), org.mockito.Mockito.any());
@@ -191,7 +196,7 @@ class MetadataDispatchServiceTest {
     void skipsProviderWhenAuthoritativeProviderIdAlreadyExists() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
-        record.setTmdbId("tmdb-1");
+        record.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(record));
         RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, new ObjectMapper());
@@ -224,16 +229,17 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
-    void retryableImmediateFailureIncrementsRetryCount() {
+    void noAvailableProviderEndsWithoutMeaninglessRetry() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
         record.setEnrichmentRetryCount(2);
         when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(repository.updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0)).thenReturn(1);
 
         MetadataDispatchResult result = newService(false).dispatch(id, "hash-v1");
 
-        assertEquals("FAILED", result.status());
-        verify(repository).updateStatus(id, "FAILED", 3);
+        assertEquals("PERMANENT_FAILURE", result.status());
+        verify(repository).updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0);
         verify(searchSyncPublisher).publishIndex(id);
     }
 
@@ -248,8 +254,106 @@ class MetadataDispatchServiceTest {
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"sports", "adult", "other"})
+    void sourceOnlyCategoriesDoNotFanOutEvenWhenAllFilmProvidersAreEnabled(String category) {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord record = record(id);
+        record.setCategorySlug(category);
+        record.setTmdbId("0");
+        when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(repository.updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0)).thenReturn(1);
+        when(configValues.doubanEnabled()).thenReturn(true);
+        when(configValues.tmdbEnabled()).thenReturn(true);
+        when(configValues.rottenTomatoesEnabled()).thenReturn(true);
+
+        MetadataDispatchResult result = newService(false).dispatch(id, "hash-v1");
+
+        assertEquals("PERMANENT_FAILURE", result.status());
+        verify(repository).updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0);
+        org.mockito.Mockito.verifyNoInteractions(providerTaskPublisher, pipelineRunRepository, resultCollector);
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-immediate-finalized");
+    }
+
+    @Test
+    void shortDramaOnlyDispatchesDoubanAndTmdbAndIncludesCompleteTitleInContext() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord record = record(id);
+        record.setCategorySlug("short-drama");
+        record.setTitle("被家族抛弃");
+        record.setSubtitle("我觉醒九亿属性点");
+        when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(configValues.doubanEnabled()).thenReturn(true);
+        when(configValues.tmdbEnabled()).thenReturn(true);
+        when(configValues.rottenTomatoesEnabled()).thenReturn(true);
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.DOUBAN, ProviderType.TMDB)))
+                .thenReturn(List.of(ProviderType.DOUBAN, ProviderType.TMDB));
+
+        var result = newService(false).dispatch(id, "hash-v1");
+
+        assertEquals(List.of(ProviderType.DOUBAN, ProviderType.TMDB), result.providers());
+        ArgumentCaptor<MetadataSearchContext> context = ArgumentCaptor.forClass(MetadataSearchContext.class);
+        verify(providerTaskPublisher).publish(org.mockito.ArgumentMatchers.eq(ProviderType.TMDB), context.capture());
+        assertEquals("被家族抛弃 我觉醒九亿属性点", context.getValue().getFullTitle());
+        verify(providerTaskPublisher, never()).publish(org.mockito.ArgumentMatchers.eq(ProviderType.ROTTEN_TOMATOES), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void placeholderIdDoesNotSkipProviderAndContextContainsCanonicalIdsOnly() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord record = record(id);
+        record.setTmdbId("0");
+        record.setDoubanId("00123");
+        record.setImdbId(" TT1234567 ");
+        record.setRottenTomatoesId(" N/A ");
+        when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB)))
+                .thenReturn(List.of(ProviderType.TMDB));
+
+        assertEquals("DISPATCHED", newService(true).dispatch(id, "hash-v1").status());
+
+        ArgumentCaptor<MetadataSearchContext> context = ArgumentCaptor.forClass(MetadataSearchContext.class);
+        verify(providerTaskPublisher).publish(org.mockito.ArgumentMatchers.eq(ProviderType.TMDB), context.capture());
+        assertEquals("123", context.getValue().getDoubanId());
+        assertEquals("tt1234567", context.getValue().getImdbId());
+        org.junit.jupiter.api.Assertions.assertNull(context.getValue().getTmdbId());
+        org.junit.jupiter.api.Assertions.assertNull(context.getValue().getRottenTomatoesId());
+    }
+
+    @Test
+    void immediateStatusCasFailureDoesNotPublishAnyDownstreamWork() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord record = record(id);
+        record.setTmdbId("101");
+        when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(repository.updateStatus(id, "hash-v1", "SUCCESS", 0)).thenReturn(0);
+
+        assertEquals("STALE", newService(false).dispatch(id, "hash-v1").status());
+
+        org.mockito.Mockito.verifyNoInteractions(searchSyncPublisher, aggregationWorkPublisher,
+                providerTaskPublisher, pipelineRunRepository, resultCollector);
+    }
+
+    @Test
+    void historicalSuccessWithOnlyZeroIdIsReclassifiedInsteadOfRepublishingFalseSuccess() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord record = record(id);
+        record.setEnrichmentStatus("SUCCESS");
+        record.setTmdbId("0");
+        when(repository.findById(id)).thenReturn(Optional.of(record));
+        when(repository.updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0)).thenReturn(1);
+
+        assertEquals("PERMANENT_FAILURE", newService(false).dispatch(id, "hash-v1").status());
+
+        verify(repository).updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0);
+        org.mockito.Mockito.verifyNoInteractions(providerTaskPublisher, pipelineRunRepository, resultCollector);
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-immediate-finalized");
+    }
+
     private MetadataDispatchService newService(boolean tmdbEnabled) {
-        org.mockito.Mockito.lenient().when(configValues.tmdbEnabled()).thenReturn(tmdbEnabled);
+        if (tmdbEnabled) {
+            when(configValues.tmdbEnabled()).thenReturn(true);
+        }
         return new MetadataDispatchService(
                 repository,
                 configValues,
@@ -268,7 +372,7 @@ class MetadataDispatchServiceTest {
                 null,
                 null,
                 null,
-                null,
+                "movie",
                 null,
                 null,
                 null,

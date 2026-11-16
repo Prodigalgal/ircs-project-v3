@@ -19,13 +19,15 @@ class AggregationSafetyPolicyTest {
         assertTrue(policy.rejectedExternalIdValues("douban").contains("123"));
         assertFalse(policy.rejectedExternalIdValues("tmdb").contains("123"));
         assertTrue(policy.rejectedExternalIdValues("imdb").contains("tt0000000"));
-        assertTrue(policy.rejectedExternalIdValues("tmdb").contains("unknown"));
+        assertFalse(policy.isUsableExternalId("tmdb", "unknown"));
     }
 
     @Test
-    void providerNamesAreExplicitAndIdentifiersAreNotNumericallyRewritten() {
+    void providerNamesAreExplicitAndCanonicalIdentifiersRespectTheDenylist() {
         assertTrue(policy.isUsableExternalId(" IMDB ", " tt0133093 "));
-        assertTrue(policy.isUsableExternalId("douban", "00123"));
+        assertFalse(policy.isUsableExternalId("douban", "00123"));
+        assertTrue(policy.isUsableExternalId("tmdb", "00123"));
+        assertTrue("123".equals(policy.normalizeExternalId("tmdb", "00123")));
         assertFalse(policy.isUsableExternalId("unrecognized", "1234567"));
         assertFalse(policy.isUsableExternalId(null, "1234567"));
         assertFalse(policy.automaticUnifiedMergeEnabled());

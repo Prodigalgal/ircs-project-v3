@@ -1,5 +1,6 @@
 dependencies {
     implementation project(':shared:ircs-common')
+    implementation project(':shared:ircs-content-metadata')
     implementation project(':shared:ircs-contracts')
     implementation project(':shared:ircs-messaging')
     implementation 'org.apache.commons:commons-text:1.15.0'

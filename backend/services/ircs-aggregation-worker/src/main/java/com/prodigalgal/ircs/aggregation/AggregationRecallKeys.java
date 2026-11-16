@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.aggregation;
 
+import com.prodigalgal.ircs.contentmetadata.PersonNames;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
@@ -11,8 +12,6 @@ final class AggregationRecallKeys {
 
     private static final int MAX_TITLE_KEYS = 6;
     private static final int MAX_PEOPLE_KEYS = 8;
-    private static final Set<String> UNKNOWN_NAMES = Set.of(
-            "unknown", "null", "none", "n/a", "0", "-", "未知", "不详", "暂无", "无", "待定");
 
     private AggregationRecallKeys() {
     }
@@ -46,14 +45,7 @@ final class AggregationRecallKeys {
     }
 
     static List<String> people(Set<String> values) {
-        TreeSet<String> normalized = new TreeSet<>();
-        if (values != null) {
-            for (String value : values) {
-                if (StringUtils.hasText(value) && !UNKNOWN_NAMES.contains(value.trim().toLowerCase(java.util.Locale.ROOT))) {
-                    normalized.add(value.trim());
-                }
-            }
-        }
+        TreeSet<String> normalized = new TreeSet<>(PersonNames.normalize(values));
         return normalized.stream().limit(MAX_PEOPLE_KEYS).toList();
     }
 

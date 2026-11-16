@@ -1,5 +1,7 @@
 package com.prodigalgal.ircs.metadata.dispatch.domain;
 
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
+
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -23,7 +25,10 @@ public class RawVideoEnrichmentRecord {
     private String dataHash;
 
     public boolean hasAuthoritativeId() {
-        return hasText(doubanId) || hasText(tmdbId);
+        return AuthoritativeIds.normalizeDouban(doubanId) != null
+                || AuthoritativeIds.normalizeTmdb(tmdbId) != null
+                || AuthoritativeIds.normalizeImdb(imdbId) != null
+                || AuthoritativeIds.normalizeRottenTomatoes(rottenTomatoesId) != null;
     }
 
     public static boolean hasText(String value) {

@@ -34,6 +34,15 @@ class AggregationMatchKeysTest {
     }
 
     @Test
+    void canonicalExternalIdVariantsShareTheSameProviderLock() {
+        List<String> padded = AggregationMatchKeys.forRawVideo(rawVideo("Source title", "0035000001"));
+        List<String> canonical = AggregationMatchKeys.forRawVideo(rawVideo("Another title", "35000001"));
+        assertThat(padded.stream().filter(key -> key.startsWith("douban:")).toList())
+                .containsExactlyElementsOf(canonical.stream().filter(key -> key.startsWith("douban:")).toList())
+                .hasSize(1);
+    }
+
+    @Test
     void clusterKeysKeepIdentityKeysWhenTruncating() {
         // Clusters can have more than MAX_KEYS provider/unified keys. They all protect a distinct
         // identity and must remain in the lock set even though title fallback keys are capped.
@@ -41,9 +50,9 @@ class AggregationMatchKeysTest {
         for (int index = 0; index < 4; index++) {
             members.add(rawVideoWithIds(
                     "Codex Signal " + index,
-                    "douban-" + index,
-                    "tmdb-" + index,
-                    "imdb-" + index,
+                    "3500000" + index,
+                    "7000" + index,
+                    "tt013309" + index,
                     "rt-" + index));
         }
         List<UUID> unifiedIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
@@ -94,9 +103,9 @@ class AggregationMatchKeysTest {
         for (int index = 0; index < 4; index++) {
             members.add(rawVideoWithIds(
                     "Codex Signal " + index,
-                    "douban-" + index,
-                    "tmdb-" + index,
-                    "imdb-" + index,
+                    "3500000" + index,
+                    "7000" + index,
+                    "tt013309" + index,
                     "rt-" + index));
         }
         List<UUID> unifiedIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());

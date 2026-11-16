@@ -30,8 +30,8 @@ class AggregationCandidateRepositoryTest {
         AggregationContextSearchClient search = mock(AggregationContextSearchClient.class);
         AggregationCandidateRepository repository = new AggregationCandidateRepository(
                 jdbc, AggregationTestFixtures.matchingStrategy(), search, metadata);
-        RawVideoAggregationRecord first = externalRaw("douban-first");
-        RawVideoAggregationRecord second = externalRaw("douban-second");
+        RawVideoAggregationRecord first = externalRaw("035000001");
+        RawVideoAggregationRecord second = externalRaw("35000002");
         UUID sharedId = UUID.randomUUID();
         UUID secondId = UUID.randomUUID();
         when(jdbc.query(anyString(), any(MapSqlParameterSource.class), anyRowMapper())).thenAnswer(invocation -> {
@@ -53,8 +53,8 @@ class AggregationCandidateRepositoryTest {
                 "uv.douban_id = :doubanId1", "order by context_index, context_updated_at desc");
         assertThat(sql.getValue().split("limit :limit", -1)).hasSize(3);
         assertThat(params.getValue().getValue("limit")).isEqualTo(20);
-        assertThat(params.getValue().getValue("doubanId0")).isEqualTo("douban-first");
-        assertThat(params.getValue().getValue("doubanId1")).isEqualTo("douban-second");
+        assertThat(params.getValue().getValue("doubanId0")).isEqualTo("35000001");
+        assertThat(params.getValue().getValue("doubanId1")).isEqualTo("35000002");
         verify(metadata).populateUnifiedMetadata(candidates);
     }
 
@@ -65,7 +65,7 @@ class AggregationCandidateRepositoryTest {
         AggregationContextSearchClient search = mock(AggregationContextSearchClient.class);
         AggregationCandidateRepository repository = new AggregationCandidateRepository(
                 jdbc, AggregationTestFixtures.matchingStrategy(), search, metadata);
-        RawVideoAggregationRecord raw = externalRaw("douban-batch");
+        RawVideoAggregationRecord raw = externalRaw("35000003");
         List<RawVideoAggregationRecord> input = new ArrayList<>();
         for (int index = 0; index < 201; index++) {
             input.add(raw);
@@ -123,8 +123,8 @@ class AggregationCandidateRepositoryTest {
         AggregationContextSearchClient search = mock(AggregationContextSearchClient.class);
         AggregationCandidateRepository repository = new AggregationCandidateRepository(
                 jdbc, AggregationTestFixtures.matchingStrategy(), search, metadata);
-        RawVideoAggregationRecord first = rawVideo("Codex One", "2026", "d1", "t1", "i1", "r1");
-        RawVideoAggregationRecord second = rawVideo("Codex Two", "2026", "d2", "t2", "i2", "r2");
+        RawVideoAggregationRecord first = rawVideo("Codex One", "2026", "035000001", "00070001", " TT0133093 ", "r1");
+        RawVideoAggregationRecord second = rawVideo("Codex Two", "2026", "35000002", "70002", "tt0133094", "r2");
         when(search.findCandidateUnifiedVideoIds(anyString(), anyString()))
                 .thenReturn(AggregationContextSearchClient.ContextSearchResult.notAttempted());
         when(jdbc.query(anyString(), any(MapSqlParameterSource.class), anyRowMapper())).thenAnswer(invocation -> {
@@ -148,9 +148,9 @@ class AggregationCandidateRepositoryTest {
                 "douban_id in (:contextDoubanIds)", "tmdb_id in (:contextTmdbIds)",
                 "imdb_id in (:contextImdbIds)", "rotten_tomatoes_id in (:contextRtIds)");
         MapSqlParameterSource batchParams = params.getAllValues().get(sql.getAllValues().indexOf(batchSql));
-        assertThat(batchParams.getValue("contextDoubanIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("d1", "d2")));
-        assertThat(batchParams.getValue("contextTmdbIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("t1", "t2")));
-        assertThat(batchParams.getValue("contextImdbIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("i1", "i2")));
+        assertThat(batchParams.getValue("contextDoubanIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("35000001", "35000002")));
+        assertThat(batchParams.getValue("contextTmdbIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("70001", "70002")));
+        assertThat(batchParams.getValue("contextImdbIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("tt0133093", "tt0133094")));
         assertThat(batchParams.getValue("contextRtIds")).isEqualTo(new java.util.LinkedHashSet<>(List.of("r1", "r2")));
         verify(search, times(2)).findCandidateUnifiedVideoIds(anyString(), anyString());
         verify(metadata).populateUnifiedMetadata(List.of());
@@ -163,7 +163,7 @@ class AggregationCandidateRepositoryTest {
         AggregationContextSearchClient search = mock(AggregationContextSearchClient.class);
         AggregationCandidateRepository repository = new AggregationCandidateRepository(
                 jdbc, AggregationTestFixtures.matchingStrategy(), search, metadata);
-        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "d1", null, null, null);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "35000001", null, null, null);
         when(search.findCandidateUnifiedVideoIds("Codex Signal", "2026"))
                 .thenReturn(AggregationContextSearchClient.ContextSearchResult.attempted(List.of()));
         when(jdbc.query(anyString(), any(MapSqlParameterSource.class), anyRowMapper())).thenReturn(List.of());
@@ -219,14 +219,14 @@ class AggregationCandidateRepositoryTest {
         AggregationMatchingStrategy strategy = mock(AggregationMatchingStrategy.class);
         AggregationCandidateRepository repository = new AggregationCandidateRepository(
                 jdbc, strategy, mock(AggregationContextSearchClient.class), metadata);
-        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "d1", null, null, null);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "35000001", null, null, null);
         List<UnifiedVideoAggregationCandidate> external = new ArrayList<>();
         List<UnifiedVideoAggregationCandidate> titles = new ArrayList<>();
         for (int index = 0; index < 15; index++) {
             external.add(candidate(UUID.randomUUID(), "External " + index));
             titles.add(candidate(UUID.randomUUID(), "Title " + index));
         }
-        when(strategy.isUsableExternalId("douban", "d1")).thenReturn(true);
+        when(strategy.normalizeExternalId("douban", "35000001")).thenReturn("35000001");
         when(jdbc.query(anyString(), any(MapSqlParameterSource.class), anyRowMapper())).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);
             return sql.contains("douban_id = :doubanId") ? external : titles;

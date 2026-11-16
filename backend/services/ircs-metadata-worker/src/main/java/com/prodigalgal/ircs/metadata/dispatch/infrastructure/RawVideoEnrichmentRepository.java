@@ -28,7 +28,7 @@ public class RawVideoEnrichmentRepository {
             set enrichment_status = ?,
                 enrichment_retry_count = ?,
                 updated_at = now()
-            where id = ?
+            where id = ? and data_hash is not distinct from ?
             """;
 
     public static final int MAX_ENRICHMENT_RETRIES = 5;
@@ -44,8 +44,8 @@ public class RawVideoEnrichmentRepository {
         });
     }
 
-    public int updateStatus(UUID id, String status, Integer retryCount) {
-        return jdbcTemplate.update(UPDATE_STATUS, status, retryCount, id);
+    public int updateStatus(UUID id, String pipelineVersion, String status, Integer retryCount) {
+        return jdbcTemplate.update(UPDATE_STATUS, status, retryCount, id, pipelineVersion);
     }
 
     private RawVideoEnrichmentRecord mapRow(ResultSet rs) throws SQLException {

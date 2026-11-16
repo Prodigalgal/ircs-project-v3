@@ -16,7 +16,7 @@ import org.springframework.util.StringUtils;
 final class AggregationTitleNormalizer {
 
     static final Pattern SEASON_PATTERN = Pattern.compile(
-            "(?i)(?:season|s)\\s*(\\d+)|第\\s*([0-9零一二三四五六七八九十百两]+)\\s*[季部]");
+            "(?i)(?:season|s)\\s*(\\d+)|第\\s*([0-9零一二三四五六七八九十百两]+)\\s*季");
     static final Pattern VERSION_REAL = Pattern.compile("(?i)(真人版|剧版|live\\s*action)");
     static final Pattern VERSION_ANIME = Pattern.compile("(?i)(动画版|动漫|anime|animation)");
     static final Pattern RELEASE_NOISE = Pattern.compile(
@@ -24,15 +24,6 @@ final class AggregationTitleNormalizer {
     private static final Pattern GENERIC_SECONDARY_TITLE = Pattern.compile(
             "(?i)(?:动态漫画|漫画|动漫|动画|动画版|完整版|完整|正片|电影版|剧场版|特别篇|番外篇|预告片|合集|"
                     + "第?[0-9零一二三四五六七八九十百两]+[部季集篇卷]|[上中下]部|part[0-9ivx]+|season\\d+|s\\d+)+");
-
-    /**
-     * Date-stamped event titles (sports fixtures, live broadcasts). These share a long common suffix
-     * ("月X日" + "NN-NN赛季" + league) that Jaro-Winkler scores as near-identical even though the
-     * fixture is different, so the discriminator has to be lifted out of the similarity string.
-     */
-    private static final Pattern EVENT_DATE = Pattern.compile("(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日");
-    private static final Pattern EVENT_MARKER = Pattern.compile(
-            "(?i)(赛季|联赛|比赛|世界杯|世预赛|杯(?:赛|小组赛|决赛|半决赛|预选赛|资格赛|\\s|$)|\\bvs\\b)");
 
     private static final Map<Character, Integer> CHINESE_DIGITS = Map.ofEntries(
             Map.entry('零', 0),
@@ -48,6 +39,18 @@ final class AggregationTitleNormalizer {
             Map.entry('九', 9));
 
     private AggregationTitleNormalizer() {
+    }
+
+    static String completeIdentityTitle(String title, String subtitle) {
+        String main = title == null ? "" : title.trim();
+        if (!StringUtils.hasText(subtitle)) { return main; }
+        String secondary = subtitle.trim();
+        return compactIdentityText(main).contains(compactIdentityText(secondary)) ? main : main + " " + secondary;
+    }
+
+    private static String compactIdentityText(String value) {
+        return java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
+                .replaceAll("[\\p{P}\\p{Z}\\s]+", "").toLowerCase(Locale.ROOT);
     }
 
     static String normalizeTitle(String value) {
@@ -130,15 +133,11 @@ final class AggregationTitleNormalizer {
      * compatible evidence, never proof that two events are the same.
      */
     static Optional<String> eventIdentityKey(String value) {
-        if (!StringUtils.hasText(value) || !EVENT_MARKER.matcher(value).find()) {
+        if (!AggregationSportsIdentity.looksLikeEvent(value)) {
             return Optional.empty();
         }
-        Matcher date = EVENT_DATE.matcher(value);
-        if (!date.find()) {
-            return Optional.empty();
-        }
-        String details = normalizeTitle(EVENT_DATE.matcher(value).replaceFirst(" "));
-        return Optional.of("event:" + Integer.parseInt(date.group(1)) + "-" + Integer.parseInt(date.group(2))
-                + "|" + details);
+        AggregationSportsIdentity identity = AggregationSportsIdentity.parse(value, null);
+        return identity.date() != null || identity.fixture() || identity.standaloneEvent()
+                ? Optional.of(identity.key()) : Optional.empty();
     }
 }

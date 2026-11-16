@@ -7,6 +7,8 @@ import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataEnrichmentPolicy;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.net.URI;
 import java.util.Optional;
@@ -31,11 +33,14 @@ public class DoubanMetadataProvider implements MetadataProvider {
 
     @Override
     public boolean supports(MetadataSearchContext context) {
-        return context != null && StringUtils.hasText(context.getFullTitle());
+        return MetadataEnrichmentPolicy.supports(context, getType());
     }
 
     @Override
     public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context) {
+        if (!supports(context)) {
+            return Optional.empty();
+        }
         Optional<DoubanCredential> credential = credentialRepository.findPreferred();
         Optional<String> response = httpClient.getJson(buildSuggestUri(context), credential);
         if (response.isEmpty()) {
@@ -59,7 +64,7 @@ public class DoubanMetadataProvider implements MetadataProvider {
                 throw new IllegalArgumentException("Douban suggest response must be an array");
             }
             for (JsonNode candidate : root) {
-                if (StringUtils.hasText(text(candidate, "id")) && isMatch(context, candidate)) {
+                if (AuthoritativeIds.normalizeDouban(text(candidate, "id")) != null && isMatch(context, candidate)) {
                     return Optional.of(mapCandidate(candidate));
                 }
             }
@@ -71,7 +76,7 @@ public class DoubanMetadataProvider implements MetadataProvider {
 
     private EnrichedMetadataDTO mapCandidate(JsonNode candidate) {
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
-        metadata.setDoubanId(text(candidate, "id"));
+        metadata.setDoubanId(AuthoritativeIds.normalizeDouban(text(candidate, "id")));
         metadata.setTitle(text(candidate, "title"));
         metadata.setOriginalTitle(cleanOriginalTitle(text(candidate, "sub_title")));
         metadata.setYear(cleanYear(text(candidate, "year")));

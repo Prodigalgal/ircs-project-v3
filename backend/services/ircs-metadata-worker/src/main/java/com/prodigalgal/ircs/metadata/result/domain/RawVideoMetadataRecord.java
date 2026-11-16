@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.metadata.result.domain;
 
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import java.math.BigDecimal;
 import java.util.Set;
 import java.util.UUID;
@@ -25,13 +26,30 @@ public class RawVideoMetadataRecord {
     private Integer enrichmentRetryCount;
     private String aggregationStatus;
     private String dataHash;
+    private Set<String> actorNames;
+    private Set<String> directorNames;
+    private Set<String> areaCodes;
+    private Set<String> languageCodes;
+    private Set<String> genreCodes;
+
+    public RawVideoMetadataRecord(UUID id, String doubanId, String tmdbId, String imdbId,
+            String rottenTomatoesId, String description, BigDecimal score, String year, String aliasTitle,
+            String rawMetadata, Set<String> lockedFields, String enrichmentStatus, Integer enrichmentRetryCount,
+            String aggregationStatus, String dataHash) {
+        this(id, doubanId, tmdbId, imdbId, rottenTomatoesId, description, score, year, aliasTitle,
+                rawMetadata, lockedFields, enrichmentStatus, enrichmentRetryCount, aggregationStatus, dataHash,
+                Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
+    }
 
     public boolean isFieldLocked(String fieldName) {
         return lockedFields != null && lockedFields.contains(fieldName);
     }
 
     public boolean hasAuthoritativeId() {
-        return hasText(doubanId) || hasText(tmdbId) || hasText(imdbId) || hasText(rottenTomatoesId);
+        return AuthoritativeIds.normalizeDouban(doubanId) != null
+                || AuthoritativeIds.normalizeTmdb(tmdbId) != null
+                || AuthoritativeIds.normalizeImdb(imdbId) != null
+                || AuthoritativeIds.normalizeRottenTomatoes(rottenTomatoesId) != null;
     }
 
     public boolean hasProviderId(ProviderType providerType) {
@@ -39,9 +57,9 @@ public class RawVideoMetadataRecord {
             return false;
         }
         return switch (providerType) {
-            case DOUBAN -> hasText(doubanId);
-            case TMDB -> hasText(tmdbId);
-            case ROTTEN_TOMATOES -> hasText(rottenTomatoesId);
+            case DOUBAN -> AuthoritativeIds.normalizeDouban(doubanId) != null;
+            case TMDB -> AuthoritativeIds.normalizeTmdb(tmdbId) != null;
+            case ROTTEN_TOMATOES -> AuthoritativeIds.normalizeRottenTomatoes(rottenTomatoesId) != null;
             default -> false;
         };
     }

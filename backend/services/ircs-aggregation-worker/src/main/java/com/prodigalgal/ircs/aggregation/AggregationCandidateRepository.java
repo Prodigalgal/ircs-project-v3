@@ -114,9 +114,8 @@ final class AggregationCandidateRepository {
                 String value = externalIdValue(rawVideo, column);
                 addExternalIdClause(clauses, params, "uv." + column.column(),
                         column.parameterPrefix() + index, value);
-                if (isUsableExternalId(column, value)) {
-                    idsByProvider.get(column).add(value.trim());
-                }
+                String canonical = matchingStrategy.normalizeExternalId(column.provider(), value);
+                if (canonical != null) { idsByProvider.get(column).add(canonical); }
             }
             if (!clauses.isEmpty()) {
                 queries.add("""
@@ -170,10 +169,11 @@ final class AggregationCandidateRepository {
             String provider, String column, String parameterPrefix, String batchParameter) {
     }
 
-    private record ContextSearchKey(List<String> titles, String year, Integer season,
+    private record ContextSearchKey(String identityProfile, List<String> titles, String year, Integer season,
             List<String> actors, List<String> directors) {
         static ContextSearchKey from(RawVideoAggregationRecord rawVideo) {
             return new ContextSearchKey(
+                    AggregationCategoryProfile.POLICY_VERSION + ":" + AggregationCategoryProfile.from(AggregationCategoryProfile.category(rawVideo)),
                     AggregationRecallKeys.titles(rawVideo).stream()
                             .map(AggregationTitleNormalizer::normalizeTitle).distinct().toList(),
                     normalizedYear(rawVideo.year()), rawVideo.season(),
@@ -544,9 +544,10 @@ final class AggregationCandidateRepository {
             String paramName,
             String value) {
         ExternalIdColumn providerColumn = externalIdColumn(column);
-        if (isUsableExternalId(providerColumn, value)) {
+        String canonical = matchingStrategy.normalizeExternalId(providerColumn.provider(), value);
+        if (canonical != null) {
             clauses.add(column + " = :" + paramName);
-            params.addValue(paramName, value.trim());
+            params.addValue(paramName, canonical);
         }
     }
 

@@ -57,8 +57,8 @@ class AggregationProductionRegressionTest {
     void repeatedSameFixtureStillMerges() {
         // Same league, same date, from two sources: this is the merge the aggregation exists for.
         List<RawVideoAggregationRecord> raws = List.of(
-                rawVideo("7月4日25-26赛季中乙联赛", "sports", "2026", null, null, null),
-                rawVideo("7月4日25-26赛季中乙联赛", "sports", "2026", null, null, null));
+                rawVideo("7月4日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null),
+                rawVideo("7月4日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null));
 
         List<RawVideoAggregationCluster> clusters = clusterer.cluster(raws);
 

@@ -5,6 +5,8 @@ import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataEnrichmentPolicy;
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import java.net.URI;
 import java.util.Optional;
@@ -32,11 +34,14 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
 
     @Override
     public boolean supports(MetadataSearchContext context) {
-        return context != null && StringUtils.hasText(context.getTitle());
+        return MetadataEnrichmentPolicy.supports(context, getType());
     }
 
     @Override
     public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context) {
+        if (!supports(context)) {
+            return Optional.empty();
+        }
         Optional<RottenTomatoesCredential> credential = credentialRepository.findPreferred();
         Optional<String> response = httpClient.getHtml(buildSearchUri(context), credential);
         if (response.isEmpty()) {
@@ -62,7 +67,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
             }
             for (Element link : links) {
                 String title = link.text();
-                String id = extractIdFromUrl(link.attr("href"));
+                String id = AuthoritativeIds.normalizeRottenTomatoes(extractIdFromUrl(link.attr("href")));
                 if (StringUtils.hasText(id) && matchesMediaType(context, link.attr("href"))
                         && MetadataCandidateTitles.matches(context, title)) {
                     EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
@@ -86,9 +91,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
         if (path == null || (!path.startsWith("/m/") && !path.startsWith("/tv/"))) {
             return false;
         }
-        boolean television = context.getSeason() != null && context.getSeason() >= 0
-                || java.util.Set.of("series", "tv", "variety", "short-drama").contains(
-                        context.getCategorySlug() == null ? "" : context.getCategorySlug());
+        boolean television = "tv".equals(MetadataEnrichmentPolicy.searchType(context));
         return television ? path.startsWith("/tv/")
                 : !"movie".equals(context.getCategorySlug()) || path.startsWith("/m/");
     }

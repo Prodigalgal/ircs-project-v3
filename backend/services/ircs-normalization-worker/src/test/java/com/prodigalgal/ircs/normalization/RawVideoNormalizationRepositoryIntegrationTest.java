@@ -120,6 +120,23 @@ class RawVideoNormalizationRepositoryIntegrationTest {
     }
 
     @Test
+    void readsPersistedClassificationForTextStrategySelection() {
+        jdbc.update("update raw_videos set category_code='sports',source_category_name='体育赛事' where id=?", id);
+        RawVideoRecord record = repository.findById(id).orElseThrow();
+        assertThat(record.categoryCode()).isEqualTo("sports");
+        assertThat(record.sourceCategoryName()).isEqualTo("体育赛事");
+    }
+
+    @Test
+    void sourceLabelCannotSilentlyOverrideExistingStableClassification() {
+        jdbc.update("insert into standard_category(slug) values ('short-drama')");
+        jdbc.update("update raw_videos set category_code='movie' where id=?", id);
+        markReady(patch("short-drama", "微短剧"));
+        assertThat(category()).isEqualTo("movie");
+        assertReady();
+    }
+
+    @Test
     void realServiceTransactionConvertsTextPersistsReadyAndPublishesAllHandoffs() {
         var mapper = JsonMapper.builder().build();
         var search = mock(RawSearchSyncPublisher.class);

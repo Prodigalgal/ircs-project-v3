@@ -61,6 +61,9 @@ class JdbcAggregationRepositoryTest {
                 .thenAnswer(call -> policy.isUsableExternalId(call.getArgument(0), call.getArgument(1)));
         org.mockito.Mockito.lenient().when(matchingStrategy.rejectedExternalIdValues(any(String.class)))
                 .thenAnswer(call -> policy.rejectedExternalIdValues(call.getArgument(0)));
+        org.mockito.Mockito.lenient().when(matchingStrategy.normalizeExternalId(
+                        any(String.class), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenAnswer(call -> policy.normalizeExternalId(call.getArgument(0), call.getArgument(1)));
     }
 
     @Test
@@ -144,7 +147,7 @@ class JdbcAggregationRepositoryTest {
 
     @Test
     void recallsContextUnifiedCandidatesForRawBatchWithStableDeduplication() {
-        RawVideoAggregationRecord rawWithExternalId = rawVideo("Codex Signal", "2026", "douban-1");
+        RawVideoAggregationRecord rawWithExternalId = rawVideo("Codex Signal", "2026", "35000001");
         RawVideoAggregationRecord rawWithTitleOnly = rawVideo("Codex Signal", "2026", null);
         UUID unifiedVideoId = UUID.randomUUID();
         UnifiedVideoAggregationCandidate candidate = new UnifiedVideoAggregationCandidate(
@@ -157,7 +160,7 @@ class JdbcAggregationRepositoryTest {
                 "45m",
                 null,
                 "电影",
-                "douban-1",
+                "35000001",
                 null,
                 null,
                 null,
@@ -279,7 +282,7 @@ class JdbcAggregationRepositoryTest {
 
     @Test
     void contextExternalRecallDoesNotCallSearchServiceWhenDoubanOrTmdbIsPresent() {
-        RawVideoAggregationRecord rawWithExternalId = rawVideo("Codex Signal", "2026", "douban-1");
+        RawVideoAggregationRecord rawWithExternalId = rawVideo("Codex Signal", "2026", "35000001");
         UUID unifiedVideoId = UUID.randomUUID();
         UnifiedVideoAggregationCandidate candidate = new UnifiedVideoAggregationCandidate(
                 unifiedVideoId,
@@ -291,7 +294,7 @@ class JdbcAggregationRepositoryTest {
                 "45m",
                 null,
                 "电影",
-                "douban-1",
+                "35000001",
                 null,
                 null,
                 null,
@@ -332,7 +335,7 @@ class JdbcAggregationRepositoryTest {
                 "电影",
                 null,
                 null,
-                "imdb-1",
+                "tt0133093",
                 "rt-1",
                 "READY",
                 "SUCCESS",
@@ -417,12 +420,12 @@ class JdbcAggregationRepositoryTest {
                     id, created_at, updated_at, version, source_vid, source_hash, title, year,
                     douban_id, enrichment_status, normalization_status, aggregation_status
                 ) values (?, now(), now(), 0, 'source-1', 'hash-1', 'Codex Signal', '2026',
-                    'douban-1', 'SUCCESS', 'READY', 'PROCESSING')
+                    '35000001', 'SUCCESS', 'READY', 'PROCESSING')
                 """, rawVideoId);
         jdbc.update("""
                 insert into unified_videos (
                     id, created_at, updated_at, version, title, year, douban_id, category_code, metadata_status
-                ) values (?, now(), now(), 0, 'Codex Signal', '2026', 'douban-1', 'tv', 'SYNCED')
+                ) values (?, now(), now(), 0, 'Codex Signal', '2026', '35000001', 'tv', 'SYNCED')
                 """, unifiedVideoId);
         RawVideoAggregationRecord rawVideo = repository.findRawVideo(rawVideoId).orElseThrow();
 
@@ -448,13 +451,13 @@ class JdbcAggregationRepositoryTest {
                     id, created_at, updated_at, version, source_vid, source_hash, title, year,
                     douban_id, enrichment_status, normalization_status, aggregation_status
                 ) values (?, now(), now(), 0, 'source-1', 'hash-1', 'Codex Signal', '2026',
-                    'douban-1', 'SUCCESS', 'READY', 'PROCESSING')
+                    '35000001', 'SUCCESS', 'READY', 'PROCESSING')
                 """, rawVideoId);
         jdbc.update("""
                 insert into unified_videos (
                     id, created_at, updated_at, version, title, year, douban_id,
                     actor_names, director_names, area_codes, metadata_status
-                ) values (?, now(), now(), 0, 'Codex Signal', '2026', 'douban-1',
+                ) values (?, now(), now(), 0, 'Codex Signal', '2026', '35000001',
                     cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), 'SYNCED')
                 """, unifiedVideoId, flatJson("Actor U"), flatJson("Director U"), flatJson("US"));
         RawVideoAggregationRecord rawVideo = repository.findRawVideo(rawVideoId).orElseThrow();
@@ -841,14 +844,14 @@ class JdbcAggregationRepositoryTest {
         assertEquals("45m", scalar(jdbc, "select duration from unified_videos where id = ?", unifiedVideoId, String.class));
         assertEquals(2, scalar(jdbc, "select season from unified_videos where id = ?", unifiedVideoId, Integer.class));
         assertEquals("longest subtitle value", scalar(jdbc, "select subtitle from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("db-existing-douban", scalar(jdbc, "select douban_id from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("tmdb-first-valid", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("imdb-first-valid", scalar(jdbc, "select imdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("35000999", scalar(jdbc, "select douban_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("70001", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("tt0133093", scalar(jdbc, "select imdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
         assertEquals("rt-first-valid", scalar(jdbc, "select rotten_tomatoes_id from unified_videos where id = ?", unifiedVideoId, String.class));
     }
 
     @Test
-    void rebuildUnifiedPipelineScalarsPreservesLockedFieldsButExternalIdsIgnoreLocks() {
+    void rebuildUnifiedPipelineScalarsPreservesAllLockedFieldsIncludingExternalIds() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:aggregation-scalars-locked-" + UUID.randomUUID()
                         + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1");
@@ -873,10 +876,67 @@ class JdbcAggregationRepositoryTest {
         assertEquals("10m", scalar(jdbc, "select duration from unified_videos where id = ?", unifiedVideoId, String.class));
         assertEquals(1, scalar(jdbc, "select season from unified_videos where id = ?", unifiedVideoId, Integer.class));
         assertEquals("locked subtitle", scalar(jdbc, "select subtitle from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("raw-douban", scalar(jdbc, "select douban_id from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("raw-tmdb", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("raw-imdb", scalar(jdbc, "select imdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
-        assertEquals("raw-rt", scalar(jdbc, "select rotten_tomatoes_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("", scalar(jdbc, "select douban_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("", scalar(jdbc, "select imdb_id from unified_videos where id = ?", unifiedVideoId, String.class));
+        assertEquals("", scalar(jdbc, "select rotten_tomatoes_id from unified_videos where id = ?", unifiedVideoId, String.class));
+    }
+
+    @Test
+    void externalIdFillIgnoresMalformedEvidenceAndPreservesLockedPlaceholders() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:aggregation-provider-ids-" + UUID.randomUUID()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createPipelineSchema(jdbc);
+        UUID unifiedId = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        seedScalarUnlockedFixture(jdbc, unifiedId, first, second, third);
+        jdbc.update("update unified_videos set douban_id = '0', tmdb_id = 'unknown', imdb_id = 'tt0000000', rotten_tomatoes_id = '-', locked_fields = '[\"doubanId\"]' where id = ?", unifiedId);
+        jdbc.update("update raw_videos set tmdb_id = 'tmdb-invalid', imdb_id = '1.0', rotten_tomatoes_id = 'https://invalid.example/' where id = ?", first);
+        jdbc.update("update raw_videos set tmdb_id = '00070002', imdb_id = 'TT0133093', rotten_tomatoes_id = '  second_valid  ' where id = ?", second);
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(
+                new NamedParameterJdbcTemplate(dataSource), AggregationTestFixtures.matchingStrategy());
+
+        repository.rebuildUnifiedPipelineExternalIds(unifiedId);
+
+        assertEquals("0", scalar(jdbc, "select douban_id from unified_videos where id = ?", unifiedId, String.class));
+        assertEquals("70002", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", unifiedId, String.class));
+        assertEquals("tt0133093", scalar(jdbc, "select imdb_id from unified_videos where id = ?", unifiedId, String.class));
+        assertEquals("second_valid", scalar(jdbc, "select rotten_tomatoes_id from unified_videos where id = ?", unifiedId, String.class));
+        assertFalse(AggregationTestFixtures.safetyPolicy().isUsableExternalId("douban", "0"));
+    }
+
+    @Test
+    void externalIdFillDoesNotOverwriteAConcurrentEditOrNewFieldLock() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:aggregation-provider-cas-" + UUID.randomUUID()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createPipelineSchema(jdbc);
+        UUID unifiedId = UUID.randomUUID();
+        seedScalarUnlockedFixture(jdbc, unifiedId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        jdbc.update("update unified_videos set douban_id = '', tmdb_id = '', imdb_id = '', rotten_tomatoes_id = '' where id = ?", unifiedId);
+        NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource) {
+            private boolean edited;
+
+            @Override
+            public int update(String sql, org.springframework.jdbc.core.namedparam.SqlParameterSource params) {
+                if (!edited && sql.contains("set douban_id = :selectedId")) {
+                    edited = true;
+                    jdbc.update("update unified_videos set douban_id = '35000888', locked_fields = '[\"tmdbId\"]' where id = ?", unifiedId);
+                }
+                return super.update(sql, params);
+            }
+        };
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
+
+        repository.rebuildUnifiedPipelineExternalIds(unifiedId);
+
+        assertEquals("35000888", scalar(jdbc, "select douban_id from unified_videos where id = ?", unifiedId, String.class));
+        assertEquals("", scalar(jdbc, "select tmdb_id from unified_videos where id = ?", unifiedId, String.class));
     }
 
     @Test
@@ -1628,7 +1688,7 @@ class JdbcAggregationRepositoryTest {
                 ) values (
                     ?, timestamp '2026-01-01 00:00:00', timestamp '2026-01-01 00:00:00', 0,
                     'Old Title', 'old alias', 'old description', '2000', 1.0, date '2000-01-01',
-                    'db-existing-douban', '', '', '', '', '', 'old remarks', null, 'old subtitle',
+                    '35000999', '', '', '', '', '', 'old remarks', null, 'old subtitle',
                     '[]', 'SYNCED'
                 )
                 """, unifiedVideoId);
@@ -1643,7 +1703,7 @@ class JdbcAggregationRepositoryTest {
                 new BigDecimal("8.5"),
                 LocalDate.of(2025, 1, 1),
                 "0",
-                "tmdb-first-valid",
+                "70001",
                 null,
                 "rt-first-valid",
                 "12",
@@ -1663,9 +1723,9 @@ class JdbcAggregationRepositoryTest {
                 "2026",
                 new BigDecimal("9.5"),
                 LocalDate.of(2025, 2, 1),
-                "raw-douban-ignored",
-                "tmdb-second-valid",
-                "imdb-first-valid",
+                "35000002",
+                "70002",
+                "tt0133093",
                 null,
                 "24",
                 "60m",
@@ -1685,8 +1745,8 @@ class JdbcAggregationRepositoryTest {
                 new BigDecimal("7.0"),
                 LocalDate.of(2025, 3, 1),
                 null,
-                "tmdb-third-valid",
-                "imdb-third-valid",
+                "70003",
+                "tt0133094",
                 "rt-third-valid",
                 "36",
                 "90m",
@@ -1710,7 +1770,7 @@ class JdbcAggregationRepositoryTest {
                     ?, timestamp '2026-01-01 00:00:00', timestamp '2026-01-01 00:00:00', 0,
                     'Locked Title', 'locked alias', 'locked description', '1999', 1.1, date '1999-01-01',
                     '', '', '', '', '1', '10m', 'locked remarks', 1, 'locked subtitle',
-                    '["title","year","score","publishedAt","aliasTitle","description","remarks","totalEpisodes","duration","season","subtitle"]',
+                    '["title","year","score","publishedAt","aliasTitle","description","remarks","totalEpisodes","duration","season","subtitle","doubanId","tmdb_id","imdbId","rotten_tomatoes_id"]',
                     'SYNCED'
                 )
                 """, unifiedVideoId);
@@ -1724,9 +1784,9 @@ class JdbcAggregationRepositoryTest {
                 "2026",
                 new BigDecimal("9.9"),
                 LocalDate.of(2026, 6, 9),
-                "raw-douban",
-                "raw-tmdb",
-                "raw-imdb",
+                "35000001",
+                "70001",
+                "tt0133093",
                 "raw-rt",
                 "99",
                 "99m",

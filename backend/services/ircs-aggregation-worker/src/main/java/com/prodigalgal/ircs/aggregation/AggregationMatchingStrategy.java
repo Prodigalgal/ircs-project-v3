@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.aggregation;
 
+import com.prodigalgal.ircs.contentmetadata.PersonNames;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -32,8 +33,6 @@ public class AggregationMatchingStrategy {
     // annotated cross-source examples before changing it; sampled dirty IDs do not prove separation.
     private static final double SAME_ID_TITLE_FLOOR = 0.50;
     private static final List<String> EXTERNAL_ID_PROVIDERS = List.of("douban", "tmdb", "imdb", "rt");
-    private static final Set<String> UNKNOWN_METADATA_NAMES = Set.of(
-            "unknown", "null", "none", "n/a", "0", "-", "未知", "不详", "暂无", "无", "待定");
 
     private final JaroWinklerSimilarity stringSimilarity = new JaroWinklerSimilarity();
     private final AggregationSafetyPolicy safetyPolicy;
@@ -152,6 +151,9 @@ public class AggregationMatchingStrategy {
         if (hasConflictingEventIdentity(rawFingerprint, candidateFingerprint)) {
             return 0.0;
         }
+        if (usesSportsProfile(rawFingerprint, candidateFingerprint)) {
+            return sameSportsEvent(rawFingerprint, candidateFingerprint) ? TITLE_ONLY_CONFIDENCE : 0.0;
+        }
 
         int externalIdCheck = checkExternalIds(rawFingerprint, candidateFingerprint);
         if (externalIdCheck < 0) {
@@ -188,6 +190,9 @@ public class AggregationMatchingStrategy {
         }
         if (hasConflictingEventIdentity(leftFingerprint, rightFingerprint)) {
             return 0.0;
+        }
+        if (usesSportsProfile(leftFingerprint, rightFingerprint)) {
+            return sameSportsEvent(leftFingerprint, rightFingerprint) ? TITLE_ONLY_CONFIDENCE : 0.0;
         }
 
         int externalIdCheck = checkExternalIds(leftFingerprint, rightFingerprint);
@@ -298,9 +303,8 @@ public class AggregationMatchingStrategy {
         Map<String, String> usable = new HashMap<>();
         for (int index = 0; index < EXTERNAL_ID_PROVIDERS.size(); index++) {
             String provider = EXTERNAL_ID_PROVIDERS.get(index);
-            if (isUsableExternalId(provider, values[index])) {
-                usable.put(provider, values[index].trim().toLowerCase(Locale.ROOT));
-            }
+            String normalized = safetyPolicy.normalizeExternalId(provider, values[index]);
+            if (normalized != null) { usable.put(provider, normalized); }
         }
         return Map.copyOf(usable);
     }
@@ -332,7 +336,7 @@ public class AggregationMatchingStrategy {
         return fingerprint(rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.remarks(), rawVideo.season(),
                 normalizedNames(rawVideo.actorNames()), normalizedNames(rawVideo.directorNames()), parseYear(rawVideo.year()),
                 parseEpisodeCount(rawVideo.totalEpisodes()), normalizedAreas(rawVideo.areaNames()),
-                normalizedExternalIds(externalIds(rawVideo)));
+                normalizedExternalIds(externalIds(rawVideo)), AggregationCategoryProfile.category(rawVideo));
     }
 
     private VideoFingerprint fingerprint(UnifiedVideoAggregationCandidate candidate) {
@@ -343,18 +347,27 @@ public class AggregationMatchingStrategy {
                 candidate.remarks(),
                 candidate.season(), normalizedNames(candidate.actorNames()), normalizedNames(candidate.directorNames()), parseYear(candidate.year()),
                 parseEpisodeCount(candidate.totalEpisodes()), normalizedAreas(candidate.areaNames()),
-                normalizedExternalIds(externalIds(candidate)));
+                normalizedExternalIds(externalIds(candidate)), candidate.categoryName());
     }
 
     private VideoFingerprint fingerprint(String title, String aliasTitle, String subtitle, String remarks, Integer season,
             Set<String> actors, Set<String> directors, Integer year, Integer episodeCount,
-            Set<String> areas, Map<String, String> externalIds) {
+            Set<String> areas, Map<String, String> externalIds, String category) {
+        String completeTitle = AggregationTitleNormalizer.completeIdentityTitle(title, subtitle);
+        AggregationCategoryProfile profile = AggregationCategoryProfile.from(category);
+        Optional<AggregationSportsIdentity> event = profile == AggregationCategoryProfile.SPORTS
+                || AggregationSportsIdentity.looksLikeEvent(completeTitle)
+                ? Optional.of(AggregationSportsIdentity.parse(completeTitle, year)) : Optional.empty();
+        if (profile == AggregationCategoryProfile.UNKNOWN && event.isPresent()) {
+            profile = AggregationCategoryProfile.SPORTS;
+        }
         List<String> rawTitles = new ArrayList<>();
-        addIfText(rawTitles, AggregationRecallKeys.completeTitle(title, subtitle));
+        addIfText(rawTitles, completeTitle);
         addIfText(rawTitles, title);
         rawTitles.addAll(AggregationTitleNormalizer.splitAliases(aliasTitle));
 
-        Integer parsedSeason = season;
+        // Sports season labels describe a competition, not the season of a screen work.
+        Integer parsedSeason = profile.usesScreenSeason() ? season : null;
         VideoVersion version = VideoVersion.NORMAL;
         List<String> normalizedTitles = new ArrayList<>();
         for (String rawTitle : rawTitles) {
@@ -363,11 +376,11 @@ public class AggregationMatchingStrategy {
             } else if (AggregationTitleNormalizer.VERSION_ANIME.matcher(rawTitle).find()) {
                 version = VideoVersion.ANIME;
             }
-            if (parsedSeason == null) {
+            if (parsedSeason == null && profile.usesScreenSeason()) {
                 parsedSeason = AggregationTitleNormalizer.parseSeason(rawTitle);
             }
 
-            String normalized = AggregationTitleNormalizer.normalizeTitle(rawTitle);
+            String normalized = profile.normalizeTitle(rawTitle);
             if (StringUtils.hasText(normalized) && (rawTitle.equals(title)
                     || AggregationTitleNormalizer.isDistinctiveSecondaryTitle(rawTitle, normalized))) {
                 normalizedTitles.add(normalized);
@@ -384,15 +397,21 @@ public class AggregationMatchingStrategy {
             normalizedTitles.add(title.trim().toLowerCase(Locale.ROOT));
         }
         return new VideoFingerprint(List.copyOf(normalizedTitles), parsedSeason, version, actors, directors,
-                AggregationTitleNormalizer.eventIdentityKey(AggregationRecallKeys.completeTitle(title, subtitle)),
+                event,
                 year, episodeCount, areas, externalIds,
-                StringUtils.hasText(title) ? AggregationTitleNormalizer.normalizeTitle(title) : "",
+                StringUtils.hasText(title) ? profile.normalizeTitle(title) : "",
                 AggregationTitleNormalizer.isDistinctiveSecondaryTitle(subtitle)
-                        ? AggregationTitleNormalizer.normalizeTitle(subtitle) : "");
+                        ? profile.normalizeTitle(subtitle) : "",
+                profile, profile.normalizeTitle(completeTitle),
+                AggregationCategoryProfile.installments(completeTitle, profile), completeTitle);
     }
 
     private double titleSimilarity(VideoFingerprint left, VideoFingerprint right) {
         double score = maxTitleSimilarity(left.titles(), right.titles());
+        if ((usesProgrammeProfile(left) || usesProgrammeProfile(right))
+                && (!left.subtitle().isEmpty() || !right.subtitle().isEmpty())) {
+            score = stringSimilarity.apply(left.completeTitle(), right.completeTitle());
+        }
         // A common heading cannot make different complete titles identical. Keep secondary
         // identity in the comparison; e.g. two short dramas with the same comma prefix.
         if (!left.primaryTitle().isEmpty() && left.primaryTitle().equals(right.primaryTitle())
@@ -400,6 +419,11 @@ public class AggregationMatchingStrategy {
             score = Math.min(score, stringSimilarity.apply(left.subtitle(), right.subtitle()));
         }
         return score;
+    }
+
+    private boolean usesProgrammeProfile(VideoFingerprint fingerprint) {
+        return fingerprint.profile() == AggregationCategoryProfile.PROGRAMME
+                || fingerprint.profile() == AggregationCategoryProfile.DOCUMENTARY;
     }
 
     private boolean sharesPeopleInSameRole(VideoFingerprint left, VideoFingerprint right) {
@@ -464,20 +488,8 @@ public class AggregationMatchingStrategy {
     }
 
     private Set<String> normalizedNames(Set<String> values) {
-        Set<String> names = new HashSet<>();
-        addNormalizedNames(names, values);
-        return Set.copyOf(names);
-    }
-
-    private void addNormalizedNames(Set<String> target, Set<String> values) {
-        if (values == null) {
-            return;
-        }
-        values.stream()
-                .filter(StringUtils::hasText)
-                .map(value -> value.trim().toLowerCase(Locale.ROOT))
-                .filter(value -> !UNKNOWN_METADATA_NAMES.contains(value))
-                .forEach(target::add);
+        return PersonNames.normalize(values).stream().map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private boolean isEpisodeCountCompatible(Integer leftCount, Integer rightCount) {
@@ -564,10 +576,12 @@ public class AggregationMatchingStrategy {
     }
 
     private int checkExternalId(String provider, String left, String right) {
-        if (!isUsableExternalId(provider, left) || !isUsableExternalId(provider, right)) {
+        String normalizedLeft = safetyPolicy.normalizeExternalId(provider, left);
+        String normalizedRight = safetyPolicy.normalizeExternalId(provider, right);
+        if (normalizedLeft == null || normalizedRight == null) {
             return 0;
         }
-        return left.trim().equalsIgnoreCase(right.trim()) ? 1 : -1;
+        return normalizedLeft.equals(normalizedRight) ? 1 : -1;
     }
 
     boolean isUsableExternalId(String provider, String value) {
@@ -578,14 +592,17 @@ public class AggregationMatchingStrategy {
         return safetyPolicy.rejectedExternalIdValues(provider);
     }
 
+    String normalizeExternalId(String provider, String value) {
+        return safetyPolicy.normalizeExternalId(provider, value);
+    }
+
     boolean isHardIdentityCompatible(RawVideoAggregationRecord left, RawVideoAggregationRecord right) {
         return isHardIdentityCompatible(left, right, fingerprint(left), fingerprint(right));
     }
 
     private boolean isHardIdentityCompatible(RawVideoAggregationRecord left, RawVideoAggregationRecord right,
             VideoFingerprint leftFingerprint, VideoFingerprint rightFingerprint) {
-        return AggregationSafetyPolicy.categoriesCompatible(left.categoryName(), right.categoryName())
-                && yearsCompatible(leftFingerprint.year(), rightFingerprint.year())
+        return AggregationSafetyPolicy.categoriesCompatible(AggregationCategoryProfile.category(left), AggregationCategoryProfile.category(right))
                 && fingerprintsCompatible(leftFingerprint, rightFingerprint)
                 && checkExternalIds(leftFingerprint, rightFingerprint) >= 0;
     }
@@ -596,8 +613,7 @@ public class AggregationMatchingStrategy {
 
     private boolean isHardIdentityCompatible(RawVideoAggregationRecord raw, UnifiedVideoAggregationCandidate unified,
             VideoFingerprint rawFingerprint, VideoFingerprint unifiedFingerprint) {
-        return AggregationSafetyPolicy.categoriesCompatible(raw.categoryName(), unified.categoryName())
-                && yearsCompatible(rawFingerprint.year(), unifiedFingerprint.year())
+        return AggregationSafetyPolicy.categoriesCompatible(AggregationCategoryProfile.category(raw), unified.categoryName())
                 && fingerprintsCompatible(rawFingerprint, unifiedFingerprint)
                 && checkExternalIds(rawFingerprint, unifiedFingerprint) >= 0;
     }
@@ -610,16 +626,26 @@ public class AggregationMatchingStrategy {
         if (raw == null || unified == null) { return "MISSING_IDENTITY"; }
         VideoFingerprint left = fingerprint(raw);
         VideoFingerprint right = fingerprint(unified);
-        if (!AggregationSafetyPolicy.categoriesCompatible(raw.categoryName(), unified.categoryName())) {
+        if (!AggregationSafetyPolicy.categoriesCompatible(AggregationCategoryProfile.category(raw), unified.categoryName())) {
             return "CATEGORY_CONFLICT";
         }
-        if (!yearsCompatible(left.year(), right.year())) { return "YEAR_CONFLICT"; }
+        if (!profileYearsCompatible(left, right)) { return "YEAR_CONFLICT"; }
         // Refresh preserves an existing relationship when a field is simply missing. New
         // matching still uses strict season evidence and does not assume that unknown is S1.
         if (left.season() != null && right.season() != null && !left.season().equals(right.season())) {
             return "SEASON_CONFLICT";
         }
         if (!isVersionCompatible(left.version(), right.version())) { return "VERSION_CONFLICT"; }
+        if (AggregationCategoryProfile.installmentsConflict(left.installments(), right.installments())) {
+            return "INSTALLMENT_CONFLICT";
+        }
+        if (filmSequenceConflict(left, right)) { return "FILM_SEQUENCE_CONFLICT"; }
+        if (programmeEditionConflict(left, right)) { return "EDITION_CONFLICT"; }
+        if (usesShortDramaProfile(left, right) && !left.completeTitle().equals(right.completeTitle())
+                && !left.completeTitle().startsWith(right.completeTitle())
+                && !right.completeTitle().startsWith(left.completeTitle())) {
+            return "SHORT_DRAMA_TITLE_CONFLICT";
+        }
         for (String provider : EXTERNAL_ID_PROVIDERS) {
             String leftId = left.externalIds().get(provider);
             String rightId = right.externalIds().get(provider);
@@ -637,13 +663,81 @@ public class AggregationMatchingStrategy {
     private boolean isHardIdentityCompatible(UnifiedVideoAggregationCandidate left, UnifiedVideoAggregationCandidate right,
             VideoFingerprint leftFingerprint, VideoFingerprint rightFingerprint) {
         return AggregationSafetyPolicy.categoriesCompatible(left.categoryName(), right.categoryName())
-                && yearsCompatible(leftFingerprint.year(), rightFingerprint.year())
                 && fingerprintsCompatible(leftFingerprint, rightFingerprint)
                 && checkExternalIds(leftFingerprint, rightFingerprint) >= 0;
     }
 
     private boolean fingerprintsCompatible(VideoFingerprint left, VideoFingerprint right) {
-        return isSeasonCompatible(left.season(), right.season()) && isVersionCompatible(left.version(), right.version());
+        return isSeasonCompatible(left.season(), right.season()) && isVersionCompatible(left.version(), right.version())
+                && profileYearsCompatible(left, right)
+                && !AggregationCategoryProfile.installmentsConflict(left.installments(), right.installments())
+                && (!left.profile().requiresCompleteTitle() && !right.profile().requiresCompleteTitle()
+                    || left.completeTitle().equals(right.completeTitle()))
+                && !filmSequenceConflict(left, right)
+                && !programmeEditionConflict(left, right)
+                && animationFormatCompatible(left, right)
+                && sourceOnlyEvidenceCompatible(left, right)
+                && (!usesSportsProfile(left, right) || sameSportsEvent(left, right))
+                && !hasConflictingEventIdentity(left, right);
+    }
+
+    private boolean usesSportsProfile(VideoFingerprint left, VideoFingerprint right) {
+        return left.profile() == AggregationCategoryProfile.SPORTS || right.profile() == AggregationCategoryProfile.SPORTS;
+    }
+
+    private boolean usesShortDramaProfile(VideoFingerprint left, VideoFingerprint right) {
+        return left.profile() == AggregationCategoryProfile.SHORT_DRAMA || right.profile() == AggregationCategoryProfile.SHORT_DRAMA;
+    }
+
+    private boolean filmSequenceConflict(VideoFingerprint left, VideoFingerprint right) {
+        return (left.profile() == AggregationCategoryProfile.MOVIE || right.profile() == AggregationCategoryProfile.MOVIE)
+                && AggregationCategoryProfile.filmSequenceConflict(left.originalCompleteTitle(), right.originalCompleteTitle());
+    }
+
+    private boolean programmeEditionConflict(VideoFingerprint left, VideoFingerprint right) {
+        if (left.profile() != AggregationCategoryProfile.PROGRAMME && right.profile() != AggregationCategoryProfile.PROGRAMME) {
+            return false;
+        }
+        String a = AggregationCategoryProfile.editionYear(left.completeTitle());
+        String b = AggregationCategoryProfile.editionYear(right.completeTitle());
+        return a != null && b != null && !a.equals(b);
+    }
+
+    private boolean animationFormatCompatible(VideoFingerprint left, VideoFingerprint right) {
+        if (left.profile() != AggregationCategoryProfile.ANIMATION && right.profile() != AggregationCategoryProfile.ANIMATION) {
+            return true;
+        }
+        String a = left.installments().get("format"), b = right.installments().get("format");
+        if (a == null && b == null) { return true; }
+        if (a != null && a.equals(b)) { return true; }
+        return Integer.valueOf(0).equals(left.season()) && Integer.valueOf(0).equals(right.season());
+    }
+
+    private boolean sourceOnlyEvidenceCompatible(VideoFingerprint left, VideoFingerprint right) {
+        if (left.profile() == AggregationCategoryProfile.NEWS || right.profile() == AggregationCategoryProfile.NEWS) {
+            return left.installments().containsKey("record-date") && right.installments().containsKey("record-date");
+        }
+        if (left.profile() == AggregationCategoryProfile.MUSIC || right.profile() == AggregationCategoryProfile.MUSIC) {
+            return left.actors().stream().anyMatch(right.actors()::contains)
+                    || left.installments().containsKey("record-date") && right.installments().containsKey("record-date");
+        }
+        if (left.profile() == AggregationCategoryProfile.EDUCATION || right.profile() == AggregationCategoryProfile.EDUCATION) {
+            return left.actors().stream().anyMatch(right.actors()::contains);
+        }
+        return true;
+    }
+
+    private boolean profileYearsCompatible(VideoFingerprint left, VideoFingerprint right) {
+        // An annual sports fixture cannot use the film-release +/- one-year tolerance.
+        Integer leftYear = left.eventKey().map(AggregationSportsIdentity::year).orElse(null);
+        Integer rightYear = right.eventKey().map(AggregationSportsIdentity::year).orElse(null);
+        return usesSportsProfile(left, right) ? leftYear == null || rightYear == null || leftYear.equals(rightYear)
+                : yearsCompatible(left.year(), right.year());
+    }
+
+    private boolean sameSportsEvent(VideoFingerprint left, VideoFingerprint right) {
+        return left.eventKey().isPresent() && right.eventKey().isPresent()
+                && left.eventKey().get().supportsSameEvent(right.eventKey().get());
     }
 
     private Integer parseYear(String value) {
@@ -675,32 +769,15 @@ public class AggregationMatchingStrategy {
         }
     }
 
-    /**
-     * Date-stamped events (sports fixtures, live broadcasts) share a long common suffix such as
-     * "25-26赛季…联赛", which inflates Jaro-Winkler similarity between genuinely different fixtures.
-     * When both sides resolve to an event identity that disagrees, they are different works
-     * regardless of how close the raw titles look.
-     */
-    private boolean hasConflictingEventIdentity(String leftTitle, String rightTitle) {
-        Optional<String> left = AggregationTitleNormalizer.eventIdentityKey(leftTitle);
-        if (left.isEmpty()) {
-            return false;
-        }
-        Optional<String> right = AggregationTitleNormalizer.eventIdentityKey(rightTitle);
-        if (right.isEmpty()) {
-            return false;
-        }
-        return !left.get().equals(right.get());
-    }
-
     private boolean hasConflictingEventIdentity(VideoFingerprint left, VideoFingerprint right) {
         return left.eventKey().isPresent() && right.eventKey().isPresent()
-                && !left.eventKey().equals(right.eventKey());
+                && left.eventKey().get().conflictsWith(right.eventKey().get());
     }
 
     private record VideoFingerprint(List<String> titles, Integer season, VideoVersion version,
-            Set<String> actors, Set<String> directors, Optional<String> eventKey, Integer year, Integer episodeCount,
-            Set<String> areas, Map<String, String> externalIds, String primaryTitle, String subtitle) {
+            Set<String> actors, Set<String> directors, Optional<AggregationSportsIdentity> eventKey, Integer year, Integer episodeCount,
+            Set<String> areas, Map<String, String> externalIds, String primaryTitle, String subtitle,
+            AggregationCategoryProfile profile, String completeTitle, Map<String, String> installments, String originalCompleteTitle) {
     }
 
     private enum VideoVersion {

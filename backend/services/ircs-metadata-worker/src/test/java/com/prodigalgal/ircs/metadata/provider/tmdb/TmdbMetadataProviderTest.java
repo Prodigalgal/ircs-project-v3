@@ -102,6 +102,25 @@ class TmdbMetadataProviderTest {
     }
 
     @Test
+    void explicitMovieWithLegacySeasonStillSearchesMovieAndNeverFetchesTelevisionSeason() {
+        MetadataSearchContext context = MetadataSearchContext.builder().title("叶问2")
+                .categorySlug("movie").season(2).year("2010").build();
+        when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
+        when(httpClient.getJson(argThat(this::isMovieSearchUri))).thenReturn(Optional.of("""
+                {"results":[{"id":603,"title":"叶问2","release_date":"2010-04-29"}]}
+                """));
+        when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(Optional.of("""
+                {"title":"叶问2","release_date":"2010-04-29"}
+                """));
+
+        assertEquals("603", provider.enrich(context).orElseThrow().getTmdbId());
+
+        verify(httpClient).getJson(argThat(this::isMovieSearchUri));
+        verify(httpClient).getJson(argThat(this::isMovieDetailUri));
+        verify(httpClient, org.mockito.Mockito.never()).getJson(argThat(uri -> uri.getPath().contains("/tv")));
+    }
+
+    @Test
     void rotatesStartingCredentialAcrossRequests() {
         TmdbCredential first = new TmdbCredential(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),

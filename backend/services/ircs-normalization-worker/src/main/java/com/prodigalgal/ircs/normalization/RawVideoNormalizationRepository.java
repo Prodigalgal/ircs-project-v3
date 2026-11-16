@@ -51,7 +51,7 @@ public class RawVideoNormalizationRepository {
                     select id, normalization_status, normalization_retry_count, raw_metadata::text, locked_fields::text,
                            title, alias_title, season, subtitle, description, year, area, raw_language_str, remarks, score,
                            total_episodes, duration, douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
-                           data_source_id, data_hash
+                           data_source_id, data_hash, category_code, source_category_name
                     from raw_videos
                     where id = :id
                     """,
@@ -79,7 +79,9 @@ public class RawVideoNormalizationRepository {
                             rs.getString("imdb_id"),
                             rs.getString("rotten_tomatoes_id"),
                             rs.getObject("data_source_id", UUID.class),
-                            rs.getString("data_hash"))));
+                            rs.getString("data_hash"),
+                            rs.getString("category_code"),
+                            rs.getString("source_category_name"))));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -373,6 +375,7 @@ public class RawVideoNormalizationRepository {
                        language_codes = case when :hasLanguageCodes then cast(:languageCodes as jsonb) else language_codes end,
                        genre_codes = case when :hasGenreCodes then cast(:genreCodes as jsonb) else genre_codes end,
                        category_code = case
+                           when lower(coalesce(category_code, '')) in (:allowedCategoryCodes) then category_code
                            when cast(:categoryCode as text) is not null then cast(:categoryCode as text)
                            when lower(coalesce(category_code, '')) not in (:allowedCategoryCodes) then null
                            else category_code

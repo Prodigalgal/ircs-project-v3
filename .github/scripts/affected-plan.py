@@ -192,6 +192,35 @@ def is_test(path: str) -> bool:
             or re.search(r"(?:^|/)(?:test_[^/]+|[^/]+[.](?:test|spec)[.][^/]+)$", path) is not None)
 
 
+def settings_include_delta(before: str, after: str) -> set[str] | None:
+    """Only a literal include list with an unchanged literal root name has a narrow scope.
+
+    Any executable settings DSL falls back to all Java consumers, even when that DSL
+    itself did not change: it may react to the set of included projects.
+    """
+    def literal_settings(source):
+        modules, root_name = set(), None
+        for line in strip_gradle_comments(source).splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            include = re.fullmatch(r"include\s+['\"]:?(shared:[\w-]+|services:[\w-]+|platform:[\w-]+)['\"]\s*;?", line)
+            if include:
+                modules.add(include[1])
+                continue
+            root = re.fullmatch(r"rootProject\.name\s*=\s*(['\"])([\w.-]+)\1\s*;?", line)
+            if root and root_name is None:
+                root_name = root[2]
+                continue
+            return None
+        return (root_name, modules) if modules else None
+
+    old, new = literal_settings(before), literal_settings(after)
+    if old is None or new is None or old[0] != new[0]:
+        return None
+    return old[1] ^ new[1]
+
+
 def plan_changes(changes: Sequence[str | Mapping[str, str]], before: Mapping[str, str],
                  after: Mapping[str, str], *, initial: bool = False) -> dict:
     """Pure planner API; before/after contain settings, build files and changed contents."""
@@ -258,7 +287,16 @@ def plan_changes(changes: Sequence[str | Mapping[str, str]], before: Mapping[str
                     java_code.add(module)
                 reason(path, "java:" + module, "Module-local test input" if is_test(path) else "Module build/runtime input; follow transitive consumers")
                 continue
-            if (path in ("backend/build.gradle", "backend/settings.gradle", "backend/gradle.properties",
+            if path == "backend/settings.gradle":
+                delta = settings_include_delta(before.get(path, ""), after.get(path, ""))
+                if delta is None:
+                    all_java(path, "Executable/shared Gradle settings require conservative Java scope")
+                else:
+                    java_code.update(delta)
+                    java_direct.update(delta)
+                    reason(path, "java-project-graph", "Literal include changes; follow old and new transitive consumers")
+                continue
+            if (path in ("backend/build.gradle", "backend/gradle.properties",
                          "backend/gradlew", "backend/gradlew.bat", "backend/.dockerignore")
                     or path.startswith(("backend/gradle/", "backend/buildSrc/", "backend/src/", "backend/resources/"))
                     or path.startswith("backend/scripts/docker/")):
