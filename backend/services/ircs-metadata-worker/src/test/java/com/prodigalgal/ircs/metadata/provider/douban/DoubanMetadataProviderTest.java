@@ -130,11 +130,11 @@ class DoubanMetadataProviderTest {
         var context = MetadataSearchContext.builder().title("Alien").build();
         when(credentialRepository.findPreferred()).thenReturn(Optional.empty());
         when(httpClient.getJson(any(), any())).thenReturn(Optional.of("""
-                [{"id":"sequel","title":"Alien Covenant"},
-                 {"title":"Alien"}, {"id":"original","title":"Alien"}]
+                [{"id":"26825482","title":"Alien Covenant"},
+                 {"title":"Alien"}, {"id":"1300868","title":"Alien"}]
                 """));
 
-        assertThat(provider.enrich(context).orElseThrow().getDoubanId()).isEqualTo("original");
+        assertThat(provider.enrich(context).orElseThrow().getDoubanId()).isEqualTo("1300868");
     }
 
     private boolean isSuggestUri(URI uri) {

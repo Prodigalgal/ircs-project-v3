@@ -118,12 +118,12 @@ public class RawVideoMetadataRepository {
         }
         if (!record.isFieldLocked("actors")) {
             LinkedHashSet<String> names = new LinkedHashSet<>(safe(record.getActorNames()));
-            collectValues(metadata, names, "actorNames", "actors", "actor");
+            collectPeopleValues(metadata, names, "actorNames", "actors", "actor");
             record.setActorNames(PersonNames.normalize(names));
         }
         if (!record.isFieldLocked("directors")) {
             LinkedHashSet<String> names = new LinkedHashSet<>(safe(record.getDirectorNames()));
-            collectValues(metadata, names, "directorNames", "directors", "director");
+            collectPeopleValues(metadata, names, "directorNames", "directors", "director");
             record.setDirectorNames(PersonNames.normalize(names));
         }
         Set<String> areas = record.isFieldLocked("area") ? Set.of() : values(metadata, "area", "region");
@@ -177,18 +177,26 @@ public class RawVideoMetadataRepository {
 
     private void collectValues(JsonNode metadata, Set<String> target, String... keys) {
         for (String key : keys) {
-            collectValue(metadata.get(key), target);
+            collectValue(metadata.get(key), target, true);
         }
     }
 
-    private void collectValue(JsonNode value, Set<String> target) {
+    private void collectPeopleValues(JsonNode metadata, Set<String> target, String... keys) {
+        for (String key : keys) {
+            // PersonNames must decode entities and reject whole placeholders before splitting.
+            collectValue(metadata.get(key), target, false);
+        }
+    }
+
+    private void collectValue(JsonNode value, Set<String> target, boolean splitDelimited) {
         if (value == null || value.isNull()) {
             return;
         }
         if (value.isArray()) {
-            value.forEach(child -> collectValue(child, target));
+            value.forEach(child -> collectValue(child, target, splitDelimited));
         } else if (value.isTextual()) {
-            for (String token : value.asText().split("[,，、/|;；]+")) {
+            String[] tokens = splitDelimited ? value.asText().split("[,，、/|;；]+") : new String[]{value.asText()};
+            for (String token : tokens) {
                 if (!token.isBlank()) {
                     target.add(token.trim());
                 }

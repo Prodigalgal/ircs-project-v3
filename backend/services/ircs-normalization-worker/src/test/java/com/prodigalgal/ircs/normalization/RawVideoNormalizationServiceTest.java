@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.normalization;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -114,7 +115,7 @@ class RawVideoNormalizationServiceTest {
         verify(repository).markReady(eq(id), patch.capture());
         assertEquals("Codex Title", patch.getValue().title());
         assertEquals("2026", patch.getValue().year());
-        assertEquals(2, patch.getValue().season());
+        assertNull(patch.getValue().season());
         assertEquals("黄金行为", patch.getValue().subtitle());
         assertEquals(Set.of("动作", "科幻"), patch.getValue().rawGenreValues());
         assertEquals(Set.of("国语", "英语"), patch.getValue().rawLanguageValues());
