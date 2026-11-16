@@ -169,8 +169,8 @@ class NativeRuntimeScopeTest(unittest.TestCase):
                             for query, value in queries.items()]
                     links = [{'status': candidate_status, 'provider_code': provider_code,
                               'provider_evidence': {'mode': 'fixture', 'identityDisposition': 'CANDIDATE'},
-                              'info_hash': str(index) * 40, 'magnet_uri': 'magnet:?xt=urn:btih:' + str(index) * 40}
-                             for index in (1, 2)]
+                              'info_hash': letter * 40, 'magnet_uri': 'magnet:?xt=urn:btih:' + letter.lower() * 40}
+                             for letter in ('A', 'B')]
                     return json.dumps({'job': {'status': durable_status, 'finished_at': '2026-11-16T00:00:00Z',
                                               'provider_codes': [provider_code], 'total_candidates': 2, 'accepted_count': 2},
                                        'jobCount': 1, 'runs': runs, 'links': links})

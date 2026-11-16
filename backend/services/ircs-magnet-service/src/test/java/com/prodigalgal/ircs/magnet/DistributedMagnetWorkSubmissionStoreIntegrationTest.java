@@ -80,7 +80,7 @@ class DistributedMagnetWorkSubmissionStoreIntegrationTest {
     @Test
     void doesNotReviveTerminalTasksOrInflightAndDlqEntries() {
         RuntimeWorkItemRequest processed = request();
-        seedTask(processed, "PROCESSED", "", "done", "1");
+        seedTask(processed, "SUCCESS", "", "done", "1");
         assertThat(store.submitIfAbsent(processed)).isFalse();
         RuntimeWorkItemRequest inflight = request();
         redis.opsForZSet().add(prefix + ":magnet.search:inflight", inflight.taskId(), 1);

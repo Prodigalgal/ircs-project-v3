@@ -79,7 +79,7 @@ class MagnetPendingWorkRecoveryTest {
 
     @Test
     void terminalQueueStatesOnlyFailAbandonedDurableJobAndNeverRepublish() {
-        for (String state : List.of("PERMANENT_FAILURE", "PROCESSED")) {
+        for (String state : List.of("PERMANENT_FAILURE", "SUCCESS")) {
             UUID jobId = UUID.randomUUID();
             UUID videoId = UUID.randomUUID();
             JdbcTemplate jdbc = jdbcWithJobs(List.of(new JobRow(jobId, videoId, 7, Instant.now().minusSeconds(600))));

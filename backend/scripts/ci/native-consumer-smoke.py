@@ -548,10 +548,12 @@ def magnet_search_round_trip():
             'Native magnet must persist exactly two accepted fixture candidates'
         assert all(link['status'] == 'CANDIDATE' and link['provider_code'] == provider_code
                    and link['provider_evidence'].get('identityDisposition') == 'CANDIDATE'
-                   and link['provider_evidence'].get('mode') == 'fixture'
-                   and re.fullmatch(r'[0-9a-f]{40}', link['info_hash'])
-                   and 'xt=urn:btih:' + link['info_hash'] in link['magnet_uri'] for link in links), \
+                   and link['provider_evidence'].get('mode') == 'fixture' for link in links), \
             'Uncorroborated Native fixture results must remain valid CANDIDATE links even with provider auto-approval enabled'
+        assert all(re.fullmatch(r'[0-9A-F]{40}', link['info_hash']) for link in links), \
+            'Native magnet info hashes must use canonical uppercase hexadecimal'
+        assert all('xt=urn:btih:' + link['info_hash'].lower() in link['magnet_uri'].lower() for link in links), \
+            'Native magnet URI must encode the same hash, allowing equivalent hexadecimal letter case'
 
         def pool_released():
             state = json.loads(sql(

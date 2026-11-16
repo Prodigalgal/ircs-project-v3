@@ -85,7 +85,7 @@ final class MagnetPendingWorkRecovery {
         for (PendingJob job : jobs) {
             ClusterLeaseGuard.checkCurrentOwnership();
             String state = submissions.status(MagnetWorkTypes.searchTaskId(job.id()));
-            if ("PERMANENT_FAILURE".equals(state) || "PROCESSED".equals(state)) {
+            if ("PERMANENT_FAILURE".equals(state) || "SUCCESS".equals(state)) {
                 if (coordinator.failAbandoned(job.id(), job.unifiedVideoId(), job.generation(), cutoff,
                         "MAGNET_QUEUE_TERMINAL_STATE:" + state)) { recovered++; }
             } else if (state == null && publisher.backlogDepth() < maxQueueDepth) {
