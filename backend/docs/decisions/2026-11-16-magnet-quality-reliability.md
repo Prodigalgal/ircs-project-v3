@@ -29,3 +29,27 @@
 ## 兼容与回滚
 
 现有任务与队列载荷保持可读。现有 version/updated_at 用于执行权，无需删除历史数据。新代码部署期间旧 Pod 可能尚未遵守执行世代，滚动完成前不宣称并发隔离全部生效。回滚使用上一不可变镜像；新增安全校验会降低自动批准数量，待审核数量可能上升，属于明确展示的保守行为。
+
+## 3.6.4 交付与验收（2026-11-16）
+
+- 源码 `d4fd56263da4b7ddb41efc755e5b484524689bb1`；GitHub Actions `43864105336` 全部成功。Java 168 项测试，失败/错误/跳过均为 0；其中 PostgreSQL 协调器与真实执行器集成 20 项、Valkey 协议集成 8 项、固定样本回归 22 项。CI 工具回归另有 31 项通过。
+- 只构建 `ircs-magnet-service` 的 amd64/arm64 Native 镜像，两个架构均通过真实 HTTP 入队、重复投递不改 claim、真实 worker 消费、provider run 和链接落库、两连接池事务释放验证。前端、Python、其他 Java 服务未重建。
+- GitOps `ff07d72c40d1ec3c87f13efd8013907c9e06c8be` 仅更新磁链镜像与发布账本；Argo CD `ircs-prod-core` 为 Synced/Healthy。镜像为 `docker.io/speedproxy/ircs-magnet-service:20261116-v3.6.4-production-test.1-d4fd56263da4`。
+- 生产 Pod `ircs-magnet-service-76f98b894d-6qfjc` 就绪、零重启，运行时版本为 `3.6.4`。2026-11-16 20:31（北京时间）只读检查：Hikari active/pending/timeout 均为 0，max 为原配置 3；正常 worker 已自行将 20 个重复数据库任务标为 SKIPPED，保留任务历史。
+- 同次观察中，新生成的 12 条链接全部为 CANDIDATE，含“具体节目身份未确认”“目标季数未确认”等可解释原因；访问受限与解析错误已明确记录。该短时观察不证明总体准确率或长期吞吐，积压尚未消化完毕。
+- 20:34（北京时间）复查：系统自行跳过的重复任务已增至 112，发布后没有新建搜索 job（背压已生效）；数据库仍有 187,248 个 PENDING，队列 pending/inflight/DLQ 分别为 121,083/6/123。DLQ 包含明确失败，不能把待处理和终态失败混算为已成功，也不能宣称积压已清零。原始/聚合作品/绑定行数仍为 54,221/18,960/54,100；生产 fixture、新建的无佐证自动批准、无 ID 增强假成功均为 0。
+
+### 关键变更
+
+1. `MagnetSearchExecutor` 编排源站调用、匹配判定及失败恢复；`MagnetQueryService` 保留原有管理接口并委派搜索，外部 HTTP 和流控等待不占用事务。
+2. `MagnetSearchJobCoordinator` 使用作品行锁、执行世代和有效租期保护短事务；重复 API 入队复用任务，正常领取有界合并无执行历史的重复任务；已有 provider run 仍保留。
+3. `DistributedMagnetWorkSubmissionStore` 原子发布一次，保留活跃 claim、终态和重试预算，同时沿用公共队列事件与速率指标。`MagnetPendingWorkRecovery` 有界补投遗漏消息，并按队列实际终态 SUCCESS/PERMANENT_FAILURE 对齐已废弃任务，不复活 DLQ。
+4. `MagnetQueueClaimGuard` 与数据库执行续租协同；等待其他执行者时不消耗业务重试，defer 更换 submission token 防止旧令牌复活。成功源和有效空结果不重复请求，明确永久失败不会无限重试。
+5. `MagnetCandidateIdentityPolicy` 区分拒绝、待审核和可自动批准，使用真实返回 ID/标题/年份/季数及分类约束；查询回显和旧 provider 分数不再作为身份证明。保留 APPROVED/REJECTED/HIDDEN 审核状态，链接写入使用 PostgreSQL 原子 upsert。
+6. 修正 Base32/十六进制哈希等价处理、异常响应分类与 fixture 隔离；未知/错误页不再成为成功空结果，fixture 仅在显式开关和限定测试 profile 同时满足时启用。
+
+### 边界及回滚
+
+生产检查只读，未执行人工改库、清队列、批量重放或存量链接删除。历史错配与人工状态没有被这次交付重写；75 条分源样本及其限制见报告 139。3.6.0—3.6.3 为已占用但未上线的验证候选，不复用版本或制品。若需回滚，使用原不可变磁链镜像 `20261113-v3.2.2-production-test.1-615fa50cd30b`，无需数据库回滚；旧镜像会恢复本次修复前的匹配与队列行为，应先评估这一风险。
+
+生产只读快照、云端测试汇总和可重复执行的只读验收脚本保存在服务器管理项目的既有 `docs/`、`k8s-dualstack/scripts/` 下；不包含完整 Git 备份或资源下载。
