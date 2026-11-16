@@ -72,6 +72,8 @@ class CategoryAwareNormalizationTest {
         }
         assertNull(normalize("movie", "钢铁侠3", "{}", "[]", null).season());
         assertEquals(2, normalize("anime", "作品 第2季", "{}", "[]", null).season());
+        assertEquals(2, normalize("", "作品 第2季", "{}", "[]", null).season());
+        assertEquals(0, normalize("", "作品 S00", "{}", "[]", null).season());
         assertEquals("Dune Part Ⅱ", normalize("movie", "Dune Part Ⅱ", "{}", "[]", null).title());
         assertEquals("ラブライブ", normalize("anime", "ラブライブ", "{}", "[]", null).title());
     }

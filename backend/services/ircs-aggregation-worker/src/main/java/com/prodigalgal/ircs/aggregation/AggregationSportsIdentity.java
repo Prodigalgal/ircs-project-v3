@@ -12,7 +12,8 @@ import org.springframework.util.StringUtils;
 
 /** Bounded in-memory fixture evidence. Scores and broadcast labels are never participant names. */
 record AggregationSportsIdentity(Integer year, MonthDay date, String details, String competition,
-        String participants, Map<String, String> rounds, String group, boolean fixture, boolean standaloneEvent) {
+        String participants, Map<String, String> rounds, String group, String competitionSeason,
+        boolean fixture, boolean standaloneEvent) {
 
     private static final Pattern COMPACT_DATE = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])(?!\\d)");
     private static final Pattern FULL_DATE = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})[年/.-](\\d{1,2})[月/.-](\\d{1,2})日?");
@@ -73,6 +74,8 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
         text = SCORE.matcher(text).replaceAll("vs");
         text = VS.matcher(text).replaceAll("vs");
         text = text.replaceAll("([0-9]+)[/.之_]([0-9]+)决赛", "$1of$2决赛");
+        Matcher season = SEASON.matcher(text);
+        String competitionSeason = season.find() ? key(season.group()) : null;
         String details = key(text);
         int versus = details.indexOf("vs");
         String competition = details;
@@ -94,7 +97,7 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
         Integer resolvedYear = parsedYear == null ? metadataYear : parsedYear;
         if (date != null && resolvedYear != null && !date.isValidYear(resolvedYear)) { date = null; }
         return new AggregationSportsIdentity(resolvedYear, date, details,
-                competition, participants, rounds, group, fixture, STANDALONE.matcher(details).find());
+                competition, participants, rounds, group, competitionSeason, fixture, STANDALONE.matcher(details).find());
     }
 
     boolean conflictsWith(AggregationSportsIdentity other) {
@@ -105,7 +108,8 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
 
     boolean supportsSameEvent(AggregationSportsIdentity other) {
         // A league/day heading or an undated recurring fixture cannot prove one concrete event.
-        boolean calendarAnchor = year != null && other.year != null || SEASON.matcher(details).find();
+        boolean calendarAnchor = year != null && other.year != null
+                || competitionSeason != null && competitionSeason.equals(other.competitionSeason);
         return !conflictsWith(other) && calendarAnchor && date != null && date.equals(other.date)
                 && !details.isEmpty() && details.equals(other.details)
                 && ((fixture && other.fixture) || (standaloneEvent && other.standaloneEvent));

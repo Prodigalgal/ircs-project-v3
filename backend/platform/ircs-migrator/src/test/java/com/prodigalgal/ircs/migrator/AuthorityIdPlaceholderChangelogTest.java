@@ -18,7 +18,7 @@ class AuthorityIdPlaceholderChangelogTest {
                 var accessor = new ClassLoaderResourceAccessor()) {
             assertThat(master).isNotNull();
             assertThat(new String(master.readAllBytes(), StandardCharsets.UTF_8))
-                    .contains("file: " + RESOURCE, "1785900000006-tag-3.5.0", "tagDatabase:", "tag: 3.5.0");
+                    .contains("file: " + RESOURCE, "1785900000006-tag-3.5.1", "tagDatabase:", "tag: 3.5.1");
             var parser = ChangeLogParserFactory.getInstance().getParser(RESOURCE, accessor);
             var changes = parser.parse(RESOURCE, new ChangeLogParameters(), accessor).getChangeSets();
             assertThat(changes).hasSize(1);

@@ -671,14 +671,27 @@ public class AggregationMatchingStrategy {
         return isSeasonCompatible(left.season(), right.season()) && isVersionCompatible(left.version(), right.version())
                 && profileYearsCompatible(left, right)
                 && !AggregationCategoryProfile.installmentsConflict(left.installments(), right.installments())
-                && (!left.profile().requiresCompleteTitle() && !right.profile().requiresCompleteTitle()
-                    || left.completeTitle().equals(right.completeTitle()))
+                && completeTitlesCompatible(left, right)
                 && !filmSequenceConflict(left, right)
                 && !programmeEditionConflict(left, right)
                 && animationFormatCompatible(left, right)
                 && sourceOnlyEvidenceCompatible(left, right)
                 && (!usesSportsProfile(left, right) || sameSportsEvent(left, right))
                 && !hasConflictingEventIdentity(left, right);
+    }
+
+    private boolean completeTitlesCompatible(VideoFingerprint left, VideoFingerprint right) {
+        if (left.completeTitle().equals(right.completeTitle())
+                || !left.profile().requiresCompleteTitle() && !right.profile().requiresCompleteTitle()) {
+            return true;
+        }
+        // Missing classification must not discard a corroborated cross-language screen identity.
+        // Explicit short-form/source-only policies still require their complete title evidence.
+        boolean unknownScreenPair = (left.profile() == AggregationCategoryProfile.UNKNOWN
+                || right.profile() == AggregationCategoryProfile.UNKNOWN)
+                && (left.profile() == AggregationCategoryProfile.UNKNOWN || !left.profile().requiresCompleteTitle())
+                && (right.profile() == AggregationCategoryProfile.UNKNOWN || !right.profile().requiresCompleteTitle());
+        return unknownScreenPair && sharedExternalIdCount(left, right) > 0 && sharesPeopleInSameRole(left, right);
     }
 
     private boolean usesSportsProfile(VideoFingerprint left, VideoFingerprint right) {

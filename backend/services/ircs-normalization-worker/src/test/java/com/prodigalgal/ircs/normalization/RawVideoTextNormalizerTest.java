@@ -636,13 +636,13 @@ class RawVideoTextNormalizerTest {
     @Test
     void retainsSportsParticipantsAndCommaTitleIdentityInStructuredFields() throws Exception {
         RawVideoPatch sports = normalizer.normalize(
-                record("[]", "6月28日25-26赛季新疆足球超级联赛 巴州队VS和田队", "2026", null),
+                categorizedRecord(record("[]", "6月28日25-26赛季新疆足球超级联赛 巴州队VS和田队", "2026", null), "sports"),
                 objectMapper.readTree("{}"));
         assertEquals("6月28日25-26赛季新疆足球超级联赛", sports.title());
         assertEquals("巴州队VS和田队", sports.subtitle());
         assertNull(sports.season());
         RawVideoPatch drama = normalizer.normalize(
-                record("[]", "被家族抛弃，我觉醒九亿属性点", "2026", null),
+                categorizedRecord(record("[]", "被家族抛弃，我觉醒九亿属性点", "2026", null), "short-drama"),
                 objectMapper.readTree("{}"));
         assertEquals("被家族抛弃", drama.title());
         assertEquals("我觉醒九亿属性点", drama.subtitle());
@@ -745,7 +745,7 @@ class RawVideoTextNormalizerTest {
     }
 
     private String normalizedTitle(String title, String year) throws Exception {
-        RawVideoRecord record = categorizedRecord(record("[]", title, year, null), "movie");
+        RawVideoRecord record = record("[]", title, year, null);
         JsonNode metadata = objectMapper.readTree("""
                 {
                   "title": %s,

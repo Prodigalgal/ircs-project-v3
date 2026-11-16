@@ -84,7 +84,7 @@ class RawVideoMetadataProjectionIntegrationTest {
         assertThat(record.getGenreCodes()).containsExactly("drama");
         record.setTmdbId("101");
 
-        assertThat(transaction.execute(status -> repository.save(record))).isEqualTo(1);
+        assertThat(transaction.<Integer>execute(status -> repository.save(record))).isEqualTo(1);
 
         RawVideoMetadataRecord stored = repository.findById(id).orElseThrow();
         assertThat(stored.getTmdbId()).isEqualTo("101");
@@ -104,7 +104,7 @@ class RawVideoMetadataProjectionIntegrationTest {
                  "area":"unknown", "language":"unknown", "genres":["unknown"]}
                 """);
         RawVideoMetadataRecord record = repository.findById(id).orElseThrow();
-        assertThat(transaction.execute(status -> repository.save(record))).isEqualTo(1);
+        assertThat(transaction.<Integer>execute(status -> repository.save(record))).isEqualTo(1);
         RawVideoMetadataRecord stored = repository.findById(id).orElseThrow();
         assertThat(stored.getActorNames()).isEmpty();
         assertThat(stored.getDirectorNames()).isEmpty();
@@ -128,7 +128,7 @@ class RawVideoMetadataProjectionIntegrationTest {
         record.setAreaCodes(Set.of("US"));
         record.setLanguageCodes(Set.of("en"));
         record.setGenreCodes(Set.of("sci-fi"));
-        assertThat(transaction.execute(status -> repository.save(record))).isEqualTo(1);
+        assertThat(transaction.<Integer>execute(status -> repository.save(record))).isEqualTo(1);
         RawVideoMetadataRecord stored = repository.findById(id).orElseThrow();
         assertThat(stored.getActorNames()).containsExactly("人工演员");
         assertThat(stored.getDirectorNames()).containsExactly("人工导演");
@@ -155,7 +155,7 @@ class RawVideoMetadataProjectionIntegrationTest {
         record.setYear("2030");
         record.setAliasTitle("spoof");
 
-        assertThat(transaction.execute(status -> repository.save(record))).isEqualTo(1);
+        assertThat(transaction.<Integer>execute(status -> repository.save(record))).isEqualTo(1);
 
         RawVideoMetadataRecord stored = repository.findById(id).orElseThrow();
         assertThat(stored.getDoubanId()).isEqualTo("123");
@@ -176,7 +176,7 @@ class RawVideoMetadataProjectionIntegrationTest {
         stale.setTmdbId("101");
         jdbc.update("update raw_videos set data_hash='hash-v2',raw_metadata='{\"actorNames\":[\"新采演员\"]}',actor_names='[\"新采演员\"]' where id=?", id);
 
-        assertThat(transaction.execute(status -> repository.save(stale))).isZero();
+        assertThat(transaction.<Integer>execute(status -> repository.save(stale))).isZero();
 
         RawVideoMetadataRecord stored = repository.findById(id).orElseThrow();
         assertThat(stored.getDataHash()).isEqualTo("hash-v2");

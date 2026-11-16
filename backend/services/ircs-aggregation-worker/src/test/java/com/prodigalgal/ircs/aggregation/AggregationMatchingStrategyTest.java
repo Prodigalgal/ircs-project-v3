@@ -473,14 +473,14 @@ class AggregationMatchingStrategyTest {
     @Test
     void unknownSeasonDoesNotImplyFirstSeason() {
         RawVideoAggregationRecord unknown = rawVideo(
-                "Codex Chronicles", null, "2026", "9001", null, null, null, null, null);
+                "Codex Chronicles", null, "2026", "9001", null, null, null, null, null, "剧集");
         UnifiedVideoAggregationCandidate firstSeason = candidate(
-                UUID.randomUUID(), "Codex Chronicles S1", null, "2026", "9001", null, null, null, 1, null);
+                UUID.randomUUID(), "Codex Chronicles S1", null, "2026", "9001", null, null, null, 1, null, "剧集");
 
         assertEquals(0.0, strategy.calculateSimilarity(unknown, firstSeason));
         assertTrue(strategy.isCompatibleBinding(unknown, firstSeason));
         RawVideoAggregationRecord secondSeason = rawVideo(
-                "Codex Chronicles S2", null, "2026", "9001", null, null, null, 2, null);
+                "Codex Chronicles S2", null, "2026", "9001", null, null, null, 2, null, "剧集");
         assertFalse(strategy.isCompatibleBinding(secondSeason, firstSeason));
         assertEquals("SEASON_CONFLICT", strategy.bindingConflictReason(secondSeason, firstSeason));
     }
@@ -599,6 +599,12 @@ class AggregationMatchingStrategyTest {
             String rottenTomatoesId,
             Integer season,
             String remarks) {
+        return rawVideo(title, aliasTitle, year, doubanId, tmdbId, imdbId, rottenTomatoesId, season, remarks, "电影");
+    }
+
+    private RawVideoAggregationRecord rawVideo(
+            String title, String aliasTitle, String year, String doubanId, String tmdbId,
+            String imdbId, String rottenTomatoesId, Integer season, String remarks, String category) {
         return new RawVideoAggregationRecord(
                 UUID.randomUUID(),
                 title,
@@ -612,7 +618,7 @@ class AggregationMatchingStrategyTest {
                 remarks,
                 null,
                 season,
-                "电影",
+                category,
                 doubanId,
                 tmdbId,
                 imdbId,
@@ -633,6 +639,13 @@ class AggregationMatchingStrategyTest {
             String rottenTomatoesId,
             Integer season,
             String remarks) {
+        return candidate(id, title, aliasTitle, year, doubanId, tmdbId, imdbId, rottenTomatoesId,
+                season, remarks, "电影");
+    }
+
+    private UnifiedVideoAggregationCandidate candidate(
+            UUID id, String title, String aliasTitle, String year, String doubanId, String tmdbId,
+            String imdbId, String rottenTomatoesId, Integer season, String remarks, String category) {
         return new UnifiedVideoAggregationCandidate(
                 id,
                 title,
@@ -642,7 +655,7 @@ class AggregationMatchingStrategyTest {
                 "12",
                 "45m",
                 remarks,
-                "电影",
+                category,
                 doubanId,
                 tmdbId,
                 imdbId,

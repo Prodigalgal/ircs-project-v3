@@ -168,8 +168,8 @@ databaseChangeLog:
   - include:
       file: db/changelog/2026/11/16-01-clear-authoritative-id-placeholders.sql
   - changeSet:
-      id: 1785900000006-tag-3.5.0
+      id: 1785900000006-tag-3.5.1
       author: codex
       changes:
         - tagDatabase:
-            tag: 3.5.0
+            tag: 3.5.1

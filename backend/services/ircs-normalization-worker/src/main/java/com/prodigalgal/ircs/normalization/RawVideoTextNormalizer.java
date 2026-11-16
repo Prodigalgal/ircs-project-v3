@@ -660,6 +660,10 @@ public class RawVideoTextNormalizer {
         if (SEASON_ONLY_PATTERN.matcher(right).matches()) {
             return null;
         }
+        // A numbered film part is part of the title, not a subtitle or TV season.
+        if (right.matches("第?[0-9零一二三四五六七八九十百两]+[部篇卷]")) {
+            return null;
+        }
         return new TitleSplit(left, right);
     }
 
@@ -1094,6 +1098,9 @@ public class RawVideoTextNormalizer {
                 BRACKET_SUBTITLE_SPLIT, HAN_SPACE_TITLE_SPLIT}) {
             Matcher matcher = separator.matcher(title);
             if (!matcher.matches()) {
+                continue;
+            }
+            if (separator == BRACKET_SUBTITLE_SPLIT && matcher.group(2).trim().matches("[0-9]+")) {
                 continue;
             }
             String main = cleanIdentityTitle(matcher.group(1));

@@ -83,7 +83,7 @@ enum NormalizationProfile {
 
     boolean preserveIdentityPunctuation() {
         return this == SPORTS || this == SHORT_DRAMA || this == VARIETY || this == DOCUMENTARY
-                || this == NEWS || this == EDUCATION || this == MUSIC || this == ADULT || this == OTHER || this == CONSERVATIVE;
+                || this == NEWS || this == EDUCATION || this == MUSIC || this == ADULT || this == OTHER;
     }
 
     boolean inferBareSequence() {
@@ -91,10 +91,11 @@ enum NormalizationProfile {
     }
 
     boolean usesScreenSeasons() {
-        return this == SERIES || this == ANIME || this == VARIETY || this == DOCUMENTARY || this == SHORT_DRAMA;
+        return this == SERIES || this == ANIME || this == VARIETY || this == DOCUMENTARY
+                || this == SHORT_DRAMA || this == CONSERVATIVE;
     }
 
     boolean retainsUnstructuredIdentity() {
-        return this == NEWS || this == EDUCATION || this == MUSIC || this == ADULT || this == OTHER || this == CONSERVATIVE;
+        return this == NEWS || this == EDUCATION || this == MUSIC || this == ADULT || this == OTHER;
     }
 }

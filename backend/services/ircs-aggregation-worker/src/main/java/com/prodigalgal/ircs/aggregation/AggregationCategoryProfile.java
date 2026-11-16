@@ -15,6 +15,8 @@ enum AggregationCategoryProfile {
     private static final Pattern NUMBERED_PART = Pattern.compile(
             "(?i)(part|cour)\\s*([0-9]+)|第\\s*([0-9零一二三四五六七八九十百两]+)\\s*([篇章卷期部])");
     private static final Pattern EDITION_YEAR = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})(?!\\d)");
+    private static final Pattern TECHNICAL_RELEASE_NOISE = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}])(?:720p|1080p|2160p|4k|web-dl|webrip|bluray|h[.]?26[45]|x26[45])(?![\\p{L}\\p{N}])");
     private static final Pattern FILM_SEQUENCE = Pattern.compile(
             "(?i)^(.+?)(?:第\\s*([0-9零一二三四五六七八九十百两]+)\\s*部|\\s*part\\s*([0-9]+)|(?<!\\d)([0-9]{1,2}))$");
     private static final Pattern FILM_ROMAN = Pattern.compile("(?i)^(.+?)\\s+(I|II|III|IV|V|VI|VII|VIII|IX|X)$");
@@ -106,7 +108,8 @@ enum AggregationCategoryProfile {
     }
 
     boolean usesScreenSeason() {
-        return this == SERIES || this == ANIMATION || this == SHORT_DRAMA || this == PROGRAMME || this == DOCUMENTARY;
+        return this == SERIES || this == ANIMATION || this == SHORT_DRAMA || this == PROGRAMME
+                || this == DOCUMENTARY || this == UNKNOWN;
     }
 
     boolean requiresCompleteTitle() {
@@ -126,7 +129,9 @@ enum AggregationCategoryProfile {
                 String date = recordDate(source);
                 if (date != null) { source = DATED_RECORD.matcher(source).replaceAll(date); }
             }
-            return java.text.Normalizer.normalize(source, java.text.Normalizer.Form.NFKC)
+            source = TECHNICAL_RELEASE_NOISE.matcher(java.text.Normalizer.normalize(source,
+                    java.text.Normalizer.Form.NFKC)).replaceAll(" ");
+            return source
                     .replaceAll("[\\p{P}\\p{Z}\\s]+", "").toLowerCase(Locale.ROOT);
         }
         return AggregationTitleNormalizer.normalizeTitle(value == null ? "" : value);

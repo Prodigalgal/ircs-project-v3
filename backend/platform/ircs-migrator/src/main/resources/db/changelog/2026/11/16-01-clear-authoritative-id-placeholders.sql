@@ -1,6 +1,6 @@
 -- liquibase formatted sql
 
--- Business version: 3.5.0. Format-only repair of confirmed external-ID placeholders.
+-- Business version: 3.5.1. Format-only repair of confirmed external-ID placeholders.
 -- No title/name/source evidence, bindings, user data or pipeline states are changed.
 -- Manual field locks are protected for both JSON arrays and JSON object keys.
 -- Values such as 123/456 are never assumed to be placeholders.
