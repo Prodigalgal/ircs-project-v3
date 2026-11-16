@@ -53,7 +53,8 @@ class GenericMagnetProviderSearchRunnerTest {
         assertEquals("1080P", candidate.resolution());
         assertEquals("TITLE_YEAR", candidate.matchedExternalIdType());
         assertEquals("Codex Movie 2026", candidate.matchedExternalIdValue());
-        assertEquals(76, candidate.matchScore());
+        assertEquals(0, candidate.matchScore());
+        assertEquals("CANDIDATE", candidate.providerEvidence().get("titleSource"));
         assertEquals("JSON", candidate.providerEvidence().get("sourceFormat"));
     }
 
@@ -174,6 +175,56 @@ class GenericMagnetProviderSearchRunnerTest {
 
         assertEquals("GENERIC_MAGNET_ACCESS_RESTRICTED", ex.failureType());
         assertEquals(403, ex.httpStatus());
+    }
+
+    @Test
+    void acceptsValidEmptyJsonAndHtmlSearchResults() {
+        MagnetProviderSearchResult jsonResult = runner(FakeHttpClient.ok("[]"))
+                .search(provider, query, UUID.randomUUID());
+        MagnetProviderSearchResult htmlResult = runner(FakeHttpClient.ok(
+                "<!doctype html><html><head><title>Search</title></head><body>No results found</body></html>"))
+                .search(provider, query, UUID.randomUUID());
+
+        assertTrue(jsonResult.candidates().isEmpty());
+        assertTrue(htmlResult.candidates().isEmpty());
+    }
+
+    @Test
+    void classifiesHttp200ChallengeAndErrorEnvelopesInsteadOfEmptySuccess() {
+        assertFailure("GENERIC_MAGNET_ACCESS_RESTRICTED", FakeHttpClient.ok(
+                "<!doctype html><html><head><title>Access Denied</title></head><body>Request blocked</body></html>"));
+        assertFailure("GENERIC_MAGNET_ACCESS_RESTRICTED", FakeHttpClient.ok(
+                "<!doctype html><html><head><title>Checking your browser</title></head>"
+                        + "<body><div class='captcha'>Complete captcha</div></body></html>"));
+        assertFailure("GENERIC_MAGNET_ACCESS_RESTRICTED", FakeHttpClient.ok(
+                "{\"success\":false,\"message\":\"request denied\"}"));
+        assertFailure("GENERIC_MAGNET_PROVIDER_ERROR", FakeHttpClient.ok(
+                "{\"error\":\"upstream unavailable\"}"));
+        assertFailure("GENERIC_MAGNET_PARSE_FAILURE", FakeHttpClient.ok(
+                "<html><body><h1>502 Bad Gateway</h1><p>proxy error</p></body></html>"));
+        assertFailure("GENERIC_MAGNET_PARSE_FAILURE", FakeHttpClient.ok("upstream returned an unexpected response"));
+        assertFailure("GENERIC_MAGNET_PARSE_FAILURE", FakeHttpClient.ok("{\"results\":"));
+    }
+
+    @Test
+    void doesNotTreatNormalJsonMovieNamedAccessDeniedAsAnError() {
+        MagnetProviderSearchResult result = runner(FakeHttpClient.ok("""
+                [{
+                  "name": "Access Denied",
+                  "info_hash": "abcdef1234567890abcdef1234567890abcdef12"
+                }]
+                """))
+                .search(provider, query, UUID.randomUUID());
+
+        assertEquals(1, result.candidates().size());
+        assertEquals("Access Denied", result.candidates().getFirst().title());
+    }
+
+    private void assertFailure(String failureType, FakeHttpClient httpClient) {
+        MagnetProviderRunnerException ex = assertThrows(
+                MagnetProviderRunnerException.class,
+                () -> runner(httpClient).search(provider, query, UUID.randomUUID()));
+        assertEquals(failureType, ex.failureType());
     }
 
     private GenericMagnetProviderSearchRunner runner(FakeHttpClient httpClient) {

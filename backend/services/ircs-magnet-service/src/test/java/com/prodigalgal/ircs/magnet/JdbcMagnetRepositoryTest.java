@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +32,7 @@ class JdbcMagnetRepositoryTest {
     }
 
     @Test
-    void writesSearchJobProviderRunAndMagnetLink() {
+    void writesSearchJobAndProviderRun() {
         UUID unifiedVideoId = UUID.randomUUID();
         UUID providerId = UUID.randomUUID();
         insertUnifiedVideo(unifiedVideoId, "tt1234567");
@@ -43,9 +42,6 @@ class JdbcMagnetRepositoryTest {
         List<MagnetExternalIdQuery> plan = List.of(new MagnetExternalIdQuery("IMDB", target.imdbId()));
         MagnetSearchJobSummary runningJob = repository.createRunningSearchJob(unifiedVideoId, plan);
         MagnetProviderSummary provider = repository.listEnabledProviders().get(0);
-        MagnetProviderCandidate candidate = candidate("abcdef1234567890abcdef1234567890abcdef12");
-
-        MagnetLinkSummary link = repository.upsertLink(unifiedVideoId, provider, candidate);
         repository.createProviderRun(
                 runningJob.id(),
                 provider,
@@ -71,11 +67,10 @@ class JdbcMagnetRepositoryTest {
         assertEquals(1, finishedJob.totalCandidates());
         assertEquals(1, finishedJob.acceptedCount());
         assertEquals(0, finishedJob.rejectedCount());
-        assertEquals("APPROVED", link.status());
         assertTrue(finishedJob.externalIdPlan().toString().contains("tt1234567"));
         assertEquals(1, countRows("magnet_search_jobs"));
         assertEquals(1, countRows("magnet_provider_runs"));
-        assertEquals(1, countRows("magnet_links"));
+        assertEquals(0, countRows("magnet_links"));
     }
 
     @Test
@@ -168,7 +163,7 @@ class JdbcMagnetRepositoryTest {
         insertUnifiedVideo(empty, null, null);
         insertProvider(providerId, "codex_provider", true);
         MagnetProviderSummary provider = repository.listEnabledProviders().getFirst();
-        repository.upsertLink(approved, provider, candidate("abcdef1234567890abcdef1234567890abcdef12"));
+        insertApprovedLink(approved, provider.code());
         repository.createSkippedSearchJob(
                 recent,
                 "AUTO_SCHEDULED",
@@ -194,6 +189,9 @@ class JdbcMagnetRepositoryTest {
                     updated_at timestamp with time zone not null,
                     title varchar(255),
                     alias_title varchar(255),
+                    subtitle varchar(255),
+                    season integer,
+                    category_code varchar(50),
                 "year" varchar(20),
                     imdb_id varchar(20),
                     tmdb_id varchar(20),
@@ -335,24 +333,16 @@ class JdbcMagnetRepositoryTest {
                 "仅用于 dev smoke。");
     }
 
-    private MagnetProviderCandidate candidate(String infoHash) {
-        return new MagnetProviderCandidate(
-                infoHash,
-                "magnet:?xt=urn:btih:" + infoHash,
-                "Codex Fixture",
-                1024L,
-                "1 KB",
-                Instant.parse("2026-06-07T00:00:00Z"),
-                10,
-                1,
-                "WEB",
-                "1080p",
-                "IMDB",
-                "tt1234567",
-                100,
-                "fixture://magnet-provider/codex_provider",
-                List.of("dev-safe"),
-                Map.of("mode", "fixture"));
+    private void insertApprovedLink(UUID unifiedVideoId, String providerCode) {
+        jdbcTemplate.update("""
+                insert into magnet_links (id, created_at, updated_at, unified_video_id, provider_code,
+                    info_hash, magnet_uri, title, matched_external_id_type, matched_external_id_value,
+                    match_score, status, tags, provider_evidence, first_seen_at, last_seen_at)
+                values (?, current_timestamp, current_timestamp, ?, ?, ?, ?, 'Approved Movie',
+                    'IMDB', 'tt1234567', 100, 'APPROVED', cast('[]' as jsonb), cast('{}' as jsonb),
+                    current_timestamp, current_timestamp)
+                """, UUID.randomUUID(), unifiedVideoId, providerCode,
+                "ABCDEF1234567890ABCDEF1234567890ABCDEF12", "magnet:?xt=urn:btih:fixture");
     }
 
     private int countRows(String tableName) {

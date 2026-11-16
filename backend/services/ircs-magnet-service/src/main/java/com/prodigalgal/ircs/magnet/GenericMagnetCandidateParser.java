@@ -29,7 +29,7 @@ import org.springframework.util.StringUtils;
 class GenericMagnetCandidateParser {
 
     private static final Pattern MAGNET_PATTERN = Pattern.compile(
-            "(?i)magnet:\\?xt=urn:btih:[a-z0-9]{32,40}(?:&(?:amp;)?[^\\s\"'<>)]*)*");
+            "(?i)magnet:\\?xt=urn:btih:[a-z0-9]{32,40}(?=[&\\s\"'<>)]|$)(?:&(?:amp;)?[^\\s\"'<>)]*)*");
     private static final Pattern SIZE_PATTERN = Pattern.compile(
             "(?i)(\\d+(?:[.,]\\d+)?)\\s*(TiB|TB|GiB|GB|MiB|MB|KiB|KB)");
     private static final Pattern RESOLUTION_PATTERN = Pattern.compile("(?i)\\b(2160p|1080p|720p|480p|4k|uhd|fhd|hd)\\b");
@@ -97,10 +97,10 @@ class GenericMagnetCandidateParser {
         if (infoHash.isEmpty()) {
             return Optional.empty();
         }
-        String title = firstNonBlank(
+        String returnedTitle = firstNonBlank(
                 magnetDisplayName(magnetUri),
-                firstText(node, "name", "title", "filename", "file_name", "fileName", "dn"),
-                query.value());
+                firstText(node, "name", "title", "filename", "file_name", "fileName", "dn"));
+        String title = firstNonBlank(returnedTitle, query.value());
         String sizeLabel = firstText(node, "sizeLabel", "size_label", "size", "length");
         Long sizeBytes = longValue(node, "size_bytes", "sizeBytes", "bytes", "size");
         if (sizeBytes == null) {
@@ -108,6 +108,15 @@ class GenericMagnetCandidateParser {
         }
         String sourceUrl = resolveUrl(requestUrl, firstText(node, "url", "detail_url", "detailUrl", "page", "source"));
         String resolution = extractResolution(title);
+        Map<String, Object> evidence = providerEvidence(provider, query, "JSON", requestUrl, sourceUrl, sizeLabel);
+        evidence.put("titleSource", returnedTitle == null ? "QUERY" : "CANDIDATE");
+        putReturnedId(evidence, "returnedImdbId", firstText(node, "imdb_id", "imdbId", "imdb", "imdb_code"), true);
+        putReturnedId(evidence, "returnedTmdbId", firstText(node, "tmdb_id", "tmdbId"), false);
+        putReturnedId(evidence, "returnedDoubanId", firstText(node, "douban_id", "doubanId"), false);
+        String returnedYear = firstText(node, "year", "release_year");
+        if (returnedYear != null && returnedYear.matches("(?:18|19|20)[0-9]{2}")) {
+            evidence.put("returnedYear", returnedYear);
+        }
         return Optional.of(new MagnetProviderCandidate(
                 infoHash.get(),
                 normalizeMagnetUri(firstNonBlank(magnetUri, MagnetUriUtils.buildMagnetUri(infoHash.get(), title))),
@@ -130,10 +139,10 @@ class GenericMagnetCandidateParser {
                 resolution,
                 query.type(),
                 query.value(),
-                matchScore(query),
+                0,
                 sourceUrl,
                 tags(provider, resolution),
-                providerEvidence(provider, query, "JSON", requestUrl, sourceUrl, sizeLabel)));
+                evidence));
     }
 
     private List<MagnetProviderCandidate> parseHtmlCandidates(
@@ -174,15 +183,17 @@ class GenericMagnetCandidateParser {
         }
         Element context = contextElement(element);
         String contextText = compactText(context == null ? element.text() : context.text());
-        String title = firstNonBlank(
+        String returnedTitle = firstNonBlank(
                 magnetDisplayName(magnetUri),
                 cleanTitle(element.text()),
-                contextTitle(context),
-                document.title(),
-                query.value());
+                contextTitle(context));
+        String title = firstNonBlank(returnedTitle, document.title(), query.value());
         String sizeLabel = firstMatch(contextText, SIZE_PATTERN).orElse(null);
         String resolution = firstNonBlank(extractResolution(title), extractResolution(contextText));
         String sourceUrl = firstNonBlank(nonMagnetLink(context), requestUrl);
+        Map<String, Object> evidence = providerEvidence(provider, query, "HTML", requestUrl, sourceUrl, sizeLabel);
+        evidence.put("titleSource", returnedTitle != null ? "CANDIDATE"
+                : StringUtils.hasText(document.title()) ? "DOCUMENT_TITLE" : "QUERY");
         candidates.put(infoHash.get(), new MagnetProviderCandidate(
                 infoHash.get(),
                 magnetUri,
@@ -196,10 +207,10 @@ class GenericMagnetCandidateParser {
                 resolution,
                 query.type(),
                 query.value(),
-                matchScore(query),
+                0,
                 sourceUrl,
                 tags(provider, resolution),
-                providerEvidence(provider, query, "HTML", requestUrl, sourceUrl, sizeLabel)));
+                evidence));
     }
 
     private List<JsonNode> candidateNodes(JsonNode root) {
@@ -454,16 +465,13 @@ class GenericMagnetCandidateParser {
         return evidence;
     }
 
-    private int matchScore(MagnetExternalIdQuery query) {
-        if (query == null) {
-            return 0;
+    private void putReturnedId(Map<String, Object> evidence, String key, String raw, boolean imdb) {
+        if (raw == null) { return; }
+        String value = raw.trim().toLowerCase(Locale.ROOT);
+        if (imdb && value.matches("[1-9][0-9]{6,9}")) { value = "tt" + value; }
+        if (value.matches(imdb ? "tt[0-9]{7,10}" : "[1-9][0-9]{0,11}")) {
+            evidence.put(key, value);
         }
-        return switch (query.type().toUpperCase(Locale.ROOT)) {
-            case "IMDB" -> 92;
-            case "TMDB", "DOUBAN" -> 80;
-            case "TITLE_YEAR" -> 76;
-            default -> 68;
-        };
     }
 
     private int safeLimit(MagnetProviderSummary provider) {

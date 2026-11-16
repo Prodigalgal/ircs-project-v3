@@ -77,6 +77,12 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
 
         try {
             JsonNode root = objectMapper.readTree(response.body());
+            if (!"ok".equalsIgnoreCase(text(root, "status")) || !root.path("data").isObject()
+                    || (!root.path("data").path("movies").isArray()
+                    && !(root.path("data").path("movie_count").isNumber()
+                    && root.path("data").path("movie_count").asInt(-1) == 0))) {
+                throw new MagnetProviderRunnerException(PARSE_FAILURE, requestUrl, response.statusCode());
+            }
             return new MagnetProviderSearchResult(
                     requestUrl,
                     response.statusCode(),
@@ -160,6 +166,9 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         evidence.put("queryValue", query == null ? null : query.value());
         evidence.put("movieId", text(movie, "id"));
         evidence.put("imdbCode", text(movie, "imdb_code"));
+        evidence.put("returnedImdbId", text(movie, "imdb_code"));
+        evidence.put("returnedYear", text(movie, "year"));
+        evidence.put("titleSource", firstText(movie, "title_long", "title").isPresent() ? "CANDIDATE" : "QUERY");
         evidence.put("torrentHash", text(torrent, "hash"));
         return evidence;
     }

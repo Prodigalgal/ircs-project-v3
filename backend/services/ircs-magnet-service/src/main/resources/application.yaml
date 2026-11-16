@@ -37,10 +37,21 @@ management:
 
 app:
   magnet:
+    fixture:
+      enabled: ${APP_MAGNET_FIXTURE_ENABLED:false}
+    execution:
+      lease: ${APP_MAGNET_EXECUTION_LEASE:PT2M}
+    recovery:
+      enabled: ${APP_MAGNET_RECOVERY_ENABLED:true}
+      batch-size: ${APP_MAGNET_RECOVERY_BATCH_SIZE:100}
+      max-queue-depth: ${APP_MAGNET_RECOVERY_MAX_QUEUE_DEPTH:2000}
+      initial-delay-ms: ${APP_MAGNET_RECOVERY_INITIAL_DELAY_MS:30000}
+      fixed-delay-ms: ${APP_MAGNET_RECOVERY_FIXED_DELAY_MS:60000}
     real-provider:
       enabled: ${APP_MAGNET_REAL_PROVIDER_ENABLED:false}
       allowlist: ${APP_MAGNET_REAL_PROVIDER_ALLOWLIST:YTS_BZ,THE_PIRATE_BAY,EZTV,EXT_TO,THE_PIRATE_BAY_FRONTEND}
     auto-search:
+      max-queue-depth: ${APP_MAGNET_AUTO_SEARCH_MAX_QUEUE_DEPTH:2000}
       enabled: ${APP_MAGNET_AUTO_SEARCH_ENABLED:false}
       batch-size: ${APP_MAGNET_AUTO_SEARCH_BATCH_SIZE:10}
       cooldown: ${APP_MAGNET_AUTO_SEARCH_COOLDOWN:PT12H}

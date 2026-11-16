@@ -38,7 +38,7 @@ current_service = None
 current_port = 18080
 
 
-def signed_identity_headers(path, issued_at=None):
+def signed_identity_headers(path, issued_at=None, method='GET'):
     headers = {
         'X-Authenticated-User': 'api-token:native-smoke',
         'X-IRCS-Auth-Subject': 'api-token:native-smoke',
@@ -49,7 +49,7 @@ def signed_identity_headers(path, issued_at=None):
         'X-IRCS-Client-IP': '127.0.0.1',
         'X-IRCS-Gateway-Timestamp': str(int(time.time()) if issued_at is None else issued_at),
     }
-    values = ['GET', path, *headers.values()]
+    values = [method, path, *headers.values()]
     canonical = 'IRCS-GATEWAY-IDENTITY-V1\n' + ''.join(
         base64.urlsafe_b64encode(value.encode()).decode().rstrip('=') + '\n' for value in values)
     key_file = Path(os.environ['CI_GATEWAY_SIGNING_KEY_FILE'])
@@ -112,8 +112,7 @@ def request(path, data=None, broker=False, authenticated=False):
     elif authenticated:
         headers['Authorization'] = admin_authorization
         if current_service != 'ircs-api-gateway':
-            assert data is None, 'Direct signed smoke helper currently covers GET only'
-            headers.update(signed_identity_headers(path))
+            headers.update(signed_identity_headers(path, method='POST' if data is not None else 'GET'))
             headers.update({'X-IRCS-SERVICE-ID': 'native-smoke', 'X-IRCS-SERVICE-TOKEN': password,
                             'X-IRCS-SERVICE-SCOPES': 'ops:read,ops:run'})
     payload = json.dumps(data, ensure_ascii=False).encode() if data is not None else None
@@ -451,6 +450,128 @@ def aggregation_evaluation_probe():
           flush=True)
 
 
+def magnet_search_round_trip():
+    import uuid
+
+    unified_id, provider_id, job_id = (str(uuid.uuid4()) for _ in range(3))
+    provider_code = 'native_fixture_' + provider_id.replace('-', '')
+    task_type = 'magnet.search'
+    task_id = task_type + ':' + job_id
+    prefix = 'ircs:work:v1:' + task_type
+    task_key = prefix + ':task:' + task_id
+    submission_id = 'native-magnet-' + job_id
+    now = str(int(time.time() * 1000))
+    visible_at = str(int(now) + 3600000)
+    payload = json.dumps({'jobId': job_id, 'unifiedVideoId': unified_id, 'triggerType': 'ADMIN_MANUAL'})
+
+    def sql(statement, output=False):
+        return docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs',
+                      '-v', 'ON_ERROR_STOP=1', '-Atc' if output else '-c', statement)
+
+    def redis(*args):
+        return docker('exec', 'ircs-native-key-value', 'valkey-cli', *args)
+
+    def queue_state():
+        fields = ('status', 'ownerId', 'submissionId', 'attempt', 'dueAt', 'visibleAt',
+                  'createdAt', 'updatedAt', 'payload')
+        state = json.loads(redis('--json', 'HMGET', task_key, *fields))
+        return (dict(zip(fields, state)),
+                tuple(redis('ZSCORE', prefix + ':' + lane, task_id) for lane in ('pending', 'inflight', 'dlq')),
+                tuple(redis('ZCARD', prefix + ':' + lane) for lane in ('pending', 'inflight', 'dlq')))
+
+    # This database and Valkey are the workflow's disposable containers. Disable every
+    # seeded network provider before any work can resolve the enabled-provider cache.
+    sql("UPDATE magnet_providers SET enabled=false; "
+        "UPDATE system_configs SET config_value='false' WHERE config_key IN "
+        "('app.magnet.auto-search.enabled','app.magnet.real-provider.enabled'); "
+        "INSERT INTO unified_videos(id,created_at,updated_at,version,title,\"year\",season,category_code,"
+        "imdb_id,metadata_status) VALUES('" + unified_id + "',now(),now(),0,"
+        "'IRCS dev-safe fixture','2024',1,'series','tt1234567','SYNCED'); "
+        "INSERT INTO magnet_providers(id,code,name,provider_type,base_url,enabled,priority,"
+        "supported_external_ids,min_delay_ms,max_delay_ms,auto_approve_allowed) VALUES('" + provider_id + "','"
+        + provider_code + "','Native smoke fixture','FIXTURE','https://native-smoke.invalid',true,0,"
+        "'[\"IMDB\",\"TITLE_YEAR\"]'::jsonb,0,0,true); "
+        "INSERT INTO magnet_search_jobs(id,version,unified_video_id,trigger_type,status) VALUES('"
+        + job_id + "',0,'" + unified_id + "','ADMIN_MANUAL','PENDING')")
+    try:
+        # Keep one synthetic claim far from expiry while the real API republishes
+        # this same durable job. An unconditional shared submit would reset it.
+        redis('HSET', task_key, 'taskType', task_type, 'taskId', task_id, 'submissionId', submission_id,
+              'aggregateId', unified_id, 'version', 'ADMIN_MANUAL', 'payload', payload, 'status', 'PROCESSING',
+              'ownerId', 'native-magnet-protected-claim', 'attempt', '2', 'attemptCycleStart', '0',
+              'dlqReplayCount', '0', 'createdAt', now, 'updatedAt', now, 'dueAt', now,
+              'visibleAt', visible_at, 'lastError', '')
+        redis('ZADD', prefix + ':inflight', visible_at, task_id)
+        before = queue_state()
+        path = '/api/v1/magnets/search/unified/' + unified_id
+        for _ in range(2):
+            result = request(path, {}, authenticated=True)
+            assert result.get('id') == job_id, 'Duplicate Native magnet submission created a second job'
+            assert queue_state() == before, 'Duplicate Native magnet submission reset the protected queue claim'
+
+        # Release only the probe-owned claim; actual claim/lease/processing/completion
+        # now run through the Native worker and its short database transactions.
+        redis('ZREM', prefix + ':inflight', task_id)
+        redis('HSET', task_key, 'status', 'PENDING', 'ownerId', '', 'attempt', '0', 'visibleAt', '')
+        redis('ZADD', prefix + ':pending', now, task_id)
+
+        def consumed():
+            status = redis('HGET', task_key, 'status')
+            error = redis('HGET', task_key, 'lastError')
+            assert not error, 'Native magnet task failed: ' + error
+            assert status != 'PERMANENT_FAILURE', 'Native magnet task entered the DLQ'
+            return status == 'SUCCESS'
+
+        wait_for('Native magnet queue consumption', consumed)
+        final, membership, _ = queue_state()
+        assert final['submissionId'] == submission_id and final['attempt'] == '1', \
+            'Native magnet worker must preserve the submission and complete on its first real claim'
+        assert membership == ('', '', ''), 'Completed Native magnet task must leave every queue lane'
+        result = json.loads(sql(
+            "select json_build_object('job',(select row_to_json(j) from magnet_search_jobs j where id='" + job_id + "'),"
+            "'jobCount',(select count(*) from magnet_search_jobs where unified_video_id='" + unified_id + "'),"
+            "'runs',(select coalesce(json_agg(r), '[]'::json) from magnet_provider_runs r where job_id='" + job_id + "'),"
+            "'links',(select coalesce(json_agg(l), '[]'::json) from magnet_links l where unified_video_id='" + unified_id + "'))",
+            output=True))
+        job, runs, links = result['job'], result['runs'], result['links']
+        assert result['jobCount'] == 1, 'Native magnet duplicate submission must preserve one durable job'
+        assert job['status'] == 'SUCCESS' and job['finished_at'], 'Native magnet job must persist SUCCESS'
+        assert job['provider_codes'] == [provider_code], 'Native magnet must run only its disposable fixture provider'
+        assert len(runs) == 2 and {run['external_id_type']: run['external_id_value'] for run in runs} == {
+            'IMDB': 'tt1234567', 'TITLE_YEAR': 'IRCS dev-safe fixture S01 2024'}, \
+            'Native magnet must execute both external-ID and season/title/year queries'
+        assert all(run['status'] == 'SUCCESS' and run['provider_code'] == provider_code
+                   and run['candidate_count'] == 1 and run['accepted_count'] == 1
+                   and run['request_url'].startswith('fixture://') for run in runs), \
+            'Native magnet provider runs must durably persist both fixture results'
+        assert job['total_candidates'] == job['accepted_count'] == len(links) == 2, \
+            'Native magnet must persist exactly two accepted fixture candidates'
+        assert all(link['status'] == 'CANDIDATE' and link['provider_code'] == provider_code
+                   and link['provider_evidence'].get('identityDisposition') == 'CANDIDATE'
+                   and link['provider_evidence'].get('mode') == 'fixture'
+                   and re.fullmatch(r'[0-9a-f]{40}', link['info_hash'])
+                   and 'xt=urn:btih:' + link['info_hash'] in link['magnet_uri'] for link in links), \
+            'Uncorroborated Native fixture results must remain valid CANDIDATE links even with provider auto-approval enabled'
+
+        def pool_released():
+            state = json.loads(sql(
+                "select json_build_object('connections',count(*),'transactions',count(*) filter (where xact_start is not null)) "
+                "from pg_stat_activity where application_name='native-magnet-smoke'", output=True))
+            assert 1 <= state['connections'] <= 2, 'Native magnet must stay within its two-connection pool'
+            return state['transactions'] == 0
+
+        wait_for('Native magnet database transactions released', pool_released)
+        assert request('/actuator/health/readiness')['status'] == 'UP', 'Native magnet must remain healthy after work'
+        print('Native magnet: signed duplicate publishing preserved claim ownership; real queue consumption, '
+              'short transactions, durable provider runs and candidate safety verified with a two-connection pool.', flush=True)
+    finally:
+        for lane in ('pending', 'inflight', 'dlq'):
+            redis('ZREM', prefix + ':' + lane, task_id)
+        redis('DEL', task_key)
+        sql("DELETE FROM unified_videos WHERE id='" + unified_id + "'; "
+            "DELETE FROM magnet_providers WHERE id='" + provider_id + "'")
+
+
 def main():
     cases = [
         ('ircs-ingestion-worker', 'APP_INGESTION_LISTENER_ENABLED', ['q.ingest.video', 'q.process.playlist_sync']),
@@ -491,12 +612,21 @@ def main():
                                'APP_AGGREGATION_INTERNAL_ACCESS_TOKEN': password,
                                'APP_AGGREGATION_INTERNAL_ACCESS_REQUIRED_SCOPE': 'aggregation:maintenance',
                                'APP_AGGREGATION_WORK_QUEUE_WORKER_INITIAL_DELAY_MS': '3600000'})
+            if service == 'ircs-magnet-service':
+                values.update({'SPRING_PROFILES_ACTIVE': 'native-smoke', 'APP_MAGNET_FIXTURE_ENABLED': 'true',
+                               'APP_MAGNET_AUTO_SEARCH_ENABLED': 'false',
+                               'APP_MAGNET_AUTO_SEARCH_INITIAL_DELAY_MS': '3600000',
+                               'APP_MAGNET_RECOVERY_ENABLED': 'false', 'APP_MAGNET_REAL_PROVIDER_ENABLED': 'false',
+                               'SPRING_DATASOURCE_URL': 'jdbc:postgresql://ircs-native-postgres:5432/ircs'
+                                                        '?ApplicationName=native-magnet-smoke'})
             try:
                 start(service, values)
                 if service == 'ircs-aggregation-worker':
                     aggregation_evaluation_probe()
                 if service == 'ircs-normalization-worker':
                     normalization_round_trip()
+                if service == 'ircs-magnet-service':
+                    magnet_search_round_trip()
                 if service == 'ircs-ops-service':
                     runtime_queue_buffer_probe()
                     gateway_forwarding_probe(service)
@@ -508,7 +638,7 @@ def main():
             except Exception as error:
                 # Docker startup exceptions may include command arguments containing this probe's token.
                 detail = (str(error) if isinstance(error, AssertionError) else type(error).__name__) \
-                    if service == 'ircs-aggregation-worker' else str(error)
+                    if service in ('ircs-aggregation-worker', 'ircs-magnet-service') else str(error)
                 failures.append(f'{service}: {detail}')
                 print(f'Native startup failed: {service}: {detail}', flush=True)
             finally:

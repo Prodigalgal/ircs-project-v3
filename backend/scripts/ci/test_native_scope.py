@@ -4,8 +4,10 @@ import io
 import json
 import os
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
+import uuid
 
 
 def load(name, filename):
@@ -42,6 +44,14 @@ class NativeMatrixTest(unittest.TestCase):
         self.assertEqual(2, len(result['matrix']['include']))
         self.assertFalse(result['python_changed'])
         self.assertEqual([], result['frontends'])
+
+    def test_magnet_only_builds_its_two_native_architectures(self):
+        result = matrix.outputs_for({'java_images': ['ircs-magnet-service'],
+                                     'java_test_modules': ['services:ircs-magnet-service']},
+                                    SETTINGS + "include 'services:ircs-magnet-service'\n")
+        self.assertEqual(['ircs-magnet-service'], result['images'])
+        self.assertEqual(['ircs-magnet-service'], result['selected_images'])
+        self.assertEqual(2, len(result['matrix']['include']))
 
     def test_frontend_and_python_do_not_populate_java_matrix(self):
         result = matrix.outputs_for({'frontends': ['admin'], 'python_changed': True}, SETTINGS)
@@ -93,6 +103,178 @@ class NativeRuntimeScopeTest(unittest.TestCase):
     def test_baseline_ops_and_identity_forwarding_fixtures_do_not_add_a_search_dependency(self):
         self.smoke.selected_services = {'ircs-api-gateway', 'ircs-ops-service', 'ircs-identity-service'}
         self.assertFalse(self.smoke.requires_search_fixture())
+
+    def test_magnet_only_runs_its_functional_probe_without_other_application_fixtures(self):
+        self.smoke.selected_services = {'ircs-magnet-service'}
+        starts, probes = [], []
+        self.smoke.start = lambda service, values, **kwargs: starts.append((service, values))
+        self.smoke.stop = lambda *args: []
+        self.smoke.magnet_search_round_trip = lambda: probes.append(True)
+
+        self.smoke.main()
+
+        self.assertEqual(['ircs-magnet-service'], [service for service, _ in starts])
+        self.assertEqual([True], probes)
+        self.assertFalse(self.smoke.requires_search_fixture())
+        values = starts[0][1]
+        self.assertEqual('native-smoke', values['SPRING_PROFILES_ACTIVE'])
+        self.assertEqual('true', values['APP_MAGNET_FIXTURE_ENABLED'])
+        for key in ('APP_MAGNET_AUTO_SEARCH_ENABLED', 'APP_MAGNET_RECOVERY_ENABLED', 'APP_MAGNET_REAL_PROVIDER_ENABLED'):
+            self.assertEqual('false', values[key])
+        self.assertEqual('3600000', values['APP_MAGNET_AUTO_SEARCH_INITIAL_DELAY_MS'])
+        self.assertIn('ApplicationName=native-magnet-smoke', values['SPRING_DATASOURCE_URL'])
+
+    def test_signed_identity_binds_post_method(self):
+        with tempfile.TemporaryDirectory() as directory:
+            key_file = Path(directory) / 'signing-key.der'
+            with patch.dict(os.environ, {'CI_GATEWAY_SIGNING_KEY_FILE': str(key_file)}), \
+                    patch.object(self.smoke.subprocess, 'check_output', return_value=b'probe-signature'):
+                self.smoke.signed_identity_headers('/api/v1/magnets/search/unified/probe', method='POST')
+            canonical = key_file.with_name('message.bin').read_text().splitlines()
+        self.assertEqual('IRCS-GATEWAY-IDENTITY-V1', canonical[0])
+        self.assertEqual('POST', self.smoke.base64.urlsafe_b64decode(canonical[1] + '===').decode())
+
+    def test_authenticated_request_signs_the_actual_post_method(self):
+        self.smoke.current_service = 'ircs-magnet-service'
+        path = '/api/v1/magnets/search/unified/probe'
+        with patch.object(self.smoke, 'signed_identity_headers', return_value={'X-IRCS-Gateway-Signature': 'probe'}) as sign, \
+                patch.object(self.smoke, 'urlopen', return_value=io.BytesIO(b'{"id":"probe"}')) as http:
+            self.assertEqual({'id': 'probe'}, self.smoke.request(path, {}, authenticated=True))
+        sign.assert_called_once_with(path, method='POST')
+        request = http.call_args.args[0]
+        self.assertEqual('POST', request.get_method())
+        self.assertEqual(b'{}', request.data)
+
+    def magnet_runtime(self, durable_status='SUCCESS', candidate_status='CANDIDATE', queue_error=''):
+        fixture_ids = [uuid.UUID(int=value) for value in (1, 2, 3)]
+        unified_id, provider_id, job_id = map(str, fixture_ids)
+        provider_code = 'native_fixture_' + provider_id.replace('-', '')
+        task_id = 'magnet.search:' + job_id
+        prefix = 'ircs:work:v1:magnet.search'
+        state, lanes, sql_calls, api_calls = {}, {}, [], []
+        released = False
+
+        def respond(*args):
+            nonlocal released
+            if args[1] == 'ircs-native-postgres':
+                statement = args[-1]
+                sql_calls.append(statement)
+                if "'connections'" in statement:
+                    return json.dumps({'connections': 2, 'transactions': 0})
+                if statement.startswith('select json_build_object'):
+                    queries = {'IMDB': 'tt1234567', 'TITLE_YEAR': 'IRCS dev-safe fixture S01 2024'}
+                    runs = [{'external_id_type': query, 'external_id_value': value, 'provider_code': provider_code,
+                             'status': 'SUCCESS', 'candidate_count': 1,
+                             'accepted_count': 1, 'request_url': 'fixture://native-smoke/' + query}
+                            for query, value in queries.items()]
+                    links = [{'status': candidate_status, 'provider_code': provider_code,
+                              'provider_evidence': {'mode': 'fixture', 'identityDisposition': 'CANDIDATE'},
+                              'info_hash': str(index) * 40, 'magnet_uri': 'magnet:?xt=urn:btih:' + str(index) * 40}
+                             for index in (1, 2)]
+                    return json.dumps({'job': {'status': durable_status, 'finished_at': '2026-11-16T00:00:00Z',
+                                              'provider_codes': [provider_code], 'total_candidates': 2, 'accepted_count': 2},
+                                       'jobCount': 1, 'runs': runs, 'links': links})
+                return ''
+            command = list(args[3:])
+            if command[0] == '--json':
+                self.assertEqual('HMGET', command[1])
+                return json.dumps([state.get(field) for field in command[3:]])
+            if command[0] == 'HSET':
+                state.update(zip(command[2::2], command[3::2]))
+            elif command[0] == 'ZADD':
+                lanes[command[1]] = command[2]
+                if command[1].endswith(':pending'):
+                    released = True
+            elif command[0] == 'ZREM':
+                lanes.pop(command[1], None)
+            elif command[0] == 'ZSCORE':
+                return lanes.get(command[1], '')
+            elif command[0] == 'ZCARD':
+                return '1' if command[1] in lanes else '0'
+            elif command[0] == 'HGET':
+                if command[2] == 'lastError':
+                    return queue_error
+                if released:
+                    state.update({'status': 'SUCCESS', 'attempt': '1', 'ownerId': ''})
+                    lanes.clear()
+                return state.get(command[2], '')
+            return ''
+
+        def api(path, data=None, authenticated=False):
+            api_calls.append((path, data, authenticated))
+            return {'id': job_id} if data is not None else {'status': 'UP'}
+
+        return fixture_ids, respond, api, state, sql_calls, api_calls, prefix, task_id
+
+    def test_magnet_probe_exercises_durable_worker_completion_and_protects_existing_claim(self):
+        fixture_ids, runtime, api, state, sql_calls, api_calls, prefix, task_id = self.magnet_runtime()
+        with patch.object(uuid, 'uuid4', side_effect=fixture_ids), \
+                patch.object(self.smoke, 'docker', side_effect=runtime) as docker, \
+                patch.object(self.smoke, 'request', side_effect=api):
+            self.smoke.magnet_search_round_trip()
+
+        self.assertEqual(2, len([call for call in api_calls if call[1] == {} and call[2]]))
+        seed = sql_calls[0]
+        self.assertIn('UPDATE magnet_providers SET enabled=false', seed)
+        self.assertIn("'2024',1,'series','tt1234567','SYNCED'", seed)
+        self.assertIn("'FIXTURE'", seed)
+        self.assertIn('["IMDB","TITLE_YEAR"]', seed)
+        self.assertIn('pg_stat_activity', sql_calls[-2])
+        self.assertIn('DELETE FROM unified_videos', sql_calls[-1])
+        self.assertTrue(any(call.args[-2:] == ('DEL', prefix + ':task:' + task_id) for call in docker.call_args_list))
+        self.assertEqual('SUCCESS', state['status'])
+
+    def test_magnet_probe_rejects_duplicate_publish_that_resets_claim_and_cleans_up(self):
+        fixture_ids, runtime, api, state, sql_calls, *_ = self.magnet_runtime()
+
+        def resetting_api(*args, **kwargs):
+            response = api(*args, **kwargs)
+            state['ownerId'] = ''
+            return response
+
+        with patch.object(uuid, 'uuid4', side_effect=fixture_ids), \
+                patch.object(self.smoke, 'docker', side_effect=runtime), \
+                patch.object(self.smoke, 'request', side_effect=resetting_api):
+            with self.assertRaisesRegex(AssertionError, 'reset the protected queue claim'):
+                self.smoke.magnet_search_round_trip()
+        self.assertIn('DELETE FROM unified_videos', sql_calls[-1])
+
+    def test_magnet_probe_rejects_queue_success_without_durable_job_success(self):
+        fixture_ids, runtime, api, *_ = self.magnet_runtime(durable_status='FAILED')
+        with patch.object(uuid, 'uuid4', side_effect=fixture_ids), \
+                patch.object(self.smoke, 'docker', side_effect=runtime), \
+                patch.object(self.smoke, 'request', side_effect=api):
+            with self.assertRaisesRegex(AssertionError, 'job must persist SUCCESS'):
+                self.smoke.magnet_search_round_trip()
+
+    def test_magnet_probe_rejects_unverified_fixture_auto_approval(self):
+        fixture_ids, runtime, api, *_ = self.magnet_runtime(candidate_status='APPROVED')
+        with patch.object(uuid, 'uuid4', side_effect=fixture_ids), \
+                patch.object(self.smoke, 'docker', side_effect=runtime), \
+                patch.object(self.smoke, 'request', side_effect=api):
+            with self.assertRaisesRegex(AssertionError, 'must remain valid CANDIDATE'):
+                self.smoke.magnet_search_round_trip()
+
+    def test_magnet_probe_reports_first_worker_failure_without_waiting_for_retries(self):
+        fixture_ids, runtime, api, *_ = self.magnet_runtime(queue_error='Native JDBC parameter failure')
+        with patch.object(uuid, 'uuid4', side_effect=fixture_ids), \
+                patch.object(self.smoke, 'docker', side_effect=runtime), \
+                patch.object(self.smoke, 'request', side_effect=api), patch.object(self.smoke.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(AssertionError, 'Native magnet task failed: Native JDBC parameter failure'):
+                self.smoke.magnet_search_round_trip()
+        sleep.assert_not_called()
+
+    def test_magnet_failure_never_prints_startup_token_arguments(self):
+        self.smoke.selected_services = {'ircs-magnet-service'}
+        output = io.StringIO()
+        self.smoke.start = lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError('docker startup arguments token=' + self.smoke.password))
+        self.smoke.stop = lambda *args: []
+        with patch('sys.stdout', output):
+            with self.assertRaises(AssertionError) as error:
+                self.smoke.main()
+        self.assertNotIn(self.smoke.password, output.getvalue())
+        self.assertNotIn(self.smoke.password, str(error.exception))
 
     def test_gateway_only_does_not_start_unselected_listener_cases(self):
         starts = []

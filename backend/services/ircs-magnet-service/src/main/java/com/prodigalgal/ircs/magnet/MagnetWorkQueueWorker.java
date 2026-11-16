@@ -1,6 +1,5 @@
 package com.prodigalgal.ircs.magnet;
 
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.magnet.MagnetWorkTypes;
@@ -42,6 +41,7 @@ class MagnetWorkQueueWorker {
     private final RuntimeWorkQueue workQueue;
     private final ObjectMapper objectMapper;
     private final MagnetQueryService magnetQueryService;
+    private final MagnetWorkLeaseStore leaseStore;
     private final RuntimeConfigService runtimeConfig;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-magnet-worker-trigger-vt-");
@@ -72,10 +72,12 @@ class MagnetWorkQueueWorker {
             RuntimeWorkQueue workQueue,
             ObjectMapper objectMapper,
             MagnetQueryService magnetQueryService,
+            MagnetWorkLeaseStore leaseStore,
             ObjectProvider<RuntimeConfigService> runtimeConfigProvider) {
         this.workQueue = workQueue;
         this.objectMapper = objectMapper;
         this.magnetQueryService = magnetQueryService;
+        this.leaseStore = leaseStore;
         this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
     }
 
@@ -120,10 +122,14 @@ class MagnetWorkQueueWorker {
                 effectiveBatchSize,
                 visibility);
         int processed = 0;
-        for (RuntimeWorkItem item : items) {
-            heartbeat(owner, heartbeatTtl());
-            if (processItem(item)) {
-                processed++;
+        if (!items.isEmpty()) {
+            try (MagnetQueueClaimGuard claims = new MagnetQueueClaimGuard(
+                    leaseStore, items, visibility, () -> heartbeat(owner, heartbeatTtl()))) {
+                for (RuntimeWorkItem item : items) {
+                    if (processItem(item)) {
+                        processed++;
+                    }
+                }
             }
         }
         heartbeat(owner, heartbeatTtl());
@@ -132,23 +138,54 @@ class MagnetWorkQueueWorker {
 
     private boolean processItem(RuntimeWorkItem item) {
         MagnetSearchWorkPayload payload = null;
+        if (!MagnetQueueClaimGuard.ownsCurrent(item)) {
+            log.warn("Magnet queue claim is stale before processing: taskId={}", item.taskId());
+            return false;
+        }
         try {
             payload = objectMapper.readValue(item.payload(), MagnetSearchWorkPayload.class);
             if (payload.jobId() == null || payload.unifiedVideoId() == null) {
                 throw new IllegalArgumentException("Magnet search work payload requires jobId and unifiedVideoId");
             }
-            magnetQueryService.executeQueuedSearch(payload.jobId(), payload.unifiedVideoId(), payload.triggerType());
-            workQueue.complete(item);
+            MagnetQueueClaimGuard.checkCurrentOwnership();
+            magnetQueryService.executeQueuedSearch(
+                    payload.jobId(), payload.unifiedVideoId(), payload.triggerType(), item.attempt() < maxRetries());
+            MagnetQueueClaimGuard.checkCurrentOwnership();
+            if (!MagnetQueueClaimGuard.finishCurrent(item, () -> workQueue.complete(item))) {
+                log.warn("Magnet queue completion rejected after claim loss: taskId={}", item.taskId());
+                return false;
+            }
             return true;
+        } catch (MagnetSearchExecutionException ex) {
+            boolean retryable = ex.retryable() && item.attempt() < maxRetries();
+            failOwnedItem(item, retryable, ex.getMessage());
+            return false;
+        } catch (MagnetSearchJobCoordinator.MagnetJobBusyException ex) {
+            deferOwnedItem(item, Duration.ofSeconds(30), ex.getMessage());
+            return false;
+        } catch (MagnetSearchJobCoordinator.MagnetLeaseLostException ex) {
+            deferOwnedItem(item, Duration.ofSeconds(30), ex.getMessage());
+            return false;
         } catch (RuntimeException ex) {
             boolean retryable = item.attempt() < maxRetries();
-            if (!retryable && payload != null && payload.jobId() != null) {
-                magnetQueryService.markQueuedSearchFailed(
-                        payload.jobId(),
-                        ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            }
-            workQueue.fail(item, retryable, retryDelay(item.attempt()), ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            failOwnedItem(item, retryable, "MAGNET_EXECUTION_FAILURE:" + ex.getClass().getSimpleName());
             return false;
+        }
+    }
+
+    private void failOwnedItem(RuntimeWorkItem item, boolean retryable, String reason) {
+        boolean transitioned = MagnetQueueClaimGuard.finishCurrent(
+                item,
+                () -> workQueue.fail(item, retryable, retryDelay(item.attempt()), reason));
+        if (!transitioned) {
+            log.warn("Magnet queue failure transition rejected after claim loss: taskId={}", item.taskId());
+        }
+    }
+
+    private void deferOwnedItem(RuntimeWorkItem item, Duration delay, String reason) {
+        boolean transitioned = MagnetQueueClaimGuard.finishCurrent(item, () -> leaseStore.defer(item, delay, reason));
+        if (!transitioned) {
+            log.warn("Magnet queue deferral rejected after claim loss: taskId={}", item.taskId());
         }
     }
 

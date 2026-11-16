@@ -22,12 +22,15 @@ import org.springframework.stereotype.Component;
 class MagnetAutoSearchScheduler {
 
     private static final int MAX_BATCH_SIZE = 100;
+    private static final int MAX_QUEUE_DEPTH = 100_000;
+    private static final String MAX_QUEUE_DEPTH_KEY = "app.magnet.auto-search.max-queue-depth";
     private static final Duration DEFAULT_COOLDOWN = Duration.ofHours(12);
 
     private final JdbcMagnetRepository magnetRepository;
     private final MagnetQueryService magnetQueryService;
     private final RuntimeConfigService runtimeConfig;
     private final DistributedLockService locks;
+    private final MagnetWorkPublisher workPublisher;
     private final String lockOwner = UUID.randomUUID().toString();
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-magnet-auto-search-trigger-vt-");
@@ -42,12 +45,17 @@ class MagnetAutoSearchScheduler {
     @Value("${app.magnet.auto-search.cooldown:PT12H}")
     private Duration cooldownByDeployment;
 
+    @Value("${app.magnet.auto-search.max-queue-depth:2000}")
+    private int maxQueueDepthByDeployment;
+
     MagnetAutoSearchScheduler(
             JdbcMagnetRepository magnetRepository,
             MagnetQueryService magnetQueryService,
             ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
-            DistributedLockService locks) {
+            DistributedLockService locks,
+            ObjectProvider<MagnetWorkPublisher> workPublisherProvider) {
         this.locks = locks;
+        this.workPublisher = workPublisherProvider == null ? null : workPublisherProvider.getIfAvailable();
         this.magnetRepository = magnetRepository;
         this.magnetQueryService = magnetQueryService;
         this.runtimeConfig = runtimeConfigProvider == null ? null : runtimeConfigProvider.getIfAvailable();
@@ -79,17 +87,29 @@ class MagnetAutoSearchScheduler {
     }
 
     int runBatch() {
+        if (workPublisher == null) {
+            log.warn("Magnet auto search skipped because the work queue publisher is unavailable");
+            return 0;
+        }
+        int maxQueueDepth = maxQueueDepth();
+        if (!hasCapacity(maxQueueDepth)) {
+            return 0;
+        }
         List<UUID> candidates = magnetRepository.findAutoSearchCandidates(
                 batchSize(),
                 Instant.now().minus(cooldown()));
         int triggered = 0;
         for (UUID unifiedVideoId : candidates) {
             ClusterLeaseGuard.checkCurrentOwnership();
+            if (!hasCapacity(maxQueueDepth)) {
+                break;
+            }
             try {
                 magnetQueryService.enqueueAutomaticSearch(unifiedVideoId);
                 triggered++;
             } catch (RuntimeException ex) {
                 log.warn("Magnet auto search failed: unifiedVideoId={}, error={}", unifiedVideoId, ex.getMessage());
+                break;
             }
         }
         if (triggered > 0) {
@@ -117,6 +137,22 @@ class MagnetAutoSearchScheduler {
                 ? fallback
                 : runtimeConfig.positiveDurationValue("app.magnet.auto-search.cooldown", fallback);
         return positive(value, fallback);
+    }
+
+    private int maxQueueDepth() {
+        int fallback = Math.max(1, Math.min(MAX_QUEUE_DEPTH, maxQueueDepthByDeployment));
+        return runtimeConfig == null
+                ? fallback
+                : runtimeConfig.boundedIntValue(MAX_QUEUE_DEPTH_KEY, fallback, 1, MAX_QUEUE_DEPTH);
+    }
+
+    private boolean hasCapacity(int maxQueueDepth) {
+        try {
+            return workPublisher.backlogDepth() < maxQueueDepth;
+        } catch (RuntimeException ex) {
+            log.warn("Magnet auto search stopped because queue backlog is unavailable: {}", ex.getMessage());
+            return false;
+        }
     }
 
     private Duration positive(Duration value, Duration fallback) {

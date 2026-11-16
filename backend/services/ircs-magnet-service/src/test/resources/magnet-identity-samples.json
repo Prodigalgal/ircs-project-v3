@@ -1,0 +1,409 @@
+{
+  "schemaVersion": 1,
+  "snapshotDate": "2026-11-16",
+  "provenance": "18 sanitized stored rows from the read-only 75-row snapshot; no row originally recorded titleSource. STORED_CANDIDATE permits conflict review only and is not independent candidate-source evidence. YTS imdbCode is the actual returned ID; query values and legacy matched-ID fields are excluded. Domain attribution suffixes were removed from titles.",
+  "samples": [
+    {
+      "key": "eztv-01",
+      "providerCode": "eztv",
+      "sourceRow": 1,
+      "target": {
+        "title": "太阳召唤",
+        "subtitle": null,
+        "aliasTitle": "Shadow and Bone",
+        "year": 2021,
+        "season": 1,
+        "categoryCode": "series",
+        "imdbId": "tt2403776",
+        "tmdbId": "85720",
+        "doubanId": "30428349"
+      },
+      "candidate": {
+        "title": "Shadow.and.Bone.S02.WEBRip.x264-ION10",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "SEASON_CONFLICT"
+    },
+    {
+      "key": "eztv-02",
+      "providerCode": "eztv",
+      "sourceRow": 2,
+      "target": {
+        "title": "天空市凶案",
+        "subtitle": null,
+        "aliasTitle": "天空市 The Big Sky",
+        "year": 2021,
+        "season": 2,
+        "categoryCode": "series",
+        "imdbId": "tt11794642",
+        "tmdbId": "100010",
+        "doubanId": "35452023"
+      },
+      "candidate": {
+        "title": "Big.Sky.2020.S03E12.720p.HEVC.x265-MeGusta",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "SEASON_CONFLICT"
+    },
+    {
+      "key": "eztv-04",
+      "providerCode": "eztv",
+      "sourceRow": 4,
+      "target": {
+        "title": "战警97",
+        "subtitle": null,
+        "aliasTitle": "X-Men '97",
+        "year": 2024,
+        "season": 2,
+        "categoryCode": "anime",
+        "imdbId": "tt16026746",
+        "tmdbId": "138502",
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "X-Men 97 S01E04 Motendo Lifedeath Part 1 1080p DSNP WEB-DL DDP5 1 Atmos H 264-FLUX",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "SEASON_CONFLICT"
+    },
+    {
+      "key": "eztv-07",
+      "providerCode": "eztv",
+      "sourceRow": 7,
+      "target": {
+        "title": "金斯敦市长",
+        "subtitle": null,
+        "aliasTitle": "Mayor of Kingstown",
+        "year": 2021,
+        "season": 4,
+        "categoryCode": "series",
+        "imdbId": "tt11712058",
+        "tmdbId": "97951",
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "Mayor of Kingstown S04E05 720p x264-FENiX",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    },
+    {
+      "key": "eztv-10",
+      "providerCode": "eztv",
+      "sourceRow": 10,
+      "target": {
+        "title": "芝加哥急救",
+        "subtitle": null,
+        "aliasTitle": "Chicago Med",
+        "year": 2015,
+        "season": 11,
+        "categoryCode": "series",
+        "imdbId": "tt4655480",
+        "tmdbId": "62650",
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "Chicago.Med.S11E19.480p.x264-mSD",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    },
+    {
+      "key": "eztv-25",
+      "providerCode": "eztv",
+      "sourceRow": 25,
+      "target": {
+        "title": "机械之声的传奇",
+        "subtitle": null,
+        "aliasTitle": "The Legend of Vox Machina",
+        "year": 2022,
+        "season": 4,
+        "categoryCode": "anime",
+        "imdbId": "tt11247158",
+        "tmdbId": "135934",
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "The.Legend.of.Vox.Machina.S04E05.720p.HEVC.x265-MeGusta",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    },
+    {
+      "key": "thepiratebay-03",
+      "providerCode": "thepiratebay",
+      "sourceRow": 3,
+      "target": {
+        "title": "金鸡一朵云",
+        "subtitle": null,
+        "aliasTitle": "一次逃离, A Separation",
+        "year": 2026,
+        "season": null,
+        "categoryCode": "movie",
+        "imdbId": null,
+        "tmdbId": "1667824",
+        "doubanId": "36924062"
+      },
+      "candidate": {
+        "title": "A.Separation.2011.1080p.BluRay.REMUX.AVC.DTS-HD.MA.3.0-Jodaeiye Nader az Simin",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "MOVIE_YEAR_CONFLICT"
+    },
+    {
+      "key": "thepiratebay-05",
+      "providerCode": "thepiratebay",
+      "sourceRow": 5,
+      "target": {
+        "title": "圣诞天仙配",
+        "subtitle": null,
+        "aliasTitle": "A Christmas Angel Match",
+        "year": 2025,
+        "season": null,
+        "categoryCode": "movie",
+        "imdbId": "tt36503047",
+        "tmdbId": "1538155",
+        "doubanId": "37817120"
+      },
+      "candidate": {
+        "title": "A Christmas Angel Match (2025) 720p WEBRip-LAMA",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    },
+    {
+      "key": "thepiratebay-06",
+      "providerCode": "thepiratebay",
+      "sourceRow": 6,
+      "target": {
+        "title": "开局青云宗主召唤大帝境老祖",
+        "subtitle": null,
+        "aliasTitle": null,
+        "year": 2026,
+        "season": 2,
+        "categoryCode": "short-drama",
+        "imdbId": null,
+        "tmdbId": null,
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "House of the Dragon S03E02 1080p HEVC x265-MeGusta",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "SEASON_CONFLICT"
+    },
+    {
+      "key": "thepiratebay-08",
+      "providerCode": "thepiratebay",
+      "sourceRow": 8,
+      "target": {
+        "title": "全家靠我心声逆天改命",
+        "subtitle": null,
+        "aliasTitle": "全家靠我心声逆天改命",
+        "year": 2025,
+        "season": null,
+        "categoryCode": "short-drama",
+        "imdbId": null,
+        "tmdbId": "322446",
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "Bugonia (2025) [1080p] [WEBRip] [5.1]",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    },
+    {
+      "key": "thepiratebay-14",
+      "providerCode": "thepiratebay",
+      "sourceRow": 14,
+      "target": {
+        "title": "假脸",
+        "subtitle": null,
+        "aliasTitle": "The Mask/假脸",
+        "year": 1986,
+        "season": null,
+        "categoryCode": "movie",
+        "imdbId": "tt0351137",
+        "tmdbId": "1065074",
+        "doubanId": "6755228"
+      },
+      "candidate": {
+        "title": "Manhunter.1986.DC.1080p.BluRay.x265.EAC3 5.1",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "TITLE_CONFLICT"
+    },
+    {
+      "key": "thepiratebay-15",
+      "providerCode": "thepiratebay",
+      "sourceRow": 15,
+      "target": {
+        "title": "微信奇缘",
+        "subtitle": null,
+        "aliasTitle": null,
+        "year": 2024,
+        "season": null,
+        "categoryCode": "movie",
+        "imdbId": null,
+        "tmdbId": null,
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "Dark Matter 2024 S02E04 1080p WEB H264-CAKES",
+        "titleSource": "STORED_CANDIDATE"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "MOVIE_SERIES_CONFLICT"
+    },
+    {
+      "key": "yts_bz-03",
+      "providerCode": "yts_bz",
+      "sourceRow": 3,
+      "target": {
+        "title": "火遮眼",
+        "subtitle": null,
+        "aliasTitle": "狂怒, The Furious",
+        "year": 2026,
+        "season": null,
+        "categoryCode": "movie",
+        "imdbId": "tt33311069",
+        "tmdbId": "1280738",
+        "doubanId": "36877245"
+      },
+      "candidate": {
+        "title": "The Fast and the Furious: Tokyo Drift (2006) 1080p bluray",
+        "titleSource": "STORED_CANDIDATE",
+        "imdbCode": "tt0463985"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "RETURNED_EXTERNAL_ID_CONFLICT"
+    },
+    {
+      "key": "yts_bz-07",
+      "providerCode": "yts_bz",
+      "sourceRow": 7,
+      "target": {
+        "title": "伤物语",
+        "subtitle": "铁血篇",
+        "aliasTitle": "Kizumonogatari Part 1: Tekketsu-hen",
+        "year": 2016,
+        "season": 1,
+        "categoryCode": "anime",
+        "imdbId": null,
+        "tmdbId": null,
+        "doubanId": "4925418"
+      },
+      "candidate": {
+        "title": "Kizumonogatari I: Tekketsu-hen (2016) 720p bluray",
+        "titleSource": "STORED_CANDIDATE",
+        "imdbCode": "tt3138698"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    },
+    {
+      "key": "yts_bz-10",
+      "providerCode": "yts_bz",
+      "sourceRow": 10,
+      "target": {
+        "title": "诡住宅",
+        "subtitle": "电影解说",
+        "aliasTitle": "The House",
+        "year": 2019,
+        "season": null,
+        "categoryCode": "movie",
+        "imdbId": null,
+        "tmdbId": null,
+        "doubanId": "34938075"
+      },
+      "candidate": {
+        "title": "House at the Edge of the Woods (2025) 1080p web",
+        "titleSource": "STORED_CANDIDATE",
+        "imdbCode": "tt38047693"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "MOVIE_YEAR_CONFLICT"
+    },
+    {
+      "key": "yts_bz-16",
+      "providerCode": "yts_bz",
+      "sourceRow": 16,
+      "target": {
+        "title": "恐怖角",
+        "subtitle": null,
+        "aliasTitle": "Cape Fear",
+        "year": 2025,
+        "season": null,
+        "categoryCode": "series",
+        "imdbId": "tt34675596",
+        "tmdbId": "277439",
+        "doubanId": "36657472"
+      },
+      "candidate": {
+        "title": "Cape Fear (1962) 720p bluray",
+        "titleSource": "STORED_CANDIDATE",
+        "imdbCode": "tt0055824"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "RETURNED_EXTERNAL_ID_CONFLICT"
+    },
+    {
+      "key": "yts_bz-20",
+      "providerCode": "yts_bz",
+      "sourceRow": 20,
+      "target": {
+        "title": "TheScout",
+        "subtitle": null,
+        "aliasTitle": "The Scout:重生的星星",
+        "year": 2026,
+        "season": null,
+        "categoryCode": "variety",
+        "imdbId": "tt36590599",
+        "tmdbId": "1403519",
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "The Last Eagle Scout (2012) 720p web",
+        "titleSource": "STORED_CANDIDATE",
+        "imdbCode": "tt2226593"
+      },
+      "expectedDisposition": "REJECT",
+      "expectedReason": "RETURNED_EXTERNAL_ID_CONFLICT"
+    },
+    {
+      "key": "yts_bz-22",
+      "providerCode": "yts_bz",
+      "sourceRow": 22,
+      "target": {
+        "title": "野生的最终BOSS出现了",
+        "subtitle": null,
+        "aliasTitle": null,
+        "year": null,
+        "season": null,
+        "categoryCode": "anime",
+        "imdbId": null,
+        "tmdbId": null,
+        "doubanId": null
+      },
+      "candidate": {
+        "title": "Tusabu ilche (2006) 1080p web",
+        "titleSource": "STORED_CANDIDATE",
+        "imdbCode": "tt0757353"
+      },
+      "expectedDisposition": "CANDIDATE",
+      "expectedReason": "MISSING_INDEPENDENT_CANDIDATE_TITLE"
+    }
+  ]
+}

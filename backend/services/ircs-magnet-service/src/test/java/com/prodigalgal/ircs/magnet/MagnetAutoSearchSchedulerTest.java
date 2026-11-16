@@ -21,13 +21,23 @@ class MagnetAutoSearchSchedulerTest {
     private final JdbcMagnetRepository repository = org.mockito.Mockito.mock(JdbcMagnetRepository.class);
     private final MagnetQueryService queryService = org.mockito.Mockito.mock(MagnetQueryService.class);
     private final RuntimeConfigService runtimeConfig = org.mockito.Mockito.mock(RuntimeConfigService.class);
+    private final MagnetWorkPublisher workPublisher = org.mockito.Mockito.mock(MagnetWorkPublisher.class);
     private final com.prodigalgal.ircs.common.lock.DistributedLockService locks =
             org.mockito.Mockito.mock(com.prodigalgal.ircs.common.lock.DistributedLockService.class);
     private final MagnetAutoSearchScheduler scheduler = new MagnetAutoSearchScheduler(
             repository,
             queryService,
             runtimeConfigProvider(runtimeConfig),
-            locks);
+            locks,
+            workPublisherProvider(workPublisher));
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(scheduler, "maxQueueDepthByDeployment", 2000);
+        when(workPublisher.backlogDepth()).thenReturn(0L);
+        when(runtimeConfig.boundedIntValue("app.magnet.auto-search.max-queue-depth", 2000, 1, 100000))
+                .thenReturn(2000);
+    }
 
     @Test
     void scheduledRunSkipsWhenDisabled() {
@@ -68,10 +78,39 @@ class MagnetAutoSearchSchedulerTest {
         verify(queryService, never()).enqueueAutomaticSearch(any());
     }
 
+    @Test
+    void backlogAtConfiguredLimitStopsBeforeCandidateQuery() {
+        when(runtimeConfig.boundedIntValue("app.magnet.auto-search.max-queue-depth", 2000, 1, 100000))
+                .thenReturn(2);
+        when(workPublisher.backlogDepth()).thenReturn(2L);
+
+        assertEquals(0, scheduler.runBatch());
+
+        verify(repository, never()).findAutoSearchCandidates(anyInt(), any(Instant.class));
+        verify(queryService, never()).enqueueAutomaticSearch(any());
+    }
+
+    @Test
+    void unavailableQueueBacklogFailsClosedBeforeCandidateQuery() {
+        when(workPublisher.backlogDepth()).thenThrow(new IllegalStateException("queue unavailable"));
+
+        assertEquals(0, scheduler.runBatch());
+
+        verify(repository, never()).findAutoSearchCandidates(anyInt(), any(Instant.class));
+        verify(queryService, never()).enqueueAutomaticSearch(any());
+    }
+
     @SuppressWarnings("unchecked")
     private static ObjectProvider<RuntimeConfigService> runtimeConfigProvider(RuntimeConfigService runtimeConfig) {
         ObjectProvider<RuntimeConfigService> provider = org.mockito.Mockito.mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(runtimeConfig);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<MagnetWorkPublisher> workPublisherProvider(MagnetWorkPublisher workPublisher) {
+        ObjectProvider<MagnetWorkPublisher> provider = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(workPublisher);
         return provider;
     }
 }

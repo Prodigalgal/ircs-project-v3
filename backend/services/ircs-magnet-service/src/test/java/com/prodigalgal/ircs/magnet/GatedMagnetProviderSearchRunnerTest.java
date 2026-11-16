@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.beans.factory.ObjectProvider;
 
 class GatedMagnetProviderSearchRunnerTest {
@@ -15,26 +17,26 @@ class GatedMagnetProviderSearchRunnerTest {
     private final MagnetExternalIdQuery imdbQuery = new MagnetExternalIdQuery("IMDB", "tt1234567");
 
     @Test
-    void defaultsToFixtureAndDoesNotCallRealRunner() {
+    void disabledRealProviderFailsWithoutSilentlyUsingFixture() {
         FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
         YtsBzMagnetProviderSearchRunner realRunner = org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class);
         GenericMagnetProviderSearchRunner genericRunner = org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class);
-        org.mockito.Mockito.when(fixtureRunner.search(
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any()))
-                .thenReturn(result("fixture"));
         GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
                 fixtureRunner,
                 realRunner,
                 genericRunner,
                 emptyRuntimeConfigProvider(),
                 false,
-                "YTS_BZ");
+                "YTS_BZ",
+                environment(false),
+                false);
 
-        MagnetProviderSearchResult result = runner.search(ytsProvider(), imdbQuery, unifiedVideoId);
+        MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                MagnetProviderRunnerException.class,
+                () -> runner.search(ytsProvider(), imdbQuery, unifiedVideoId));
 
-        org.mockito.Mockito.verify(fixtureRunner).search(
+        assertEquals("MAGNET_PROVIDER_DISABLED", exception.failureType());
+        org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
@@ -46,7 +48,6 @@ class GatedMagnetProviderSearchRunnerTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
-        assertEquals("fixture", result.requestUrl());
     }
 
     @Test
@@ -65,7 +66,9 @@ class GatedMagnetProviderSearchRunnerTest {
                 genericRunner,
                 emptyRuntimeConfigProvider(),
                 true,
-                "YTS_BZ");
+                "YTS_BZ",
+                environment(false),
+                false);
 
         MagnetProviderSearchResult result = runner.search(ytsProvider(), imdbQuery, unifiedVideoId);
 
@@ -100,7 +103,9 @@ class GatedMagnetProviderSearchRunnerTest {
                 genericRunner,
                 emptyRuntimeConfigProvider(),
                 true,
-                "THE_PIRATE_BAY");
+                "THE_PIRATE_BAY",
+                environment(false),
+                false);
 
         MagnetProviderSearchResult result = runner.search(genericProvider(), imdbQuery, unifiedVideoId);
 
@@ -120,26 +125,26 @@ class GatedMagnetProviderSearchRunnerTest {
     }
 
     @Test
-    void keepsFixtureWhenAllowlistDoesNotMatch() {
+    void rejectsProviderWhenAllowlistDoesNotMatch() {
         FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
         YtsBzMagnetProviderSearchRunner realRunner = org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class);
         GenericMagnetProviderSearchRunner genericRunner = org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class);
-        org.mockito.Mockito.when(fixtureRunner.search(
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any()))
-                .thenReturn(result("fixture"));
         GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
                 fixtureRunner,
                 realRunner,
                 genericRunner,
                 emptyRuntimeConfigProvider(),
                 true,
-                "THE_PIRATE_BAY");
+                "THE_PIRATE_BAY",
+                environment(false),
+                false);
 
-        MagnetProviderSearchResult result = runner.search(ytsProvider(), imdbQuery, unifiedVideoId);
+        MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                MagnetProviderRunnerException.class,
+                () -> runner.search(ytsProvider(), imdbQuery, unifiedVideoId));
 
-        org.mockito.Mockito.verify(fixtureRunner).search(
+        assertEquals("MAGNET_PROVIDER_UNSUPPORTED", exception.failureType());
+        org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
@@ -151,7 +156,71 @@ class GatedMagnetProviderSearchRunnerTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void usesFixtureOnlyWhenExplicitlyEnabledInAllowedProfile() {
+        FixtureMagnetProviderSearchRunner fixtureRunner = org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class);
+        GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
+                fixtureRunner,
+                org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class),
+                org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class),
+                emptyRuntimeConfigProvider(),
+                false,
+                "",
+                environment(true),
+                true);
+        org.mockito.Mockito.when(fixtureRunner.search(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(result("fixture"));
+
+        MagnetProviderSearchResult result = runner.search(fixtureProvider(), imdbQuery, unifiedVideoId);
+
+        org.mockito.Mockito.verify(fixtureRunner).search(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
         assertEquals("fixture", result.requestUrl());
+    }
+
+    @Test
+    void rejectsFixtureWhenProfileIsNotAllowedEvenIfEnabled() {
+        GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
+                org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class),
+                org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class),
+                org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class),
+                emptyRuntimeConfigProvider(),
+                false,
+                "",
+                environment(false),
+                true);
+
+        MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                MagnetProviderRunnerException.class,
+                () -> runner.search(fixtureProvider(), imdbQuery, unifiedVideoId));
+
+        assertEquals("MAGNET_FIXTURE_DISABLED", exception.failureType());
+    }
+
+    @Test
+    void rejectsUnknownProviderEvenWhenItsCodeIsAllowlisted() {
+        GatedMagnetProviderSearchRunner runner = new GatedMagnetProviderSearchRunner(
+                org.mockito.Mockito.mock(FixtureMagnetProviderSearchRunner.class),
+                org.mockito.Mockito.mock(YtsBzMagnetProviderSearchRunner.class),
+                org.mockito.Mockito.mock(GenericMagnetProviderSearchRunner.class),
+                emptyRuntimeConfigProvider(),
+                true,
+                "UNKNOWN_PROVIDER",
+                environment(false),
+                false);
+
+        MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                MagnetProviderRunnerException.class,
+                () -> runner.search(unknownProvider(), imdbQuery, unifiedVideoId));
+
+        assertEquals("MAGNET_PROVIDER_UNSUPPORTED", exception.failureType());
     }
 
     private MagnetProviderSearchResult result(String requestUrl) {
@@ -223,6 +292,27 @@ class GatedMagnetProviderSearchRunnerTest {
                 null,
                 Instant.parse("2026-06-08T00:00:00Z"),
                 Instant.parse("2026-06-08T00:00:00Z"));
+    }
+
+    private MagnetProviderSummary fixtureProvider() {
+        return new MagnetProviderSummary(
+                UUID.randomUUID(), "fixture", "Fixture", "FIXTURE", "fixture://provider", true, 10, "LOW",
+                List.of("IMDB"), 0, 0, 1000, 20, false, "test fixture", null, null, null,
+                Instant.parse("2026-06-08T00:00:00Z"), Instant.parse("2026-06-08T00:00:00Z"));
+    }
+
+    private MagnetProviderSummary unknownProvider() {
+        return new MagnetProviderSummary(
+                UUID.randomUUID(), "unknown_provider", "Unknown", "UNKNOWN_PROVIDER", "https://example.invalid",
+                true, 10, "HIGH", List.of("IMDB"), 0, 0, 1000, 20, false, "test", null, null, null,
+                Instant.parse("2026-06-08T00:00:00Z"), Instant.parse("2026-06-08T00:00:00Z"));
+    }
+
+    private Environment environment(boolean allowedProfile) {
+        Environment environment = org.mockito.Mockito.mock(Environment.class);
+        org.mockito.Mockito.when(environment.acceptsProfiles(org.mockito.ArgumentMatchers.any(Profiles.class)))
+                .thenReturn(allowedProfile);
+        return environment;
     }
 
     @SuppressWarnings("unchecked")

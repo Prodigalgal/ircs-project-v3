@@ -75,8 +75,15 @@ record MagnetUnifiedVideoSearchTarget(
         String imdbId,
         String tmdbId,
         String doubanId,
-        String metadataStatus
+        String metadataStatus,
+        String subtitle,
+        Integer season,
+        String categoryCode
 ) {
+    MagnetUnifiedVideoSearchTarget(UUID id, String title, String aliasTitle, String year,
+            String imdbId, String tmdbId, String doubanId, String metadataStatus) {
+        this(id, title, aliasTitle, year, imdbId, tmdbId, doubanId, metadataStatus, null, null, null);
+    }
 }
 
 record MagnetSearchWorkPayload(

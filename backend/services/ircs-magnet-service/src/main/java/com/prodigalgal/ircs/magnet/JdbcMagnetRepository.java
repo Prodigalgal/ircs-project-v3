@@ -222,6 +222,14 @@ public class JdbcMagnetRepository {
                 unifiedVideoId);
     }
 
+    public void updateProviderHealth(UUID providerId, String status, String error) {
+        jdbcTemplate.update("""
+                update magnet_providers
+                set last_health_check_at = clock_timestamp(), last_health_status = ?, last_error_message = ?
+                where id = ?
+                """, status, error, providerId);
+    }
+
     public List<MagnetLinkSummary> findLinks(UUID unifiedVideoId) {
         return jdbcTemplate.query(
                 """
@@ -279,6 +287,9 @@ public class JdbcMagnetRepository {
                     select uv.id,
                            uv.title,
                            uv.alias_title,
+                           uv.subtitle,
+                           uv.season,
+                           uv.category_code,
                            uv."year" as release_year,
                            uv.imdb_id,
                            uv.tmdb_id,
@@ -295,7 +306,10 @@ public class JdbcMagnetRepository {
                              rs.getString("imdb_id"),
                              rs.getString("tmdb_id"),
                              rs.getString("douban_id"),
-                             rs.getString("metadata_status")),
+                             rs.getString("metadata_status"),
+                             rs.getString("subtitle"),
+                             getInteger(rs, "season"),
+                             rs.getString("category_code")),
                      unifiedVideoId));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
@@ -357,7 +371,7 @@ public class JdbcMagnetRepository {
                       select 1
                       from magnet_search_jobs running
                       where running.unified_video_id = uv.id
-                        and running.status = 'RUNNING'
+                        and running.status in ('PENDING', 'RUNNING')
                   )
                   and not exists (
                       select 1
@@ -628,7 +642,7 @@ public class JdbcMagnetRepository {
                     finished_at = :now,
                     error_message = :errorMessage,
                     version = coalesce(version, 0) + 1
-                where id = :jobId
+                where id = :jobId and status = 'PENDING'
                 """,
                 new MapSqlParameterSource()
                         .addValue("jobId", jobId)
@@ -709,43 +723,19 @@ public class JdbcMagnetRepository {
             UUID unifiedVideoId,
             MagnetProviderSummary provider,
             MagnetProviderCandidate candidate) {
+        return upsertLink(unifiedVideoId, provider, candidate, Boolean.TRUE.equals(provider.autoApproveAllowed()));
+    }
+
+    public MagnetLinkSummary upsertLink(
+            UUID unifiedVideoId,
+            MagnetProviderSummary provider,
+            MagnetProviderCandidate candidate,
+            boolean autoApprove) {
         UUID linkId = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
-        String status = Boolean.TRUE.equals(provider.autoApproveAllowed()) ? "APPROVED" : "CANDIDATE";
+        String status = autoApprove && Boolean.TRUE.equals(provider.autoApproveAllowed()) ? "APPROVED" : "CANDIDATE";
         MapSqlParameterSource params = linkParams(linkId, now, unifiedVideoId, provider, candidate, status);
-        int updated = namedParameterJdbcTemplate.update(
-                """
-                update magnet_links
-                set updated_at = :now,
-                    provider_id = :providerId,
-                    provider_code = :providerCode,
-                    magnet_uri = :magnetUri,
-                    title = :title,
-                    size_bytes = :sizeBytes,
-                    size_label = :sizeLabel,
-                    published_at = :publishedAt,
-                    seeders = :seeders,
-                    leechers = :leechers,
-                    quality = :quality,
-                    resolution = :resolution,
-                    matched_external_id_type = :matchedExternalIdType,
-                    matched_external_id_value = :matchedExternalIdValue,
-                    match_score = :matchScore,
-                    status = case
-                        when status in ('REJECTED', 'HIDDEN') then status
-                        else :status
-                    end,
-                    source_url = :sourceUrl,
-                    tags = cast(:tags as jsonb),
-                    provider_evidence = cast(:providerEvidence as jsonb),
-                    last_seen_at = :now,
-                    version = coalesce(version, 0) + 1
-                where unified_video_id = :unifiedVideoId
-                  and info_hash = :infoHash
-                """,
-                params);
-        if (updated == 0) {
-            namedParameterJdbcTemplate.update(
+        namedParameterJdbcTemplate.update(
                 """
                 insert into magnet_links (
                     id,
@@ -803,9 +793,31 @@ public class JdbcMagnetRepository {
                     :now,
                     :now
                 )
+                on conflict (unified_video_id, info_hash) do update
+                set updated_at = excluded.updated_at,
+                    provider_id = excluded.provider_id,
+                    provider_code = excluded.provider_code,
+                    magnet_uri = excluded.magnet_uri,
+                    title = excluded.title,
+                    size_bytes = excluded.size_bytes,
+                    size_label = excluded.size_label,
+                    published_at = excluded.published_at,
+                    seeders = excluded.seeders,
+                    leechers = excluded.leechers,
+                    quality = excluded.quality,
+                    resolution = excluded.resolution,
+                    matched_external_id_type = excluded.matched_external_id_type,
+                    matched_external_id_value = excluded.matched_external_id_value,
+                    match_score = excluded.match_score,
+                    status = case when magnet_links.status in ('APPROVED', 'REJECTED', 'HIDDEN')
+                                  then magnet_links.status else excluded.status end,
+                    source_url = excluded.source_url,
+                    tags = excluded.tags,
+                    provider_evidence = excluded.provider_evidence,
+                    last_seen_at = excluded.last_seen_at,
+                    version = coalesce(magnet_links.version, 0) + 1
                 """,
                 params);
-        }
         return findLink(unifiedVideoId, candidate.infoHash()).orElseThrow();
     }
 
@@ -1020,7 +1032,7 @@ public class JdbcMagnetRepository {
                 String.class);
     }
 
-    private Optional<MagnetSearchJobSummary> findSearchJob(UUID id) {
+    public Optional<MagnetSearchJobSummary> findSearchJob(UUID id) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
