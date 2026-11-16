@@ -91,3 +91,5 @@
 补充候选 3.5.3 将这两类当前输入停放在既有 DLQ，保留 payload、dataHash、submissionId 和错误原因；新输入提交或审核后仍可通过现有协议恢复。不删除数据、不伪装成已聚合成功、不新增前端状态枚举。拒绝旧 owner 的终结 CAS 仍要可观察；审核停放成功时消费者保持健康，业务审计显式记录 REVIEW_REQUIRED。SOURCE_CHANGED、MATCH_LOCK_BUSY、等待增强/AI、外部失败的原有延迟或有界重试语义保留。旧 review-delay-seconds 配置不再用于反复消耗这两类审核工作。
 
 本次只涉及 aggregation-worker，继续按需构建；已执行的 3.5.2 迁移与数据库 tag 不改写，不重跑。当前为候选实现，云端验证及生产停放结果另行补充。
+
+候选 3.5.3（c920b30）在 Actions 43810316397 运行 316 项聚合测试，314 通过，新增两项把既有 worker 状态 PROCESSED 误写成 HEALTHY，未构建和部署；修正断言保留原状态契约，后续候选占用 3.5.4。

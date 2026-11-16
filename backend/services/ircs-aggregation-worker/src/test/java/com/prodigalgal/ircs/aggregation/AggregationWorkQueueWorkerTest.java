@@ -320,7 +320,7 @@ class AggregationWorkQueueWorkerTest {
             org.mockito.Mockito.verify(deferrer, org.mockito.Mockito.never()).defer(any(), any(), anyString());
             assertThat(worker.state().lastFailed()).isZero();
             assertThat(worker.state().lastRequeued()).isZero();
-            assertThat(worker.state().lastRunState()).isEqualTo("HEALTHY");
+            assertThat(worker.state().lastRunState()).isEqualTo("PROCESSED");
             verify(auditWriter).record(org.mockito.ArgumentMatchers.argThat(event ->
                     "failed".equals(event.status()) && event.error() != null
                     && event.error().getMessage().equals("REVIEW_REQUIRED: " + status)));
