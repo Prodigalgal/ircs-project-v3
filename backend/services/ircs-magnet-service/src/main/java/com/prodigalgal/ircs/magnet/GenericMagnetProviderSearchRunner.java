@@ -228,7 +228,7 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         if (body.startsWith("{") || body.startsWith("[")) {
             try {
                 return isJsonAccessRestricted(objectMapper.readTree(body));
-            } catch (IOException ignored) {
+            } catch (tools.jackson.core.JacksonException ignored) {
                 return false;
             }
         }
