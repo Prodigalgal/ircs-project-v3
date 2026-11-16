@@ -113,6 +113,7 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         String titleAndHead = (document.title() + " " + document.head().text()).toLowerCase(Locale.ROOT);
         String visibleText = document.body().text().toLowerCase(Locale.ROOT);
         if (containsAny(lower, CHALLENGE_MARKERS)
+                || hasCaptchaChallenge(document)
                 || containsAny(titleAndHead, RESTRICTED_PAGE_MARKERS)
                 || isExplicitAccessDeniedText(visibleText)) {
             throw new MagnetProviderRunnerException(ACCESS_RESTRICTED, requestUrl, statusCode);
@@ -167,11 +168,12 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     }
 
     private boolean isJsonAccessRestricted(JsonNode root) {
+        if (!isJsonErrorEnvelope(root)) { return false; }
         for (String field : List.of("error", "errors", "error_description", "message", "status")) {
             JsonNode value = root.path(field);
             if (!value.isMissingNode() && !value.isNull()) {
                 String text = value.asText("").toLowerCase(Locale.ROOT);
-                if (containsAny(text, List.of("access denied", "forbidden", "captcha", "cloudflare", "challenge"))) {
+                if (containsAny(text, List.of("access denied", "request denied", "permission denied", "forbidden", "captcha", "cloudflare", "challenge"))) {
                     return true;
                 }
             }
@@ -185,6 +187,10 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
 
     private boolean isExplicitAccessDeniedText(String visibleText) {
         return visibleText.matches("(?i)^access denied(?:\\s+\\d+)?$");
+    }
+
+    private boolean hasCaptchaChallenge(Document document) {
+        return document.selectFirst(".captcha, [class*=captcha], [id*=captcha], iframe[src*=captcha], script[src*=captcha]") != null;
     }
 
     private boolean hasRecognizedHtmlResult(Document document, String lowerBody) {
@@ -238,7 +244,7 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         }
         Document document = Jsoup.parse(body);
         String titleAndHead = (document.title() + " " + document.head().text()).toLowerCase(Locale.ROOT);
-        return containsAny(titleAndHead, RESTRICTED_PAGE_MARKERS)
+        return hasCaptchaChallenge(document) || containsAny(titleAndHead, RESTRICTED_PAGE_MARKERS)
                 || isExplicitAccessDeniedText(document.body().text());
     }
 
