@@ -39,7 +39,7 @@ class JdbcAggregationRepositoryTest {
     @Test
     void retainsVerifiedCatalogScalarsWhenRawVotingWouldReplaceThem() {
         DriverManagerDataSource source = new DriverManagerDataSource(
-                "jdbc:h2:mem:catalog-retain-"+UUID.randomUUID()+";MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", "");
+                "jdbc:h2:mem:catalog-retain-"+UUID.randomUUID()+";MODE=PostgreSQL;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1", "sa", "");
         JdbcTemplate jdbc = new JdbcTemplate(source);
         createPipelineSchema(jdbc);
         UUID id=UUID.randomUUID();

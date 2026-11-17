@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.magnet;
 
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 
@@ -18,7 +19,7 @@ final class MagnetJobExecutionGuard implements AutoCloseable {
         this.lease = lease;
         renewNow();
         checkOwnership();
-        renewer = Thread.ofVirtual().name("ircs-magnet-job-lease").start(() -> {
+        renewer = VirtualThreadExecutors.threadFactory("ircs-magnet-job-lease-").newThread(() -> {
             try {
                 Duration interval = Duration.ofMillis(Math.max(1, lease.duration().toMillis() / 3));
                 while (!closed) {
@@ -29,6 +30,7 @@ final class MagnetJobExecutionGuard implements AutoCloseable {
                 if (!closed) { owned = false; Thread.currentThread().interrupt(); }
             }
         });
+        renewer.start();
     }
 
     void checkOwnership() {

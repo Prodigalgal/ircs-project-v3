@@ -1,13 +1,14 @@
 package com.prodigalgal.ircs.contentsafety;
 
 import com.prodigalgal.ircs.contracts.contentsafety.AdultAssessmentModelResult;
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
+import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +29,9 @@ class DecisionMicrobatchWorker {
     private final AtomicLong queued = new AtomicLong();
     private final AtomicLong inflight = new AtomicLong();
     private final java.util.concurrent.atomic.AtomicReference<Double> oldestAge = new java.util.concurrent.atomic.AtomicReference<>(0d);
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService executor = VirtualThreadExecutors.newPerTaskExecutor("decision-batch-");
+    private final ExecutorService triggerExecutor = ScheduledTriggers.virtualThreadExecutor("decision-trigger-");
+    private final java.util.concurrent.atomic.AtomicBoolean ticking = new java.util.concurrent.atomic.AtomicBoolean();
     private final Semaphore slots;
     private long nextSnapshot;
 
@@ -45,6 +48,13 @@ class DecisionMicrobatchWorker {
     }
 
     @Scheduled(fixedDelay = 50)
+    void scheduled() {
+        if (!ticking.compareAndSet(false, true)) return;
+        ScheduledTriggers.submit(triggerExecutor, () -> {
+            try { tick(); } finally { ticking.set(false); }
+        }, log, "decision.microbatch.tick");
+    }
+
     void tick() {
         if (!properties.adult().model().enabled() || !DecisionSettings.PROVIDER.equalsIgnoreCase(properties.adult().model().provider())) { return; }
         if (System.currentTimeMillis() >= nextSnapshot) {
@@ -163,5 +173,5 @@ class DecisionMicrobatchWorker {
     }
 
     @PreDestroy
-    void close() { executor.close(); }
+    void close() { triggerExecutor.shutdownNow(); executor.close(); }
 }

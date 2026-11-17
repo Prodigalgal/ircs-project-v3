@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.aggregation;
 
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,7 +37,7 @@ final class AggregationQueueClaimGuard implements AutoCloseable {
         for (RuntimeWorkItem item : items) { claims.put(item, new Claim()); }
         renewNow();
         CURRENT.set(this);
-        renewer = Thread.ofVirtual().name("ircs-aggregation-claim-renewal").start(() -> {
+        renewer = VirtualThreadExecutors.threadFactory("ircs-aggregation-claim-renewal-").newThread(() -> {
             try {
                 Duration interval = Duration.ofMillis(Math.max(1, visibility.toMillis() / 3));
                 while (!closed) {
@@ -50,6 +51,7 @@ final class AggregationQueueClaimGuard implements AutoCloseable {
                 }
             }
         });
+        renewer.start();
     }
 
     static void checkCurrentOwnership() {

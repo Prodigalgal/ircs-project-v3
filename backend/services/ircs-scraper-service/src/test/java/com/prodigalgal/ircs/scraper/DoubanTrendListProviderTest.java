@@ -46,11 +46,11 @@ class DoubanTrendListProviderTest {
         when(http.get(anyString())).thenAnswer(invocation -> invocation.<String>getArgument(0).contains("/chart")
                 ? """
                     <div class="indent">
-                      <table><a class="nbg" href="https://movie.douban.com/subject/0/" title="Invalid"></a></table>
-                      <table><a class="nbg" href="https://movie.douban.com/subject/12345/" title="电影"></a>
+                      <table><tr><td><a class="nbg" href="https://movie.douban.com/subject/0/" title="Invalid"></a></td></tr></table>
+                      <table><tr><td><a class="nbg" href="https://movie.douban.com/subject/12345/" title="电影"></a>
                         <p class="pl">2026 / 中国大陆 / 剧情</p><span class="rating_nums">8.5</span>
                         <img src="https://img.example/s_ratio_poster/example.jpg">
-                      </table>
+                      </td></tr></table>
                     </div>
                     """ : "{\"subjects\":[]}" );
 

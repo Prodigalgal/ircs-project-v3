@@ -34,7 +34,7 @@ class OpenAiCompatibleLlmCleaningClientTest {
                             "{\"choices\":[{\"message\":{\"content\":\"[]\"}}]}".getBytes(StandardCharsets.UTF_8));
                 }, pool);
         NormalizationConfigValues values = org.mockito.Mockito.mock(NormalizationConfigValues.class);
-        when(values.llmRequestTimeoutSeconds()).thenReturn(4);
+        when(values.llmRequestTimeoutSeconds()).thenReturn(4L);
         new OpenAiCompatibleLlmCleaningClient(new ObjectMapper(), values, httpClient).analyzeAndMap(
                 List.of("raw"), Set.of("canonical"), LlmCleaningKind.GENRE,
                 new LlmCredential("test-key", "http://ai-gateway.ircs-prod.svc.cluster.local:8080/v1", "test-model", "test"));
@@ -64,7 +64,7 @@ class OpenAiCompatibleLlmCleaningClientTest {
                 },
                 pool);
         NormalizationConfigValues configValues = org.mockito.Mockito.mock(NormalizationConfigValues.class);
-        when(configValues.llmRequestTimeoutSeconds()).thenReturn(4);
+        when(configValues.llmRequestTimeoutSeconds()).thenReturn(4L);
         OpenAiCompatibleLlmCleaningClient client = new OpenAiCompatibleLlmCleaningClient(
                 new ObjectMapper(), configValues, httpClient);
 

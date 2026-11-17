@@ -1,6 +1,6 @@
 # 首页全网榜单与先建条目后补抓
 
-状态：用户已批准；3.7.0 候选代码已实现，准备提交 GitHub Actions 验证，尚未发布。
+状态：用户已批准；3.7.0 首轮 CI 被门禁拦下，已修复发现的问题，准备提交 3.7.1；尚未发布。
 
 ## 需求
 
@@ -75,6 +75,10 @@
 本地仅执行版本契约、CI 工具回归、workflow 静态检查及前台轻量测试。Java、PostgreSQL/Valkey 集成测试、前台构建和两架构 Native 均由 GitHub Actions 执行；待 CI/运行态证据后更新本节。
 
 回滚使用上一不可变应用镜像，新增表与数据保留。可关闭 `app.scraper.trend-sync.enabled`、`app.task.catalog-discovery.enabled`、`app.metadata.catalog.enabled` 停止新增后台请求；不删除既有数据或队列。共享出站与契约的实际 Java 依赖需重建，未变更端继续复用不可变镜像。
+
+### 首轮 CI 反馈
+
+3.7.0 / `15b0163` / run `44112529954`：前台 lint、4 项 Node 测试和生产构建通过；后端发现测试构造器未补齐依赖、Collection import 遗漏、Mockito long 类型及泛型断言歧义，以及 PG 测试缺少新增目录队列表。修复这些问题并保留原测试；豆瓣测试改为真实有效的 table/tr/td HTML，第 3 季不能沿用第 1 季年份，凭据日志用真实 appender 验证脱敏。全量共享回归还发现历史续租器绕过虚拟线程工厂、AI 微批直接在调度线程工作，已沿现有 helper 修正。Native 离线验证显式关闭新增后台采样/补抓任务，不向真实第三方请求。3.7.0 未晋级 GitOps，不复用此版本。
 
 ## 来源核验
 

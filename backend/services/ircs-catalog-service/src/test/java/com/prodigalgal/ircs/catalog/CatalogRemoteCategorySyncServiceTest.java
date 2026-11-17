@@ -84,7 +84,7 @@ class CatalogRemoteCategorySyncServiceTest {
         private String body;
 
         private FakeFetchClient() {
-            super(null);
+            super(null, null);
         }
 
         @Override

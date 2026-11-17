@@ -176,8 +176,8 @@ databaseChangeLog:
   - include:
       file: db/changelog/2026/11/16-02-global-rankings-and-discovery.sql
   - changeSet:
-      id: 1785900000008-tag-3.7.0
+      id: 1785900000008-tag-3.7.1
       author: codex
       changes:
         - tagDatabase:
-            tag: 3.7.0
+            tag: 3.7.1

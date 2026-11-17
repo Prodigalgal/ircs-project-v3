@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.magnet;
 
 import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
+import com.prodigalgal.ircs.common.concurrent.VirtualThreadExecutors;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,7 +54,8 @@ final class MagnetQueueClaimGuard implements AutoCloseable {
         }
         renewNow();
         CURRENT.set(this);
-        renewer = Thread.ofVirtual().name("ircs-magnet-claim-renewal").start(this::renewInBackground);
+        renewer = VirtualThreadExecutors.threadFactory("ircs-magnet-claim-renewal-").newThread(this::renewInBackground);
+        renewer.start();
     }
 
     static void checkCurrentOwnership() {

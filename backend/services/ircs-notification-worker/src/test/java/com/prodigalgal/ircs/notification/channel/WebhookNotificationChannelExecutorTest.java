@@ -155,6 +155,8 @@ class WebhookNotificationChannelExecutorTest {
     void springConfigurationCreatesWebhookDeliveryClient() {
         new ApplicationContextRunner()
                 .withUserConfiguration(NotificationWebhookConfiguration.class)
+                .withBean(com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool.class,
+                        () -> mock(com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool.class))
                 .run(context -> assertThat(context).hasSingleBean(WebhookDeliveryClient.class));
     }
 

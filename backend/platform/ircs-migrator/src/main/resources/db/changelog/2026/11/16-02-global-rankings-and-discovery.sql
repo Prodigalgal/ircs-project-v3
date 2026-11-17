@@ -1,5 +1,5 @@
 -- liquibase formatted sql
--- Business version: 3.7.0. Additive only; rollback application images without dropping catalog data.
+-- Business version: 3.7.1. Additive only; rollback application images without dropping catalog data.
 -- changeset codex:1785900000007-global-rankings-and-discovery
 CREATE TABLE external_catalog_identities (
     provider varchar(32) NOT NULL,

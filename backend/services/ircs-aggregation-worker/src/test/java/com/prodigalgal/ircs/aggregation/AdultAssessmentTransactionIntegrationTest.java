@@ -73,6 +73,7 @@ class AdultAssessmentTransactionIntegrationTest {
         pool.setConnectionTimeout(1000);
         pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
+        jdbc.execute("create table catalog_metadata_requests(unified_video_id uuid primary key,last_success_at timestamptz)");
         jdbc.execute("""
                 create table standard_category(id uuid primary key, slug text unique, name text);
                 create table data_sources(id uuid primary key, name text, base_url text, adult_restricted boolean);

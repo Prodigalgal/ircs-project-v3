@@ -10,11 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 
-@ExtendWith(OutputCaptureExtension.class)
 class TmdbCredentialResolverTest {
 
     private final OutboundHttpClient httpClient = org.mockito.Mockito.mock(OutboundHttpClient.class);
@@ -60,7 +56,7 @@ class TmdbCredentialResolverTest {
     }
 
     @Test
-    void credentialTransportFailureDoesNotLogSecretBearingExceptionMessage(CapturedOutput output) throws Exception {
+    void credentialTransportFailureDoesNotLogSecretBearingExceptionMessage() throws Exception {
         when(configValues.tmdbCredentialServiceEnabled()).thenReturn(true);
         when(configValues.tmdbCredentialServiceBaseUrl()).thenReturn("http://credential-service");
         when(configValues.tmdbCredentialServiceLeaseLimit()).thenReturn(1);
@@ -72,7 +68,23 @@ class TmdbCredentialResolverTest {
         when(httpClient.execute(org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new IOException("Provider secretPayload api_key=must-not-leak"));
 
-        assertThat(resolver.resolveApiKey()).contains("env-key");
-        assertThat(output.getAll()).contains("CREDENTIAL_LEASE_FAILED", "IOException").doesNotContain("must-not-leak");
+        var messages = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var logger = (org.apache.logging.log4j.core.Logger) org.apache.logging.log4j.LogManager.getLogger(TmdbCredentialResolver.class);
+        var previousLevel = logger.getLevel();
+        var appender = new org.apache.logging.log4j.core.appender.AbstractAppender("credential-redaction-test", null,
+                org.apache.logging.log4j.core.layout.PatternLayout.createDefaultLayout(), false,
+                org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+            @Override
+            public void append(org.apache.logging.log4j.core.LogEvent event) {
+                messages.add(event.getMessage().getFormattedMessage());
+            }
+        };
+        appender.start(); logger.addAppender(appender); logger.setLevel(org.apache.logging.log4j.Level.WARN);
+        try {
+            assertThat(resolver.resolveApiKey()).contains("env-key");
+            assertThat(String.join("\n", messages)).contains("CREDENTIAL_LEASE_FAILED", "IOException").doesNotContain("must-not-leak");
+        } finally {
+            logger.removeAppender(appender); logger.setLevel(previousLevel); appender.stop();
+        }
     }
 }

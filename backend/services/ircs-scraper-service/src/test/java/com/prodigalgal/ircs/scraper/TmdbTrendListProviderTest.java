@@ -104,7 +104,8 @@ class TmdbTrendListProviderTest {
         assertThat(aired.signal().season()).isEqualTo(3);
         assertThat(aired.signal().episode()).isEqualTo(12);
         assertThat(aired.signal().position()).isNull();
-        assertThat(aired.year()).isEqualTo("2018");
+        assertThat(aired.year()).isNull();
+        assertThat(aired.publishedAt()).isNull();
         assertThat(board(boards, "trending-day", "tv").items().getFirst().signal().season()).isEqualTo(3);
         assertThat(details).hasValue(1);
     }

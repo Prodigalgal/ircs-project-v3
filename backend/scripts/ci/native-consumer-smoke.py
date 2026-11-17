@@ -164,6 +164,7 @@ def start(service, values, container_name='ircs-native-consumer', listen_port=18
         'APP_TASK_SCHEDULER_ENABLED': 'false', 'APP_TASK_MEDIA_REQUEST_ENABLED': 'false',
         'APP_TASK_DEFAULT_SEED_ENABLED': 'false', 'APP_MAGNET_AUTO_SEARCH_ENABLED': 'false',
         'APP_SCRAPER_TREND_SYNC_ENABLED': 'false', 'APP_SCRAPER_TREND_DISCOVERY_ENABLED': 'false',
+        'APP_TASK_CATALOG_DISCOVERY_ENABLED': 'false', 'APP_METADATA_CATALOG_ENABLED': 'false',
         'APP_STORAGE_R2_WORK_QUEUE_WORKER_ENABLED': 'false',
         'OPS_ALERT_NOTIFICATION_MAIL_ENABLED': 'false', 'APP_OPS_MAINTENANCE_NOTIFICATION_MAIL_ENABLED': 'false',
         'APP_TASK_TREND_DISCOVERY_ENABLED': 'false', 'APP_MAIL_ENABLED': 'false',

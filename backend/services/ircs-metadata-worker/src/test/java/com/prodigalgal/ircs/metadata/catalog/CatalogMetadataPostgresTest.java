@@ -77,7 +77,7 @@ class CatalogMetadataPostgresTest {
     @Test
     void fillsRealMetadataWithoutCreatingOrNeedingAnyRawResource() {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
-        assertThat(transactions.execute(status->repository.apply(target,evidence()))).isTrue();
+        assertThat(transactions.<Boolean>execute(status->repository.apply(target,evidence()))).isTrue();
         assertThat(jdbc.queryForObject("select description from unified_videos where id=?",String.class,id)).isEqualTo("Verified overview");
         assertThat(jdbc.queryForObject("select score from unified_videos where id=?",BigDecimal.class,id)).isEqualByComparingTo("8.2");
         assertThat(jdbc.queryForObject("select actor_names::text from unified_videos where id=?",String.class,id)).contains("Actor");
@@ -105,9 +105,9 @@ class CatalogMetadataPostgresTest {
         enqueue(); var old=repository.claim(1).getFirst();
         jdbc.update("update catalog_metadata_requests set lease_until=now()-interval '1 second'");
         var current=repository.claim(1).getFirst();
-        assertThat(transactions.execute(status->repository.apply(old,evidence()))).isFalse();
+        assertThat(transactions.<Boolean>execute(status->repository.apply(old,evidence()))).isFalse();
         assertThat(repository.renew(old)).isFalse(); assertThat(repository.defer(old,false,"OLD")).isFalse();
-        assertThat(transactions.execute(status->repository.apply(current,evidence()))).isTrue();
+        assertThat(transactions.<Boolean>execute(status->repository.apply(current,evidence()))).isTrue();
     }
 
     @Test
@@ -134,7 +134,7 @@ class CatalogMetadataPostgresTest {
         assertThatThrownBy(()->transactions.execute(status->repository.apply(target,evidence()))).isInstanceOf(CatalogMetadataUnavailableException.class);
         jdbc.update("update unified_videos set content_visibility='PUBLIC' where id=?",id);
         var partial=new EnrichedMetadataDTO(); partial.setTmdbId("42"); partial.setDescription("Only overview");
-        assertThat(transactions.execute(status->repository.apply(target,new CatalogMetadataEvidence("42","movie",0,partial)))).isTrue();
+        assertThat(transactions.<Boolean>execute(status->repository.apply(target,new CatalogMetadataEvidence("42","movie",0,partial)))).isTrue();
         assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("DIRTY");
     }
 
