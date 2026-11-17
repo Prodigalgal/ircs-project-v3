@@ -216,10 +216,11 @@ public class JdbcAggregationRepository {
     public List<UUID> findDirtyUnifiedIds(int limit) {
         return jdbcTemplate.queryForList(
                 """
-                select id
-                  from unified_videos
-                 where metadata_status = 'DIRTY'
-                 order by updated_at asc nulls first, id
+                select uv.id
+                  from unified_videos uv
+                 where uv.metadata_status = 'DIRTY'
+                   and exists (select 1 from raw_video_unified_video link where link.unified_video_id=uv.id)
+                 order by uv.updated_at asc nulls first, uv.id
                  limit :limit
                 """,
                 new MapSqlParameterSource("limit", Math.max(1, limit)),
@@ -804,6 +805,7 @@ public class JdbcAggregationRepository {
                 set metadata_status = 'SYNCED',
                     updated_at = now()
                 where id = :unifiedVideoId
+                  and exists (select 1 from raw_video_unified_video link where link.unified_video_id=:unifiedVideoId)
                 """,
                 new MapSqlParameterSource("unifiedVideoId", unifiedVideoId));
     }
@@ -1052,10 +1054,36 @@ public class JdbcAggregationRepository {
                     """,
                     new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
                     String.class);
-            return parseLockedFields(lockedFields);
+              Set<String> retained = new LinkedHashSet<>(parseLockedFields(lockedFields));
+              retainVerifiedCatalogFields(unifiedVideoId, retained);
+              return retained;
         } catch (EmptyResultDataAccessException ignored) {
             return Set.of();
         }
+    }
+
+    private void retainVerifiedCatalogFields(UUID unifiedVideoId, Set<String> retained) {
+        Map<String,String> fields = Map.ofEntries(
+                Map.entry("title","title"), Map.entry("year","year"), Map.entry("score","score"),
+                Map.entry("published_at","publishedat"), Map.entry("alias_title","aliastitle"),
+                Map.entry("description","description"), Map.entry("season","season"),
+                Map.entry("actor_names","actors"), Map.entry("director_names","directors"),
+                Map.entry("area_codes","area"), Map.entry("language_codes","language"), Map.entry("genre_codes","genres"));
+        // Retain only recorded, verified authority values; these are not persisted as manual locks.
+        jdbcTemplate.query("""
+                select uv.* from unified_videos uv where uv.id=:unifiedVideoId
+                  and exists(select 1 from catalog_metadata_requests job
+                             where job.unified_video_id=uv.id and job.last_success_at is not null)
+                """, new MapSqlParameterSource("unifiedVideoId",unifiedVideoId),
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
+                    java.sql.ResultSetMetaData metadata = rs.getMetaData();
+                    for (int n=1;n<=metadata.getColumnCount();n++) {
+                        String column=metadata.getColumnLabel(n).toLowerCase(Locale.ROOT);
+                        String field=fields.get(column);
+                        String value=rs.getString(n);
+                        if (field!=null && value!=null && !value.isBlank() && !"[]".equals(value)) retained.add(field);
+                    }
+                });
     }
 
     private Set<String> parseLockedFields(String value) {

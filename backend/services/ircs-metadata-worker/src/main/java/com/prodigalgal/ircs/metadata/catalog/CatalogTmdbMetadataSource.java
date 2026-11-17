@@ -1,0 +1,201 @@
+package com.prodigalgal.ircs.metadata.catalog;
+
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
+import com.prodigalgal.ircs.contentmetadata.PersonNames;
+import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
+import com.prodigalgal.ircs.contracts.metadata.ProviderType;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
+import com.prodigalgal.ircs.metadata.provider.tmdb.TmdbCredential;
+import com.prodigalgal.ircs.metadata.provider.tmdb.TmdbCredentialRepository;
+import com.prodigalgal.ircs.metadata.provider.tmdb.TmdbHttpClient;
+import com.prodigalgal.ircs.metadata.provider.tmdb.TmdbProviderProperties;
+import com.prodigalgal.ircs.metadata.provider.tmdb.TmdbRateLimiter;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+/** Uses the existing pool-aware TMDB transport, public traffic limiter and shared key rate limiter. */
+@Component
+@RequiredArgsConstructor
+public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
+    private final TmdbCredentialRepository credentials;
+    private final TmdbRateLimiter rateLimiter;
+    private final TmdbHttpClient http;
+    private final TmdbProviderProperties properties;
+    private final ObjectMapper mapper;
+    private final AtomicLong cursor = new AtomicLong();
+    private volatile List<TmdbCredential> cachedCredentials = List.of();
+    private volatile long credentialCacheUntil;
+
+    @Override
+    public CatalogMetadataEvidence fetch(CatalogMetadataTarget target) {
+        String expected = AuthoritativeIds.normalizeTmdb(target.tmdbId());
+        if (expected == null) throw new CatalogMetadataUnavailableException("NO_VERIFIABLE_PROVIDER");
+        List<TmdbCredential> enabled = enabledCredentials();
+        if (enabled.isEmpty()) throw new CatalogMetadataUnavailableException("CREDENTIAL_UNAVAILABLE");
+        int start = Math.floorMod(cursor.getAndIncrement(), enabled.size());
+        RuntimeException lastFailure = null;
+        for (int index = 0; index < Math.min(2, enabled.size()); index++) {
+            TmdbCredential credential = enabled.get((start + index) % enabled.size());
+            try {
+                return fetchWithCredential(target, expected, credential);
+            } catch (MetadataProviderRetryableException | MetadataProviderTerminalException ex) {
+                lastFailure = ex;
+            }
+        }
+        if (lastFailure != null) throw lastFailure;
+        throw new CatalogMetadataUnavailableException("CREDENTIAL_UNAVAILABLE");
+    }
+
+    private CatalogMetadataEvidence fetchWithCredential(CatalogMetadataTarget target, String expected, TmdbCredential credential) {
+        String type = target.mediaType();
+        if (!Set.of("movie", "tv").contains(type)) throw new CatalogMetadataUnavailableException("INVALID_MEDIA_TYPE");
+        JsonNode root = read(credential, "/" + type + "/" + expected, "credits,external_ids");
+        String actualId = AuthoritativeIds.normalizeTmdb(root.path("id").asText(null));
+        boolean movie = "movie".equals(type);
+        boolean correctShape = movie ? root.hasNonNull("title") && root.has("release_date") && !root.has("first_air_date")
+                : root.hasNonNull("name") && root.has("first_air_date") && !root.has("release_date");
+        if (!expected.equals(actualId) || !correctShape
+                || root.hasNonNull("media_type") && !type.equals(root.path("media_type").asText())) {
+            throw new CatalogMetadataUnavailableException("CATALOG_IDENTITY_MISMATCH");
+        }
+        if (root.path("adult").asBoolean(false)) throw new CatalogMetadataUnavailableException("ADULT_SOURCE_RECORD");
+        JsonNode scoped = root;
+        if (!movie && target.season() > 0) {
+            String seasonId = null;
+            for (JsonNode season : root.path("seasons")) {
+                if (season.path("season_number").asInt(-1) == target.season()) {
+                    seasonId = AuthoritativeIds.normalizeTmdb(season.path("id").asText(null));
+                    break;
+                }
+            }
+            if (seasonId == null) throw new CatalogMetadataUnavailableException("CATALOG_SEASON_UNVERIFIED");
+            scoped = read(credential, "/tv/" + actualId + "/season/" + target.season(), "credits");
+            if (!seasonId.equals(AuthoritativeIds.normalizeTmdb(scoped.path("id").asText(null)))
+                    || scoped.path("season_number").asInt(-1) != target.season()) {
+                throw new CatalogMetadataUnavailableException("CATALOG_SEASON_MISMATCH");
+            }
+            for (JsonNode episode : scoped.path("episodes")) {
+                if (episode.hasNonNull("show_id") && !actualId.equals(episode.path("show_id").asText())) {
+                    throw new CatalogMetadataUnavailableException("CATALOG_SEASON_MISMATCH");
+                }
+            }
+        }
+        return new CatalogMetadataEvidence(actualId, type, target.season(), metadata(root, scoped, actualId, movie));
+    }
+
+    private EnrichedMetadataDTO metadata(JsonNode root, JsonNode scoped, String actualId, boolean movie) {
+        EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
+        metadata.setTmdbId(actualId);
+        metadata.setImdbId(AuthoritativeIds.normalizeImdb(root.path("external_ids").path("imdb_id").asText(
+                root.path("imdb_id").asText(null))));
+        metadata.setTitle(text(root.path(movie ? "title" : "name")));
+        metadata.setOriginalTitle(text(root.path(movie ? "original_title" : "original_name")));
+        metadata.setDescription(firstText(scoped.path("overview"), root.path("overview")));
+        LocalDate date = date(scoped != root ? scoped.path("air_date") : root.path(movie ? "release_date" : "first_air_date"));
+        metadata.setPublishedAt(date);
+        metadata.setYear(date == null ? null : Integer.toString(date.getYear()));
+        String poster = firstText(scoped.path("poster_path"), root.path("poster_path"));
+        if (poster != null && poster.startsWith("/")) {
+            metadata.setPosterUrl(properties.getImageBaseUrl() + poster);
+            metadata.setImageSource(ProviderType.TMDB);
+        }
+        if (root.path("vote_count").asLong(0) > 0 && root.hasNonNull("vote_average")) {
+            try {
+                BigDecimal score = new BigDecimal(root.path("vote_average").asText());
+                if (score.signum() >= 0 && score.compareTo(BigDecimal.TEN) <= 0) metadata.setScore(score);
+            } catch (NumberFormatException ex) {
+                throw new CatalogMetadataUnavailableException("SOURCE_INVALID_SCORE");
+            }
+        }
+        JsonNode countries = root.path("production_countries");
+        if (countries.isArray() && !countries.isEmpty()) metadata.setArea(text(countries.get(0).path("iso_3166_1")));
+        if (metadata.getArea() == null && root.path("origin_country").isArray() && !root.path("origin_country").isEmpty()) {
+            metadata.setArea(text(root.path("origin_country").get(0)));
+        }
+        metadata.setLanguage(text(root.path("original_language")));
+        Set<String> actors = new LinkedHashSet<>();
+        for (JsonNode person : scoped.path("credits").path("cast")) {
+            if (actors.size() >= 15) break;
+            String name = text(person.path("name"));
+            if (name != null) actors.add(name);
+        }
+        Set<String> directors = new LinkedHashSet<>();
+        for (JsonNode person : scoped.path("credits").path("crew")) {
+            if ("Director".equals(person.path("job").asText())) {
+                String name = text(person.path("name"));
+                if (name != null && directors.size() < 15) directors.add(name);
+            }
+        }
+        metadata.setActorNames(PersonNames.normalize(actors));
+        metadata.setDirectorNames(PersonNames.normalize(directors));
+        for (JsonNode genre : root.path("genres")) {
+            String name = text(genre.path("name"));
+            if (name != null && metadata.getGenreNames().size() < 20) metadata.addGenre(name);
+        }
+        return metadata;
+    }
+
+    private JsonNode read(TmdbCredential credential, String path, String append) {
+        rateLimiter.acquire(credential);
+        URI uri = UriComponentsBuilder.fromUriString(properties.getBaseUrl() + path)
+                .queryParam("api_key", credential.apiKey()).queryParam("language", properties.getLanguage())
+                .queryParam("append_to_response", append).build().encode().toUri();
+        String body = http.getJson(uri).orElseThrow(() -> new CatalogMetadataUnavailableException("SOURCE_NOT_FOUND"));
+        if (body.length() > 2_000_000) throw new CatalogMetadataUnavailableException("SOURCE_RESPONSE_TOO_LARGE");
+        try {
+            JsonNode root = mapper.readTree(body);
+            if (root == null || !root.isObject()) throw new CatalogMetadataUnavailableException("SOURCE_INVALID_RESPONSE");
+            return root;
+        } catch (CatalogMetadataUnavailableException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new CatalogMetadataUnavailableException("SOURCE_INVALID_RESPONSE");
+        }
+    }
+
+    private List<TmdbCredential> enabledCredentials() {
+        long at = System.nanoTime();
+        if (at < credentialCacheUntil) return cachedCredentials;
+        synchronized (this) {
+            if (System.nanoTime() >= credentialCacheUntil) {
+                cachedCredentials = List.copyOf(credentials.findEnabled());
+                credentialCacheUntil = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            }
+            return cachedCredentials;
+        }
+    }
+
+    private static String text(JsonNode node) {
+        if (node == null || !node.isTextual()) return null;
+        String text = node.asText().trim();
+        return text.isBlank() || "null".equalsIgnoreCase(text) ? null : text;
+    }
+
+    private static String firstText(JsonNode preferred, JsonNode fallback) {
+        String first = text(preferred);
+        return first == null ? text(fallback) : first;
+    }
+
+    private static LocalDate date(JsonNode node) {
+        String value = text(node);
+        if (value == null) return null;
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+}

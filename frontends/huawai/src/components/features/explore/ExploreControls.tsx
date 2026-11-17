@@ -88,7 +88,7 @@ export function ExploreControls({
                 </span>
 
                 <div className="flex gap-1 bg-secondary/30 p-1 rounded-lg border border-border-subtle/5">
-                    {["latest", "rating", "trending"].map(sortKey => (
+                    {["latest", "global-latest", "rating", "trending"].map(sortKey => (
                         <button
                             key={sortKey}
                             type="button"
@@ -100,7 +100,13 @@ export function ExploreControls({
                                     : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                             )}
                         >
-                            {sortKey === "latest" ? "最新" : sortKey === "rating" ? "高分" : "热门"}
+                            {sortKey === "latest"
+                                ? "最新"
+                                : sortKey === "global-latest"
+                                    ? "全网更新"
+                                    : sortKey === "rating"
+                                        ? "高分"
+                                        : "热门"}
                         </button>
                     ))}
                 </div>

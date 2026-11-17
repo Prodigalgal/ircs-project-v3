@@ -62,6 +62,43 @@ public class JdbcCollectionTaskRepository {
                         rs.getString("name")));
     }
 
+    public List<DataSourceSeedCandidate> findCatalogDiscoveryDataSources(String requestKey, int limit) {
+        return jdbcTemplate.query(
+                """
+                select ds.id, ds.name
+                  from data_sources ds
+                 where ds.name is not null and btrim(ds.name) <> ''
+                   and ds.base_url ~* '^https?://'
+                   and ds.list_path is not null and btrim(ds.list_path) <> ''
+                   and ds.detail_path is not null and btrim(ds.detail_path) <> ''
+                   and ds.field_mapping is not null and ds.field_mapping <> '{}'::jsonb
+                   and coalesce(ds.adult_restricted, false) = false
+                   and exists (
+                       select 1 from collection_tasks configured
+                        where configured.data_source_id = ds.id and configured.enabled = true
+                          and not coalesce(jsonb_exists(configured.headers, 'ircsCatalogDiscovery'), false)
+                   )
+                   and not exists (
+                       select 1 from collection_tasks active
+                        where active.data_source_id = ds.id and active.status in ('QUEUED', 'RUNNING', 'STOPPING')
+                          and coalesce(active.headers -> 'ircsCatalogDiscovery' ->> 'requestKey', '') <> ?
+                   )
+                   and not exists (
+                       select 1 from collection_tasks failed
+                        where failed.data_source_id = ds.id and failed.status = 'FAILED'
+                          and failed.updated_at >= now() - interval '30 minutes'
+                   )
+                 order by exists (
+                     select 1 from collection_tasks successful
+                      where successful.data_source_id = ds.id and successful.status = 'COMPLETED'
+                        and successful.stat_success > 0
+                 ) desc, md5(ds.id::text || ?), ds.id
+                 limit ?
+                """,
+                (rs, rowNum) -> new DataSourceSeedCandidate(rs.getObject("id", UUID.class), rs.getString("name")),
+                requestKey, requestKey, Math.max(1, Math.min(3, limit)));
+    }
+
     public boolean existsTaskByName(String name) {
         Boolean exists = jdbcTemplate.queryForObject(
                 "select exists(select 1 from collection_tasks where name = ?)",
@@ -710,6 +747,16 @@ public class JdbcCollectionTaskRepository {
                 Boolean.class,
                 dataSourceId,
                 excludedTaskId);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public boolean existsCatalogSourceConflict(UUID dataSourceId, UUID excludedTaskId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM collection_tasks
+                     WHERE data_source_id = ? AND id <> ? AND status IN ('RUNNING', 'QUEUED', 'STOPPING')
+                )
+                """, Boolean.class, dataSourceId, excludedTaskId);
         return Boolean.TRUE.equals(exists);
     }
 

@@ -232,7 +232,8 @@ class YtsBzMagnetProviderSearchRunnerTest {
         return new YtsBzMagnetProviderSearchRunner(
                 new ObjectMapper(),
                 MagnetProviderTrafficLimiter.noop(),
-                httpClientProvider(httpClient));
+                httpClientProvider(httpClient),
+                null);
     }
 
     @SuppressWarnings("unchecked")

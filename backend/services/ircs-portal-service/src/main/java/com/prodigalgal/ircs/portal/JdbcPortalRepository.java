@@ -162,7 +162,7 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return jdbcTemplate.query(
+        return decorateRankings(jdbcTemplate.query(
                 CARD_SELECT + where + """
                  ORDER BY uv.published_at DESC NULLS LAST,
                           uv.updated_at DESC NULLS LAST,
@@ -170,7 +170,7 @@ public class JdbcPortalRepository {
                  LIMIT :limit
                 """,
                 params,
-                cardMapper());
+                cardMapper()), false);
     }
 
     public List<PortalMovieCard> findTrending(IrcsRequestPrincipal principal, int limit) {
@@ -178,16 +178,70 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return jdbcTemplate.query(
-                CARD_SELECT + where + """
-                 ORDER BY uv.last_trend_at DESC NULLS LAST,
-                          uv.score DESC NULLS LAST,
-                          uv.updated_at DESC NULLS LAST,
-                          uv.id ASC
+        return decorateRankings(jdbcTemplate.query(
+                CARD_SELECT + " JOIN external_catalog_rankings trend_rank ON trend_rank.unified_video_id = uv.id "
+                        + where + " AND trend_rank.heat > 0 " + """
+                 ORDER BY row_number() over (partition by uv.category_code order by trend_rank.heat desc, uv.id),
+                          trend_rank.heat DESC, uv.id ASC
                  LIMIT :limit
                 """,
                 params,
-                cardMapper());
+                cardMapper()), false);
+    }
+
+    public List<PortalMovieCard> findRecentlyUpdated(IrcsRequestPrincipal principal, int limit) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("limit", limit);
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        appendScopeFilters(where, params, principal);
+        return decorateRankings(jdbcTemplate.query(CARD_SELECT
+                + " JOIN external_catalog_recent_events recent_event ON recent_event.unified_video_id = uv.id "
+                + where + " ORDER BY recent_event.event_date DESC, recent_event.observed_at DESC, uv.id LIMIT :limit",
+                params, cardMapper()), true);
+    }
+
+    public List<PortalTrendSourceState> findTrendSourceStates() {
+        return jdbcTemplate.query("""
+                select provider, board, media_type, source_window, status, error_code,
+                       last_attempt_at, last_success_at, item_count,
+                       (last_success_at is null or last_success_at < now() - interval '6 hours') as stale
+                  from external_trend_boards order by provider, media_type, board, source_window
+                """, Map.of(), (rs, n) -> new PortalTrendSourceState(rs.getString("provider"), rs.getString("board"),
+                        rs.getString("media_type"), rs.getString("source_window"), rs.getString("status"),
+                        rs.getString("error_code"), getInstant(rs, "last_attempt_at"), getInstant(rs, "last_success_at"),
+                        rs.getInt("item_count"), rs.getBoolean("stale")));
+    }
+
+    private List<PortalMovieCard> decorateRankings(List<PortalMovieCard> cards, boolean recent) {
+        if (cards.isEmpty()) return cards;
+        Map<UUID, PortalRankingInfo> rankings = new HashMap<>();
+        jdbcTemplate.query("""
+                select uv.id, trend_rank.heat, trend_rank.sources,
+                       case when :recent then coalesce(recent_event.observed_at, trend_rank.observed_at)
+                            else coalesce(trend_rank.observed_at, recent_event.observed_at) end as observed_at,
+                       recent_event.event_date, recent_event.event_type, nullif(recent_event.season, 0) as season, recent_event.episode,
+                       inventory.resource_available, inventory.available_episode,
+                       recent_event.provider as event_provider
+                  from unified_videos uv
+                  left join external_catalog_rankings trend_rank on trend_rank.unified_video_id = uv.id
+                  left join external_catalog_recent_events recent_event on recent_event.unified_video_id = uv.id
+                  cross join lateral catalog_resource_inventory(uv.id, coalesce(uv.season, 0)) inventory
+                 where uv.id in (:ids)
+                """, Map.of("ids", cards.stream().map(PortalMovieCard::id).toList(), "recent", recent), rs -> {
+                    Instant observed = getInstant(rs, "observed_at");
+                    String sources = rs.getString("sources");
+                    String eventProvider = rs.getString("event_provider");
+                    List<String> providers = recent && eventProvider != null ? List.of(eventProvider) : sources == null || sources.isBlank()
+                            ? (eventProvider == null ? List.of() : List.of(eventProvider)) : List.of(sources.split(","));
+                    java.sql.Date eventDate = rs.getDate("event_date");
+                    rankings.put(rs.getObject("id", UUID.class), new PortalRankingInfo(providers, observed,
+                            observed == null || observed.isBefore(Instant.now().minusSeconds(21600)),
+                            eventDate == null ? null : eventDate.toLocalDate(), rs.getString("event_type"),
+                            rs.getObject("season", Integer.class), rs.getObject("episode", Integer.class),
+                            rs.getBoolean("resource_available"), rs.getObject("available_episode", Integer.class),
+                            rs.getBigDecimal("heat")));
+                });
+        return cards.stream().map(card -> card.withRanking(rankings.get(card.id()))).toList();
     }
 
     public List<PortalMovieCard> findCategorySection(IrcsRequestPrincipal principal, String categoryKey, int limit) {
@@ -232,9 +286,13 @@ public class JdbcPortalRepository {
                 params,
                 categoryCardMapper());
 
+        Map<UUID, PortalMovieCard> decorated = new HashMap<>();
+        for (PortalMovieCard card : decorateRankings(rows.stream().map(CategoryCardRow::card).toList(), false)) {
+            decorated.put(card.id(), card);
+        }
         Map<String, List<PortalMovieCard>> cardsByCategory = new LinkedHashMap<>();
         for (CategoryCardRow row : rows) {
-            cardsByCategory.computeIfAbsent(row.sectionKey(), ignored -> new ArrayList<>()).add(row.card());
+            cardsByCategory.computeIfAbsent(row.sectionKey(), ignored -> new ArrayList<>()).add(decorated.get(row.card().id()));
         }
         return cardsByCategory;
     }
@@ -253,16 +311,28 @@ public class JdbcPortalRepository {
         Map<String, Object> params = new HashMap<>();
         String where = exploreWhere(params, principal, keyword, type, genre, area, year, language);
 
+        String normalizedSort = sort == null ? "" : sort.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean trending = List.of("trend", "trending", "hot").contains(normalizedSort);
+        boolean recent = List.of("latest", "new", "published", "global-latest").contains(normalizedSort);
+        String rankingJoin = "";
+        if (trending) {
+            rankingJoin = " JOIN external_catalog_rankings trend_rank ON trend_rank.unified_video_id = uv.id ";
+            where += " AND uv.id in (select unified_video_id from external_catalog_rankings where heat > 0) ";
+        } else if (recent) {
+            rankingJoin = " JOIN external_catalog_recent_events recent_event ON recent_event.unified_video_id = uv.id ";
+            where += " AND uv.id in (select unified_video_id from external_catalog_recent_events) ";
+        }
+
         params.put("limit", size);
         params.put("offset", (long) page * size);
         List<PortalMovieCard> content = jdbcTemplate.query(
-                CARD_SELECT + where + orderBy(sort) + " LIMIT :limit OFFSET :offset",
+                CARD_SELECT + rankingJoin + where + orderBy(sort) + " LIMIT :limit OFFSET :offset",
                 params,
                 cardMapper());
         long total = exploreRequiresExactTotal(principal, keyword, type, genre, area, year, language)
                 ? exactExploreTotal(where, params)
                 : estimatedTotal(page, size, content.size());
-        return PageResponse.of(content, total, page, size);
+        return PageResponse.of(decorateRankings(content, recent), total, page, size);
     }
 
     public PageResponse<PortalSitemapMovie> findSitemapMovies(
@@ -572,15 +642,10 @@ public class JdbcPortalRepository {
                               uv.id ASC
                     """;
             case "trend", "trending", "hot" -> """
-                     ORDER BY uv.last_trend_at DESC NULLS LAST,
-                              uv.score DESC NULLS LAST,
-                              uv.updated_at DESC NULLS LAST,
-                              uv.id ASC
+                     ORDER BY trend_rank.heat DESC, uv.id ASC
                     """;
-            case "latest", "new", "published" -> """
-                     ORDER BY uv.published_at DESC NULLS LAST,
-                              uv.updated_at DESC NULLS LAST,
-                              uv.id ASC
+            case "latest", "new", "published", "global-latest" -> """
+                     ORDER BY recent_event.event_date DESC, recent_event.observed_at DESC, uv.id ASC
                     """;
             case "year" -> """
                      ORDER BY uv.year DESC NULLS LAST,

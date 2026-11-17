@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundTransportRouter;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import java.io.IOException;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,10 +20,13 @@ class CatalogFetchSampleClient {
 
     private final OutboundHttpClient httpClient;
 
-    CatalogFetchSampleClient(ObjectProvider<OutboundHttpClient> httpClient) {
+    CatalogFetchSampleClient(
+            ObjectProvider<OutboundHttpClient> httpClient,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
+        PublicOutboundProxyPool proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
         this.httpClient = httpClient == null
-                ? defaultHttpClient()
-                : httpClient.getIfAvailable(CatalogFetchSampleClient::defaultHttpClient);
+                ? defaultHttpClient(proxyPool)
+                : httpClient.getIfAvailable(() -> defaultHttpClient(proxyPool));
     }
 
     static CatalogFetchSampleClient forTest(OutboundHttpClient httpClient) {
@@ -31,7 +35,7 @@ class CatalogFetchSampleClient {
             public OutboundHttpClient getObject() {
                 return httpClient;
             }
-        });
+        }, null);
     }
 
     String get(String url) throws IOException, InterruptedException {
@@ -62,9 +66,10 @@ class CatalogFetchSampleClient {
         return false;
     }
 
-    private static OutboundHttpClient defaultHttpClient() {
+    private static OutboundHttpClient defaultHttpClient(PublicOutboundProxyPool proxyPool) {
         return new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new OutboundTransportRouter());
+                new OutboundTransportRouter(),
+                proxyPool);
     }
 }

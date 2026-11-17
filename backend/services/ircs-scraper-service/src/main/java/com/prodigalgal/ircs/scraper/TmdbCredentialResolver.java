@@ -85,7 +85,7 @@ class TmdbCredentialResolver {
             log.warn("TMDB credential lease interrupted");
             return Optional.empty();
         } catch (Exception ex) {
-            log.warn("TMDB credential lease skipped: {}", ex.getMessage());
+            log.warn("TMDB credential lease skipped: CREDENTIAL_LEASE_FAILED ({})", ex.getClass().getSimpleName());
             return Optional.empty();
         }
     }

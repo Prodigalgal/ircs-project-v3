@@ -29,6 +29,18 @@ class ScraperTrendConfigValues {
         return booleanValue(true, "app.scraper.trend-sync.tmdb-enabled", "APP_SCRAPER_TREND_SYNC_TMDB_ENABLED");
     }
 
+    boolean rottenTomatoesEnabled() {
+        return booleanValue(true, "app.scraper.trend-sync.rotten-tomatoes-enabled", "APP_SCRAPER_TREND_SYNC_ROTTEN_TOMATOES_ENABLED");
+    }
+
+    boolean imdbEnabled() {
+        return booleanValue(true, "app.scraper.trend-sync.imdb-enabled", "APP_SCRAPER_TREND_SYNC_IMDB_ENABLED");
+    }
+
+    int tmdbEpisodeDetailBudget() {
+        return intValue(10, 0, 30, "app.scraper.trend-sync.tmdb-episode-detail-budget", "APP_SCRAPER_TREND_SYNC_TMDB_EPISODE_DETAIL_BUDGET");
+    }
+
     String tmdbApiKey() {
         return stringValue("", "app.scraper.trend-sync.tmdb-api-key", "APP_SCRAPER_TMDB_API_KEY", "TMDB_API_KEY");
     }
@@ -95,7 +107,9 @@ class ScraperTrendConfigValues {
     }
 
     int maxProviderItems() {
-        return intValue(100, 0, 500, "app.scraper.trend-sync.max-provider-items", "APP_SCRAPER_TREND_SYNC_MAX_PROVIDER_ITEMS");
+        int configured = intValue(100, 0, 500, "app.scraper.trend-sync.max-provider-items", "APP_SCRAPER_TREND_SYNC_MAX_PROVIDER_ITEMS");
+        // Each of TMDB's six boards receives at least one item; legacy 0 now uses the bounded default.
+        return configured <= 0 ? 100 : Math.max(6, configured);
     }
 
     String contentOwnerBaseUrl() {
@@ -107,7 +121,7 @@ class ScraperTrendConfigValues {
 
     Duration contentOwnerRequestTimeout() {
         return durationValue(
-                Duration.ofSeconds(30),
+                Duration.ofMinutes(2),
                 "app.scraper.trend-sync.content-owner-request-timeout",
                 "APP_SCRAPER_CONTENT_SERVICE_REQUEST_TIMEOUT");
     }

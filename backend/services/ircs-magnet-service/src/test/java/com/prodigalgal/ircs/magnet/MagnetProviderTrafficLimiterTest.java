@@ -97,7 +97,8 @@ class MagnetProviderTrafficLimiterTest {
         YtsBzMagnetProviderSearchRunner runner = new YtsBzMagnetProviderSearchRunner(
                 new ObjectMapper(),
                 limiter,
-                httpClientProvider(httpClient));
+                httpClientProvider(httpClient),
+                null);
 
         MagnetProviderRunnerException error = assertThrows(
                 MagnetProviderRunnerException.class,

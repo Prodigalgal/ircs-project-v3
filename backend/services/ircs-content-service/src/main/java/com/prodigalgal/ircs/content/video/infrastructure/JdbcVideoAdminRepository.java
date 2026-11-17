@@ -30,7 +30,6 @@ import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -58,7 +57,6 @@ public class JdbcVideoAdminRepository {
     private final ObjectMapper objectMapper;
     private final ObjectProvider<MetadataNameCache> metadataNameCacheProvider;
     private final VideoAdminCoverImageRepository coverImageRepository;
-    private final VideoAdminTrendRepository trendRepository;
     private final VideoAdminQueryRepository queryRepository;
 
     public Page<RawVideoCardResponse> findRawVideos(
@@ -377,34 +375,6 @@ public class JdbcVideoAdminRepository {
         bindRawVideosToUnified(id, request.bindVideoIds());
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(id));
         return id;
-    }
-
-    public List<UUID> updateTrendTimeByDoubanIds(Collection<String> ids, Instant now) {
-        return trendRepository.updateTrendTimeByDoubanIds(ids, now);
-    }
-
-    public List<UUID> updateTrendTimeByTmdbIds(Collection<String> ids, Instant now) {
-        return trendRepository.updateTrendTimeByTmdbIds(ids, now);
-    }
-
-    public Set<String> findExistingDoubanIds(Collection<String> ids) {
-        return trendRepository.findExistingDoubanIds(ids);
-    }
-
-    public Set<String> findExistingTmdbIds(Collection<String> ids) {
-        return trendRepository.findExistingTmdbIds(ids);
-    }
-
-    public List<String> findIdsByYearAndTitleSimilarity(List<String> years, String title, double threshold) {
-        return trendRepository.findIdsByYearAndTitleSimilarity(years, title, threshold);
-    }
-
-    public boolean updateTrendTimeById(UUID id, Instant now) {
-        return trendRepository.updateTrendTimeById(id, now);
-    }
-
-    public UUID createTrendGhost(com.prodigalgal.ircs.contracts.trend.TrendItemPayload item, Instant trendTime) {
-        return trendRepository.createTrendGhost(item, trendTime);
     }
 
     public void updateUnifiedVideo(UUID id, UnifiedVideoUpdateRequest request) {

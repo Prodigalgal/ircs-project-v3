@@ -8,6 +8,8 @@ import com.prodigalgal.ircs.task.infrastructure.DataSourceSeedCandidate;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
+import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
+import com.prodigalgal.ircs.task.domain.TaskRuntimeState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
@@ -17,6 +19,7 @@ import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleRequest;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -125,5 +128,54 @@ class TrendDiscoveryTaskServiceTest {
         ReflectionTestUtils.setField(result, "maxKeywords", 50);
         ReflectionTestUtils.setField(result, "maxDataSources", 0);
         return result;
+    }
+
+    @Test
+    void catalogDiscoverySeparatesIdenticalTitlesByWorkAndSeasonWithoutPromotingExpectedIdsToEvidence() {
+        UUID sourceId = UUID.randomUUID();
+        UUID workId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        CatalogDiscoveryCandidate first = new CatalogDiscoveryCandidate(workId, 1, 5, "Same Title", 1, UUID.randomUUID());
+        CatalogDiscoveryCandidate second = new CatalogDiscoveryCandidate(workId, 2, 5, "Same Title", 1, UUID.randomUUID());
+        when(taskRepository.findCatalogDiscoveryDataSources(first.requestKey(), 3))
+                .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
+        when(taskRepository.findCatalogDiscoveryDataSources(second.requestKey(), 3))
+                .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
+        when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.empty());
+        when(taskCommandService.create(any())).thenReturn(taskId);
+        when(taskCommandService.startCatalog(org.mockito.ArgumentMatchers.eq(taskId),
+                org.mockito.ArgumentMatchers.eq(sourceId), any())).thenReturn(true);
+        AtomicInteger checks = new AtomicInteger();
+
+        service.scheduleCatalog(first, 50, checks::incrementAndGet);
+        service.scheduleCatalog(second, 50, checks::incrementAndGet);
+
+        ArgumentCaptor<TaskCreateRequest> tasks = ArgumentCaptor.forClass(TaskCreateRequest.class);
+        org.mockito.Mockito.verify(taskCommandService, org.mockito.Mockito.times(2)).create(tasks.capture());
+        assertThat(tasks.getAllValues().get(0).name()).isNotEqualTo(tasks.getAllValues().get(1).name());
+        for (TaskCreateRequest request : tasks.getAllValues()) {
+            assertThat(request.headers()).contains("ircsCatalogDiscovery", workId.toString())
+                    .doesNotContain("tmdbId", "doubanId", "imdbId", "rawMetadata");
+            assertThat(request.filterKeywords()).isEqualTo("Same Title");
+        }
+        assertThat(checks.get()).isGreaterThanOrEqualTo(6);
+    }
+
+    @Test
+    void catalogDiscoveryRecoversAnAlreadyActiveTaskButDoesNotAcceptADisabledTask() {
+        UUID sourceId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        CatalogDiscoveryCandidate candidate = new CatalogDiscoveryCandidate(
+                UUID.randomUUID(), 0, 0, "Example", 2, UUID.randomUUID());
+        when(taskRepository.findCatalogDiscoveryDataSources(candidate.requestKey(), 1))
+                .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
+        when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.of(taskId));
+        when(taskRepository.findRuntimeState(taskId))
+                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", true, 1, 1)))
+                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", false, 1, 1)));
+
+        assertThat(service.scheduleCatalog(candidate, 1, () -> {}).tasks().getFirst().status()).isEqualTo("ACTIVE");
+        assertThat(service.scheduleCatalog(candidate, 1, () -> {}).tasks().getFirst().status())
+                .isEqualTo("SKIPPED_ACTIVE_OR_DISABLED");
     }
 }

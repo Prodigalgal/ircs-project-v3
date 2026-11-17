@@ -36,6 +36,25 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @SuppressWarnings({"unchecked", "rawtypes"})
 class JdbcAggregationRepositoryTest {
 
+    @Test
+    void retainsVerifiedCatalogScalarsWhenRawVotingWouldReplaceThem() {
+        DriverManagerDataSource source = new DriverManagerDataSource(
+                "jdbc:h2:mem:catalog-retain-"+UUID.randomUUID()+";MODE=PostgreSQL;DB_CLOSE_DELAY=-1", "sa", "");
+        JdbcTemplate jdbc = new JdbcTemplate(source);
+        createPipelineSchema(jdbc);
+        UUID id=UUID.randomUUID();
+        seedScalarUnlockedFixture(jdbc,id,UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID());
+        jdbc.update("insert into catalog_metadata_requests values(?,current_timestamp)",id);
+        JdbcAggregationRepository actual=JdbcAggregationRepository.forTest(new NamedParameterJdbcTemplate(source),
+                AggregationTestFixtures.matchingStrategy());
+        actual.rebuildUnifiedPipelineBasicAttributes(id);
+        actual.rebuildUnifiedPipelineDynamicFields(id);
+        assertEquals("Old Title",scalar(jdbc,"select title from unified_videos where id=?",id,String.class));
+        assertEquals("2000",scalar(jdbc,"select year from unified_videos where id=?",id,String.class));
+        assertEquals(new BigDecimal("1.0"),scalar(jdbc,"select score from unified_videos where id=?",id,BigDecimal.class));
+        assertEquals("old description",scalar(jdbc,"select description from unified_videos where id=?",id,String.class));
+    }
+
     private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder().build();
 
     @Mock
@@ -1327,6 +1346,7 @@ class JdbcAggregationRepositoryTest {
     }
 
     private void createPipelineSchema(JdbcTemplate jdbc) {
+        jdbc.execute("create table catalog_metadata_requests(unified_video_id uuid primary key,last_success_at timestamp)");
         jdbc.execute("""
                 create table unified_videos (
                     id uuid primary key,

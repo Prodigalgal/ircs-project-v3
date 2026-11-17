@@ -1,15 +1,11 @@
 package com.prodigalgal.ircs.scraper;
 
-import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
-import com.prodigalgal.ircs.common.outbound.OutboundTransportRouter;
-import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
 import java.nio.charset.StandardCharsets;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -19,13 +15,16 @@ class TrendProviderHttpClient {
     private final ScraperTrendConfigValues configValues;
 
     TrendProviderHttpClient(
-            ObjectProvider<OutboundHttpClient> httpClientProvider,
+            OutboundHttpClient httpClient,
             ScraperTrendConfigValues configValues) {
-        this.httpClient = httpClient(httpClientProvider);
+        this.httpClient = httpClient;
         this.configValues = configValues;
     }
 
     String get(String url) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new TrendProviderFetchException("FETCH_INTERRUPTED");
+        }
         try {
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(configValues.providerTimeout())
                     .withUserAgent(OutboundUserAgents.defaultBrowser())
@@ -35,26 +34,20 @@ class TrendProviderHttpClient {
                     .withHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6");
             OutboundHttpResponse response = httpClient.execute(request);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("upstream status " + response.statusCode());
+                throw new TrendProviderFetchException("HTTP_" + response.statusCode());
+            }
+            if (response.body().length > 2_000_000) {
+                throw new TrendProviderFetchException("RESPONSE_TOO_LARGE");
             }
             return new String(response.body(), StandardCharsets.UTF_8);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("provider fetch interrupted", ex);
+            throw new TrendProviderFetchException("FETCH_INTERRUPTED");
+        } catch (TrendProviderFetchException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new IllegalStateException("provider fetch failed: " + ex.getMessage(), ex);
+            // Transport exceptions may contain credential-bearing URLs; expose only a fixed code.
+            throw new TrendProviderFetchException("FETCH_FAILED");
         }
-    }
-
-    private static OutboundHttpClient httpClient(ObjectProvider<OutboundHttpClient> httpClientProvider) {
-        if (httpClientProvider != null) {
-            OutboundHttpClient provided = httpClientProvider.getIfUnique();
-            if (provided != null) {
-                return provided;
-            }
-        }
-        return new OutboundHttpClient(
-                new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new OutboundTransportRouter());
     }
 }

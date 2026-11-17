@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import com.prodigalgal.ircs.common.security.InternalServiceAuthHeaders;
 import com.prodigalgal.ircs.identity.infrastructure.AvatarStorageClient.AvatarFile;
 import com.prodigalgal.ircs.identity.infrastructure.AvatarStorageClient.StoredAvatar;
@@ -48,11 +49,12 @@ public class RestClientAvatarStorageClient implements AvatarStorageClient {
             @Value("${app.identity.storage-service.service-token:${APP_IDENTITY_STORAGE_SERVICE_TOKEN:}}") String serviceToken,
             @Value("${app.identity.storage-service.scopes:storage:avatar}") String serviceScopes,
             ObjectProvider<OutboundHttpClient> outboundHttpClientProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider,
             ObjectProvider<ObjectMapper> objectMapperProvider) {
         Duration timeout = parseDuration(requestTimeout);
         this.avatarUploadUri = uploadUri(baseUrl);
         this.requestTimeout = timeout;
-        this.outboundHttpClient = outboundHttpClient(outboundHttpClientProvider, timeout);
+        this.outboundHttpClient = outboundHttpClient(outboundHttpClientProvider, proxyPoolProvider, timeout);
         this.objectMapper = objectMapper(objectMapperProvider);
         this.serviceId = serviceId;
         this.serviceToken = serviceToken;
@@ -160,6 +162,7 @@ public class RestClientAvatarStorageClient implements AvatarStorageClient {
 
     private static OutboundHttpClient outboundHttpClient(
             ObjectProvider<OutboundHttpClient> outboundHttpClientProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider,
             Duration requestTimeout) {
         if (outboundHttpClientProvider != null) {
             OutboundHttpClient provided = outboundHttpClientProvider.getIfUnique();
@@ -167,9 +170,11 @@ public class RestClientAvatarStorageClient implements AvatarStorageClient {
                 return provided;
             }
         }
+        PublicOutboundProxyPool proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
         return new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new JdkOutboundTransport(requestTimeout));
+                new JdkOutboundTransport(requestTimeout),
+                proxyPool);
     }
 
     private static ObjectMapper objectMapper(ObjectProvider<ObjectMapper> objectMapperProvider) {

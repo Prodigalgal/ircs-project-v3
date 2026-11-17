@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Play, Star } from "lucide-react";
+import { Play, Star, Clock3 } from "lucide-react";
 import { MovieCard } from "@/lib/types";
 import { QuantumImage } from "@/components/ui/QuantumImage";
 import { cn } from "@/lib/utils";
+import { getRankingEpisodeLabel, getRankingSourceLabel, getResourceAvailabilityLabel } from "@/lib/domain/rankingPresentation";
 
 interface TrendingItemProps {
     movie: MovieCard;
@@ -18,6 +19,7 @@ export function TrendingItem({ movie, rank }: TrendingItemProps) {
         <Link
             href={`/movie/${movie.id}`}
             prefetch={false}
+            aria-label={`全网热播第${rank}位：${movie.title}`}
             className="block relative p-2.5 rounded-xl border border-transparent hover:border-border-subtle/10 hover:bg-secondary/50 transition-all group/item select-none"
         >
             <div className="flex items-center gap-3">
@@ -50,23 +52,38 @@ export function TrendingItem({ movie, rank }: TrendingItemProps) {
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3 text-[9px] text-muted-foreground font-mono">
-                        {movie.rating > 0 ? (
-                            <span className="flex items-center gap-0.5 text-amber-500 font-bold">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-muted-foreground font-mono">
+                        {movie.rating != null ? (
+                            <span className="flex items-center gap-0.5 text-amber-500 font-bold" aria-label={`评分 ${movie.rating}`}>
                                 <Star className="w-2.5 h-2.5 fill-current" /> {movie.rating}
                             </span>
                         ) : (
                             <span>暂无评分</span>
                         )}
-                        <span className="w-0.5 h-0.5 bg-muted-foreground rounded-full" />
-                        <span className="flex items-center gap-1">
-                            {movie.releaseYear}
-                        </span>
+                        <span>{movie.releaseYear}</span>
                     </div>
+                    <p className="mt-1 text-[9px] leading-4 text-muted-foreground/90 line-clamp-1">
+                        {getRankingSourceLabel(movie.ranking)}{movie.ranking?.stale ? " · 条目趋势已过期" : ""}
+                    </p>
+                    {getRankingEpisodeLabel(movie.ranking) && (
+                        <p className="text-[9px] leading-4 text-sky-700 dark:text-sky-300 line-clamp-1">
+                            {getRankingEpisodeLabel(movie.ranking)}
+                        </p>
+                    )}
+                    <p className={cn(
+                        "text-[9px] leading-4 line-clamp-1",
+                        movie.ranking?.resourceAvailable === false
+                            ? "text-amber-700 dark:text-amber-300"
+                            : "text-muted-foreground"
+                    )}>
+                        {getResourceAvailabilityLabel(movie.ranking)}
+                    </p>
                 </div>
 
                 <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-all transform scale-50 group-hover/item:scale-100">
-                    <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
+                    {movie.ranking?.resourceAvailable === true
+                        ? <Play className="w-2.5 h-2.5 fill-current ml-0.5" aria-hidden="true" />
+                        : <Clock3 className="w-2.5 h-2.5" aria-hidden="true" />}
                 </div>
             </div>
         </Link>

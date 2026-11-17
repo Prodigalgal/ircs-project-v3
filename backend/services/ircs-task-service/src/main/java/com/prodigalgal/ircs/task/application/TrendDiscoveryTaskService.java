@@ -12,6 +12,7 @@ import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleRequest;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduledTask;
 import com.prodigalgal.ircs.task.domain.CollectionTaskDefaults;
+import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
 import java.util.Map;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +23,7 @@ import java.util.List;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -67,6 +69,31 @@ public class TrendDiscoveryTaskService {
         return schedule(request, correlationId, false, taskMetadata);
     }
 
+    public TrendDiscoveryScheduleResponse scheduleCatalog(
+            CatalogDiscoveryCandidate candidate, int maxSources, Runnable ownershipCheck) {
+        List<String> keywords = sanitizeKeywords(List.of(candidate.keyword()));
+        if (!enabled || keywords.isEmpty()) {
+            return new TrendDiscoveryScheduleResponse(TASK_NAME, keywords.size(), 0, 0, 0, 0, List.of(),
+                    List.of("catalog discovery is disabled or has no valid keyword"));
+        }
+        int sourceLimit = Math.max(1, Math.min(3, maxSources));
+        Map<String, Object> metadata = Map.of("httpHeaders", Map.of(), "ircsCatalogDiscovery", Map.of(
+                "requestKey", candidate.requestKey(),
+                "unifiedVideoId", candidate.unifiedVideoId().toString(),
+                "targetSeason", candidate.targetSeason(),
+                "targetEpisode", candidate.targetEpisode()));
+        AtomicReference<TrendDiscoveryScheduleResponse> response = new AtomicReference<>();
+        boolean acquired = lockRunner.runExclusive("task:catalog-discovery:" + candidate.requestKey(), () -> {
+            ownershipCheck.run();
+            List<DataSourceSeedCandidate> sources = taskRepository.findCatalogDiscoveryDataSources(
+                    candidate.requestKey(), sourceLimit);
+            response.set(scheduleWithSources(new TrendDiscoveryScheduleRequest(keywords, 1, 1, 0, false, sourceLimit),
+                    keywords, true, metadata, sources, ownershipCheck));
+        });
+        return acquired ? response.get() : new TrendDiscoveryScheduleResponse(
+                TASK_NAME, keywords.size(), 0, 0, 0, 0, List.of(), List.of("catalog discovery is already scheduling"));
+    }
+
     private TrendDiscoveryScheduleResponse schedule(
             TrendDiscoveryScheduleRequest request,
             String correlationId,
@@ -98,6 +125,17 @@ public class TrendDiscoveryTaskService {
         List<DataSourceSeedCandidate> dataSources = limitDataSources(
                 taskRepository.findDefaultTaskSeedDataSources(),
                 request == null ? null : request.maxDataSources());
+        return scheduleWithSources(request, keywords, autoStart, taskMetadata, dataSources,
+                ClusterLeaseGuard::checkCurrentOwnership);
+    }
+
+    private TrendDiscoveryScheduleResponse scheduleWithSources(
+            TrendDiscoveryScheduleRequest request,
+            List<String> keywords,
+            boolean autoStart,
+            Map<String, Object> taskMetadata,
+            List<DataSourceSeedCandidate> dataSources,
+            Runnable ownershipCheck) {
         List<TrendDiscoveryScheduledTask> tasks = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         long created = 0;
@@ -109,7 +147,7 @@ public class TrendDiscoveryTaskService {
 
         for (String keyword : keywords) {
             for (DataSourceSeedCandidate dataSource : dataSources) {
-                ClusterLeaseGuard.checkCurrentOwnership();
+                ownershipCheck.run();
                 try {
                     EnsureTaskResult result = ensureTask(dataSource, keyword, startPage, endPage, fixedDelayMs, taskMetadata);
                     if (result.created()) {
@@ -117,8 +155,15 @@ public class TrendDiscoveryTaskService {
                     } else {
                         reused++;
                     }
-                    ClusterLeaseGuard.checkCurrentOwnership();
-                    boolean accepted = autoStart && taskCommandService.startInternal(result.taskId(), false);
+                    ownershipCheck.run();
+                    boolean accepted = autoStart && (isCatalog(taskMetadata)
+                            ? startCatalog(result.taskId(), dataSource.id(), ownershipCheck)
+                            : taskCommandService.startInternal(result.taskId(), false));
+                    boolean alreadyActive = !accepted && isCatalog(taskMetadata)
+                            && taskRepository.findRuntimeState(result.taskId())
+                            .filter(state -> Boolean.TRUE.equals(state.enabled()))
+                            .map(state -> "QUEUED".equals(state.status()) || "RUNNING".equals(state.status()))
+                            .orElse(false);
                     if (accepted) {
                         queued++;
                     }
@@ -127,11 +172,13 @@ public class TrendDiscoveryTaskService {
                             dataSource.id(),
                             dataSource.name(),
                             keyword,
-                            taskStatus(autoStart, accepted, result.created())));
+                            alreadyActive ? "ACTIVE" : taskStatus(autoStart, accepted, result.created())));
                 } catch (ResponseStatusException ex) {
-                    errors.add(errorMessage(keyword, dataSource, ex.getReason()));
+                    errors.add(isCatalog(taskMetadata) ? catalogError(dataSource, ex)
+                            : errorMessage(keyword, dataSource, ex.getReason()));
                 } catch (RuntimeException ex) {
-                    errors.add(errorMessage(keyword, dataSource, ex.getMessage()));
+                    errors.add(isCatalog(taskMetadata) ? catalogError(dataSource, ex)
+                            : errorMessage(keyword, dataSource, ex.getMessage()));
                 }
             }
         }
@@ -186,6 +233,15 @@ public class TrendDiscoveryTaskService {
                         headers(taskMetadata))), true));
     }
 
+    private boolean startCatalog(UUID taskId, UUID dataSourceId, Runnable ownershipCheck) {
+        AtomicBoolean accepted = new AtomicBoolean();
+        boolean acquired = lockRunner.runExclusive("task:catalog-discovery:source:" + dataSourceId, () -> {
+            ownershipCheck.run();
+            accepted.set(taskCommandService.startCatalog(taskId, dataSourceId, ownershipCheck));
+        });
+        return acquired && accepted.get();
+    }
+
     private String headers(Map<String, Object> taskMetadata) {
         if (taskMetadata == null || taskMetadata.isEmpty()) {
             return "{}";
@@ -193,6 +249,9 @@ public class TrendDiscoveryTaskService {
         try {
             return objectMapper.writeValueAsString(taskMetadata);
         } catch (Exception ex) {
+            if (isCatalog(taskMetadata)) {
+                throw new IllegalStateException("Catalog discovery context could not be serialized", ex);
+            }
             return "{}";
         }
     }
@@ -247,7 +306,8 @@ public class TrendDiscoveryTaskService {
 
     private String taskName(DataSourceSeedCandidate dataSource, String keyword, Map<String, Object> taskMetadata) {
         String discriminator = metadataDiscriminator(taskMetadata);
-        String suffix = shortHash(dataSource.id() + ":" + keyword + ":" + discriminator);
+        String seed = dataSource.id() + ":" + keyword + ":" + discriminator;
+        String suffix = isCatalog(taskMetadata) ? hash(seed, 16) : shortHash(seed);
         return DISCOVERY_PREFIX
                 + " - " + abbreviate(keyword, 60)
                 + " - " + abbreviate(dataSource.name(), 60)
@@ -257,6 +317,11 @@ public class TrendDiscoveryTaskService {
     private String metadataDiscriminator(Map<String, Object> taskMetadata) {
         if (taskMetadata == null) {
             return "";
+        }
+        Object catalogDiscovery = taskMetadata.get("ircsCatalogDiscovery");
+        if (catalogDiscovery instanceof Map<?, ?> catalog) {
+            Object requestKey = catalog.get("requestKey");
+            return requestKey == null ? "" : "catalog:" + requestKey;
         }
         Object mediaRequestBatch = taskMetadata.get("ircsMediaRequestBatch");
         if (mediaRequestBatch instanceof Map<?, ?> batch) {
@@ -291,11 +356,15 @@ public class TrendDiscoveryTaskService {
     }
 
     private static String shortHash(String value) {
+        return hash(value, 4);
+    }
+
+    private static String hash(String value, int bytes) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(value.getBytes(StandardCharsets.UTF_8));
             StringBuilder builder = new StringBuilder();
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < bytes; i++) {
                 builder.append(String.format("%02x", digest[i]));
             }
             return builder.toString();
@@ -309,6 +378,16 @@ public class TrendDiscoveryTaskService {
         log.warn("Trend discovery schedule failed for keyword [{}], dataSource [{}]: {}",
                 keyword, dataSource.name(), message);
         return "keyword=%s, dataSource=%s: %s".formatted(keyword, dataSource.name(), message);
+    }
+
+    private static boolean isCatalog(Map<String, Object> taskMetadata) {
+        return taskMetadata != null && taskMetadata.containsKey("ircsCatalogDiscovery");
+    }
+
+    private String catalogError(DataSourceSeedCandidate dataSource, RuntimeException failure) {
+        log.warn("Catalog discovery source dispatch failed: sourceId={}, failureType={}",
+                dataSource.id(), failure.getClass().getSimpleName());
+        return "CATALOG_SOURCE_DISPATCH_FAILED:" + dataSource.id();
     }
 
     private record EnsureTaskResult(UUID taskId, boolean created) {

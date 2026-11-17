@@ -126,6 +126,21 @@ public class TaskCommandService {
         return true;
     }
 
+    /** Invoked while the caller holds the catalog source lease; no network I/O is part of this transaction. */
+    @Transactional
+    public boolean startCatalog(UUID id, UUID expectedDataSourceId, Runnable ownershipCheck) {
+        ownershipCheck.run();
+        TaskRuntimeState task = taskRepository.findRuntimeState(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found"));
+        if (!Objects.equals(expectedDataSourceId, task.dataSourceId())
+                || !Boolean.TRUE.equals(task.enabled()) || isBusy(task.status())
+                || taskRepository.existsCatalogSourceConflict(task.dataSourceId(), id)) {
+            return false;
+        }
+        ownershipCheck.run();
+        return startInternal(id, false);
+    }
+
     @Transactional
     public void pause(UUID id) {
         taskRepository.pause(id);

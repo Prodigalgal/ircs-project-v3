@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
 
-/** HTTP gateways for public fetches only. Configuration reads reuse SystemConfig L1/L2/L3. */
+/** HTTP gateways for public fetches and strict public image downloads. Configuration reuses SystemConfig L1/L2/L3. */
 @Component
 public class PublicOutboundProxyPool {
 
@@ -32,7 +32,11 @@ public class PublicOutboundProxyPool {
     }
 
     public boolean appliesTo(OutboundHttpRequest request) throws OutboundHttpException {
-        if (request.policy().type() != OutboundHttpPolicyType.PUBLIC_FETCH || request.policy().proxy().enabled()) {
+        OutboundHttpPolicy policy = request.policy();
+        boolean strictPublicImage = policy.type() == OutboundHttpPolicyType.IMAGE_DOWNLOAD_STRICT
+                && policy.blockPrivateAddresses();
+        if ((policy.type() != OutboundHttpPolicyType.PUBLIC_FETCH && !strictPublicImage)
+                || policy.proxy().enabled()) {
             return false;
         }
         Optional<String> enabled = config.value(ENABLED_KEY);

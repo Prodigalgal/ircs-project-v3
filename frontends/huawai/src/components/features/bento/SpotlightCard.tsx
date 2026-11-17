@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Play, Star, Calendar, Tag, Plus, Check, Loader2 } from "lucide-react";
+import { Play, Star, Calendar, Tag, Plus, Check, Loader2, Clock3 } from "lucide-react";
 import { MovieCard } from "@/lib/types";
 import { QuantumImage } from "@/components/ui/QuantumImage";
 import { GlowButton } from "@/components/ui/GlowButton";
 import React from "react";
 import { cn } from "@/lib/utils";
 import { useMediaInteraction } from "@/hooks/useMediaInteraction";
+import { getResourceAvailabilityLabel } from "@/lib/domain/rankingPresentation";
 
 interface SpotlightCardProps {
     movie: MovieCard;
@@ -18,9 +19,15 @@ interface SpotlightCardProps {
 
 export function SpotlightCard({ movie, duration = 8000 }: SpotlightCardProps) {
     const { isFavorite, isLoading: isLoadingFav, toggleFavorite } = useMediaInteraction(movie.id);
+    const hasAvailableResource = movie.ranking?.resourceAvailable === true;
 
     return (
-        <Link href={`/movie/${movie.id}`} prefetch={false} className="block w-full h-full">
+        <Link
+            href={`/movie/${movie.id}`}
+            prefetch={false}
+            title={hasAvailableResource ? `观看 ${movie.title}` : `查看 ${movie.title} 的资源收录状态`}
+            className="block w-full h-full"
+        >
             <div
                 className="relative w-full h-full overflow-hidden bg-background group"
             >
@@ -68,7 +75,7 @@ export function SpotlightCard({ movie, duration = 8000 }: SpotlightCardProps) {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3 mb-6">
-                                {movie.rating > 0 && (
+                                {movie.rating != null && (
                                     <Badge icon={<Star className="w-3 h-3 fill-amber-400 text-amber-400" />} text={String(movie.rating)} className="bg-amber-500/10 border-amber-500/20 text-amber-500 dark:text-amber-200" />
                                 )}
                                 {movie.season && movie.season > 0 && (
@@ -90,8 +97,14 @@ export function SpotlightCard({ movie, duration = 8000 }: SpotlightCardProps) {
                             </div>
 
                             <div className="flex items-center gap-4 pointer-events-auto">
-                                <GlowButton variant="primary" icon={<Play className="w-5 h-5 fill-current" />} className="px-8 py-4 text-base font-bold rounded-full hover:scale-105 shadow-xl">
-                                    立即观看
+                                <GlowButton
+                                    variant="primary"
+                                    icon={hasAvailableResource
+                                        ? <Play className="w-5 h-5 fill-current" aria-hidden="true" />
+                                        : <Clock3 className="w-5 h-5" aria-hidden="true" />}
+                                    className="px-8 py-4 text-base font-bold rounded-full hover:scale-105 shadow-xl"
+                                >
+                                    {hasAvailableResource ? "立即观看" : getResourceAvailabilityLabel(movie.ranking)}
                                 </GlowButton>
 
                                 <button

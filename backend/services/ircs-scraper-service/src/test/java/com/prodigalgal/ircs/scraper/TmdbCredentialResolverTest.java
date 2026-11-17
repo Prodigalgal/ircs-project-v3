@@ -6,10 +6,15 @@ import static org.mockito.Mockito.when;
 import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
+@ExtendWith(OutputCaptureExtension.class)
 class TmdbCredentialResolverTest {
 
     private final OutboundHttpClient httpClient = org.mockito.Mockito.mock(OutboundHttpClient.class);
@@ -52,5 +57,22 @@ class TmdbCredentialResolverTest {
                 .thenReturn(new OutboundHttpResponse(200, Map.of(), "[]".getBytes(StandardCharsets.UTF_8)));
 
         assertThat(resolver.resolveApiKey()).contains("env-key");
+    }
+
+    @Test
+    void credentialTransportFailureDoesNotLogSecretBearingExceptionMessage(CapturedOutput output) throws Exception {
+        when(configValues.tmdbCredentialServiceEnabled()).thenReturn(true);
+        when(configValues.tmdbCredentialServiceBaseUrl()).thenReturn("http://credential-service");
+        when(configValues.tmdbCredentialServiceLeaseLimit()).thenReturn(1);
+        when(configValues.tmdbCredentialServiceRequestTimeout()).thenReturn(java.time.Duration.ofSeconds(10));
+        when(configValues.tmdbCredentialServiceId()).thenReturn("scraper-service");
+        when(configValues.tmdbCredentialServiceToken()).thenReturn("service-token");
+        when(configValues.tmdbCredentialServiceScopes()).thenReturn("credential:lease");
+        when(configValues.tmdbApiKey()).thenReturn("env-key");
+        when(httpClient.execute(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IOException("Provider secretPayload api_key=must-not-leak"));
+
+        assertThat(resolver.resolveApiKey()).contains("env-key");
+        assertThat(output.getAll()).contains("CREDENTIAL_LEASE_FAILED", "IOException").doesNotContain("must-not-leak");
     }
 }

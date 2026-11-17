@@ -9,6 +9,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpTimeoutException;
@@ -42,9 +43,11 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     YtsBzMagnetProviderSearchRunner(
             ObjectMapper objectMapper,
             MagnetProviderTrafficLimiter trafficLimiter,
-            ObjectProvider<YtsBzHttpClient> httpClientProvider) {
+            ObjectProvider<YtsBzHttpClient> httpClientProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
         this.objectMapper = objectMapper;
-        this.httpClient = httpClient(httpClientProvider);
+        PublicOutboundProxyPool proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
+        this.httpClient = httpClient(httpClientProvider, proxyPool);
         this.trafficLimiter = trafficLimiter;
     }
 
@@ -295,14 +298,16 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         }
     }
 
-    private static YtsBzHttpClient httpClient(ObjectProvider<YtsBzHttpClient> httpClientProvider) {
+    private static YtsBzHttpClient httpClient(
+            ObjectProvider<YtsBzHttpClient> httpClientProvider,
+            PublicOutboundProxyPool proxyPool) {
         if (httpClientProvider != null) {
             YtsBzHttpClient provided = httpClientProvider.getIfUnique();
             if (provided != null) {
                 return provided;
             }
         }
-        return new SharedOutboundYtsBzHttpClient();
+        return new SharedOutboundYtsBzHttpClient(proxyPool);
     }
 
     interface YtsBzHttpClient {
@@ -316,10 +321,11 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
 
         private final OutboundHttpClient httpClient;
 
-        SharedOutboundYtsBzHttpClient() {
+        SharedOutboundYtsBzHttpClient(PublicOutboundProxyPool proxyPool) {
             this(new OutboundHttpClient(
                     new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                    new JdkOutboundTransport()));
+                    new JdkOutboundTransport(),
+                    proxyPool));
         }
 
         SharedOutboundYtsBzHttpClient(OutboundHttpClient httpClient) {

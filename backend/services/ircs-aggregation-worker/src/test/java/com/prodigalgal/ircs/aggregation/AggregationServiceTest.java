@@ -554,8 +554,6 @@ class AggregationServiceTest {
         when(repository.findDirtyUnifiedIds(2)).thenReturn(List.of(firstUnifiedId, secondUnifiedId));
         when(repository.findRawIdsForUnified(firstUnifiedId)).thenReturn(List.of());
         when(repository.findRawIdsForUnified(secondUnifiedId)).thenReturn(List.of());
-        when(aggregationPipelineRuntime.run(firstUnifiedId)).thenReturn(pipelineExecution(firstUnifiedId, List.of()));
-        when(aggregationPipelineRuntime.run(secondUnifiedId)).thenReturn(pipelineExecution(secondUnifiedId, List.of()));
 
         var result = service.recalculateDirtyUnified(2);
 
@@ -564,10 +562,11 @@ class AggregationServiceTest {
         assertEquals(0, result.processed());
         assertEquals(List.of(firstUnifiedId, secondUnifiedId), result.entityIds());
         verify(repository).findDirtyUnifiedIds(2);
-        verify(repository).markUnifiedSynced(firstUnifiedId);
-        verify(repository).markUnifiedSynced(secondUnifiedId);
-        verify(publisher).publishUnifiedIndex(firstUnifiedId);
-        verify(publisher).publishUnifiedIndex(secondUnifiedId);
+        verify(repository, never()).markUnifiedSynced(firstUnifiedId);
+        verify(repository, never()).markUnifiedSynced(secondUnifiedId);
+        verify(publisher, never()).publishUnifiedIndex(firstUnifiedId);
+        verify(publisher, never()).publishUnifiedIndex(secondUnifiedId);
+        verify(aggregationPipelineRuntime, never()).run(any());
     }
 
     @Test

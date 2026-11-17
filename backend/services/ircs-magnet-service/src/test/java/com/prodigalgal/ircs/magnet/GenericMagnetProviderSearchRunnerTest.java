@@ -231,7 +231,8 @@ class GenericMagnetProviderSearchRunnerTest {
         return new GenericMagnetProviderSearchRunner(
                 new ObjectMapper(),
                 MagnetProviderTrafficLimiter.noop(),
-                httpClientProvider(httpClient));
+                httpClientProvider(httpClient),
+                null);
     }
 
     @SuppressWarnings("unchecked")

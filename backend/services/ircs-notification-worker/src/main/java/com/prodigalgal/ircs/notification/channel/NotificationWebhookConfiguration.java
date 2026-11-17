@@ -4,6 +4,7 @@ import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
 import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -11,10 +12,11 @@ import org.springframework.context.annotation.Configuration;
 class NotificationWebhookConfiguration {
 
     @Bean
-    WebhookDeliveryClient webhookDeliveryClient() {
+    WebhookDeliveryClient webhookDeliveryClient(PublicOutboundProxyPool proxyPool) {
         return new DefaultWebhookDeliveryClient(
                 new OutboundHttpClient(
                         new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                        new JdkOutboundTransport()));
+                        new JdkOutboundTransport(),
+                        proxyPool));
     }
 }

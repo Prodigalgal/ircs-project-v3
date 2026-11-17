@@ -65,6 +65,7 @@ export interface MovieCard {
     description?: string;
     genres?: string[];
     lastTrendAt?: string;
+    ranking?: MovieRanking;
 
     remarks?: string;
     totalEpisodes?: string;
@@ -75,6 +76,35 @@ export interface MovieCard {
     subtitle?: string;
 
     uniqueId?: string;
+}
+
+export interface MovieRanking {
+    sources: string[];
+    observedAt: string | null;
+    stale: boolean;
+    eventDate: string | null;
+    eventType: string | null;
+    latestSeason: number | null;
+    latestEpisode: number | null;
+    resourceAvailable: boolean;
+    availableEpisode: number | null;
+    heat: number | null;
+}
+
+export type TrendProvider = "TMDB" | "Douban" | "RottenTomatoes" | "IMDb";
+export type TrendSourceStatusCode = "SUCCESS" | "FAILED" | "UNAVAILABLE" | "DISABLED" | "DEFERRED";
+
+export interface TrendSourceStatus {
+    provider: TrendProvider;
+    board: string;
+    mediaType: string;
+    window: string;
+    status: TrendSourceStatusCode;
+    errorCode: string | null;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    itemCount: number;
+    stale: boolean;
 }
 
 export interface CastMember {
@@ -136,6 +166,8 @@ export interface HomeData {
     spotlight: MovieCard[];
     trending: MovieCard[];
     sections: CategorySection[];
+    recentlyUpdated?: MovieCard[];
+    trendSources?: TrendSourceStatus[];
 }
 
 export interface CategorySection {

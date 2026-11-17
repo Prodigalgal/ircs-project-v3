@@ -3,12 +3,12 @@ package com.prodigalgal.ircs.normalization;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -28,7 +28,7 @@ class OpenAiCompatibleLlmCleaningClient implements LlmCleaningClient {
 
     private final ObjectMapper objectMapper;
     private final NormalizationConfigValues configValues;
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final OutboundHttpClient httpClient;
 
     @Override
     public List<LlmCleaningDecision> analyzeAndMap(
@@ -38,18 +38,22 @@ class OpenAiCompatibleLlmCleaningClient implements LlmCleaningClient {
             LlmCredential credential) {
         String prompt = buildPrompt(rawItems, validStandardItems, kind);
         try {
-            HttpRequest request = HttpRequest.newBuilder(chatCompletionsUri(credential.baseUrl()))
-                    .timeout(Duration.ofSeconds(configValues.llmRequestTimeoutSeconds()))
-                    .header("Authorization", "Bearer " + credential.apiKey())
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(prompt, credential.model())))
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            Duration timeout = Duration.ofSeconds(configValues.llmRequestTimeoutSeconds());
+            URI endpoint = chatCompletionsUri(credential.baseUrl());
+            OutboundHttpPolicy policy = outboundPolicy(endpoint, timeout)
+                    .withMaxRetries(0)
+                    .withCallerCircuitBreakerKey("normalization-llm-provider");
+            OutboundHttpRequest request = OutboundHttpRequest.post(
+                            endpoint, policy)
+                    .withHeader("Authorization", "Bearer " + credential.apiKey())
+                    .withHeader("Content-Type", "application/json")
+                    .withBody(requestBody(prompt, credential.model()).getBytes(StandardCharsets.UTF_8));
+            OutboundHttpResponse response = httpClient.execute(request);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new LlmCleaningException.ProviderError(
                         "LLM provider returned HTTP " + response.statusCode());
             }
-            return parseResponse(response.body());
+            return parseResponse(response.bodyAsUtf8());
         } catch (java.net.http.HttpTimeoutException ex) {
             throw new LlmCleaningException.ProviderTimeout("LLM provider timed out", ex);
         } catch (IOException | tools.jackson.core.JacksonException ex) {
@@ -57,7 +61,16 @@ class OpenAiCompatibleLlmCleaningClient implements LlmCleaningClient {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new LlmCleaningException.ProviderError("LLM provider call interrupted", ex);
+        } catch (IllegalStateException | IllegalArgumentException ex) {
+            throw new LlmCleaningException.ProviderError("LLM outbound route unavailable", ex);
         }
+    }
+
+    private OutboundHttpPolicy outboundPolicy(URI endpoint, Duration timeout) {
+        String host = endpoint.getHost();
+        boolean clusterService = host != null && host.toLowerCase(java.util.Locale.ROOT)
+                .matches("[a-z0-9.-]+\\.svc(?:\\.cluster\\.local)?");
+        return clusterService ? OutboundHttpPolicy.internalService(timeout) : OutboundHttpPolicy.publicFetch(timeout);
     }
 
     private URI chatCompletionsUri(String baseUrl) {

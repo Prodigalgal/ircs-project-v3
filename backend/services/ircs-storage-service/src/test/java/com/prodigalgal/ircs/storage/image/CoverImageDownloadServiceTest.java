@@ -9,9 +9,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.prodigalgal.ircs.common.storage.StorageWorkPublisher;
 import com.prodigalgal.ircs.common.outbound.OutboundAddressResolver;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicyType;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.CoverImageRow;
 import com.prodigalgal.ircs.storage.image.CoverImageDtos.NormalizedFile;
@@ -81,6 +84,8 @@ class CoverImageDownloadServiceTest {
         verify(normalizationService).normalize(aryEq(PNG), eq("image/png"), eq("covers"));
         verify(localObjectStorage).store(PNG, "covers/hash.png", "image/png");
         verify(repository).finalizeDownload(imageId, normalized);
+        assertTrue(downloadAdapter.policies.getFirst().type() == OutboundHttpPolicyType.IMAGE_DOWNLOAD_STRICT);
+        assertTrue(downloadAdapter.policies.getFirst().blockPrivateAddresses());
         verify(storageWorkPublisher, never()).enqueueCoverR2Sync(any(), any());
         verify(repository, never()).markFailed(any(), any(), anyInt());
     }
@@ -313,14 +318,17 @@ class CoverImageDownloadServiceTest {
 
         private final Queue<CoverImageDownloadResponse> responses = new ArrayDeque<>();
         private final List<URI> requestedUris = new ArrayList<>();
+        private final List<OutboundHttpPolicy> policies = new ArrayList<>();
 
         void enqueue(CoverImageDownloadResponse response) {
             responses.add(response);
         }
 
         @Override
-        public CoverImageDownloadResponse download(URI uri) throws IOException {
+        public CoverImageDownloadResponse download(URI uri, com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy policy)
+                throws IOException {
             requestedUris.add(uri);
+            policies.add(policy);
             return responses.remove();
         }
     }

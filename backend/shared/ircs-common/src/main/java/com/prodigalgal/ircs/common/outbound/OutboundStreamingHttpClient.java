@@ -8,28 +8,56 @@ public class OutboundStreamingHttpClient {
     private final OutboundUrlPolicy urlPolicy;
     private final OutboundStreamingTransport transport;
     private final OutboundCircuitBreaker circuitBreaker;
+    private final PublicOutboundProxyPool proxyPool;
 
     public OutboundStreamingHttpClient(OutboundUrlPolicy urlPolicy, OutboundStreamingTransport transport) {
-        this(urlPolicy, transport, new OutboundCircuitBreaker());
+        this(urlPolicy, transport, (PublicOutboundProxyPool) null);
+    }
+
+    public OutboundStreamingHttpClient(
+            OutboundUrlPolicy urlPolicy,
+            OutboundStreamingTransport transport,
+            PublicOutboundProxyPool proxyPool) {
+        this(urlPolicy, transport, new OutboundCircuitBreaker(), proxyPool);
     }
 
     OutboundStreamingHttpClient(
             OutboundUrlPolicy urlPolicy,
             OutboundStreamingTransport transport,
             OutboundCircuitBreaker circuitBreaker) {
+        this(urlPolicy, transport, circuitBreaker, null);
+    }
+
+    private OutboundStreamingHttpClient(
+            OutboundUrlPolicy urlPolicy,
+            OutboundStreamingTransport transport,
+            OutboundCircuitBreaker circuitBreaker,
+            PublicOutboundProxyPool proxyPool) {
         this.urlPolicy = urlPolicy;
         this.transport = transport;
         this.circuitBreaker = circuitBreaker;
+        this.proxyPool = proxyPool;
     }
 
     public OutboundStreamingHttpResponse execute(OutboundHttpRequest request)
             throws IOException, InterruptedException {
         validate(request);
         request.policy().proxy().validate();
+        boolean pooled = proxyPool != null && proxyPool.appliesTo(request);
         String circuitKey = circuitKey(request);
         circuitBreaker.beforeCall(circuitKey, request.policy().circuitBreaker());
+        OutboundProxy selected = null;
         try {
-            OutboundStreamingHttpResponse response = transport.send(request);
+            selected = pooled ? proxyPool.select() : request.policy().proxy();
+            OutboundHttpRequest routed = pooled
+                    ? new OutboundHttpRequest(request.uri(), request.method(), request.headers(),
+                            request.policy().withProxy(selected), request.body())
+                    : request;
+            OutboundStreamingHttpResponse response = transport.send(routed);
+            if (pooled && (response.statusCode() == 502 || response.statusCode() == 503
+                    || response.statusCode() == 504)) {
+                proxyPool.recordFailure(selected);
+            }
             if (isCircuitFailure(response, request.policy())) {
                 circuitBreaker.recordFailure(circuitKey, request.policy().circuitBreaker(),
                         "http_status_" + response.statusCode());
@@ -38,6 +66,9 @@ public class OutboundStreamingHttpClient {
             }
             return response;
         } catch (IOException | RuntimeException ex) {
+            if (pooled && selected != null) {
+                proxyPool.recordFailure(selected);
+            }
             circuitBreaker.recordFailure(circuitKey, request.policy().circuitBreaker(), ex.getClass().getSimpleName());
             throw ex;
         } catch (InterruptedException ex) {

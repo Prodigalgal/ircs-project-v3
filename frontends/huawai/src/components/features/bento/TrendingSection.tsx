@@ -1,44 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
-import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Flame } from "lucide-react";
-import { MovieCard } from "@/lib/types";
+import type { MovieCard, TrendSourceStatus } from "@/lib/types";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { TrendingItem } from "./TrendingItem";
 import { cn } from "@/lib/utils";
+import { getEmptyTrendingMessage, getTrendSourceFreshnessLabel, getTrendSourceName, getTrendSourceStatusLabel } from "@/lib/domain/rankingPresentation";
 
 interface TrendingSectionProps {
     movies: MovieCard[];
+    sources?: TrendSourceStatus[];
 }
 
-const subscribeToHydration = () => () => {};
-const getHydratedSnapshot = () => true;
-const getServerSnapshot = () => false;
-
-export function TrendingSection({ movies }: TrendingSectionProps) {
-    const hasMounted = useSyncExternalStore(
-        subscribeToHydration,
-        getHydratedSnapshot,
-        getServerSnapshot
-    );
-
-    const loopedMovies = useMemo(() => {
-        if (movies.length === 0) return [];
-        if (!hasMounted) {
-            return movies.map(m => ({ ...m, uniqueId: `${m.id}-trend-0` }));
-        }
-
-        const minItems = 15;
-        let repeat = Math.ceil(minItems / movies.length);
-        if (repeat < 2) repeat = 2;
-
-        return Array.from({ length: repeat }).flatMap((_, loopIdx) =>
-            movies.map(m => ({ ...m, uniqueId: `${m.id}-trend-${loopIdx}` }))
-        );
-    }, [movies, hasMounted]);
-
+export function TrendingSection({ movies, sources }: TrendingSectionProps) {
     const { scrollRef, handleScroll } = useAutoScroll({ itemCount: movies.length });
 
     return (
@@ -50,15 +25,35 @@ export function TrendingSection({ movies }: TrendingSectionProps) {
                     <div className="p-1.5 bg-amber-500/10 rounded-lg text-amber-500 border border-amber-500/20">
                         <Flame className="w-4 h-4 fill-current" />
                     </div>
-                    <h3 className="text-base font-bold text-foreground tracking-tight">时下热门</h3>
+                    <h3 className="text-base font-bold text-foreground tracking-tight">全网热播</h3>
                 </div>
                 <Link
                     href="/explore?sort=trending"
                     prefetch={false}
                     className="text-xs font-bold text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors bg-secondary/30 hover:bg-secondary/60 px-2 py-1 rounded-md border border-border-subtle/10"
                 >
-                    完整榜单 <ArrowUpRight className="w-3 h-3" />
+                    全部热播 <ArrowUpRight className="w-3 h-3" />
                 </Link>
+            </div>
+
+            <div className="flex-none px-2 -mt-2 flex flex-wrap gap-1.5" aria-label="热播榜来源状态">
+                {sources && sources.length > 0 ? sources.map(source => (
+                    <span
+                        key={`${source.provider}-${source.board}-${source.mediaType}-${source.window}`}
+                        title={`${source.mediaType} · ${source.window}${source.errorCode ? ` · ${source.errorCode}` : ""}`}
+                        className={cn(
+                            "text-[9px] leading-4 px-1.5 rounded border border-border-subtle/10 bg-secondary/30 text-muted-foreground",
+                            source.status === "SUCCESS" && !source.stale && "text-emerald-600 dark:text-emerald-400",
+                            (source.status === "FAILED" || source.status === "UNAVAILABLE" || source.stale) && "text-amber-600 dark:text-amber-400"
+                        )}
+                    >
+                        {getTrendSourceName(source.provider, source.board)} · {source.mediaType}/{source.window} · {getTrendSourceStatusLabel(source)}
+                        {getTrendSourceFreshnessLabel(source) ? ` · ${getTrendSourceFreshnessLabel(source)}` : ""}
+                        {source.status === "SUCCESS" ? ` · ${source.itemCount}条` : ""}
+                    </span>
+                )) : (
+                    <span className="text-[9px] leading-4 text-muted-foreground">来源状态待提供</span>
+                )}
             </div>
 
             <div className={cn(
@@ -76,16 +71,19 @@ export function TrendingSection({ movies }: TrendingSectionProps) {
                     className="absolute inset-0 overflow-y-auto px-4 py-4 scrollbar-hide space-y-2"
                     style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 >
-                    {loopedMovies.map((movie, index) => {
-                        const realRank = (index % movies.length) + 1;
-                        return (
-                            <TrendingItem
-                                key={movie.uniqueId}
-                                movie={movie}
-                                rank={realRank}
-                            />
-                        );
-                    })}
+                    {movies.length > 0 ? (
+                        <ol className="m-0 list-none space-y-2 p-0" aria-label="全网热播排行">
+                            {movies.map((movie, index) => (
+                                <li key={movie.id}>
+                                    <TrendingItem movie={movie} rank={index + 1} />
+                                </li>
+                            ))}
+                        </ol>
+                    ) : (
+                        <p className="px-3 py-5 text-sm text-muted-foreground" role="status">
+                            {getEmptyTrendingMessage(sources)}
+                        </p>
+                    )}
                 </div>
             </div>
 

@@ -121,6 +121,7 @@ class RestClientAvatarStorageClientTest {
                 "",
                 "",
                 provider(new OutboundHttpClient(new OutboundUrlPolicy(host -> List.of()), transport)),
+                provider(null),
                 provider(new ObjectMapper()));
     }
 

@@ -51,7 +51,6 @@ public class PortalQueryService {
                 safeList(portalRepository.findActiveYears(principal)));
     }
 
-    @Transactional(readOnly = true)
     public PortalHomeResponse getHome(IrcsRequestPrincipal principal) {
         return readModelCache.home(principal, () -> getHomeUncached(principal));
     }
@@ -72,10 +71,11 @@ public class PortalQueryService {
             sections.add(new PortalCategorySection(category.slug(), sectionTitle(category), safeList(movies)));
         }
 
-        return new PortalHomeResponse(spotlight, trending, sections);
+        return new PortalHomeResponse(spotlight, trending, sections,
+                safeList(portalRepository.findRecentlyUpdated(principal, MOVIE_RAIL_SIZE)),
+                safeList(portalRepository.findTrendSourceStates()));
     }
 
-    @Transactional(readOnly = true)
     public PageResponse<PortalMovieCard> explore(
             IrcsRequestPrincipal principal,
             int page,

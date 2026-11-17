@@ -1,24 +1,31 @@
-import { CategorySection, HomeData, MovieCard } from "@/lib/types";
+import type { CategorySection, HomeData, MovieCard } from "@/lib/types";
 
 const DEFAULT_SPOTLIGHT_LIMIT = 5;
 const DEFAULT_TRENDING_LIMIT = 12;
+const DEFAULT_RECENTLY_UPDATED_LIMIT = 12;
 const DEFAULT_RAIL_MOVIE_LIMIT = 6;
 
 export interface HomeDataCompactOptions {
     spotlightLimit?: number;
     trendingLimit?: number;
+    recentlyUpdatedLimit?: number;
     railMovieLimit?: number;
 }
 
 export function compactHomeData(data: HomeData, options: HomeDataCompactOptions = {}): HomeData {
     const spotlightLimit = options.spotlightLimit ?? Number.POSITIVE_INFINITY;
     const trendingLimit = options.trendingLimit ?? Number.POSITIVE_INFINITY;
+    const recentlyUpdatedLimit = options.recentlyUpdatedLimit ?? Number.POSITIVE_INFINITY;
     const railMovieLimit = options.railMovieLimit ?? Number.POSITIVE_INFINITY;
 
     return {
         spotlight: data.spotlight.slice(0, spotlightLimit).map(compactSpotlightMovie),
         trending: data.trending.slice(0, trendingLimit).map(compactTrendingMovie),
-        sections: data.sections.map(section => compactSection(section, railMovieLimit))
+        sections: data.sections.map(section => compactSection(section, railMovieLimit)),
+        recentlyUpdated: (data.recentlyUpdated ?? [])
+            .slice(0, recentlyUpdatedLimit)
+            .map(compactTrendingMovie),
+        trendSources: data.trendSources ?? []
     };
 }
 
@@ -26,6 +33,7 @@ export function compactInitialHomeData(data: HomeData): HomeData {
     return compactHomeData(data, {
         spotlightLimit: DEFAULT_SPOTLIGHT_LIMIT,
         trendingLimit: DEFAULT_TRENDING_LIMIT,
+        recentlyUpdatedLimit: DEFAULT_RECENTLY_UPDATED_LIMIT,
         railMovieLimit: DEFAULT_RAIL_MOVIE_LIMIT
     });
 }
@@ -54,7 +62,8 @@ function compactTrendingMovie(movie: MovieCard): MovieCard {
         rating: movie.rating,
         releaseYear: movie.releaseYear,
         categoryName: movie.categoryName,
-        area: movie.area
+        area: movie.area,
+        ranking: movie.ranking
     };
 }
 
@@ -70,6 +79,7 @@ function compactRailMovie(movie: MovieCard): MovieCard {
         area: movie.area,
         remarks: movie.remarks,
         season: movie.season,
-        subtitle: movie.subtitle
+        subtitle: movie.subtitle,
+        ranking: movie.ranking
     };
 }

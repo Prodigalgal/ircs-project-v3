@@ -305,6 +305,7 @@ public class AggregationService {
             repository.lockAggregationShared();
             repository.lockUnifiedVideos(List.of(unifiedVideoId));
             List<UUID> rawVideoIds = repository.findRawIdsForUnified(unifiedVideoId);
+            if (rawVideoIds.isEmpty()) return 0;
             AggregationPipelineExecution execution = aggregationPipelineRuntime.run(unifiedVideoId);
             if (!execution.successful()) {
                 repository.markUnifiedDirty(unifiedVideoId);

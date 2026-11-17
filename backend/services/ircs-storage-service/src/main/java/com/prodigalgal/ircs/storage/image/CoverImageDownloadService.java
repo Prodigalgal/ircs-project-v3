@@ -42,7 +42,7 @@ public class CoverImageDownloadService {
     private final CoverImageTrafficLimiter trafficLimiter;
     private final StorageWorkPublisher storageWorkPublisher;
     private OutboundUrlPolicy outboundUrlPolicy;
-    private CoverImageDownloadAdapter downloadAdapter;
+    private final CoverImageDownloadAdapter downloadAdapter;
 
     @Value("${app.storage.cover-path-prefix:covers}")
     private String coverPathPrefix;
@@ -65,7 +65,8 @@ public class CoverImageDownloadService {
             LocalObjectStorage localObjectStorage,
             R2ObjectStorage r2ObjectStorage,
             StorageWorkPublisher storageWorkPublisher,
-            ObjectProvider<CoverImageTrafficLimiter> trafficLimiterProvider) {
+            ObjectProvider<CoverImageTrafficLimiter> trafficLimiterProvider,
+            CoverImageDownloadAdapter downloadAdapter) {
         this.repository = repository;
         this.urlResolver = urlResolver;
         this.normalizationService = normalizationService;
@@ -76,6 +77,7 @@ public class CoverImageDownloadService {
                 ? null
                 : trafficLimiterProvider.getIfAvailable(CoverImageTrafficLimiter::noop);
         this.trafficLimiter = providedTrafficLimiter == null ? CoverImageTrafficLimiter.noop() : providedTrafficLimiter;
+        this.downloadAdapter = downloadAdapter;
         this.outboundUrlPolicy = new OutboundUrlPolicy(new DefaultOutboundAddressResolver());
     }
 
@@ -95,9 +97,9 @@ public class CoverImageDownloadService {
                 localObjectStorage,
                 r2ObjectStorage,
                 storageWorkPublisher,
-                null);
+                null,
+                downloadAdapter);
         service.outboundUrlPolicy = outboundUrlPolicy;
-        service.downloadAdapter = downloadAdapter;
         return service;
     }
 
@@ -141,10 +143,7 @@ public class CoverImageDownloadService {
     }
 
     private DownloadedImage download(URI remoteUri) throws Exception {
-        CoverImageDownloadAdapter adapter = downloadAdapter == null
-                ? new JdkCoverImageDownloadAdapter(downloadTimeout())
-                : downloadAdapter;
-        try (CoverImageDownloadAdapter.CoverImageDownloadResponse response = adapter.download(remoteUri);
+        try (CoverImageDownloadAdapter.CoverImageDownloadResponse response = downloadAdapter.download(remoteUri, strictPolicy());
                 InputStream stream = response.body();
                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             if (response.statusCode() >= 300 && response.statusCode() < 400) {

@@ -1,6 +1,8 @@
 package com.prodigalgal.ircs.portal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -12,6 +14,8 @@ import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,6 +113,59 @@ class PortalQueryServiceTest {
         assertEquals("纪录片场", home.sections().get(5).title());
         assertEquals(List.of(card), home.sections().get(5).movies());
         verify(portalRepository).findCategorySections(principal, publicCategorySlugs(), 20);
+    }
+
+    @Test
+    void homePassesThroughRealUpdatesSourceFailuresAndResourceGaps() {
+        Instant observed = Instant.parse("2026-11-16T12:00:00Z");
+        PortalMovieCard recent = sampleCard().withRanking(new PortalRankingInfo(List.of("TMDB"), observed, false,
+                LocalDate.of(2026, 11, 16), "EPISODE_AIR", 2, 12, false, null, BigDecimal.ZERO));
+        PortalTrendSourceState failure = new PortalTrendSourceState("Douban", "chart", "movie", "chart",
+                "FAILED", "PROVIDER_UNAVAILABLE", observed, observed.minus(Duration.ofHours(8)), 20, true);
+        when(portalRepository.findRecentlyUpdated(principal, 20)).thenReturn(List.of(recent));
+        when(portalRepository.findTrendSourceStates()).thenReturn(List.of(failure));
+
+        PortalHomeResponse home = service.getHome(principal);
+
+        assertEquals(List.of(recent), home.recentlyUpdated());
+        assertEquals(List.of(failure), home.trendSources());
+        assertFalse(home.recentlyUpdated().getFirst().ranking().resourceAvailable());
+    }
+
+    @Test
+    void anonymousHomeCacheKeepsRankingsAndSourceTimestampsWithoutRepeatingDatabaseReads() {
+        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        Instant observed = Instant.parse("2026-11-16T12:00:00Z");
+        PortalMovieCard card = sampleCard().withRanking(new PortalRankingInfo(List.of("TMDB", "Douban"), observed,
+                false, LocalDate.of(2026, 11, 16), "EPISODE_AIR", 2, 12, true, 10, BigDecimal.valueOf(0.1)));
+        PortalTrendSourceState source = new PortalTrendSourceState("TMDB", "trending-day", "tv", "day",
+                "SUCCESS", null, observed, observed, 20, false);
+        when(portalRepository.findTrending(principal, 50)).thenReturn(List.of(card));
+        when(portalRepository.findRecentlyUpdated(principal, 20)).thenReturn(List.of(card));
+        when(portalRepository.findTrendSourceStates()).thenReturn(List.of(source));
+
+        PortalHomeResponse first = cachedService.getHome(principal);
+        PortalHomeResponse cached = cachedService.getHome(principal);
+
+        assertEquals(first, cached);
+        assertEquals(card.ranking(), cached.recentlyUpdated().getFirst().ranking());
+        assertEquals(observed, cached.trendSources().getFirst().lastSuccessAt());
+        verify(portalRepository, times(1)).findTrending(principal, 50);
+        verify(portalRepository, times(1)).findRecentlyUpdated(principal, 20);
+        verify(portalRepository, times(1)).findTrendSourceStates();
+    }
+
+    @Test
+    void legacyHomeContractDefaultsNewArraysAndLeavesLegacyCardRankingUnknown() throws Exception {
+        PortalHomeResponse legacy = new PortalHomeResponse(List.of(), List.of(sampleCard()), List.of());
+        assertTrue(legacy.recentlyUpdated().isEmpty());
+        assertTrue(legacy.trendSources().isEmpty());
+        assertNull(legacy.trending().getFirst().ranking());
+
+        PortalHomeResponse previousCachedPayload = JsonMapper.builder().findAndAddModules().build().readValue(
+                "{\"spotlight\":[],\"trending\":[],\"sections\":[]}", PortalHomeResponse.class);
+        assertTrue(previousCachedPayload.recentlyUpdated().isEmpty());
+        assertTrue(previousCachedPayload.trendSources().isEmpty());
     }
 
     @Test

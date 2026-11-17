@@ -1,16 +1,9 @@
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { contentApi } from "@/lib/api/content";
-import { HomeData } from "@/lib/types";
 
 const SSR_HEADERS = {
     "X-Source-Component": "Huawai-SSR"
-};
-
-export const EMPTY_HOME_DATA: HomeData = {
-    spotlight: [],
-    trending: [],
-    sections: []
 };
 
 const loadPortalMetadata = unstable_cache(
@@ -27,14 +20,7 @@ const loadPortalMetadata = unstable_cache(
 );
 
 const loadPortalHomeData = unstable_cache(
-    async () => {
-        try {
-            return await contentApi.getHomeData(SSR_HEADERS);
-        } catch (error) {
-            console.warn("[PortalData] Falling back to empty home data during home fetch", error);
-            return EMPTY_HOME_DATA;
-        }
-    },
+    async () => contentApi.getHomeData(SSR_HEADERS),
     ["portal-home-data"],
     { revalidate: 60 }
 );

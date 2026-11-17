@@ -81,7 +81,7 @@ export default async function ExplorePage(props: { searchParams: SearchParams })
             area,
             year,
             language
-        }).catch(() => ({ content: [], totalElements: 0 }))
+        })
     ]);
 
     return (
@@ -114,7 +114,8 @@ function compactExploreMovie(movie: MovieCard): MovieCard {
         area: movie.area,
         remarks: movie.remarks,
         season: movie.season,
-        subtitle: movie.subtitle
+        subtitle: movie.subtitle,
+        ranking: movie.ranking
     };
 }
 

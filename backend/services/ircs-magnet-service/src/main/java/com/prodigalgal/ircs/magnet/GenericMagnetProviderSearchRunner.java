@@ -9,6 +9,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpTimeoutException;
@@ -51,10 +52,12 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     GenericMagnetProviderSearchRunner(
             ObjectMapper objectMapper,
             MagnetProviderTrafficLimiter trafficLimiter,
-            ObjectProvider<GenericMagnetHttpClient> httpClientProvider) {
+            ObjectProvider<GenericMagnetHttpClient> httpClientProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
         this.trafficLimiter = trafficLimiter;
         this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
-        this.httpClient = httpClient(httpClientProvider);
+        PublicOutboundProxyPool proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
+        this.httpClient = httpClient(httpClientProvider, proxyPool);
         this.requestUrlBuilder = new GenericMagnetRequestUrlBuilder();
         this.candidateParser = new GenericMagnetCandidateParser(this.objectMapper);
     }
@@ -248,14 +251,16 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
                 || isExplicitAccessDeniedText(document.body().text());
     }
 
-    private static GenericMagnetHttpClient httpClient(ObjectProvider<GenericMagnetHttpClient> httpClientProvider) {
+    private static GenericMagnetHttpClient httpClient(
+            ObjectProvider<GenericMagnetHttpClient> httpClientProvider,
+            PublicOutboundProxyPool proxyPool) {
         if (httpClientProvider != null) {
             GenericMagnetHttpClient provided = httpClientProvider.getIfUnique();
             if (provided != null) {
                 return provided;
             }
         }
-        return new SharedOutboundGenericMagnetHttpClient();
+        return new SharedOutboundGenericMagnetHttpClient(proxyPool);
     }
 
     interface GenericMagnetHttpClient {
@@ -269,10 +274,11 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
 
         private final OutboundHttpClient httpClient;
 
-        SharedOutboundGenericMagnetHttpClient() {
+        SharedOutboundGenericMagnetHttpClient(PublicOutboundProxyPool proxyPool) {
             this(new OutboundHttpClient(
                     new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                    new JdkOutboundTransport()));
+                    new JdkOutboundTransport(),
+                    proxyPool));
         }
 
         SharedOutboundGenericMagnetHttpClient(OutboundHttpClient httpClient) {

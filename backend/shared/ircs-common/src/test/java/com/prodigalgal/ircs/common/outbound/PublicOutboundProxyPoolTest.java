@@ -32,7 +32,7 @@ class PublicOutboundProxyPoolTest {
     }
 
     @Test
-    void publicRequestsRoundRobinWhileExplicitProxyAndPrivatePoliciesNeverUsePool() throws Exception {
+    void publicAndStrictPublicImageRequestsUsePoolButInternalAndExplicitProxyDoNot() throws Exception {
         enabled();
         OutboundHttpClient client = client(request -> ok());
         client.execute(OutboundHttpRequest.get("https://public.test/a", policy));
@@ -46,7 +46,52 @@ class PublicOutboundProxyPoolTest {
         assertThat(sent.get(0).policy().proxy().host()).isEqualTo("oracle.gateway");
         assertThat(sent.get(1).policy().proxy().host()).isEqualTo("cf.gateway");
         assertThat(sent.get(2).policy().proxy().host()).isEqualTo("custom.proxy");
-        assertThat(sent.subList(3, 6)).allMatch(request -> !request.policy().proxy().enabled());
+        assertThat(sent.get(3).policy().proxy().enabled()).isFalse();
+        assertThat(sent.get(4).policy().proxy().enabled()).isFalse();
+        assertThat(sent.get(5).policy().proxy().host()).isEqualTo("oracle.gateway");
+        assertThat(sent.get(5).policy().type()).isEqualTo(OutboundHttpPolicyType.IMAGE_DOWNLOAD_STRICT);
+    }
+
+    @Test
+    void strictImageRequestAllowingLocalAddressesRemainsDirect() throws Exception {
+        enabled();
+        OutboundHttpClient client = client(request -> ok());
+        client.execute(OutboundHttpRequest.get("http://127.0.0.1/image",
+                OutboundHttpPolicy.imageDownloadStrict(Duration.ofSeconds(1), true)));
+        assertThat(sent).hasSize(1);
+        assertThat(sent.getFirst().policy().proxy().enabled()).isFalse();
+    }
+
+    @Test
+    void streamingImageDownloadsUsePoolAndFailClosed() throws Exception {
+        enabled();
+        List<OutboundHttpRequest> streamingRequests = new ArrayList<>();
+        OutboundStreamingHttpClient streamingClient = new OutboundStreamingHttpClient(urls, request -> {
+            streamingRequests.add(request);
+            return new OutboundStreamingHttpResponse(200, Map.of(), new java.io.ByteArrayInputStream(new byte[0]));
+        }, new PublicOutboundProxyPool(config));
+        try (OutboundStreamingHttpResponse ignored = streamingClient.execute(OutboundHttpRequest.get(
+                "https://public.test/image", OutboundHttpPolicy.imageDownloadStrict(Duration.ofSeconds(1))))) {
+            assertThat(streamingRequests.getFirst().policy().proxy().host()).isEqualTo("oracle.gateway");
+        }
+
+        List<OutboundHttpRequest> failedRequests = new ArrayList<>();
+        PublicOutboundProxyPool failingPool = new PublicOutboundProxyPool(config);
+        OutboundStreamingHttpClient failingClient = new OutboundStreamingHttpClient(urls, request -> {
+            failedRequests.add(request);
+            throw new IOException("gateway unavailable");
+        }, failingPool);
+        assertThatThrownBy(() -> failingClient.execute(OutboundHttpRequest.get(
+                        "https://public.test/image", OutboundHttpPolicy.imageDownloadStrict(Duration.ofSeconds(1)))))
+                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> failingClient.execute(OutboundHttpRequest.get(
+                        "https://public.test/image", OutboundHttpPolicy.imageDownloadStrict(Duration.ofSeconds(1)))))
+                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> failingClient.execute(OutboundHttpRequest.get(
+                        "https://public.test/image", OutboundHttpPolicy.imageDownloadStrict(Duration.ofSeconds(1)))))
+                .isInstanceOf(OutboundHttpException.class)
+                .hasMessageContaining("direct fallback is disabled");
+        assertThat(failedRequests).hasSize(2).allMatch(request -> request.policy().proxy().enabled());
     }
 
     @Test

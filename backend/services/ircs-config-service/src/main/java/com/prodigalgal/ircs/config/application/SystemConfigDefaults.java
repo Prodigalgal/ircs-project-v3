@@ -460,7 +460,7 @@ public class SystemConfigDefaults {
             cfg("app.metadata.valkey-provider-worker.initial-delay-ms", "10000", "元数据 Provider Valkey worker 启动延迟(毫秒)"),
             cfg("app.metadata.valkey-provider-worker.fixed-delay-ms", "1000", "元数据 Provider Valkey worker 空转轮询间隔(毫秒)"),
             cfg("app.scraper.trend-sync.enabled", "true", "是否启用热门榜单自动同步"),
-            cfg("app.scraper.trend-sync.cron", "0 0 3 * * ?", "热门榜单同步任务 CRON 表达式"),
+            cfgUpgradeLegacyValue("app.scraper.trend-sync.cron", "0 */30 * * * *", "热门榜单同步任务 CRON 表达式", "0 0 3 * * ?"),
             cfg("app.scraper.trend-sync.timezone", "Asia/Shanghai", "热门榜单同步任务执行时区"),
             cfg("app.search.sync.enabled", "true", "是否启用搜索增量同步"),
             cfg("app.search.sync.cron", "0 0/5 * * * ?", "搜索增量同步任务 CRON"));

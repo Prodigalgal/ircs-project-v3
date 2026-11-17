@@ -12,7 +12,7 @@ export default function Error({
     reset: () => void;
 }) {
     useEffect(() => {
-        console.error("Home Page Error:", error);
+        console.error("Page Data Error:", error);
     }, [error]);
 
     return (
@@ -25,7 +25,7 @@ export default function Error({
                 信号连接中断
             </h2>
             <p className="text-muted-foreground max-w-sm mb-8">
-                无法获取首页推荐数据。这可能是暂时的网络波动或服务器正在维护。
+                暂时无法获取页面数据。这可能是网络波动或服务器正在维护，请稍后重试。
             </p>
 
             <GlowButton
@@ -34,7 +34,7 @@ export default function Error({
                 }
                 icon={<RefreshCw className="w-4 h-4" />}
             >
-                重新连接
+                重新加载
             </GlowButton>
 
             <div className="mt-8 text-[10px] font-mono text-muted-foreground/40">

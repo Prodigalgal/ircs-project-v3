@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Star, Play } from "lucide-react";
+import { Star, Play, Clock3 } from "lucide-react";
 import { MovieCard as MovieCardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { QuantumImage } from "@/components/ui/QuantumImage";
+import { getResourceAvailabilityLabel } from "@/lib/domain/rankingPresentation";
 
 interface MovieCardProps {
     movie: MovieCardType;
@@ -14,6 +15,7 @@ interface MovieCardProps {
 
 export function MovieCard({ movie, className, index = 0 }: MovieCardProps) {
     const seoAlt = `${movie.title} ${movie.season ? `S${movie.season}` : ''} - ${movie.releaseYear} ${movie.categoryName || ''}`;
+    const hasAvailableResource = movie.ranking?.resourceAvailable === true;
 
     return (
         <div
@@ -28,7 +30,7 @@ export function MovieCard({ movie, className, index = 0 }: MovieCardProps) {
                 href={`/movie/${movie.id}`}
                 prefetch={false}
                 className="block w-full h-full relative"
-                title={`观看 ${movie.title}`}
+                title={hasAvailableResource ? `观看 ${movie.title}` : `查看 ${movie.title} 的资源收录状态`}
             >
                 <QuantumImage
                     src={movie.posterUrl}
@@ -61,7 +63,9 @@ export function MovieCard({ movie, className, index = 0 }: MovieCardProps) {
                 <div className="absolute inset-0 p-3 flex flex-col justify-end z-30">
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all duration-300 ease-out">
                         <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-xl">
-                            <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                            {hasAvailableResource
+                                ? <Play className="w-4 h-4 text-white fill-white ml-0.5" aria-hidden="true" />
+                                : <Clock3 className="w-4 h-4 text-white" aria-hidden="true" />}
                         </div>
                     </div>
 
@@ -80,9 +84,13 @@ export function MovieCard({ movie, className, index = 0 }: MovieCardProps) {
                             </p>
                         ) : null}
 
+                        <p className={`mb-1 text-[9px] leading-4 line-clamp-1 ${hasAvailableResource ? "text-neutral-300" : "text-amber-200"}`}>
+                            {getResourceAvailabilityLabel(movie.ranking)}
+                        </p>
+
                         <div className="flex items-center justify-between text-[10px] text-neutral-300 font-medium">
                             <div className="flex items-center gap-2">
-                                {movie.rating > 0 ? (
+                                {movie.rating != null ? (
                                     <span className="flex items-center gap-0.5 text-amber-400 font-bold">
                                         <Star className="w-2.5 h-2.5 fill-current" />
                                         {movie.rating}

@@ -5,10 +5,11 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 
 interface CoverImageDownloadAdapter {
 
-    CoverImageDownloadResponse download(URI uri) throws IOException, InterruptedException;
+    CoverImageDownloadResponse download(URI uri, OutboundHttpPolicy policy) throws IOException, InterruptedException;
 
     record CoverImageDownloadResponse(
             int statusCode,

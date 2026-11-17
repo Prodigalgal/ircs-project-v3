@@ -19,6 +19,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -45,8 +46,9 @@ public class DefaultOAuthProviderClient implements OAuthProviderClient {
 
     DefaultOAuthProviderClient(
             ObjectProvider<OutboundHttpClient> httpClientProvider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider,
             ObjectProvider<ObjectMapper> objectMapperProvider) {
-        this.httpClient = httpClient(httpClientProvider);
+        this.httpClient = httpClient(httpClientProvider, proxyPoolProvider);
         this.objectMapper = objectMapper(objectMapperProvider);
     }
 
@@ -414,16 +416,20 @@ public class DefaultOAuthProviderClient implements OAuthProviderClient {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    private static OutboundHttpClient httpClient(ObjectProvider<OutboundHttpClient> provider) {
+    private static OutboundHttpClient httpClient(
+            ObjectProvider<OutboundHttpClient> provider,
+            ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
         if (provider != null) {
             OutboundHttpClient provided = provider.getIfUnique();
             if (provided != null) {
                 return provided;
             }
         }
+        PublicOutboundProxyPool proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
         return new OutboundHttpClient(
                 new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new JdkOutboundTransport(REQUEST_TIMEOUT));
+                new JdkOutboundTransport(REQUEST_TIMEOUT),
+                proxyPool);
     }
 
     private static ObjectMapper objectMapper(ObjectProvider<ObjectMapper> provider) {
