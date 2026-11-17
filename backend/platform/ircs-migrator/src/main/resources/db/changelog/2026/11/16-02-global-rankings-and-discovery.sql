@@ -1,5 +1,5 @@
 -- liquibase formatted sql
--- Business version: 3.7.3. Additive only; rollback application images without dropping catalog data.
+-- Business version: 3.7.4. Additive only; rollback application images without dropping catalog data.
 -- changeset codex:1785900000007-global-rankings-and-discovery
 CREATE TABLE external_catalog_identities (
     provider varchar(32) NOT NULL,
@@ -143,16 +143,19 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $$
     SELECT count(*) > 0, max(catalog_episode_number(ep.name))
       FROM raw_video_unified_video rvu
       JOIN raw_videos rv ON rv.id = rvu.raw_video_id
+      JOIN unified_videos uv ON uv.id = rvu.unified_video_id
+      LEFT JOIN data_sources ds ON ds.id = rv.data_source_id
       JOIN playlists pl ON pl.video_id = rv.id
       JOIN episodes ep ON ep.playlist_id = pl.id
      WHERE rvu.unified_video_id = target_video_id
        AND (btrim(ep.url) ~* '^https?://[^[:space:]]+$'
             OR (btrim(ep.url) ~ '^/[^[:space:]]+$' AND ep.source_domain_id IS NOT NULL))
-       AND coalesce(rv.adult_restricted, false) = false
-       AND lower(coalesce(rv.adult_assessment ->> 'adultRestricted', 'false')) = 'false'
-       AND upper(coalesce(rv.adult_assessment ->> 'level', 'SAFE')) <> 'ADULT'
-       AND (required_season = 0 OR rv.season = required_season OR (rv.season IS NULL AND EXISTS (
-            SELECT 1 FROM unified_videos uv WHERE uv.id = target_video_id AND uv.season = required_season)))
+       AND coalesce(ds.adult_restricted, false) = false
+       AND coalesce(uv.adult_restricted, false) = false
+       AND lower(coalesce(uv.adult_assessment ->> 'adultRestricted', 'false')) = 'false'
+       AND upper(coalesce(uv.adult_assessment ->> 'level', 'SAFE')) <> 'ADULT'
+       AND (required_season = 0 OR rv.season = required_season
+            OR (rv.season IS NULL AND uv.season = required_season))
        AND (required_season = 0 OR btrim(ep.name) !~* '^S[0-9]{1,2}E[0-9]{1,3}$'
             OR substring(upper(btrim(ep.name)) FROM '^S([0-9]{1,2})E')::integer = required_season)
 $$;

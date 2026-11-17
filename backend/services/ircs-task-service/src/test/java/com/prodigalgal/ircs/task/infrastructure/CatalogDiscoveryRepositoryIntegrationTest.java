@@ -206,7 +206,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     private void createSchema() throws Exception {
         jdbc.execute("create table unified_videos(id uuid primary key, season integer, adult_restricted boolean default false, "
                 + "adult_assessment jsonb, content_visibility text default 'PUBLIC')");
-        jdbc.execute("create table raw_videos(id uuid primary key, season integer, adult_restricted boolean default false, adult_assessment jsonb)");
+        jdbc.execute("create table raw_videos(id uuid primary key, season integer, data_source_id uuid)");
         jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid)");
         jdbc.execute("create table playlists(id uuid primary key, video_id uuid)");
         jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");

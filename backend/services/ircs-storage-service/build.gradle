@@ -8,6 +8,7 @@ dependencies {
     implementation 'org.springframework.data:spring-data-commons'
     implementation 'org.apache.tika:tika-core:4.2.0'
     implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:apache5-client'
     runtimeOnly 'org.postgresql:postgresql'
     testImplementation 'com.h2database:h2'
 }

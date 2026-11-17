@@ -231,7 +231,7 @@ class TrendCatalogPostgresTest {
     @Test
     void episodeInventoryUsesActualLinksAndNumberingRatherThanMirrorCount() {
         UUID existing = seedVideo("Known Show", "2026", "series", 2, "42");
-        UUID playlist = bindPlaylist(existing, 2, false, "{}");
+        UUID playlist = bindPlaylist(existing, 2, false);
         for (int mirror = 0; mirror < 8; mirror++) episode(playlist, "S02E05", "https://media.example/mirror-" + mirror, null);
         var current = candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 5, "popular", "popular", 1, now, null);
         var next = candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 6, "popular", "popular", 1, now, null);
@@ -248,16 +248,13 @@ class TrendCatalogPostgresTest {
     @Test
     void invalidLinksOtherSeasonsAndAdultResourcesDoNotHideARealEpisodeGap() {
         UUID existing = seedVideo("Known Show", "2026", "series", 2, "42");
-        episode(bindPlaylist(existing, 1, false, "{}"), "S01E99", "https://media.example/wrong-season", null);
-        UUID clean = bindPlaylist(existing, 2, false, "{}");
+        episode(bindPlaylist(existing, 1, false), "S01E99", "https://media.example/wrong-season", null);
+        UUID clean = bindPlaylist(existing, 2, false);
         episode(clean, "S02E99", "javascript:alert(1)", null);
         episode(clean, "S02E99", "   ", null);
         episode(clean, "S01E99", "https://media.example/wrong-label", null);
         episode(clean, "S02E99", "/relative-without-domain", null);
-        episode(bindPlaylist(existing, 2, true, "{}"), "S02E99", "https://media.example/adult", null);
-        episode(bindPlaylist(existing, 2, false, "{\"adultRestricted\":true}"), "S02E99", "https://media.example/adult-flag", null);
-        episode(bindPlaylist(existing, 2, false, "{\"level\":\"ADULT\"}"), "S02E99", "https://media.example/adult-level", null);
-        episode(bindPlaylist(existing, 2, false, "{\"adultRestricted\":\"unknown\"}"), "S02E99", "https://media.example/invalid-adult-flag", null);
+        episode(bindPlaylist(existing, 2, true), "S02E99", "https://media.example/adult", null);
 
         resolve(candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 5, "popular", "popular", 1, now, null));
 
@@ -266,9 +263,27 @@ class TrendCatalogPostgresTest {
     }
 
     @Test
+    void restrictedOrInvalidUnifiedAssessmentsCannotExposeRecordedResources() {
+        UUID existing = seedVideo("Restricted work", "2026", "series", 2, "42");
+        episode(bindPlaylist(existing, 2, false), "S02E05", "https://media.example/episode", null);
+        for (String assessment : List.of("{\"adultRestricted\":true}", "{\"level\":\"ADULT\"}",
+                "{\"adultRestricted\":\"unknown\"}")) {
+            jdbc.update("update unified_videos set adult_assessment=?::jsonb where id=?", assessment, existing);
+            assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)",
+                    Boolean.class, existing)).isFalse();
+        }
+        jdbc.update("update unified_videos set adult_assessment='{}',adult_restricted=true where id=?", existing);
+        assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)",
+                Boolean.class, existing)).isFalse();
+        jdbc.update("update unified_videos set adult_restricted=false where id=?", existing);
+        assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)",
+                Boolean.class, existing)).isTrue();
+    }
+
+    @Test
     void sourceBoundRelativeUrlCanCountAsRecordedButUnknownEpisodeNameCannotSatisfyAnEpisodeTarget() {
         UUID existing = seedVideo("Known Show", "2026", "series", 2, "42");
-        episode(bindPlaylist(existing, 2, false, "{}"), "正片", "/watch/valid", UUID.randomUUID());
+        episode(bindPlaylist(existing, 2, false), "正片", "/watch/valid", UUID.randomUUID());
 
         resolve(candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 5, "popular", "popular", 1, now, null));
 
@@ -414,10 +429,12 @@ class TrendCatalogPostgresTest {
         return id;
     }
 
-    private UUID bindPlaylist(UUID videoId, Integer season, boolean adultRestricted, String adultAssessment) {
+    private UUID bindPlaylist(UUID videoId, Integer season, boolean adultRestricted) {
         UUID raw = UUID.randomUUID();
         UUID playlist = UUID.randomUUID();
-        jdbc.update("insert into raw_videos(id,season,adult_restricted,adult_assessment) values(?,?,?,?::jsonb)", raw, season, adultRestricted, adultAssessment);
+        UUID source = UUID.randomUUID();
+        jdbc.update("insert into data_sources(id,adult_restricted) values(?,?)", source, adultRestricted);
+        jdbc.update("insert into raw_videos(id,season,data_source_id) values(?,?,?)", raw, season, source);
         jdbc.update("insert into raw_video_unified_video(raw_video_id,unified_video_id) values(?,?)", raw, videoId);
         jdbc.update("insert into playlists(id,video_id) values(?,?)", playlist, raw);
         return playlist;
@@ -442,7 +459,8 @@ class TrendCatalogPostgresTest {
                     metadata_status varchar(30) default 'DIRTY', adult_restricted boolean default false, adult_assessment jsonb default '{}',
                     actor_names jsonb default '[]', director_names jsonb default '[]', genre_codes jsonb default '[]'
                 );
-                create table raw_videos(id uuid primary key, season integer, adult_restricted boolean default false, adult_assessment jsonb default '{}');
+                create table data_sources(id uuid primary key, adult_restricted boolean default false);
+                create table raw_videos(id uuid primary key, season integer, data_source_id uuid);
                 create table raw_video_unified_video(raw_video_id uuid not null, unified_video_id uuid not null);
                 create table playlists(id uuid primary key,video_id uuid not null);
                 create table episodes(id uuid primary key,playlist_id uuid not null,name text,url text,source_domain_id uuid);

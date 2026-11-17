@@ -343,7 +343,9 @@ class JdbcPortalRankingIntegrationTest {
 
     private UUID raw(UUID id, Integer season, boolean adult) {
         UUID rawId = UUID.randomUUID();
-        jdbc.update("insert into raw_videos(id, season, adult_restricted) values (?, ?, ?)", rawId, season, adult);
+        UUID source = UUID.randomUUID();
+        jdbc.update("insert into data_sources(id,adult_restricted) values(?,?)", source, adult);
+        jdbc.update("insert into raw_videos(id, season, data_source_id) values (?, ?, ?)", rawId, season, source);
         jdbc.update("insert into raw_video_unified_video values (?, ?)", rawId, id);
         return rawId;
     }
@@ -377,7 +379,8 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.execute("create table source_domains(id uuid primary key, domain_value text)");
         jdbc.execute("create table standard_genre(id uuid primary key, name text, code text)");
         jdbc.execute("create table unified_video_tags(unified_video_id uuid, tag text)");
-        jdbc.execute("create table raw_videos(id uuid primary key, season integer, adult_restricted boolean default false, adult_assessment jsonb)");
+        jdbc.execute("create table data_sources(id uuid primary key, adult_restricted boolean default false)");
+        jdbc.execute("create table raw_videos(id uuid primary key, season integer, data_source_id uuid)");
         jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid)");
         jdbc.execute("create table playlists(id uuid primary key, video_id uuid)");
         jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");
