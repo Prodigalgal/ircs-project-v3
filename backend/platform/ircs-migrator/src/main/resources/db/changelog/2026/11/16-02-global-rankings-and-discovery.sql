@@ -1,5 +1,5 @@
 -- liquibase formatted sql
--- Business version: 3.7.2. Additive only; rollback application images without dropping catalog data.
+-- Business version: 3.7.3. Additive only; rollback application images without dropping catalog data.
 -- changeset codex:1785900000007-global-rankings-and-discovery
 CREATE TABLE external_catalog_identities (
     provider varchar(32) NOT NULL,
@@ -69,7 +69,8 @@ CREATE VIEW external_catalog_recent_events AS
 SELECT DISTINCT ON (unified_video_id) unified_video_id, provider, event_date, event_type,
        season, nullif(episode, 0) AS episode, observed_at, source_url, region
   FROM external_catalog_events
- WHERE event_date BETWEEN CURRENT_DATE - 90 AND CURRENT_DATE
+ WHERE event_date BETWEEN (now() AT TIME ZONE 'Asia/Shanghai')::date - 90
+                      AND (now() AT TIME ZONE 'Asia/Shanghai')::date
  ORDER BY unified_video_id, event_date DESC, season DESC, episode DESC, observed_at DESC, provider;
 
 CREATE TABLE catalog_discovery_requests (
@@ -106,7 +107,7 @@ WITH per_provider AS (
                ELSE 0 END) AS provider_heat,
            max(observed_at) AS observed_at,
            max(observed_at) FILTER (WHERE source_window IN ('day', 'week', 'chart', 'popular')) AS trend_observed_at,
-           max(event_date) FILTER (WHERE event_date <= CURRENT_DATE) AS event_date
+           max(event_date) FILTER (WHERE event_date <= (now() AT TIME ZONE 'Asia/Shanghai')::date) AS event_date
       FROM external_trend_observations
      WHERE observed_at >= now() - interval '7 days'
        AND observed_at <= now() + interval '5 minutes'

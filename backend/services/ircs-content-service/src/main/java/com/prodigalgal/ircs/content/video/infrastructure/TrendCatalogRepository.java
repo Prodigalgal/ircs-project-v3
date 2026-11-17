@@ -163,7 +163,8 @@ public class TrendCatalogRepository {
                 : BigDecimal.ONE.divide(BigDecimal.valueOf(20L + signal.position()), 8, java.math.RoundingMode.HALF_UP);
         if (candidate.episode() > 0) heat = heat.add(new BigDecimal("0.10"));
         if (signal != null && signal.eventDate() != null
-                && !signal.eventDate().isBefore(java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(7))) {
+                && !signal.eventDate().isBefore((signal.observedAt() == null ? java.time.Instant.now() : signal.observedAt())
+                        .atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate().minusDays(7))) {
             heat = heat.add(new BigDecimal("0.05"));
         }
         return heat;

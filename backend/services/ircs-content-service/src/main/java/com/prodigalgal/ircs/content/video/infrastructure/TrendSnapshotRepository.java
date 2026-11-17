@@ -52,7 +52,7 @@ public class TrendSnapshotRepository {
                     .addValue("eventType", signal.eventType()).addValue("episode", signal.episode())
                     .addValue("region", signal.region()).addValue("url", signal.sourceUrl());
             if (signal.eventDate() != null && signal.eventType() != null
-                    && !signal.eventDate().isAfter(java.time.LocalDate.now(java.time.ZoneOffset.UTC))) {
+                    && eventHasOccurred(signal.eventDate(), board.collectedAt())) {
                 jdbc.update("""
                         insert into external_catalog_events(unified_video_id, provider, external_id, season,
                             episode, event_date, event_type, observed_at, source_url, region)
@@ -102,4 +102,8 @@ public class TrendSnapshotRepository {
 
     public record Observation(TrendCatalogCandidate candidate, UUID id) { }
     private record BoardState(Instant lastAttempt, Instant lastSuccess) { }
+
+    static boolean eventHasOccurred(java.time.LocalDate eventDate, Instant sampledAt) {
+        return !eventDate.isAfter(sampledAt.atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate());
+    }
 }

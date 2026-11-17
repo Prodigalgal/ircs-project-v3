@@ -32,6 +32,20 @@ import tools.jackson.databind.json.JsonMapper;
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
 class JdbcPortalRankingIntegrationTest {
 
+    @Test
+    void releaseDatesUseTheSiteCalendarEvenOnUtcOrAmericanDatabaseSessions() {
+        var transactions=new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(pool));
+        transactions.executeWithoutResult(status->{
+            jdbc.execute("set local time zone 'Pacific/Honolulu'");
+            UUID aired=work("北京时间已播出","series",7.0);
+            UUID tomorrow=work("北京时间明天播出","series",7.0);
+            event(aired,today,2,12);
+            event(tomorrow,today.plusDays(1),2,13);
+            assertThat(repository.findRecentlyUpdated(publicPrincipal,20)).extracting(PortalMovieCard::id).containsExactly(aired);
+        });
+    }
+
     private final IrcsRequestPrincipal publicPrincipal = IrcsRequestPrincipal.publicPrincipal();
     private JdbcTemplate admin;
     private JdbcTemplate jdbc;
@@ -59,7 +73,7 @@ class JdbcPortalRankingIntegrationTest {
         jdbc = new JdbcTemplate(pool);
         createSchema();
         sampleTime = jdbc.queryForObject("select current_timestamp", Timestamp.class).toInstant();
-        today = jdbc.queryForObject("select current_date", Date.class).toLocalDate();
+        today = jdbc.queryForObject("select (now() at time zone 'Asia/Shanghai')::date", Date.class).toLocalDate();
         PortalStandardNameCache names = mock(PortalStandardNameCache.class);
         when(names.resolveGenreNames(any())).thenReturn(List.of());
         when(names.resolveAreaNames(any())).thenReturn(List.of());

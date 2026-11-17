@@ -46,6 +46,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** Real migration and PostgreSQL transaction/locking semantics; every test owns one isolated schema. */
 class TrendCatalogPostgresTest {
 
+    @Test
+    void authorityEventDatesUseSiteCalendarAtTheUtcDayBoundary() {
+        LocalDate eventDay=LocalDate.of(2026,11,18);
+        assertThat(TrendSnapshotRepository.eventHasOccurred(eventDay,Instant.parse("2026-11-17T16:01:00Z"))).isTrue();
+        assertThat(TrendSnapshotRepository.eventHasOccurred(eventDay,Instant.parse("2026-11-17T15:59:00Z"))).isFalse();
+    }
+
     private JdbcTemplate admin;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
