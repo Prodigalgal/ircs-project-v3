@@ -173,7 +173,7 @@ public class TrendCatalogRepository {
         return new MapSqlParameterSource("provider", candidate.provider()).addValue("type", candidate.mediaType())
                 .addValue("externalId", candidate.externalId()).addValue("season", candidate.season())
                 .addValue("title", VideoAdminText.trimToLength(candidate.item().title(), 255))
-                .addValue("originalTitle", VideoAdminText.cleanText(candidate.item().originalTitle(), 255))
+                .addValue("originalTitle", VideoAdminText.cleanText(candidate.item().originalTitle(), 255), java.sql.Types.VARCHAR)
                 .addValue("year", candidate.item().year() != null && candidate.item().year().matches("(?:18|19|20|21)[0-9]{2}")
                         ? candidate.item().year() : null);
     }
