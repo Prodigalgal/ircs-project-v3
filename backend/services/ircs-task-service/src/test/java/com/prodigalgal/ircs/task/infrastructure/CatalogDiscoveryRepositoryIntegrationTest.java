@@ -147,7 +147,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         jdbc.update("update episodes set name = 'S02E12'");
         jdbc.update("update raw_videos set season = null");
         assertThat(requests.hasRequestedResources(target)).isTrue();
-        jdbc.update("update raw_videos set adult_assessment = '{\"level\":\"ADULT\"}'::jsonb");
+        jdbc.update("update unified_videos set adult_assessment = '{\"level\":\"ADULT\"}'::jsonb");
         assertThat(requests.hasRequestedResources(target)).isFalse();
     }
 
