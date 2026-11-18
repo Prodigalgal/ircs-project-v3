@@ -35,7 +35,8 @@ class PortalMetadataSqlPolicyTest {
         String source = Files.readString(sourceFile());
 
         assertThat(source).contains("WHERE uv.category_code = :categoryKey");
-        assertThat(source).contains("WHERE uv.category_code IN (:categoryKeys)");
+        assertThat(source).contains("WHERE uv.category_code = sc.slug");
+        assertThat(source).contains("WHERE sc.slug IN (:categoryKeys)");
         assertThat(source).contains("uv.content_visibility IN (:contentVisibility)");
         assertThat(source).contains("coalesce(uv.adult_restricted, false) = false");
         assertThat(source).contains("uv.adult_assessment ->> 'adultRestricted'");

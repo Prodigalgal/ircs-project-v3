@@ -1,6 +1,6 @@
 -- liquibase formatted sql
 
--- 业务版本 3.8.0。保留现有请求状态并记录资源复查结果。
+-- 业务版本 3.8.1。保留现有请求状态并记录资源复查结果。
 
 -- changeset codex:20261119-catalog-discovery-resource-confirmation
 ALTER TABLE catalog_discovery_requests ADD COLUMN fulfilled_at timestamptz;
