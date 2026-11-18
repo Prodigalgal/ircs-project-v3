@@ -13,6 +13,7 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.Date;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +32,7 @@ import org.springframework.util.StringUtils;
 public class RawVideoIngestionRepository {
 
     private static final int PLAYLIST_WRITE_BATCH_SIZE = 256;
+    private static final int PLAYLIST_NAME_LENGTH = 255;
     private static final String INSERT_PLAYLIST = """
             insert into playlists (id, created_at, updated_at, version, name, video_id)
             values (:id, now(), now(), 0, :name, :videoId)
@@ -246,14 +248,33 @@ public class RawVideoIngestionRepository {
 
     public int replacePlaylists(PlaylistSyncMessage message) {
         List<IngestionPlaylistDTO> playlists = message.playlists() == null ? List.of() : message.playlists();
+        var requestedNames = playlists.stream()
+                .map(playlist -> StringUtils.hasText(playlist.name()) ? playlist.name().trim() : "默认")
+                .map(name -> limitPlaylistName(name, PLAYLIST_NAME_LENGTH))
+                .toList();
+        // Keep incoming distinct names available, even when a duplicate appears earlier in the message.
+        var reservedNames = new HashSet<>(requestedNames);
+        var nextSuffixByName = new HashMap<String, Integer>();
         var playlistRows = new ArrayList<MapSqlParameterSource>(playlists.size());
         var episodes = new ArrayList<PlaylistEpisode>();
         var domains = new TreeSet<String>();
-        for (IngestionPlaylistDTO playlist : playlists) {
+        for (int playlistIndex = 0; playlistIndex < playlists.size(); playlistIndex++) {
+            IngestionPlaylistDTO playlist = playlists.get(playlistIndex);
             UUID playlistId = IrcsUuidGenerators.nextId();
-            String playlistName = StringUtils.hasText(playlist.name()) ? playlist.name().trim() : "默认";
+            String requestedName = requestedNames.get(playlistIndex);
+            String playlistName = requestedName;
+            Integer nextSuffix = nextSuffixByName.putIfAbsent(requestedName, 2);
+            if (nextSuffix != null) {
+                int suffixNumber = nextSuffix;
+                do {
+                    String suffix = " (" + suffixNumber + ")";
+                    playlistName = limitPlaylistName(requestedName, PLAYLIST_NAME_LENGTH - suffix.length()) + suffix;
+                    suffixNumber++;
+                } while (!reservedNames.add(playlistName));
+                nextSuffixByName.put(requestedName, suffixNumber);
+            }
             playlistRows.add(new MapSqlParameterSource("id", playlistId)
-                    .addValue("name", trimToLength(playlistName, 255)).addValue("videoId", message.videoId()));
+                    .addValue("name", playlistName).addValue("videoId", message.videoId()));
             if (playlist.episodes() == null) continue;
             for (IngestionEpisodeDTO episode : playlist.episodes()) {
                 EpisodeLocation location = resolveEpisodeLocation(episode);
@@ -289,6 +310,11 @@ public class RawVideoIngestionRepository {
             jdbcTemplate.batchUpdate(INSERT_EPISODE, rows);
         }
         return playlistRows.size();
+    }
+
+    private static String limitPlaylistName(String name, int maxLength) {
+        if (name.codePointCount(0, name.length()) <= maxLength) return name;
+        return name.substring(0, name.offsetByCodePoints(0, maxLength));
     }
 
     private EpisodeLocation resolveEpisodeLocation(IngestionEpisodeDTO episode) {

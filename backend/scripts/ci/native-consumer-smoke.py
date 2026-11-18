@@ -327,7 +327,11 @@ def ingestion_round_trip():
                 for n in range(1, episode_count + 1)]
     item = {'video': {'sourceVid': 'native-smoke', 'sourceHash': 'native-smoke-source',
                       'dataHash': 'native-smoke-version', 'title': 'Native 消费验证',
-                      'playlists': [{'name': 'Native fixture', 'episodes': episodes}]},
+                      'playlists': [
+                          {'name': ' Native fixture ', 'episodes': episodes},
+                          {'name': '  Native fixture  ', 'episodes': [
+                              {'name': 'Bonus', 'url': 'https://media.example/episode/bonus.m3u8?quality=hd'}]},
+                      ]},
             'forceIngest': False}
 
     def publish(routing_key, payload):
@@ -346,14 +350,19 @@ def ingestion_round_trip():
         record = json.loads(database("""
             select json_build_object('playlists',count(distinct p.id),'episodes',count(e.id),
                 'domains',count(distinct e.source_domain_id),
-                'lastEpisode',count(*) filter (where e.name='EP513' and e.url='/episode/513.m3u8?quality=hd'))
+                'mainEpisodes',count(*) filter (where p.name='Native fixture'),
+                'lastEpisode',count(*) filter (where p.name='Native fixture' and e.name='EP513'
+                    and e.url='/episode/513.m3u8?quality=hd'),
+                'bonusEpisode',count(*) filter (where p.name='Native fixture (2)' and e.name='Bonus'
+                    and e.url='/episode/bonus.m3u8?quality=hd'))
               from raw_videos rv
               join playlists p on p.video_id=rv.id
               join episodes e on e.playlist_id=p.id
               join source_domains sd on sd.id=e.source_domain_id
              where rv.source_hash='native-smoke-source' and sd.domain_value='https://media.example'
             """))
-        return record == {'playlists': 1, 'episodes': episode_count, 'domains': 1, 'lastEpisode': 1}
+        return record == {'playlists': 2, 'episodes': episode_count + 1, 'domains': 1,
+                          'mainEpisodes': episode_count, 'lastEpisode': 1, 'bonusEpisode': 1}
 
     def handed_off():
         pending = docker('exec', 'ircs-native-key-value', 'valkey-cli', 'zcard',
@@ -380,8 +389,8 @@ def ingestion_round_trip():
     assert persisted()
     assert queue('q.ingest.video.dlq')['messages'] == 0
     assert queue('q.process.playlist_sync.dlq')['messages'] == 0
-    print('Native ingestion persisted one video and 513 episodes, reused the media domain, ignored a stale playlist '
-          'message and deduplicated normalization work.', flush=True)
+    print('Native ingestion persisted 513 main episodes and one bonus episode on separately named playlists, '
+          'reused the media domain, ignored a stale playlist message and deduplicated normalization work.', flush=True)
 
 
 def normalization_round_trip():
