@@ -337,8 +337,10 @@ def plan_changes(changes: Sequence[str | Mapping[str, str]], before: Mapping[str
     images = sorted(module.split(":")[-1] for module in affected & deployable)
     test_modules = sorted(java_test & set(head_graph))
     any_build = bool(images or frontend_build or python_build)
+    # A new candidate can adjust just CI after an earlier build failed. Its
+    # pending application inputs must still be compared with the promoted ledger.
     requires_promoted_baseline = bool(
-        any_build or test_modules or frontend_test or python_test or deployment_config)
+        any_build or test_modules or frontend_test or python_test or deployment_config or "VERSION" in paths)
     return {
         "schema_version": 1, "initial": initial,
         "java_images": images, "java_changed_modules": sorted(java_direct),

@@ -37,7 +37,7 @@ class RawVideoIngestionTransactionBoundaryTest {
             when(video.sourceHash()).thenReturn("source");
             when(video.dataHash()).thenReturn("version");
             when(video.playlists()).thenReturn(List.of());
-            when(repository.findStateBySourceHash("source")).thenAnswer(invocation -> {
+            when(repository.lockStateBySourceHash("source")).thenAnswer(invocation -> {
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
                 assertThat(jdbc.queryForObject("select 1", Integer.class)).isEqualTo(1);
                 assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);

@@ -322,38 +322,66 @@ def gateway_config_cache_probe():
 
 
 def ingestion_round_trip():
+    episode_count = 513
+    episodes = [{'name': f'EP{n:03d}', 'url': f'https://media.example/episode/{n}.m3u8?quality=hd'}
+                for n in range(1, episode_count + 1)]
     item = {'video': {'sourceVid': 'native-smoke', 'sourceHash': 'native-smoke-source',
-                      'dataHash': 'native-smoke-version', 'title': 'Native 消费验证', 'playlists': []},
+                      'dataHash': 'native-smoke-version', 'title': 'Native 消费验证',
+                      'playlists': [{'name': 'Native fixture', 'episodes': episodes}]},
             'forceIngest': False}
 
-    def publish():
+    def publish(routing_key, payload):
         result = request('/api/exchanges/%2F/amq.default/publish', {
-            'routing_key': 'q.ingest.video', 'properties': {'content_type': 'application/json', 'delivery_mode': 2},
-            'payload': json.dumps(item, ensure_ascii=False), 'payload_encoding': 'string'}, broker=True)
+            'routing_key': routing_key, 'properties': {'content_type': 'application/json', 'delivery_mode': 2},
+            'payload': json.dumps(payload, ensure_ascii=False), 'payload_encoding': 'string'}, broker=True)
         assert result['routed'] is True
 
+    def database(statement):
+        return docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc', statement)
+
     def persisted():
-        count = docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc',
-                       "select count(*) from raw_videos where source_hash='native-smoke-source'")
-        return count == '1'
+        return database("select count(*) from raw_videos where source_hash='native-smoke-source'") == '1'
+
+    def expected_playlist():
+        record = json.loads(database("""
+            select json_build_object('playlists',count(distinct p.id),'episodes',count(e.id),
+                'domains',count(distinct e.source_domain_id),
+                'lastEpisode',count(*) filter (where e.name='EP513' and e.url='/episode/513.m3u8?quality=hd'))
+              from raw_videos rv
+              join playlists p on p.video_id=rv.id
+              join episodes e on e.playlist_id=p.id
+              join source_domains sd on sd.id=e.source_domain_id
+             where rv.source_hash='native-smoke-source' and sd.domain_value='https://media.example'
+            """))
+        return record == {'playlists': 1, 'episodes': episode_count, 'domains': 1, 'lastEpisode': 1}
 
     def handed_off():
         pending = docker('exec', 'ircs-native-key-value', 'valkey-cli', 'zcard',
                          'ircs:work:v1:pipeline.normalize-video:pending')
         return pending == '1' and queue('q.ingest.video')['messages'] == 0 and queue('q.process.playlist_sync')['messages'] == 0
 
-    publish()
+    publish('q.ingest.video', item)
     wait_for('Native PostgreSQL persistence', persisted)
     wait_for('confirmed playlist consumption and normalization handoff', handed_off)
+    wait_for('complete multi-batch playback resources', expected_playlist)
     wait_for('first ingestion acknowledgement', lambda: queue('q.ingest.video').get('message_stats', {}).get('ack', 0) > 0)
     acknowledgements = queue('q.ingest.video')['message_stats']['ack']
-    publish()
+    publish('q.ingest.video', item)
     wait_for('duplicate ingestion acknowledgement', lambda: queue('q.ingest.video').get('message_stats', {}).get('ack', 0) > acknowledgements)
     wait_for('duplicate message acknowledgement', handed_off)
+    wait_for('deduplicated playback resources', expected_playlist)
+    playlist_queue = 'q.process.playlist_sync'
+    playlist_ack = queue(playlist_queue).get('message_stats', {}).get('ack', 0)
+    video_id = database("select id from raw_videos where source_hash='native-smoke-source'")
+    publish(playlist_queue, {'videoId': video_id, 'sourceHash': 'native-smoke-source',
+                             'dataHash': 'obsolete-fixture-version', 'playlists': []})
+    wait_for('stale playlist acknowledgement', lambda: queue(playlist_queue).get('message_stats', {}).get('ack', 0) > playlist_ack)
+    assert expected_playlist(), 'An obsolete message must not erase the latest playable resources'
     assert persisted()
     assert queue('q.ingest.video.dlq')['messages'] == 0
     assert queue('q.process.playlist_sync.dlq')['messages'] == 0
-    print('Native ingestion persisted one video, consumed playlist sync and deduplicated normalization work.', flush=True)
+    print('Native ingestion persisted one video and 513 episodes, reused the media domain, ignored a stale playlist '
+          'message and deduplicated normalization work.', flush=True)
 
 
 def normalization_round_trip():

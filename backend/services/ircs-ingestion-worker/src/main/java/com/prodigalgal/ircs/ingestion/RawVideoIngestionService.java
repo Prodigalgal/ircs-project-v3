@@ -15,12 +15,12 @@ public class RawVideoIngestionService {
 
     public IngestResult ingest(IngestionItem item) {
         var persisted = transactions.persist(item);
-        if (persisted.needsDownstream()) {
+        if (persisted.syncPlaylists()) {
             // The transaction proxy has returned and released the JDBC connection.
             publisher.publishPlaylistSync(new PlaylistSyncMessage(
                     persisted.id(), item.video().sourceHash(), item.video().dataHash(), item.video().playlists()));
-            publisher.publishNormalize(persisted.id(), item.video().dataHash());
         }
+        if (persisted.normalize()) publisher.publishNormalize(persisted.id(), item.video().dataHash());
         return new IngestResult(persisted.id(), persisted.skipped());
     }
 

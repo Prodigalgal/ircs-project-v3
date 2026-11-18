@@ -241,11 +241,16 @@ class AffectedPlanTest(unittest.TestCase):
         self.after[path] = "-- 所属业务版本 3.2.2\nCREATE INDEX b ON t(name)\n"
         self.assertEqual(["ircs-migrator"], self.plan(path)["java_images"])
 
-    def test_root_version_and_recorded_image_manifest_do_not_rebuild(self):
-        result = self.plan("VERSION", "backend/build-image-manifest.txt")
-        self.assert_no_builds(result)
-        self.assertTrue(result["ci_validation"])
-        self.assertFalse(result["requires_promoted_baseline"])
+    def test_new_candidate_after_ci_failure_rechecks_pending_changes_without_forcing_a_build(self):
+        fast_plan = self.plan("VERSION", ".github/workflows/native-build.yml", "backend/build-image-manifest.txt")
+        self.assert_no_builds(fast_plan)
+        self.assertTrue(fast_plan["ci_validation"])
+        self.assertTrue(fast_plan["requires_promoted_baseline"])
+
+        pending = self.plan(*fast_plan["changed_paths"], "backend/services/ircs-catalog/src/main/java/Ranking.java")
+        self.assertEqual(["ircs-catalog"], pending["java_images"])
+        self.assertEqual([], pending["frontends"])
+        self.assertFalse(pending["python_changed"])
 
     def test_gradle_and_wrapper_native_recipe_changes_affect_all_java_only(self):
         for path in ("backend/build.gradle", "backend/gradle/libs.versions.toml", "backend/gradlew",

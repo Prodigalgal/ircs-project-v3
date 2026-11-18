@@ -49,7 +49,11 @@ export function getTrendSourceName(provider: string, board: string): string {
         "trending-day": "日榜", "trending-week": "周榜", chart: "排行榜", popular: "热门榜",
         "airing-today": "今日播出", "recent-release": "近期上映", legacy: "采样", provider: "采样"
     };
-    return `${PROVIDER_LABELS[provider] ?? provider} · ${boardLabels[board] ?? "榜单"}`;
+    return `${getProviderName(provider)} · ${boardLabels[board] ?? "榜单"}`;
+}
+
+export function getProviderName(provider: string): string {
+    return PROVIDER_LABELS[provider] ?? provider;
 }
 
 export function getTrendSourceStatusLabel(source: TrendSourceStatus): string {
@@ -75,7 +79,7 @@ export function getRankingSourceLabel(ranking: MovieRanking | undefined): string
     if (ranking.sources.length === 0) return "来源信息待提供";
 
     const observedDateTime = formatBeijingDateTime(ranking.observedAt);
-    const sourceNames = ranking.sources.map(provider => PROVIDER_LABELS[provider] ?? provider).join(" · ");
+    const sourceNames = ranking.sources.map(getProviderName).join(" · ");
     return observedDateTime ? `${sourceNames} · 采样北京时间 ${observedDateTime}` : sourceNames;
 }
 

@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, Flame } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Flame } from "lucide-react";
 import type { MovieCard, TrendSourceStatus } from "@/lib/types";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { TrendingItem } from "./TrendingItem";
 import { cn } from "@/lib/utils";
-import { getEmptyTrendingMessage, getTrendSourceFreshnessLabel, getTrendSourceName, getTrendSourceStatusLabel } from "@/lib/domain/rankingPresentation";
+import { getEmptyTrendingMessage, getProviderName, getTrendSourceFreshnessLabel, getTrendSourceName, getTrendSourceStatusLabel } from "@/lib/domain/rankingPresentation";
 
 interface TrendingSectionProps {
     movies: MovieCard[];
@@ -15,6 +15,8 @@ interface TrendingSectionProps {
 
 export function TrendingSection({ movies, sources }: TrendingSectionProps) {
     const { scrollRef, handleScroll } = useAutoScroll({ itemCount: movies.length });
+    const freshProviders = [...new Set(sources?.filter(source => source.status === "SUCCESS" && !source.stale
+        && source.itemCount > 0).map(source => source.provider))];
 
     return (
         <div
@@ -36,25 +38,30 @@ export function TrendingSection({ movies, sources }: TrendingSectionProps) {
                 </Link>
             </div>
 
-            <div className="flex-none px-2 -mt-2 flex flex-wrap gap-1.5" aria-label="热播榜来源状态">
-                {sources && sources.length > 0 ? sources.map(source => (
-                    <span
-                        key={`${source.provider}-${source.board}-${source.mediaType}-${source.window}`}
-                        title={`${source.mediaType} · ${source.window}${source.errorCode ? ` · ${source.errorCode}` : ""}`}
-                        className={cn(
-                            "text-[9px] leading-4 px-1.5 rounded border border-border-subtle/10 bg-secondary/30 text-muted-foreground",
-                            source.status === "SUCCESS" && !source.stale && "text-emerald-600 dark:text-emerald-400",
-                            (source.status === "FAILED" || source.status === "UNAVAILABLE" || source.stale) && "text-amber-600 dark:text-amber-400"
-                        )}
-                    >
-                        {getTrendSourceName(source.provider, source.board)} · {source.mediaType}/{source.window} · {getTrendSourceStatusLabel(source)}
-                        {getTrendSourceFreshnessLabel(source) ? ` · ${getTrendSourceFreshnessLabel(source)}` : ""}
-                        {source.status === "SUCCESS" ? ` · ${source.itemCount}条` : ""}
-                    </span>
-                )) : (
-                    <span className="text-[9px] leading-4 text-muted-foreground">来源状态待提供</span>
-                )}
-            </div>
+            {sources && sources.length > 0 ? (
+                <details className="group/sources flex-none -mt-2 px-2">
+                    <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded-md px-2 text-xs text-muted-foreground hover:bg-secondary/40 [&::-webkit-details-marker]:hidden">
+                        <span className="shrink-0">来源详情</span>
+                        <span className="ml-auto truncate text-right">
+                            {freshProviders.length ? freshProviders.map(getProviderName).join("、") : "暂无新采样"}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open/sources:rotate-180" aria-hidden="true" />
+                    </summary>
+                    <ul className="mt-1 max-h-36 space-y-1 overflow-y-auto rounded-md border border-border-subtle/10 p-2 text-[11px] leading-4" aria-label="热播榜来源状态">
+                        {sources.map(source => (
+                            <li key={`${source.provider}-${source.board}-${source.mediaType}-${source.window}`}
+                                title={source.errorCode ?? undefined} className="text-muted-foreground">
+                                <span className="text-foreground">{getTrendSourceName(source.provider, source.board)}</span>
+                                {` · ${source.mediaType === "movie" ? "电影" : source.mediaType === "tv" ? "剧集" : "全部"} · ${getTrendSourceStatusLabel(source)}`}
+                                {source.status === "SUCCESS" ? ` · ${source.itemCount}条` : ""}
+                                {getTrendSourceFreshnessLabel(source) ? ` · ${getTrendSourceFreshnessLabel(source)}` : ""}
+                            </li>
+                        ))}
+                    </ul>
+                </details>
+            ) : (
+                <p className="flex-none px-4 text-xs text-muted-foreground">来源状态待提供</p>
+            )}
 
             <div className={cn(
                 "flex-1 relative rounded-3xl overflow-hidden group/section",

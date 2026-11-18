@@ -11,10 +11,13 @@ import java.net.URI;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Date;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -27,15 +30,26 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class RawVideoIngestionRepository {
 
+    private static final int PLAYLIST_WRITE_BATCH_SIZE = 256;
+    private static final String INSERT_PLAYLIST = """
+            insert into playlists (id, created_at, updated_at, version, name, video_id)
+            values (:id, now(), now(), 0, :name, :videoId)
+            """;
+    private static final String INSERT_EPISODE = """
+            insert into episodes (id, created_at, updated_at, version, name, url, playlist_id, source_domain_id)
+            values (:id, now(), now(), 0, :name, :url, :playlistId, :sourceDomainId)
+            """;
+
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
-    public Optional<RawVideoState> findStateBySourceHash(String sourceHash) {
+    public Optional<RawVideoState> lockStateBySourceHash(String sourceHash) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
                     select id, data_hash, normalization_status
                     from raw_videos
                     where source_hash = :sourceHash
+                    for update
                     """,
                     new MapSqlParameterSource("sourceHash", sourceHash),
                     (rs, rowNum) -> new RawVideoState(
@@ -47,15 +61,22 @@ public class RawVideoIngestionRepository {
         }
     }
 
-    public Optional<String> findDataHashById(UUID rawVideoId) {
+    public Optional<String> lockDataHashById(UUID rawVideoId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select data_hash from raw_videos where id = :id",
+                    "select data_hash from raw_videos where id = :id for update",
                     new MapSqlParameterSource("id", rawVideoId),
                     String.class));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
+    }
+
+    public boolean hasStoredEpisodes(UUID rawVideoId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                select exists(select 1 from playlists p join episodes e on e.playlist_id = p.id
+                    where p.video_id = :id and nullif(btrim(e.url), '') is not null)
+                """, new MapSqlParameterSource("id", rawVideoId), Boolean.class));
     }
 
     public UUID upsertRawVideo(IngestionVideoDTO video, UUID existingId) {
@@ -225,74 +246,70 @@ public class RawVideoIngestionRepository {
 
     public int replacePlaylists(PlaylistSyncMessage message) {
         List<IngestionPlaylistDTO> playlists = message.playlists() == null ? List.of() : message.playlists();
-        List<UUID> playlistIds = jdbcTemplate.queryForList(
-                "select id from playlists where video_id = :videoId",
-                new MapSqlParameterSource("videoId", message.videoId()),
-                UUID.class);
-
-        if (!playlistIds.isEmpty()) {
-            jdbcTemplate.update(
-                    "delete from episodes where playlist_id in (:playlistIds)",
-                    new MapSqlParameterSource("playlistIds", playlistIds));
-        }
-        jdbcTemplate.update(
-                "delete from playlists where video_id = :videoId",
-                new MapSqlParameterSource("videoId", message.videoId()));
-
-        int inserted = 0;
+        var playlistRows = new ArrayList<MapSqlParameterSource>(playlists.size());
+        var episodes = new ArrayList<PlaylistEpisode>();
+        var domains = new TreeSet<String>();
         for (IngestionPlaylistDTO playlist : playlists) {
             UUID playlistId = IrcsUuidGenerators.nextId();
             String playlistName = StringUtils.hasText(playlist.name()) ? playlist.name().trim() : "默认";
-            jdbcTemplate.update(
-                    """
-                    insert into playlists (id, created_at, updated_at, version, name, video_id)
-                    values (:id, now(), now(), 0, :name, :videoId)
-                    """,
-                    new MapSqlParameterSource()
-                            .addValue("id", playlistId)
-                            .addValue("name", trimToLength(playlistName, 255))
-                            .addValue("videoId", message.videoId()));
-
-            List<IngestionEpisodeDTO> episodes = playlist.episodes() == null ? List.of() : playlist.episodes();
-            for (IngestionEpisodeDTO episode : episodes) {
-                EpisodeLocation location = resolveEpisodeLocation(episode, message);
-                jdbcTemplate.update(
-                        """
-                        insert into episodes (id, created_at, updated_at, version, name, url, playlist_id, source_domain_id)
-                        values (:id, now(), now(), 0, :name, :url, :playlistId, :sourceDomainId)
-                        """,
-                        new MapSqlParameterSource()
-                                .addValue("id", IrcsUuidGenerators.nextId())
-                                .addValue("name", trimToLength(defaultEpisodeName(episode), 255))
-                                .addValue("url", trimToLength(location.url(), 255))
-                                .addValue("playlistId", playlistId)
-                                .addValue("sourceDomainId", location.sourceDomainId()));
+            playlistRows.add(new MapSqlParameterSource("id", playlistId)
+                    .addValue("name", trimToLength(playlistName, 255)).addValue("videoId", message.videoId()));
+            if (playlist.episodes() == null) continue;
+            for (IngestionEpisodeDTO episode : playlist.episodes()) {
+                EpisodeLocation location = resolveEpisodeLocation(episode);
+                if (location.domainValue() != null) domains.add(location.domainValue());
+                episodes.add(new PlaylistEpisode(playlistId, trimToLength(defaultEpisodeName(episode), 255), location));
             }
-            inserted++;
         }
-        return inserted;
+        // Acquire any shared domain rows in the same order across concurrent consumers.
+        var domainIds = new HashMap<String, UUID>();
+        for (String domain : domains) domainIds.put(domain, upsertSourceDomain(domain, message));
+
+        var videoParameter = new MapSqlParameterSource("videoId", message.videoId());
+        jdbcTemplate.update("""
+                delete from episodes where playlist_id in (select id from playlists where video_id = :videoId)
+                """, videoParameter);
+        jdbcTemplate.update("delete from playlists where video_id = :videoId", videoParameter);
+
+        for (int offset = 0; offset < playlistRows.size(); offset += PLAYLIST_WRITE_BATCH_SIZE) {
+            int end = Math.min(playlistRows.size(), offset + PLAYLIST_WRITE_BATCH_SIZE);
+            jdbcTemplate.batchUpdate(INSERT_PLAYLIST, playlistRows.subList(offset, end).toArray(MapSqlParameterSource[]::new));
+        }
+        for (int offset = 0; offset < episodes.size(); offset += PLAYLIST_WRITE_BATCH_SIZE) {
+            int end = Math.min(episodes.size(), offset + PLAYLIST_WRITE_BATCH_SIZE);
+            var rows = new MapSqlParameterSource[end - offset];
+            for (int index = offset; index < end; index++) {
+                var episode = episodes.get(index);
+                var location = episode.location();
+                UUID domainId = location.domainValue() == null ? location.sourceDomainId() : domainIds.get(location.domainValue());
+                rows[index - offset] = new MapSqlParameterSource("id", IrcsUuidGenerators.nextId())
+                        .addValue("name", episode.name()).addValue("url", trimToLength(location.url(), 255))
+                        .addValue("playlistId", episode.playlistId()).addValue("sourceDomainId", domainId);
+            }
+            jdbcTemplate.batchUpdate(INSERT_EPISODE, rows);
+        }
+        return playlistRows.size();
     }
 
-    private EpisodeLocation resolveEpisodeLocation(IngestionEpisodeDTO episode, PlaylistSyncMessage message) {
+    private EpisodeLocation resolveEpisodeLocation(IngestionEpisodeDTO episode) {
         if (episode.sourceDomainId() != null) {
-            return new EpisodeLocation(episode.url(), episode.sourceDomainId());
+            return new EpisodeLocation(episode.url(), episode.sourceDomainId(), null);
         }
         if (!StringUtils.hasText(episode.url())) {
-            return new EpisodeLocation("", null);
+            return new EpisodeLocation("", null, null);
         }
 
         try {
             URI uri = URI.create(episode.url().trim());
             if (!StringUtils.hasText(uri.getScheme()) || !StringUtils.hasText(uri.getHost())) {
-                return new EpisodeLocation(episode.url().trim(), null);
+                return new EpisodeLocation(episode.url().trim(), null, null);
             }
             String domainValue = uri.getScheme() + "://" + uri.getHost() + (uri.getPort() > -1 ? ":" + uri.getPort() : "");
             String path = StringUtils.hasText(uri.getRawPath()) ? uri.getRawPath() : "/";
             String relativePath = path + (StringUtils.hasText(uri.getRawQuery()) ? "?" + uri.getRawQuery() : "");
-            UUID sourceDomainId = upsertSourceDomain(domainValue, message);
-            return new EpisodeLocation(relativePath, sourceDomainId);
+            return new EpisodeLocation(relativePath, null, domainValue);
         } catch (IllegalArgumentException ignored) {
-            return new EpisodeLocation(episode.url().trim(), null);
+            return new EpisodeLocation(episode.url().trim(), null, null);
         }
     }
 
@@ -341,7 +358,10 @@ public class RawVideoIngestionRepository {
         }
     }
 
-    private record EpisodeLocation(String url, UUID sourceDomainId) {
+    private record EpisodeLocation(String url, UUID sourceDomainId, String domainValue) {
+    }
+
+    private record PlaylistEpisode(UUID playlistId, String name, EpisodeLocation location) {
     }
 
     private record CoverImageReference(String domainValue, String originalUrl) {

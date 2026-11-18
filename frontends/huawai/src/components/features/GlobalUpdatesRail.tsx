@@ -49,9 +49,11 @@ export function GlobalUpdatesRail({ movies }: GlobalUpdatesRailProps) {
                                 <p className="text-[9px] leading-4 text-muted-foreground line-clamp-1">
                                     {getRankingSourceLabel(movie.ranking)}
                                 </p>
-                                <p className={`text-[9px] leading-4 line-clamp-1 ${movie.ranking?.resourceAvailable === false ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}>
-                                    {getResourceAvailabilityLabel(movie.ranking)}
-                                </p>
+                                {movie.ranking?.resourceAvailable !== false && (
+                                    <p className="text-[9px] leading-4 line-clamp-1 text-muted-foreground">
+                                        {getResourceAvailabilityLabel(movie.ranking)}
+                                    </p>
+                                )}
                             </div>
                         </article>
                     );
