@@ -221,6 +221,8 @@ jobs:
     env:
       IMAGE: ${{ needs.prepare.outputs.registry }}/${{ matrix.image }}:${{ needs.prepare.outputs.release_tag }}-${{ matrix.arch }}
       APP_VERSION: ${{ needs.prepare.outputs.version }}
+      # Scraper arm64 peaked above 8 GiB during image generation; use the same bounded profile as search.
+      NATIVE_BUILD_MEMORY: ${{ (matrix.image == 'ircs-search-service' || (matrix.image == 'ircs-scraper-service' && matrix.arch == 'arm64')) && '10g' || '8g' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -260,8 +262,8 @@ jobs:
             MODULE_DIR=${{ matrix.directory }}
             IMAGE_NAME=${{ matrix.image }}
             NATIVE_TARGET_MACHINE=${{ matrix.machine }}
-            NATIVE_BUILD_MEMORY=${{ matrix.image == 'ircs-search-service' && '10g' || '8g' }}
-            NATIVE_BUILD_PARALLELISM=${{ matrix.image == 'ircs-search-service' && '2' || '4' }}
+            NATIVE_BUILD_MEMORY=${{ env.NATIVE_BUILD_MEMORY }}
+            NATIVE_BUILD_PARALLELISM=${{ env.NATIVE_BUILD_MEMORY == '10g' && '2' || '4' }}
           cache-from: type=gha,scope=native-${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=native-${{ matrix.image }}-${{ matrix.arch }}
       - name: Native HTTP and migration smoke
