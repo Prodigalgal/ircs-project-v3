@@ -254,6 +254,34 @@ class JdbcPortalRankingIntegrationTest {
                 Set.of(), Set.of(), Set.of("movie"), Set.of("action"), Set.of("featured"), Set.of("PUBLIC"));
 
         assertThat(repository.findTrending(scoped, 20)).extracting(PortalMovieCard::id).containsExactly(allowed);
+        jdbc.update("update unified_videos set updated_at = now() - interval '1 day' where id = ?", allowed);
+
+        var sections = repository.findCategorySections(scoped, List.of("movie", "series"), 1);
+
+        assertThat(sections).containsOnlyKeys("movie");
+        assertThat(sections.get("movie")).extracting(PortalMovieCard::id).containsExactly(allowed);
+    }
+
+    @Test
+    void categorySectionsPickTheLatestEligibleWorkPerCategory() {
+        UUID currentMovie = work("Current movie", "movie", 7.0);
+        UUID olderMovie = work("Older movie", "movie", 8.0);
+        UUID privateMovie = work("Private movie", "movie", 8.0);
+        UUID restrictedSeries = work("Restricted series", "series", 8.0);
+        UUID currentSeries = work("Current series", "series", 8.0);
+        jdbc.update("update unified_videos set published_at = current_date - 1 where id in (?, ?)",
+                currentMovie, currentSeries);
+        jdbc.update("update unified_videos set published_at = current_date - 2 where id = ?", olderMovie);
+        jdbc.update("update unified_videos set published_at = current_date, content_visibility = 'HIDDEN' where id = ?",
+                privateMovie);
+        jdbc.update("update unified_videos set published_at = current_date, adult_restricted = true where id = ?",
+                restrictedSeries);
+
+        var sections = repository.findCategorySections(publicPrincipal, List.of("series", "movie"), 1);
+
+        assertThat(sections.keySet()).containsExactly("movie", "series");
+        assertThat(sections.get("movie")).extracting(PortalMovieCard::id).containsExactly(currentMovie);
+        assertThat(sections.get("series")).extracting(PortalMovieCard::id).containsExactly(currentSeries);
     }
 
     @Test

@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
+import com.prodigalgal.ircs.contracts.search.SearchEntityType;
+import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -119,6 +122,27 @@ class MagnetSearchExecutorTest {
         assertEquals("SUCCESS", executor.execute(jobId, videoId, "AUTO_SCHEDULED", true).status());
         verify(runner, times(1)).search(eq(healthy), any(), any());
         verify(runner, times(2)).search(eq(flaky), any(), any());
+    }
+
+    @Test
+    void retriesCommittedLinkProjectionWithoutRefetchingSuccessfulProvider() {
+        var cache = spy(MagnetReadModelCache.disabled());
+        var searchSync = mock(SearchSyncWorkPublisher.class);
+        var publishingExecutor = new MagnetSearchExecutor(repository, coordinator, runner, cache, supplied(publisher),
+                supplied(searchSync), Duration.ofMinutes(2));
+        when(runner.search(any(), any(), eq(videoId))).thenReturn(
+                response(candidate("Example 2026 1080p WEB-DL", Map.of("titleSource", "CANDIDATE"))));
+        when(searchSync.enqueue(videoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX))
+                .thenThrow(new IllegalStateException("temporary index submission failure"))
+                .thenReturn(1);
+
+        assertThrows(IllegalStateException.class, () -> publishingExecutor.execute(jobId, videoId, "AUTO_SCHEDULED", true));
+        verify(coordinator).retry(any(), eq("MAGNET_EXECUTION_RETRY_PENDING"));
+        assertEquals("SUCCESS", publishingExecutor.execute(jobId, videoId, "AUTO_SCHEDULED", true).status());
+        verify(runner).search(any(), any(), eq(videoId));
+        verify(repository).upsertLink(eq(videoId), any(), any(), anyBoolean());
+        verify(cache, times(2)).evictApprovedLinks(videoId);
+        verify(searchSync, times(2)).enqueue(videoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
     }
 
     @Test

@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,13 +24,24 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class PortalQueryServiceTest {
 
-    private final JdbcPortalRepository portalRepository = org.mockito.Mockito.mock(JdbcPortalRepository.class);
-    private final PortalQueryService service = new PortalQueryService(portalRepository, PortalReadModelCache.disabled());
+    private final JdbcPortalRepository portalRepository = mock(JdbcPortalRepository.class);
+    private final PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+    private final PortalQueryService service =
+            new PortalQueryService(portalRepository, PortalReadModelCache.disabled(), transactionManager);
     private final IrcsRequestPrincipal principal = IrcsRequestPrincipal.publicPrincipal();
+
+    @BeforeEach
+    void setUpTransactions() {
+        when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
+    }
 
     @Test
     void metadataReturnsEmptyListsForMissingData() {
@@ -60,7 +74,7 @@ class PortalQueryServiceTest {
 
     @Test
     void anonymousMetadataUsesReadModelCache() {
-        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        PortalQueryService cachedService = serviceWithCache();
         when(portalRepository.findActiveGenres(principal)).thenReturn(List.of("剧情"));
         when(portalRepository.findActiveAreas(principal)).thenReturn(List.of("中国大陆"));
         when(portalRepository.findActiveLanguages(principal)).thenReturn(List.of("国语"));
@@ -74,11 +88,13 @@ class PortalQueryServiceTest {
         verify(portalRepository, times(1)).findActiveAreas(principal);
         verify(portalRepository, times(1)).findActiveLanguages(principal);
         verify(portalRepository, times(1)).findActiveYears(principal);
+        verify(transactionManager).getTransaction(any());
+        verify(transactionManager).getTransaction(argThat(TransactionDefinition::isReadOnly));
     }
 
     @Test
     void authenticatedMetadataBypassesPublicReadModelCache() {
-        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        PortalQueryService cachedService = serviceWithCache();
         IrcsRequestPrincipal member = memberPrincipal();
         when(portalRepository.findActiveGenres(member)).thenReturn(List.of("剧情"));
         when(portalRepository.findActiveAreas(member)).thenReturn(List.of("中国大陆"));
@@ -134,7 +150,7 @@ class PortalQueryServiceTest {
 
     @Test
     void anonymousHomeCacheKeepsRankingsAndSourceTimestampsWithoutRepeatingDatabaseReads() {
-        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        PortalQueryService cachedService = serviceWithCache();
         Instant observed = Instant.parse("2026-11-16T12:00:00Z");
         PortalMovieCard card = sampleCard().withRanking(new PortalRankingInfo(List.of("TMDB", "Douban"), observed,
                 false, LocalDate.of(2026, 11, 16), "EPISODE_AIR", 2, 12, true, 10, BigDecimal.valueOf(0.1)));
@@ -228,7 +244,7 @@ class PortalQueryServiceTest {
 
     @Test
     void anonymousExploreWithKeywordUsesReadModelCache() {
-        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        PortalQueryService cachedService = serviceWithCache();
         PortalMovieCard card = sampleCard();
         PageResponse<PortalMovieCard> page = PageResponse.of(List.of(card), 1, 0, 20);
         when(portalRepository.findExplore(principal, 0, 20, "爱", null, null, null, null, null, null))
@@ -270,7 +286,7 @@ class PortalQueryServiceTest {
 
     @Test
     void anonymousMovieDetailUsesReadModelCache() {
-        PortalQueryService cachedService = new PortalQueryService(portalRepository, localCache());
+        PortalQueryService cachedService = serviceWithCache();
         UUID movieId = UUID.randomUUID();
         PortalMovieDetailResponse detail = sampleDetail(movieId);
         when(portalRepository.findMovieDetail(principal, movieId)).thenReturn(Optional.of(detail));
@@ -279,6 +295,23 @@ class PortalQueryServiceTest {
         assertEquals(Optional.of(detail), cachedService.getMovieDetail(principal, movieId));
 
         verify(portalRepository, times(1)).findMovieDetail(principal, movieId);
+        verify(transactionManager).getTransaction(any());
+        verify(transactionManager).getTransaction(argThat(TransactionDefinition::isReadOnly));
+    }
+
+    @Test
+    void newlyPublishedDetailBecomesVisibleAfterMissingRequest() {
+        PortalQueryService cachedService = serviceWithCache();
+        UUID movieId = UUID.randomUUID();
+        PortalMovieDetailResponse detail = sampleDetail(movieId);
+        when(portalRepository.findMovieDetail(principal, movieId))
+                .thenReturn(Optional.empty()).thenReturn(Optional.of(detail));
+
+        assertTrue(cachedService.getMovieDetail(principal, movieId).isEmpty());
+        assertEquals(Optional.of(detail), cachedService.getMovieDetail(principal, movieId));
+        assertEquals(Optional.of(detail), cachedService.getMovieDetail(principal, movieId));
+
+        verify(portalRepository, times(2)).findMovieDetail(principal, movieId);
     }
 
     private PortalMovieCard sampleCard() {
@@ -344,8 +377,8 @@ class PortalQueryServiceTest {
                 "other");
     }
 
-    private PortalReadModelCache localCache() {
-        return new PortalReadModelCache(
+    private PortalQueryService serviceWithCache() {
+        PortalReadModelCache cache = new PortalReadModelCache(
                 JsonMapper.builder().findAndAddModules().build(),
                 new CacheRegistry(),
                 null,
@@ -355,6 +388,7 @@ class PortalQueryServiceTest {
                 Duration.ofSeconds(60),
                 Duration.ofSeconds(60),
                 Duration.ofMinutes(5));
+        return new PortalQueryService(portalRepository, cache, transactionManager);
     }
 
     private IrcsRequestPrincipal memberPrincipal() {

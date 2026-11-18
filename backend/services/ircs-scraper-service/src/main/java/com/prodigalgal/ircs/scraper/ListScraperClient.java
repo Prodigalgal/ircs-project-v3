@@ -84,7 +84,7 @@ class ListScraperClient {
         } catch (TaskSourceTerminalException e) {
             throw e;
         } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to parse list response from " + source.name() + ": " + e.getMessage(), e);
+            throw new IllegalArgumentException("Failed to parse list response", e);
         }
     }
 
@@ -98,12 +98,17 @@ class ListScraperClient {
     private FetchedBody fetchBody(DataSourceRecord source, String url, ManualScrapeConfigRequest config) {
         try {
             trafficLimiter.acquireDataSourceSlot(source, config);
+            ScraperTaskDeadline.check();
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(sourceTimeout(source))
                     .withUserAgent(userAgent(source, config))
                     .withHttpProtocol(source.httpProtocol())
                     .withTransportMode(source.transportMode())
                     .withResolution(source.ipVersionPolicy(), source.dnsResolverType(), source.dnsResolverEndpoint())
                     .withProxy(proxy(config));
+            if (ScraperTaskDeadline.active()) {
+                // Each delayed queue retry must acquire its own source traffic slot.
+                policy = policy.withMaxRetries(0);
+            }
             OutboundHttpRequest request = OutboundHttpRequest.get(url, policy);
             for (Map.Entry<String, String> header : parseHeaders(config.headers()).entrySet()) {
                 request = request.withHeader(header.getKey(), header.getValue());
@@ -115,11 +120,11 @@ class ListScraperClient {
             return new FetchedBody(response.body(), response.firstHeader("Content-Type"));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("HTTP fetch failed: " + url + " - " + e.getMessage(), e);
+            throw new IllegalStateException("HTTP fetch interrupted", e);
         } catch (TaskHttpStatusException e) {
             throw e;
         } catch (Exception e) {
-            throw new IllegalStateException("HTTP fetch failed: " + url + " - " + e.getMessage(), e);
+            throw new IllegalStateException("HTTP fetch failed", e);
         }
     }
 
@@ -202,7 +207,7 @@ class ListScraperClient {
         } catch (StreamReadException ex) {
             throw new TaskSourceTerminalException(
                     sourceName,
-                    "invalid JSON list response: " + ex.getOriginalMessage(),
+                    "invalid JSON list response",
                     ex);
         }
     }

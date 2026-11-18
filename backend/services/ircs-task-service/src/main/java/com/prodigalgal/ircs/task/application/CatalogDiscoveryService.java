@@ -21,12 +21,13 @@ public class CatalogDiscoveryService {
 
     public void dispatchDue() {
         if (!config.enabled()) return;
-        repository.recoverFailedSubmissions(config.batchSize());
-        for (CatalogDiscoveryCandidate candidate : repository.claimDue(config.batchSize(), config.leaseDuration())) {
+        int batchSize = config.batchSize();
+        repository.reconcileSubmitted(batchSize * 4);
+        for (CatalogDiscoveryCandidate candidate : repository.claimDue(batchSize, config.leaseDuration())) {
             try {
                 checkOwnership(candidate);
                 if (repository.hasRequestedResources(candidate)) {
-                    repository.markSubmitted(candidate);
+                    repository.markFulfilled(candidate);
                     continue;
                 }
                 if (repository.isPausedByOperator(candidate)) {
@@ -49,9 +50,11 @@ public class CatalogDiscoveryService {
                         .anyMatch(task -> "QUEUED".equals(task.status()) || "ACTIVE".equals(task.status()));
                 if (accepted) {
                     repository.markSubmitted(candidate);
+                } else if (result.dataSourceCount() == 0) {
+                    // A busy source or a source in cooldown can become eligible on the next pass.
+                    repository.retry(candidate, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
                 } else {
-                    repository.retry(candidate, retryDelay(candidate.attempts()),
-                            result.dataSourceCount() == 0 ? "NO_ELIGIBLE_SOURCE" : "DISCOVERY_NOT_ACCEPTED");
+                    repository.retry(candidate, retryDelay(candidate.attempts()), "DISCOVERY_NOT_ACCEPTED");
                 }
             } catch (RuntimeException ex) {
                 repository.retry(candidate, retryDelay(candidate.attempts()), "DISCOVERY_DISPATCH_FAILED");

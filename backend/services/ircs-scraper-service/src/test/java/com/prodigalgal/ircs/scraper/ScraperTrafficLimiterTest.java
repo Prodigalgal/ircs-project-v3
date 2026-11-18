@@ -117,6 +117,24 @@ class ScraperTrafficLimiterTest {
     }
 
     @Test
+    void queuedReservationCannotWaitPastProcessingBudget() {
+        FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
+        ScraperTrafficLimiter limiter = limiter(
+                lockManager,
+                trafficConfig(Duration.ofMillis(250), Duration.ZERO, Duration.ofMinutes(2)),
+                true,
+                EGRESS_IP,
+                1000,
+                Duration.ofMinutes(2),
+                Duration.ofMinutes(10));
+        Duration processingBudget = Duration.ofSeconds(5);
+
+        ScraperTaskDeadline.run(processingBudget, () -> limiter.acquireDataSourceSlot(source(), config(1000)));
+
+        assertThat(lockManager.timeSliceRequests.getFirst().maxWait()).isLessThanOrEqualTo(processingBudget);
+    }
+
+    @Test
     void neverReservesGlobalTimeSliceForCrawlerTraffic() {
         FakeDistributedLockManager lockManager = new FakeDistributedLockManager();
         ScraperTrafficLimiter limiter = limiter(

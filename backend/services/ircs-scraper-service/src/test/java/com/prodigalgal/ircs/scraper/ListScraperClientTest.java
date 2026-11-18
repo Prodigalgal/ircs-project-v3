@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -341,8 +342,34 @@ class ListScraperClientTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("HTTP fetch failed")
                 .hasCauseInstanceOf(IOException.class);
+        assertThat(transport.requests).hasSize(3);
     }
 
+    @Test
+    void queuedFetchDefersRateLimitRetryToNextDeliveryAndAcquiresAnotherSlot() {
+        var limiter = org.mockito.Mockito.mock(ScraperTrafficLimiter.class);
+        var queuedClient = new ListScraperClient(objectMapper, 20000, limiter,
+                provider(new OutboundHttpClient(new OutboundUrlPolicy(resolver), transport)));
+        DataSourceRecord source = source("https://provider.example.test");
+        ManualScrapeConfigRequest config = config(null, false, false, null, null, null, null, null);
+        transport.enqueue(new OutboundHttpResponse(429, Map.of(), new byte[0]));
+        transport.enqueue(new OutboundHttpResponse(200, Map.of(),
+                """
+                        {"items":[{"vod_id":"v-1"}]}
+                        """.getBytes(StandardCharsets.UTF_8)));
+
+        ScraperTaskDeadline.run(Duration.ofMinutes(5), () ->
+                assertThatThrownBy(() -> queuedClient.fetchListPage(source, config, 1))
+                        .isInstanceOf(TaskHttpStatusException.class)
+                        .hasMessageContaining("HTTP status 429"));
+        assertThat(transport.requests).hasSize(1);
+        org.mockito.Mockito.verify(limiter).acquireDataSourceSlot(source, config);
+
+        ScraperTaskDeadline.run(Duration.ofMinutes(5), () ->
+                assertThat(queuedClient.fetchListPage(source, config, 1).items()).hasSize(1));
+        assertThat(transport.requests).hasSize(2);
+        org.mockito.Mockito.verify(limiter, org.mockito.Mockito.times(2)).acquireDataSourceSlot(source, config);
+    }
 
     @Test
     void blocksPrivateDatasourceUrlBeforeTransport() {

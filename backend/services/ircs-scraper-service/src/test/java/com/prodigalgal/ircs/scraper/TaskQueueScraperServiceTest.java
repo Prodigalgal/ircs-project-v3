@@ -290,7 +290,7 @@ class TaskQueueScraperServiceTest {
     }
 
     @Test
-    void detailTaskFailureAuditIncludesRootCauseSummary() {
+    void detailTaskFailureLeavesDispositionAuditToQueueConsumer() {
         UUID masterTaskId = UUID.randomUUID();
         UUID pageTaskId = UUID.randomUUID();
         UUID detailTaskId = UUID.randomUUID();
@@ -315,14 +315,7 @@ class TaskQueueScraperServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("HTTP status 429");
 
-        ArgumentCaptor<WorkerJobAuditEvent> auditCaptor = ArgumentCaptor.forClass(WorkerJobAuditEvent.class);
-        verify(auditWriter).record(auditCaptor.capture());
-        assertThat(auditCaptor.getValue().jobType()).isEqualTo("queue-consumer");
-        assertThat(auditCaptor.getValue().jobName()).isEqualTo("scraper.task-detail");
-        assertThat(auditCaptor.getValue().status()).isEqualTo("failed");
-        assertThat(auditCaptor.getValue().error().getMessage())
-                .contains("detail task failed")
-                .contains("HTTP status 429");
+        verify(auditWriter, never()).record(any());
     }
 
     private DataSourceRecord source(UUID dataSourceId) {

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -91,16 +92,7 @@ class TaskQueueProgressConsumer {
         }
         try {
             progressService.recordPageDiscovered(message);
-            if (message.detailScheduled() <= 0) {
-                DispatchNextPageResult result = dispatchService.dispatchNextPageIfNeeded(
-                        message.masterTaskId(),
-                        message.pageNumber(),
-                        message.totalPages(),
-                        message.correlationId());
-                if (result == DispatchNextPageResult.NO_MORE_PAGES) {
-                    snapshotFlushService.flushOne(message.masterTaskId());
-                }
-            }
+            advanceCompletedPage(message.masterTaskId(), message.pageTaskId(), message.correlationId());
             recordSucceeded(JOB_NAME_PAGE_DISCOVERED, message.correlationId(), startedAt);
         } catch (RuntimeException ex) {
             retryOrDeadLetter(QueueTopic.TASK_PAGE_DISCOVERED, rawMessage, JOB_NAME_PAGE_DISCOVERED,
@@ -159,22 +151,22 @@ class TaskQueueProgressConsumer {
         }
         try {
             progressService.recordDetailDone(message);
-            progressService.pageProgress(message.masterTaskId(), message.pageTaskId())
-                    .ifPresent(page -> {
-                        DispatchNextPageResult result = dispatchService.dispatchNextPageIfNeeded(
-                                message.masterTaskId(),
-                                page.pageNumber(),
-                                page.totalPages(),
-                                message.correlationId());
-                        if (result == DispatchNextPageResult.NO_MORE_PAGES) {
-                            snapshotFlushService.flushOne(message.masterTaskId());
-                        }
-                    });
+            advanceCompletedPage(message.masterTaskId(), message.pageTaskId(), message.correlationId());
             recordSucceeded(JOB_NAME_DETAIL_DONE, message.correlationId(), startedAt);
         } catch (RuntimeException ex) {
             retryOrDeadLetter(QueueTopic.TASK_DETAIL_DONE, rawMessage, JOB_NAME_DETAIL_DONE,
                     message.correlationId(), startedAt, ex);
         }
+    }
+
+    private void advanceCompletedPage(UUID masterTaskId, UUID pageTaskId, String correlationId) {
+        progressService.pageProgress(masterTaskId, pageTaskId).ifPresent(page -> {
+            DispatchNextPageResult result = dispatchService.dispatchNextPageIfNeeded(
+                    masterTaskId, page.pageNumber(), page.totalPages(), correlationId);
+            if (result == DispatchNextPageResult.NO_MORE_PAGES) {
+                snapshotFlushService.flushOne(masterTaskId);
+            }
+        });
     }
 
     @RabbitListener(

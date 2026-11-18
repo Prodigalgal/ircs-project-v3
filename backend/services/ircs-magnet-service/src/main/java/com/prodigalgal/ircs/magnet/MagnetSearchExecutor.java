@@ -88,6 +88,13 @@ final class MagnetSearchExecutor {
         }
         var lease = new MagnetSearchJobCoordinator.Lease(jobId, unifiedVideoId, claim.generation(), leaseDuration);
         try (var guard = new MagnetJobExecutionGuard(coordinator, lease)) {
+            Map<String, MagnetProviderRunSummary> outcomes = latestRuns(jobId);
+            if (outcomes.values().stream()
+                    .anyMatch(run -> "SUCCESS".equals(run.status()) && safeCount(run.acceptedCount()) > 0)) {
+                // The durable run may have committed before the cache or index update was delivered.
+                guard.checkOwnership();
+                publishLinkChanges(unifiedVideoId);
+            }
             List<MagnetProviderSummary> providers = cache.listEnabledProviders(repository::listEnabledProviders);
             List<String> providerCodes = providers.stream().map(MagnetProviderSummary::code).toList();
             String skipped = skipReason(target, queries);
@@ -104,7 +111,6 @@ final class MagnetSearchExecutor {
                     return result;
                 });
             }
-            Map<String, MagnetProviderRunSummary> outcomes = latestRuns(jobId);
             List<MagnetLinkSummary> links = new ArrayList<>();
             Map<String, Boolean> blockedProviders = new LinkedHashMap<>();
             for (ProviderQuery step : plan) {
@@ -149,8 +155,7 @@ final class MagnetSearchExecutor {
                 });
                 links.addAll(saved);
                 if (!saved.isEmpty()) {
-                    cache.evictApprovedLinks(unifiedVideoId);
-                    if (searchSync != null) { searchSync.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX); }
+                    publishLinkChanges(unifiedVideoId);
                 }
             }
             guard.checkOwnership();
@@ -187,6 +192,13 @@ final class MagnetSearchExecutor {
                 failure.addSuppressed(releaseFailure);
             }
             throw failure;
+        }
+    }
+
+    private void publishLinkChanges(UUID unifiedVideoId) {
+        cache.evictApprovedLinks(unifiedVideoId);
+        if (searchSync != null) {
+            searchSync.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
         }
     }
 

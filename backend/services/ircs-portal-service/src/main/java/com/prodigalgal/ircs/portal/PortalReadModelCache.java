@@ -139,8 +139,12 @@ class PortalReadModelCache {
         if (!cacheablePublic(principal) || id == null) {
             return loader.get();
         }
-        PortalMovieDetailResponse value = detailCache.get(id.toString(), () -> loader.get().orElse(null));
-        return Optional.ofNullable(value);
+        try {
+            // Only persist published details. An absent work can become visible on the next request.
+            return Optional.of(detailCache.get(id.toString(), () -> loader.get().orElseThrow(DetailUnavailable::new)));
+        } catch (DetailUnavailable missing) {
+            return Optional.empty();
+        }
     }
 
     private boolean cacheablePublic(IrcsRequestPrincipal principal) {
@@ -216,5 +220,11 @@ class PortalReadModelCache {
         }
         StringRedisTemplate template = redisTemplate.getIfAvailable();
         return template == null ? TieredStringCacheStore.noop() : new PortalStringCacheStore(template);
+    }
+
+    private static final class DetailUnavailable extends RuntimeException {
+        private DetailUnavailable() {
+            super(null, null, false, false);
+        }
     }
 }

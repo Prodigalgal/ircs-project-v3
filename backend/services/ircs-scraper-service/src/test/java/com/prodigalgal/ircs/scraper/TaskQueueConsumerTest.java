@@ -23,6 +23,7 @@ import com.prodigalgal.ircs.messaging.TaskFailureClassifier;
 import com.prodigalgal.ircs.messaging.TaskHttpStatusException;
 import com.prodigalgal.ircs.messaging.TaskRetryPublisher;
 import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
@@ -122,6 +123,28 @@ class TaskQueueConsumerTest {
     }
 
     @Test
+    void proxyFailurePublishesSanitizedRetryBeforeAckAndRecordsItsCause() throws Exception {
+        TaskPageMessage pageMessage = pageMessage();
+        org.mockito.Mockito.doThrow(new IllegalStateException("HTTP fetch failed for ?auth=private-value",
+                        new IOException("Could not connect to proxy using private-value")))
+                .when(scraperService).processPage(pageMessage);
+        when(retryPublisher.publishRetry(eq(QueueTopic.TASK_PAGE), any(), any())).thenReturn(1);
+
+        consumer.consumePage(message(objectMapper.writeValueAsString(pageMessage)), channel, DELIVERY_TAG);
+
+        ArgumentCaptor<Throwable> errorCaptor = ArgumentCaptor.forClass(Throwable.class);
+        var order = org.mockito.Mockito.inOrder(retryPublisher, channel);
+        order.verify(retryPublisher).publishRetry(eq(QueueTopic.TASK_PAGE), any(), errorCaptor.capture());
+        order.verify(channel).basicAck(DELIVERY_TAG, false);
+        assertThat(errorCaptor.getValue()).hasMessage("Outbound proxy connection failed").hasNoCause();
+        ArgumentCaptor<WorkerJobAuditEvent> auditCaptor = ArgumentCaptor.forClass(WorkerJobAuditEvent.class);
+        verify(auditWriter).record(auditCaptor.capture());
+        assertThat(auditCaptor.getValue().error()).hasMessage(
+                "Retry scheduled 1/3: Outbound proxy connection failed").hasNoCause();
+        verify(queuePublisher, never()).publishPageFailed(any());
+    }
+
+    @Test
     void retryableSourceHttpFailurePublishesPageFailedWithoutDlqAfterRetryLimit() throws Exception {
         TaskPageMessage pageMessage = pageMessage();
         org.mockito.Mockito.doThrow(new TaskHttpStatusException(
@@ -188,10 +211,8 @@ class TaskQueueConsumerTest {
     @Test
     void terminalSourceHttpDetailFailurePublishesDetailDoneWithoutDlq() throws Exception {
         TaskDetailMessage detailMessage = detailMessage();
-        org.mockito.Mockito.doThrow(new TaskHttpStatusException(
-                        403,
-                        "Fake",
-                        "https://provider.example.test/api.php"))
+        org.mockito.Mockito.doThrow(new IllegalStateException("outer diagnostic contains status 503",
+                        new TaskHttpStatusException(403, "Fake", "https://provider.example.test/api.php")))
                 .when(scraperService).processDetail(detailMessage);
 
         consumer.consumeDetail(message(objectMapper.writeValueAsString(detailMessage)), channel, DELIVERY_TAG);
@@ -202,6 +223,7 @@ class TaskQueueConsumerTest {
         assertThat(doneCaptor.getValue().pageTaskId()).isEqualTo(detailMessage.pageTaskId());
         assertThat(doneCaptor.getValue().detailTaskId()).isEqualTo(detailMessage.detailTaskId());
         assertThat(doneCaptor.getValue().successful()).isFalse();
+        assertThat(doneCaptor.getValue().errorMessage()).isEqualTo("HTTP status 403");
         verify(retryPublisher, never()).publishRetry(eq(QueueTopic.TASK_DETAIL), any(), any());
         verify(retryPublisher, never()).publishDlq(eq(QueueTopic.TASK_DETAIL), any(), any());
         verify(channel).basicAck(DELIVERY_TAG, false);
@@ -214,7 +236,7 @@ class TaskQueueConsumerTest {
         org.mockito.Mockito.doThrow(new TaskSourceTerminalException(
                         "Fake",
                         "invalid JSON list response",
-                        new RuntimeException("html")))
+                        new RuntimeException("upstream HTML mentions HTTP status 503")))
                 .when(scraperService).processPage(pageMessage);
 
         consumer.consumePage(message(objectMapper.writeValueAsString(pageMessage)), channel, DELIVERY_TAG);
@@ -224,6 +246,7 @@ class TaskQueueConsumerTest {
         assertThat(failedCaptor.getValue().masterTaskId()).isEqualTo(pageMessage.masterTaskId());
         assertThat(failedCaptor.getValue().pageTaskId()).isEqualTo(pageMessage.pageTaskId());
         assertThat(failedCaptor.getValue().pageNumber()).isEqualTo(pageMessage.pageNumber());
+        assertThat(failedCaptor.getValue().errorMessage()).isEqualTo("Invalid collection source response");
         verify(retryPublisher, never()).publishRetry(eq(QueueTopic.TASK_PAGE), any(), any());
         verify(retryPublisher, never()).publishDlq(eq(QueueTopic.TASK_PAGE), any(), any());
         verify(channel).basicAck(DELIVERY_TAG, false);
@@ -299,7 +322,20 @@ class TaskQueueConsumerTest {
     }
 
     @Test
-    void retryPublishFailureNacksOriginalMessageWithoutRequeue() throws Exception {
+    void nullPayloadDeadLettersBeforeAckWithoutRunningTheTask() throws Exception {
+        consumer.consumePage(message("null"), channel, DELIVERY_TAG);
+
+        ArgumentCaptor<Throwable> errorCaptor = ArgumentCaptor.forClass(Throwable.class);
+        var order = org.mockito.Mockito.inOrder(retryPublisher, channel);
+        order.verify(retryPublisher).publishDlq(eq(QueueTopic.TASK_PAGE), any(), errorCaptor.capture());
+        order.verify(channel).basicAck(DELIVERY_TAG, false);
+        assertThat(errorCaptor.getValue()).hasMessage("Invalid task page queue payload").hasNoCause();
+        verify(scraperService, never()).processPage(any());
+        verify(retryPublisher, never()).publishRetry(any(), any(), any());
+    }
+
+    @Test
+    void retryPublishFailureRequeuesOriginalMessage() throws Exception {
         TaskPageMessage pageMessage = pageMessage();
         org.mockito.Mockito.doThrow(new IllegalStateException("source timeout"))
                 .when(scraperService).processPage(pageMessage);

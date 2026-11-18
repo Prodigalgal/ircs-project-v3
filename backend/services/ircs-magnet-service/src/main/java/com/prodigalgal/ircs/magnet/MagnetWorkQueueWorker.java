@@ -10,9 +10,12 @@ import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,10 +33,12 @@ class MagnetWorkQueueWorker {
 
     private static final String ENABLED_KEY = "app.magnet.work-queue.worker.enabled";
     private static final String BATCH_SIZE_KEY = "app.magnet.work-queue.worker.batch-size";
+    private static final String PARALLELISM_KEY = "app.magnet.work-queue.worker.parallelism";
     private static final String VISIBILITY_SECONDS_KEY = "app.magnet.work-queue.worker.visibility-seconds";
     private static final String MAX_RETRIES_KEY = "app.magnet.work-queue.worker.max-retries";
     private static final String MAX_BACKOFF_SECONDS_KEY = "app.magnet.work-queue.worker.max-backoff-seconds";
     private static final int MAX_BATCH_SIZE = 100;
+    private static final int MAX_PARALLELISM = 8;
     private static final int MAX_VISIBILITY_SECONDS = 3600;
     private static final int MAX_RETRIES = 20;
     private static final int MAX_BACKOFF_SECONDS = 3600;
@@ -45,13 +50,22 @@ class MagnetWorkQueueWorker {
     private final RuntimeConfigService runtimeConfig;
     private final ExecutorService triggerExecutor =
             ScheduledTriggers.virtualThreadExecutor("ircs-magnet-worker-trigger-vt-");
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final ExecutorService taskExecutor =
+            ScheduledTriggers.virtualThreadExecutor("ircs-magnet-worker-task-vt-");
+    private final AtomicBoolean claiming = new AtomicBoolean();
+    private final AtomicInteger activeTasks = new AtomicInteger();
 
     @Value("${app.magnet.work-queue.worker.enabled:true}")
     private boolean enabledByDeployment;
 
     @Value("${app.magnet.work-queue.worker.batch-size:5}")
     private int batchSizeByDeployment;
+
+    @Value("${app.magnet.work-queue.worker.parallelism:2}")
+    private int parallelismByDeployment = 2;
+
+    @Value("${spring.datasource.hikari.maximum-pool-size:10}")
+    private int databasePoolSize = 10;
 
     @Value("${app.magnet.work-queue.worker.visibility-seconds:900}")
     private int visibilitySecondsByDeployment;
@@ -96,44 +110,65 @@ class MagnetWorkQueueWorker {
     }
 
     @PreDestroy
-    void shutdownTriggerExecutor() {
+    void shutdownExecutors() {
         triggerExecutor.shutdownNow();
+        taskExecutor.shutdownNow();
     }
 
     int runOnce() {
-        if (!enabled() || !running.compareAndSet(false, true)) {
-            return 0;
+        int processed = 0;
+        for (CompletableFuture<Boolean> task : claimAvailableTasks()) {
+            try {
+                if (task.join()) {
+                    processed++;
+                }
+            } catch (CompletionException ex) {
+                log.warn("Magnet work execution ended exceptionally", ex.getCause());
+            }
+        }
+        return processed;
+    }
+
+    private List<CompletableFuture<Boolean>> claimAvailableTasks() {
+        if (taskExecutor.isShutdown() || !enabled() || !claiming.compareAndSet(false, true)) {
+            return List.of();
         }
         try {
-            return runOnceLocked();
+            int capacity = Math.min(batchSize(), parallelism() - activeTasks.get());
+            if (capacity <= 0) {
+                return List.of();
+            }
+            String owner = workerId();
+            Duration visibility = visibility();
+            heartbeat(owner, visibility.plusMinutes(1));
+            return workQueue.claim(MagnetWorkTypes.SEARCH, owner, capacity, visibility).stream()
+                    .map(item -> startTask(item, owner, visibility))
+                    .toList();
         } finally {
-            running.set(false);
+            claiming.set(false);
         }
     }
 
-    private int runOnceLocked() {
-        String owner = workerId();
-        int effectiveBatchSize = batchSize();
-        Duration visibility = visibility();
-        heartbeat(owner, visibility.plusMinutes(1));
-        List<RuntimeWorkItem> items = workQueue.claim(
-                MagnetWorkTypes.SEARCH,
-                owner,
-                effectiveBatchSize,
-                visibility);
-        int processed = 0;
-        if (!items.isEmpty()) {
-            try (MagnetQueueClaimGuard claims = new MagnetQueueClaimGuard(
-                    leaseStore, items, visibility, () -> heartbeat(owner, heartbeatTtl()))) {
-                for (RuntimeWorkItem item : items) {
-                    if (processItem(item)) {
-                        processed++;
-                    }
+    private CompletableFuture<Boolean> startTask(RuntimeWorkItem item, String owner, Duration visibility) {
+        activeTasks.incrementAndGet();
+        try {
+            return CompletableFuture.supplyAsync(() -> {
+                try (MagnetQueueClaimGuard claim = new MagnetQueueClaimGuard(
+                        leaseStore, List.of(item), visibility, () -> heartbeat(owner, visibility.plusMinutes(1)))) {
+                    return processItem(item);
+                } finally {
+                    activeTasks.decrementAndGet();
                 }
+            }, taskExecutor);
+        } catch (RejectedExecutionException ex) {
+            activeTasks.decrementAndGet();
+            try {
+                leaseStore.defer(item, Duration.ZERO, "MAGNET_WORKER_SHUTTING_DOWN");
+            } catch (RuntimeException deferFailure) {
+                log.warn("Magnet work release on shutdown failed: taskId={}", item.taskId(), deferFailure);
             }
+            return CompletableFuture.completedFuture(false);
         }
-        heartbeat(owner, heartbeatTtl());
-        return processed;
     }
 
     private boolean processItem(RuntimeWorkItem item) {
@@ -240,6 +275,12 @@ class MagnetWorkQueueWorker {
 
     private int batchSize() {
         return boundedInt(BATCH_SIZE_KEY, batchSizeByDeployment, 1, MAX_BATCH_SIZE);
+    }
+
+    private int parallelism() {
+        // Leave a connection available for foreground requests and reconciliation.
+        int budget = Math.max(1, Math.min(MAX_PARALLELISM, databasePoolSize - 1));
+        return boundedInt(PARALLELISM_KEY, parallelismByDeployment, 1, budget);
     }
 
     private int maxRetries() {

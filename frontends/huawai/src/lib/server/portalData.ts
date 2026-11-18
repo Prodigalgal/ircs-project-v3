@@ -25,18 +25,11 @@ const loadPortalHomeData = unstable_cache(
     { revalidate: 60 }
 );
 
-const loadMovieDetail = unstable_cache(
-    async (id: string) => {
-        return contentApi.getMovieDetail(id, SSR_HEADERS);
-    },
-    ["portal-movie-detail"],
-    { revalidate: 900 }
-);
-
 export const getCachedPortalMetadata = cache(loadPortalMetadata);
 
 export const getCachedHomeData = cache(loadPortalHomeData);
 
+// The detail fetch already revalidates successful responses. Keep missing results scoped to this render.
 export const getMovieDetailForRequest = cache(async (id: string) => {
-    return loadMovieDetail(id);
+    return contentApi.getMovieDetail(id, SSR_HEADERS);
 });

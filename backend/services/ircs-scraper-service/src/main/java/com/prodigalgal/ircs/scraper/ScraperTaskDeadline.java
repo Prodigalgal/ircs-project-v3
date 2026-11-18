@@ -24,7 +24,29 @@ final class ScraperTaskDeadline {
         Long deadline = DEADLINE.get();
         if (Thread.currentThread().isInterrupted()
                 || (deadline != null && System.nanoTime() - deadline >= 0)) {
-            throw new IllegalStateException("Scraper task processing deadline exceeded", new TimeoutException());
+            throw exceeded();
         }
+    }
+
+    static boolean active() {
+        return DEADLINE.get() != null;
+    }
+
+    static Duration capWait(Duration requested) {
+        check();
+        Long deadline = DEADLINE.get();
+        if (deadline == null) {
+            return requested;
+        }
+        long remainingNanos = deadline - System.nanoTime();
+        if (remainingNanos <= 0) {
+            throw exceeded();
+        }
+        Duration remaining = Duration.ofNanos(remainingNanos);
+        return requested.compareTo(remaining) <= 0 ? requested : remaining;
+    }
+
+    private static IllegalStateException exceeded() {
+        return new IllegalStateException("Scraper task processing deadline exceeded", new TimeoutException());
     }
 }

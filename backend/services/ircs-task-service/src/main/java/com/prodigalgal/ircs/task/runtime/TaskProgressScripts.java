@@ -6,33 +6,39 @@ final class TaskProgressScripts {
 
     static final DefaultRedisScript<Long> PAGE_DISCOVERED = new DefaultRedisScript<>(
             """
-            redis.call('SADD', KEYS[1], ARGV[1])
             local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
-            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
-            local firstDiscovery = 0
-            if previousStatus == '' or previousStatus == 'QUEUED' then
-              firstDiscovery = 1
+            local previousScheduled = tonumber(redis.call('HGET', KEYS[2], 'detailScheduled') or '0')
+            if previousScheduled > 0 or previousStatus == 'DISCOVERED' or previousStatus == 'FAILED'
+              or previousStatus == 'COMPLETED' or previousStatus == 'COMPLETED_WITH_ERRORS' then
+              return 0
             end
-            local detailScheduled = tonumber(ARGV[3]) or 0
+            redis.call('SADD', KEYS[1], ARGV[1])
+            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
+            local detailScheduled = math.max(0, tonumber(ARGV[3]) or 0)
+            local pageDetailCompleted = tonumber(redis.call('HGET', KEYS[2], 'detailCompleted') or '0')
+            local pageDetailFailed = tonumber(redis.call('HGET', KEYS[2], 'detailFailed') or '0')
+            local pageFinished = pageDetailCompleted >= detailScheduled
             local pageStatus = 'DISCOVERED'
-            if detailScheduled <= 0 then
-              pageStatus = 'COMPLETED'
+            if pageFinished then
+              pageStatus = pageDetailFailed > 0 and 'COMPLETED_WITH_ERRORS' or 'COMPLETED'
+            elseif pageDetailCompleted > 0 then
+              pageStatus = 'RUNNING'
             end
             redis.call('HSET', KEYS[2],
               'masterTaskId', ARGV[7],
               'pageTaskId', ARGV[1],
               'pageNumber', ARGV[2],
-              'detailScheduled', ARGV[3],
-              'detailCompleted', '0',
-              'detailSucceeded', '0',
-              'detailFailed', '0',
+              'detailScheduled', detailScheduled,
               'status', pageStatus,
               'updatedAt', ARGV[6])
-            if firstDiscovery == 1 then
-              redis.call('HINCRBY', KEYS[3], 'detailScheduled', ARGV[3])
-              redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
-              if detailScheduled <= 0 then
-                redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
+            redis.call('HSETNX', KEYS[2], 'detailCompleted', 0)
+            redis.call('HSETNX', KEYS[2], 'detailSucceeded', 0)
+            redis.call('HSETNX', KEYS[2], 'detailFailed', 0)
+            redis.call('HINCRBY', KEYS[3], 'detailScheduled', detailScheduled)
+            redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
+            if pageFinished then
+              redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
+              if pageDetailFailed == 0 then
                 redis.call('HINCRBY', KEYS[3], 'pageSucceeded', 1)
               end
             end
@@ -68,61 +74,54 @@ final class TaskProgressScripts {
               redis.call('HSET', KEYS[3], 'totalItems', ARGV[5])
             end
             redis.call('ZADD', KEYS[4], ARGV[6], ARGV[7])
-            if firstDiscovery == 1 then
+            redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[8], '*',
+              'event', 'page_discovered',
+              'masterTaskId', ARGV[7],
+              'pageTaskId', ARGV[1],
+              'pageNumber', ARGV[2],
+              'detailScheduled', detailScheduled)
+            redis.call('HINCRBY', KEYS[6], ARGV[12], 1)
+            if pageFinished then
               redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[8], '*',
-                'event', 'page_discovered',
+                'event', 'page_completed',
                 'masterTaskId', ARGV[7],
                 'pageTaskId', ARGV[1],
                 'pageNumber', ARGV[2],
-                'detailScheduled', ARGV[3])
-              redis.call('HINCRBY', KEYS[6], ARGV[12], 1)
-              if detailScheduled <= 0 then
-                redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[8], '*',
-                  'event', 'page_completed',
-                  'masterTaskId', ARGV[7],
-                  'pageTaskId', ARGV[1],
-                  'pageNumber', ARGV[2],
-                  'status', pageStatus)
-                redis.call('HINCRBY', KEYS[6], ARGV[13], 1)
-              end
-              redis.call('EXPIRE', KEYS[6], ARGV[10])
-              redis.call('ZADD', KEYS[7], ARGV[9], ARGV[9])
-              redis.call('ZREMRANGEBYSCORE', KEYS[7], '-inf', tonumber(ARGV[9]) - tonumber(ARGV[11]))
-              redis.call('EXPIRE', KEYS[7], math.ceil(tonumber(ARGV[11]) / 1000))
+                'status', pageStatus)
+              redis.call('HINCRBY', KEYS[6], ARGV[13], 1)
             end
-            return firstDiscovery
+            redis.call('EXPIRE', KEYS[6], ARGV[10])
+            redis.call('ZADD', KEYS[7], ARGV[9], ARGV[9])
+            redis.call('ZREMRANGEBYSCORE', KEYS[7], '-inf', tonumber(ARGV[9]) - tonumber(ARGV[11]))
+            redis.call('EXPIRE', KEYS[7], math.ceil(tonumber(ARGV[11]) / 1000))
+            return 1
             """,
             Long.class);
 
     static final DefaultRedisScript<Long> PAGE_FAILED = new DefaultRedisScript<>(
             """
-            redis.call('SADD', KEYS[1], ARGV[1])
             local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
-            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
-            local firstFailure = 0
-            if previousStatus ~= 'FAILED'
-              and previousStatus ~= 'COMPLETED'
-              and previousStatus ~= 'COMPLETED_WITH_ERRORS' then
-              firstFailure = 1
+            local previousScheduled = tonumber(redis.call('HGET', KEYS[2], 'detailScheduled') or '0')
+            if previousScheduled > 0 or previousStatus == 'DISCOVERED' or previousStatus == 'FAILED'
+              or previousStatus == 'COMPLETED' or previousStatus == 'COMPLETED_WITH_ERRORS' then
+              return 0
             end
+            redis.call('SADD', KEYS[1], ARGV[1])
+            local previousMasterStatus = redis.call('HGET', KEYS[3], 'status') or ''
             redis.call('HSET', KEYS[2],
               'masterTaskId', ARGV[5],
               'pageTaskId', ARGV[1],
               'pageNumber', ARGV[2],
               'detailScheduled', '0',
-              'detailCompleted', '0',
-              'detailSucceeded', '0',
-              'detailFailed', '0',
               'status', 'FAILED',
               'lastError', ARGV[3],
               'updatedAt', ARGV[4])
-            if firstFailure == 1 then
-              if previousStatus == '' or previousStatus == 'QUEUED' then
-                redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
-              end
-              redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
-              redis.call('HINCRBY', KEYS[3], 'pageFailed', 1)
-            end
+            redis.call('HSETNX', KEYS[2], 'detailCompleted', 0)
+            redis.call('HSETNX', KEYS[2], 'detailSucceeded', 0)
+            redis.call('HSETNX', KEYS[2], 'detailFailed', 0)
+            redis.call('HINCRBY', KEYS[3], 'pageDiscovered', 1)
+            redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
+            redis.call('HINCRBY', KEYS[3], 'pageFailed', 1)
             local pageScheduled = tonumber(redis.call('HGET', KEYS[3], 'pageScheduled') or '0')
             local pageCompleted = tonumber(redis.call('HGET', KEYS[3], 'pageCompleted') or '0')
             local masterDetailScheduled = tonumber(redis.call('HGET', KEYS[3], 'detailScheduled') or '0')
@@ -144,25 +143,28 @@ final class TaskProgressScripts {
               'lastError', ARGV[3],
               'updatedAt', ARGV[4])
             redis.call('ZADD', KEYS[4], ARGV[4], ARGV[5])
-            if firstFailure == 1 then
-              redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[6], '*',
-                'event', 'page_failed',
-                'masterTaskId', ARGV[5],
-                'pageTaskId', ARGV[1],
-                'pageNumber', ARGV[2],
-                'reason', ARGV[3])
-              redis.call('HINCRBY', KEYS[6], ARGV[10], 1)
-              redis.call('EXPIRE', KEYS[6], ARGV[8])
-              redis.call('ZADD', KEYS[7], ARGV[7], ARGV[7])
-              redis.call('ZREMRANGEBYSCORE', KEYS[7], '-inf', tonumber(ARGV[7]) - tonumber(ARGV[9]))
-              redis.call('EXPIRE', KEYS[7], math.ceil(tonumber(ARGV[9]) / 1000))
-            end
+            redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[6], '*',
+              'event', 'page_failed',
+              'masterTaskId', ARGV[5],
+              'pageTaskId', ARGV[1],
+              'pageNumber', ARGV[2],
+              'reason', ARGV[3])
+            redis.call('HINCRBY', KEYS[6], ARGV[10], 1)
+            redis.call('EXPIRE', KEYS[6], ARGV[8])
+            redis.call('ZADD', KEYS[7], ARGV[7], ARGV[7])
+            redis.call('ZREMRANGEBYSCORE', KEYS[7], '-inf', tonumber(ARGV[7]) - tonumber(ARGV[9]))
+            redis.call('EXPIRE', KEYS[7], math.ceil(tonumber(ARGV[9]) / 1000))
             return 1
             """,
             Long.class);
 
     static final DefaultRedisScript<Long> DETAIL_COMPLETED = new DefaultRedisScript<>(
             """
+            local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
+            if previousStatus == 'FAILED' or previousStatus == 'COMPLETED'
+              or previousStatus == 'COMPLETED_WITH_ERRORS' then
+              return 0
+            end
             local added = redis.call('SADD', KEYS[1], ARGV[1])
             if added == 0 then
               return 0
@@ -170,7 +172,6 @@ final class TaskProgressScripts {
             local completed = redis.call('HINCRBY', KEYS[2], 'detailCompleted', 1)
             redis.call('HINCRBY', KEYS[3], 'detailCompleted', 1)
             local failed = tonumber(redis.call('HGET', KEYS[2], 'detailFailed') or '0')
-            local previousStatus = redis.call('HGET', KEYS[2], 'status') or ''
             if ARGV[2] == 'true' then
               redis.call('HINCRBY', KEYS[2], 'detailSucceeded', 1)
               redis.call('HINCRBY', KEYS[3], 'detailSucceeded', 1)
@@ -194,11 +195,9 @@ final class TaskProgressScripts {
               else
                 pageStatus = 'COMPLETED'
               end
-              if previousStatus ~= 'COMPLETED' and previousStatus ~= 'COMPLETED_WITH_ERRORS' then
-                redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
-                if failed <= 0 then
-                  redis.call('HINCRBY', KEYS[3], 'pageSucceeded', 1)
-                end
+              redis.call('HINCRBY', KEYS[3], 'pageCompleted', 1)
+              if failed <= 0 then
+                redis.call('HINCRBY', KEYS[3], 'pageSucceeded', 1)
               end
             end
             local pageScheduled = tonumber(redis.call('HGET', KEYS[3], 'pageScheduled') or '0')
@@ -248,10 +247,7 @@ final class TaskProgressScripts {
             else
               redis.call('HINCRBY', KEYS[8], ARGV[14], 1)
             end
-            if scheduled > 0
-              and completed >= scheduled
-              and previousStatus ~= 'COMPLETED'
-              and previousStatus ~= 'COMPLETED_WITH_ERRORS' then
+            if scheduled > 0 and completed >= scheduled then
               redis.call('XADD', KEYS[7], 'MAXLEN', '~', ARGV[8], '*',
                 'event', 'page_completed',
                 'masterTaskId', ARGV[4],

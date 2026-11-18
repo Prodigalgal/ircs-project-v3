@@ -9,7 +9,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PortalQueryService {
@@ -32,14 +34,21 @@ public class PortalQueryService {
 
     private final JdbcPortalRepository portalRepository;
     private final PortalReadModelCache readModelCache;
-    public PortalQueryService(JdbcPortalRepository portalRepository, PortalReadModelCache readModelCache) {
+    private final TransactionTemplate readTransaction;
+
+    public PortalQueryService(
+            JdbcPortalRepository portalRepository,
+            PortalReadModelCache readModelCache,
+            PlatformTransactionManager transactionManager) {
         this.portalRepository = portalRepository;
         this.readModelCache = readModelCache;
+        this.readTransaction = new TransactionTemplate(transactionManager);
+        this.readTransaction.setReadOnly(true);
     }
 
-    @Transactional(readOnly = true)
     public PortalMetadataResponse getMetadata(IrcsRequestPrincipal principal) {
-        return readModelCache.metadata(principal, () -> getMetadataUncached(principal));
+        return readModelCache.metadata(
+                principal, () -> readTransaction.execute(status -> getMetadataUncached(principal)));
     }
 
     private PortalMetadataResponse getMetadataUncached(IrcsRequestPrincipal principal) {
@@ -106,9 +115,9 @@ public class PortalQueryService {
         return portalRepository.findSitemapMovies(IrcsRequestPrincipal.publicPrincipal(), page, size);
     }
 
-    @Transactional(readOnly = true)
     public Optional<PortalMovieDetailResponse> getMovieDetail(IrcsRequestPrincipal principal, UUID id) {
-        return readModelCache.detail(principal, id, () -> portalRepository.findMovieDetail(principal, id));
+        return readModelCache.detail(
+                principal, id, () -> readTransaction.execute(status -> portalRepository.findMovieDetail(principal, id)));
     }
 
     private <T> List<T> safeList(List<T> values) {

@@ -84,6 +84,24 @@ class TaskQueueProgressConsumerTest {
     }
 
     @Test
+    void advancesAndFlushesWhenAllDetailsArrivedBeforeDiscovery() throws Exception {
+        UUID masterTaskId = UUID.randomUUID();
+        UUID pageTaskId = UUID.randomUUID();
+        TaskPageDiscoveredMessage message = new TaskPageDiscoveredMessage(
+                masterTaskId, pageTaskId, 3, 12, 3, 88, "early-details", Instant.now());
+        when(progressService.pageProgress(masterTaskId, pageTaskId))
+                .thenReturn(Optional.of(new PageProgressState(3, 3, "COMPLETED")));
+        when(dispatchService.dispatchNextPageIfNeeded(masterTaskId, 3, 3, "early-details"))
+                .thenReturn(DispatchNextPageResult.NO_MORE_PAGES);
+
+        consumer.consumePageDiscovered(message(objectMapper.writeValueAsString(message)), channel, DELIVERY_TAG);
+
+        verify(progressService).recordPageDiscovered(message);
+        verify(snapshotFlushService).flushOne(masterTaskId);
+        verify(channel).basicAck(DELIVERY_TAG, false);
+    }
+
+    @Test
     void consumesDetailDoneAndWritesAudit() throws Exception {
         UUID masterTaskId = UUID.randomUUID();
         TaskDetailDoneMessage message = new TaskDetailDoneMessage(

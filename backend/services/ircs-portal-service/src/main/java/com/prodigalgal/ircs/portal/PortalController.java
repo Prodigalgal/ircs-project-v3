@@ -103,7 +103,7 @@ public class PortalController {
                 .map(value -> ResponseEntity.ok()
                         .header(HttpHeaders.CACHE_CONTROL, cacheFor(principal, CACHE_PUBLIC_DETAIL))
                         .body(value))
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseGet(() -> ResponseEntity.notFound().header(HttpHeaders.CACHE_CONTROL, CACHE_NO_STORE).build());
     }
 
     private String normalizeKeyword(String keyword) {

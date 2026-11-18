@@ -68,7 +68,7 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).markSubmitted(candidate);
+        verify(repository).markFulfilled(candidate);
         verifyNoInteractions(discovery);
     }
 
@@ -105,13 +105,17 @@ class CatalogDiscoveryServiceTest {
     }
 
     @Test
-    void emptyOrRejectedSourceSelectionIsRetriedInsteadOfReportedAsSubmitted() {
-        when(discovery.scheduleCatalog(eq(candidate), anyInt(), any()))
+    void unavailableSourcesAreRecheckedPromptlyEvenAfterManyAttempts() {
+        CatalogDiscoveryCandidate delayed = new CatalogDiscoveryCandidate(
+                candidate.unifiedVideoId(), 2, 12, "Example", 37, candidate.leaseToken());
+        when(repository.claimDue(5, LEASE)).thenReturn(List.of(delayed));
+        when(repository.renew(delayed, LEASE)).thenReturn(true);
+        when(discovery.scheduleCatalog(eq(delayed), anyInt(), any()))
                 .thenReturn(TrendDiscoveryScheduleResponse.empty("trend-discovery"));
 
         service.dispatchDue();
 
-        verify(repository).retry(candidate, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
+        verify(repository).retry(delayed, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
         verify(repository, never()).markSubmitted(any());
     }
 

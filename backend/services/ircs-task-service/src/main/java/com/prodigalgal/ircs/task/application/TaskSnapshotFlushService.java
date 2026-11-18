@@ -10,7 +10,6 @@ import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import com.prodigalgal.ircs.task.dto.TaskDetailSummary;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import com.prodigalgal.ircs.common.lease.ClusterLeaseGuard;
@@ -21,6 +20,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +35,7 @@ public class TaskSnapshotFlushService {
     private static final String STATUS_QUEUED = "QUEUED";
     private static final String STATUS_PAUSED = "PAUSED";
     private static final String STATUS_STOPPING = "STOPPING";
+    private static final int PAGE_READ_BATCH_SIZE = 128;
 
     private final JdbcCollectionTaskRepository taskRepository;
     private final TaskMasterSnapshotService snapshotService;
@@ -147,28 +148,60 @@ public class TaskSnapshotFlushService {
             return List.of();
         }
         List<TaskFlushPageState> pages = new ArrayList<>();
+        List<String> pageKeys = new ArrayList<>(PAGE_READ_BATCH_SIZE);
         for (String member : members) {
             UUID pageTaskId = parseUuid(member);
             if (pageTaskId == null) {
                 continue;
             }
-            Map<String, String> state = hash(TaskHotKeys.pageState(pageTaskId));
+            pageKeys.add(TaskHotKeys.pageState(pageTaskId));
+            if (pageKeys.size() == PAGE_READ_BATCH_SIZE) {
+                readPageBatch(pageKeys, pages);
+                pageKeys.clear();
+            }
+        }
+        if (!pageKeys.isEmpty()) {
+            readPageBatch(pageKeys, pages);
+        }
+        return pages;
+    }
+
+    private void readPageBatch(List<String> pageKeys, List<TaskFlushPageState> pages) {
+        ClusterLeaseGuard.checkCurrentOwnership();
+        var keySerializer = redisTemplate.getStringSerializer();
+        List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            var hashes = connection.hashCommands();
+            for (String pageKey : pageKeys) {
+                hashes.hGetAll(keySerializer.serialize(pageKey));
+            }
+            return null;
+        });
+        if (results == null || results.size() != pageKeys.size()) {
+            throw new IllegalStateException("Incomplete task page snapshot pipeline result");
+        }
+        for (Object result : results) {
+            if (result == null) {
+                continue;
+            }
+            if (!(result instanceof Map<?, ?> fields)) {
+                throw new IllegalStateException("Invalid task page snapshot pipeline result");
+            }
+            Map<String, String> state = stringFields(fields);
             if (!state.isEmpty()) {
                 pages.add(new TaskFlushPageState(
                         intValue(state, "pageNumber", null),
                         longValue(state, "detailScheduled", 0),
                         longValue(state, "detailCompleted", 0),
-                        longValue(state, "detailFailed", 0),
                         firstNonBlank(state.get("status"))));
             }
         }
-        return pages.stream()
-                .sorted(Comparator.comparing(page -> page.pageNumber() == null ? Integer.MAX_VALUE : page.pageNumber()))
-                .toList();
     }
 
     private Map<String, String> hash(String key) {
-        Map<Object, Object> raw = redisTemplate.opsForHash().entries(key);
+        return stringFields(redisTemplate.opsForHash().entries(key));
+    }
+
+    private Map<String, String> stringFields(Map<?, ?> raw) {
         if (raw == null || raw.isEmpty()) {
             return Map.of();
         }
@@ -347,7 +380,6 @@ public class TaskSnapshotFlushService {
             Integer pageNumber,
             long detailScheduled,
             long detailCompleted,
-            long detailFailed,
             String status
     ) {
         boolean completed() {

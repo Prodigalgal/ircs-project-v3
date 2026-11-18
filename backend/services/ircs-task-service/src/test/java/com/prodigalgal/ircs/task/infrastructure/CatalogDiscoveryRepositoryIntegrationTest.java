@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -87,6 +88,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         assertThat(current.attempts()).isEqualTo(2);
         assertThat(requests.renew(expired, LEASE)).isFalse();
         assertThat(requests.markSubmitted(expired)).isFalse();
+        assertThat(requests.markFulfilled(expired)).isFalse();
         assertThat(requests.retry(expired, Duration.ofHours(6), "STALE")).isFalse();
         assertThat(requests.markSubmitted(current)).isTrue();
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
@@ -106,24 +108,68 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     }
 
     @Test
-    void postAcceptancePublishFailureRecoversButPausedAndCompletedTasksAreNotBypassed() {
+    void overdueSourceAvailabilityChecksRecoverBackoffsCreatedBeforeUpgrade() {
         insertRequest();
         CatalogDiscoveryCandidate current = requests.claimDue(1, LEASE).getFirst();
-        requests.markSubmitted(current);
-        jdbc.update("update catalog_discovery_requests set submitted_at = now() - interval '6 minutes'");
-        UUID source = insertSource();
-        UUID task = insertTask(source, "PAUSED", true,
-                "{\"ircsCatalogDiscovery\":{\"requestKey\":\"" + current.requestKey() + "\"}}");
-        assertThat(requests.isPausedByOperator(current)).isTrue();
-        assertThat(requests.recoverFailedSubmissions(5)).isZero();
-        jdbc.update("update collection_tasks set status = 'COMPLETED' where id = ?", task);
-        assertThat(requests.isPausedByOperator(current)).isFalse();
-        assertThat(requests.recoverFailedSubmissions(5)).isZero();
-        jdbc.update("update collection_tasks set status = 'FAILED' where id = ?", task);
-        assertThat(requests.recoverFailedSubmissions(5)).isEqualTo(1);
+        assertThat(requests.retry(current, Duration.ofHours(6), "NO_ELIGIBLE_SOURCE")).isTrue();
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
-        assertThat(jdbc.queryForObject("select last_error from catalog_discovery_requests", String.class))
-                .isEqualTo("DISPATCH_FAILED_AFTER_ACCEPT");
+
+        jdbc.update("update catalog_discovery_requests set updated_at = now() - interval '6 minutes'");
+
+        assertThat(requests.claimDue(1, LEASE)).hasSize(1);
+    }
+
+    @Test
+    void operatorsCanPauseReconciliationAndPublishFailureIsRetriedAfterResume() {
+        CatalogDiscoveryCandidate current = acceptedRequest();
+        UUID task = insertTask(insertSource(), "PAUSED", true, discoveryHeaders(current.requestKey()));
+        assertThat(requests.isPausedByOperator(current)).isTrue();
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requestState()).containsEntry("status", "SUBMITTED").containsEntry("last_error", "OPERATOR_PAUSED");
+        assertThat(requests.reconcileSubmitted(5)).isZero();
+
+        jdbc.update("update collection_tasks set status = 'FAILED' where id = ?", task);
+        makeReconciliationDue();
+        assertThat(requests.isPausedByOperator(current)).isFalse();
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requests.claimDue(1, LEASE)).isEmpty();
+        assertThat(requestState()).containsEntry("status", "RETRY")
+                .containsEntry("last_error", "DISPATCH_FAILED_AFTER_ACCEPT");
+    }
+
+    @Test
+    void reconcilesCompletionAfterThePlaylistHandoffGracePeriod() {
+        CatalogDiscoveryCandidate current = acceptedRequest();
+        UUID task = insertTask(insertSource(), "RUNNING", true, discoveryHeaders(current.requestKey()));
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requestState()).containsEntry("status", "SUBMITTED");
+
+        jdbc.update("update collection_tasks set status = 'COMPLETED', stat_end_time = timezone('UTC', now()) where id = ?", task);
+        makeReconciliationDue();
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requestState()).containsEntry("status", "SUBMITTED");
+
+        jdbc.update("update collection_tasks set stat_end_time = timezone('UTC', now()) - interval '6 minutes' where id = ?", task);
+        makeReconciliationDue();
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requestState()).containsEntry("status", "RETRY").containsEntry("last_error", "COLLECTION_NO_RESOURCE");
+        assertThat(requests.claimDue(1, LEASE)).isEmpty();
+    }
+
+    @Test
+    void confirmsExistingTargetResourcesEvenWhenNoChildRemains() {
+        acceptedRequest();
+        UUID raw = UUID.randomUUID();
+        UUID playlist = UUID.randomUUID();
+        jdbc.update("insert into raw_videos(id, season) values (?, 2)", raw);
+        jdbc.update("insert into raw_video_unified_video values (?, ?)", raw, workId);
+        jdbc.update("insert into playlists values (?, ?)", playlist, raw);
+        jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, 'S02E12', 'https://source.example/12')",
+                UUID.randomUUID(), playlist);
+
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requestState()).containsEntry("status", "SUBMITTED").containsEntry("fulfilled", true);
+        assertThat(requests.reconcileSubmitted(5)).isZero();
     }
 
     @Test
@@ -184,6 +230,41 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         assertThat(tasks.findCatalogDiscoveryDataSources("other-work", 3)).isEmpty();
     }
 
+    @Test
+    void untriedSourceIsPreferredForThisRequestEvenWhenEarlierSourceHasYieldedOtherResults() {
+        UUID earlier = insertSource();
+        UUID untried = insertSource();
+        insertTask(earlier, "IDLE", true, "{}");
+        insertTask(untried, "IDLE", true, "{}");
+        UUID attempt = insertTask(earlier, "COMPLETED", true, discoveryHeaders("request-key"));
+        jdbc.update("update collection_tasks set stat_success = 10 where id = ?", attempt);
+
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 1)).extracting(DataSourceSeedCandidate::id)
+                .containsExactly(untried);
+        assertThat(tasks.findCatalogDiscoveryDataSources("unrelated-request", 1)).extracting(DataSourceSeedCandidate::id)
+                .containsExactly(earlier);
+    }
+
+    private CatalogDiscoveryCandidate acceptedRequest() {
+        insertRequest();
+        CatalogDiscoveryCandidate candidate = requests.claimDue(1, LEASE).getFirst();
+        assertThat(requests.markSubmitted(candidate)).isTrue();
+        makeReconciliationDue();
+        return candidate;
+    }
+
+    private void makeReconciliationDue() {
+        jdbc.update("update catalog_discovery_requests set submitted_at = now() - interval '6 minutes', next_attempt_at = now()");
+    }
+
+    private Map<String, Object> requestState() {
+        return jdbc.queryForMap("select status, last_error, fulfilled_at is not null as fulfilled from catalog_discovery_requests");
+    }
+
+    private static String discoveryHeaders(String requestKey) {
+        return "{\"ircsCatalogDiscovery\":{\"requestKey\":\"" + requestKey + "\"}}";
+    }
+
     private void insertRequest() {
         jdbc.update("insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword) "
                 + "values (?, 2, 12, 'Example')", workId);
@@ -213,7 +294,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         jdbc.execute("create table data_sources(id uuid primary key, name text, base_url text, list_path text, detail_path text, "
                 + "field_mapping jsonb, adult_restricted boolean default false)");
         jdbc.execute("create table collection_tasks(id uuid primary key, data_source_id uuid, status text, enabled boolean, "
-                + "headers jsonb, updated_at timestamp, stat_success bigint)");
+                + "headers jsonb, updated_at timestamp, stat_success bigint, last_execution_time timestamp, stat_end_time timestamp)");
         String migration = Files.readString(migrationPath());
         for (String pattern : List.of("CREATE TABLE catalog_discovery_requests\\s*\\([\\s\\S]*?\\n\\);",
                 "CREATE FUNCTION catalog_episode_number[\\s\\S]*?\\$\\$;",
@@ -222,6 +303,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
             if (!matcher.find()) throw new IllegalStateException("Catalog migration contract was not found");
             jdbc.execute(matcher.group());
         }
+        jdbc.execute("alter table catalog_discovery_requests add column fulfilled_at timestamptz");
     }
 
     private static Path migrationPath() {

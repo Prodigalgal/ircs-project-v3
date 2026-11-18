@@ -15,13 +15,13 @@ import com.prodigalgal.ircs.messaging.TaskHttpStatusException;
 import com.prodigalgal.ircs.messaging.TaskRetryPublisher;
 import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
@@ -87,7 +87,8 @@ class TaskQueueConsumer {
         try {
             message = read(rawMessage, TaskPageMessage.class);
         } catch (RuntimeException ex) {
-            deadLetter(QueueTopic.TASK_PAGE, rawMessage, JOB_NAME_PAGE, null, startedAt, ex);
+            deadLetter(QueueTopic.TASK_PAGE, rawMessage, JOB_NAME_PAGE, null, startedAt,
+                    new ScraperTaskFailure("Invalid task page queue payload"));
             return;
         }
         try {
@@ -100,7 +101,7 @@ class TaskQueueConsumer {
                     message.correlationId(),
                     startedAt,
                     ex,
-                    () -> publishPageFailed(message, ex));
+                    reason -> publishPageFailed(message, reason));
         }
     }
 
@@ -121,7 +122,8 @@ class TaskQueueConsumer {
         try {
             message = read(rawMessage, TaskDetailMessage.class);
         } catch (RuntimeException ex) {
-            deadLetter(QueueTopic.TASK_DETAIL, rawMessage, JOB_NAME_DETAIL, null, startedAt, ex);
+            deadLetter(QueueTopic.TASK_DETAIL, rawMessage, JOB_NAME_DETAIL, null, startedAt,
+                    new ScraperTaskFailure("Invalid task detail queue payload"));
             return;
         }
         try {
@@ -134,7 +136,7 @@ class TaskQueueConsumer {
                     message.correlationId(),
                     startedAt,
                     ex,
-                    () -> publishDetailFailed(message, ex));
+                    reason -> publishDetailFailed(message, reason));
         }
     }
 
@@ -192,21 +194,11 @@ class TaskQueueConsumer {
     }
 
     private <T> T read(Message rawMessage, Class<T> type) {
-        try {
-            return objectMapper.readValue(new String(rawMessage.getBody(), StandardCharsets.UTF_8), type);
-        } catch (Exception ex) {
-            throw new IllegalArgumentException("Invalid task queue payload: " + type.getSimpleName(), ex);
+        T result = objectMapper.readValue(rawMessage.getBody(), type);
+        if (result == null) {
+            throw new IllegalArgumentException("Missing task queue payload");
         }
-    }
-
-    private void retryOrDeadLetter(
-            QueueTopic topic,
-            Message rawMessage,
-            String jobName,
-            String correlationId,
-            Instant startedAt,
-            RuntimeException error) {
-        retryOrDeadLetter(topic, rawMessage, jobName, correlationId, startedAt, error, null);
+        return result;
     }
 
     private void retryOrDeadLetter(
@@ -216,25 +208,23 @@ class TaskQueueConsumer {
             String correlationId,
             Instant startedAt,
             RuntimeException error,
-            Runnable beforeDeadLetter) {
-        if (!failureClassifier.retryable(error)) {
-            if (isTerminalSourceFailure(error)) {
-                terminalFailure(jobName, correlationId, startedAt, error, beforeDeadLetter);
-                return;
-            }
-            deadLetter(topic, rawMessage, jobName, correlationId, startedAt, error, beforeDeadLetter);
+            Consumer<String> notifyFailure) {
+        RuntimeException sourceError = sourceFailure(error);
+        RuntimeException classified = sourceError == null ? error : sourceError;
+        ScraperTaskFailure failure = ScraperTaskFailure.summarize(classified);
+        if (!(classified instanceof TaskSourceTerminalException) && failureClassifier.retryable(classified)
+                && retryPublisher.retryCount(rawMessage) < maxRetries) {
+            int retryCount = retryPublisher.publishRetry(topic, rawMessage, failure);
+            recordOutcome(jobName, correlationId, startedAt, "retrying", new ScraperTaskFailure(
+                    "Retry scheduled " + retryCount + "/" + maxRetries + ": " + failure.getMessage()));
             return;
         }
-        if (retryPublisher.retryCount(rawMessage) < maxRetries) {
-            int retryCount = retryPublisher.publishRetry(topic, rawMessage, error);
-            recordRetried(jobName, correlationId, retryCount, startedAt, error);
-            return;
+        notifyFailure.accept(failure.getMessage());
+        if (sourceError != null) {
+            recordOutcome(jobName, correlationId, startedAt, "failed", failure);
+        } else {
+            deadLetter(topic, rawMessage, jobName, correlationId, startedAt, failure);
         }
-        if (isTerminalSourceFailure(error)) {
-            terminalFailure(jobName, correlationId, startedAt, error, beforeDeadLetter);
-            return;
-        }
-        deadLetter(topic, rawMessage, jobName, correlationId, startedAt, error, beforeDeadLetter);
     }
 
     private void deadLetter(
@@ -243,124 +233,53 @@ class TaskQueueConsumer {
             String jobName,
             String correlationId,
             Instant startedAt,
-            RuntimeException error) {
-        deadLetter(topic, rawMessage, jobName, correlationId, startedAt, error, null);
+            ScraperTaskFailure failure) {
+        retryPublisher.publishDlq(topic, rawMessage, failure);
+        recordOutcome(jobName, correlationId, startedAt, "dead-lettered", failure);
     }
 
-    private void deadLetter(
-            QueueTopic topic,
-            Message rawMessage,
-            String jobName,
-            String correlationId,
-            Instant startedAt,
-            RuntimeException error,
-            Runnable beforeDeadLetter) {
-        if (beforeDeadLetter != null) {
-            beforeDeadLetter.run();
-        }
-        retryPublisher.publishDlq(topic, rawMessage, error);
-        recordDeadLettered(jobName, correlationId, startedAt, error);
-    }
-
-    private void terminalFailure(
-            String jobName,
-            String correlationId,
-            Instant startedAt,
-            RuntimeException error,
-            Runnable beforeTerminalFailure) {
-        if (beforeTerminalFailure != null) {
-            beforeTerminalFailure.run();
-        }
-        recordTerminalFailed(jobName, correlationId, startedAt, error);
-    }
-
-    private boolean isTerminalSourceFailure(RuntimeException error) {
-        Throwable current = error;
-        while (current != null) {
-            if (current instanceof TaskHttpStatusException
-                    || current instanceof TaskSourceTerminalException) {
-                return true;
+    private RuntimeException sourceFailure(RuntimeException error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof TaskHttpStatusException status) {
+                return status;
             }
-            current = current.getCause();
+            if (cause instanceof TaskSourceTerminalException terminal) {
+                return terminal;
+            }
         }
-        return false;
+        return null;
     }
 
-    private void publishPageFailed(TaskPageMessage message, RuntimeException error) {
+    private void publishPageFailed(TaskPageMessage message, String reason) {
         queuePublisher.publishPageFailed(new TaskPageFailedMessage(
                 message.masterTaskId(),
                 message.pageTaskId(),
                 message.pageNumber(),
-                safeError(error),
+                reason,
                 message.correlationId(),
                 Instant.now()));
     }
 
-    private void publishDetailFailed(TaskDetailMessage message, RuntimeException error) {
+    private void publishDetailFailed(TaskDetailMessage message, String reason) {
         queuePublisher.publishDetailDone(new TaskDetailDoneMessage(
                 message.masterTaskId(),
                 message.pageTaskId(),
                 message.detailTaskId(),
                 message.sourceVid(),
                 false,
-                safeError(error),
+                reason,
                 message.correlationId(),
                 Instant.now()));
     }
 
-    private void recordRetried(String jobName, String correlationId, int retryCount, Instant startedAt, RuntimeException error) {
-        recordAudit(new WorkerJobAuditEvent(
-                JOB_TYPE_QUEUE_CONSUMER,
-                jobName,
-                correlationId,
-                "retrying",
-                elapsedSince(startedAt),
-                new TaskQueueConsumerException("retry scheduled " + retryCount + "/" + maxRetries, error)));
-    }
-
-    private void recordDeadLettered(String jobName, String correlationId, Instant startedAt, RuntimeException error) {
-        recordAudit(new WorkerJobAuditEvent(
-                JOB_TYPE_QUEUE_CONSUMER,
-                jobName,
-                correlationId,
-                "dead-lettered",
-                elapsedSince(startedAt),
-                error));
-    }
-
-    private void recordTerminalFailed(String jobName, String correlationId, Instant startedAt, RuntimeException error) {
-        recordAudit(new WorkerJobAuditEvent(
-                JOB_TYPE_QUEUE_CONSUMER,
-                jobName,
-                correlationId,
-                "failed",
-                elapsedSince(startedAt),
-                error));
-    }
-
-    private void recordAudit(WorkerJobAuditEvent event) {
+    private void recordOutcome(String jobName, String correlationId, Instant startedAt, String outcome,
+            ScraperTaskFailure failure) {
         try {
-            auditWriter.record(event);
+            auditWriter.record(new WorkerJobAuditEvent(
+                    JOB_TYPE_QUEUE_CONSUMER, jobName, correlationId, outcome,
+                    Duration.between(startedAt, Instant.now()), failure));
         } catch (RuntimeException ex) {
-            log.warn("Task queue consumer audit write failed: {}", ex.getMessage());
-        }
-    }
-
-    private Duration elapsedSince(Instant startedAt) {
-        return Duration.between(startedAt, Instant.now());
-    }
-
-    private String safeError(RuntimeException error) {
-        if (error == null || error.getMessage() == null || error.getMessage().isBlank()) {
-            return "task queue processing failed";
-        }
-        String normalized = error.getMessage().replaceAll("\\s+", " ").trim();
-        return normalized.length() <= 500 ? normalized : normalized.substring(0, 500);
-    }
-
-    private static class TaskQueueConsumerException extends RuntimeException {
-        TaskQueueConsumerException(String message, Throwable cause) {
-            super(message, cause);
+            log.warn("Task queue consumer audit write failed: {}", ex.getClass().getSimpleName());
         }
     }
 }

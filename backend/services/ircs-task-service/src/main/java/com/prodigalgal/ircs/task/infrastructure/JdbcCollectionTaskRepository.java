@@ -67,6 +67,13 @@ public class JdbcCollectionTaskRepository {
                 """
                 select ds.id, ds.name
                   from data_sources ds
+                  left join lateral (
+                       select max(coalesce(tried.last_execution_time, tried.updated_at)) as last_attempt
+                         from collection_tasks tried
+                        where tried.data_source_id = ds.id
+                          and tried.headers -> 'ircsCatalogDiscovery' ->> 'requestKey' = ?
+                          and (tried.last_execution_time is not null or tried.status in ('COMPLETED', 'FAILED'))
+                  ) history on true
                  where ds.name is not null and btrim(ds.name) <> ''
                    and ds.base_url ~* '^https?://'
                    and ds.list_path is not null and btrim(ds.list_path) <> ''
@@ -88,7 +95,7 @@ public class JdbcCollectionTaskRepository {
                         where failed.data_source_id = ds.id and failed.status = 'FAILED'
                           and failed.updated_at >= now() - interval '30 minutes'
                    )
-                 order by exists (
+                 order by history.last_attempt asc nulls first, exists (
                      select 1 from collection_tasks successful
                       where successful.data_source_id = ds.id and successful.status = 'COMPLETED'
                         and successful.stat_success > 0
@@ -96,7 +103,7 @@ public class JdbcCollectionTaskRepository {
                  limit ?
                 """,
                 (rs, rowNum) -> new DataSourceSeedCandidate(rs.getObject("id", UUID.class), rs.getString("name")),
-                requestKey, requestKey, Math.max(1, Math.min(3, limit)));
+                requestKey, requestKey, requestKey, Math.max(1, Math.min(3, limit)));
     }
 
     public boolean existsTaskByName(String name) {

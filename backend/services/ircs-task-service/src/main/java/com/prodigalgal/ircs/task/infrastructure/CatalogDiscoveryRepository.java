@@ -21,34 +21,60 @@ public class CatalogDiscoveryRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    public int recoverFailedSubmissions(int limit) {
+    public int reconcileSubmitted(int limit) {
         return jdbc.update("""
-                WITH failed AS (
-                    SELECT r.unified_video_id, r.target_season, r.target_episode
+                WITH due AS MATERIALIZED (
+                    SELECT r.unified_video_id, r.target_season, r.target_episode, r.attempts
                       FROM catalog_discovery_requests r
-                     WHERE r.status = 'SUBMITTED' AND r.submitted_at <= now() - interval '5 minutes'
-                       AND EXISTS (
-                           SELECT 1 FROM collection_tasks task
-                            WHERE task.headers -> 'ircsCatalogDiscovery' ->> 'requestKey' =
-                                  r.unified_video_id::text || ':' || r.target_season || ':' || r.target_episode
-                              AND task.status = 'FAILED' AND task.enabled = true
-                       )
-                       AND NOT EXISTS (
-                           SELECT 1 FROM collection_tasks task
-                            WHERE task.headers -> 'ircsCatalogDiscovery' ->> 'requestKey' =
-                                  r.unified_video_id::text || ':' || r.target_season || ':' || r.target_episode
-                              AND task.status <> 'FAILED'
-                       )
-                     ORDER BY r.submitted_at, r.unified_video_id
+                     WHERE r.status = 'SUBMITTED' AND r.fulfilled_at IS NULL
+                       AND r.next_attempt_at <= now()
+                       AND coalesce(r.submitted_at, r.updated_at) <= now() - interval '5 minutes'
+                     ORDER BY r.next_attempt_at, r.submitted_at, r.unified_video_id, r.target_season, r.target_episode
                      LIMIT :limit FOR UPDATE OF r SKIP LOCKED
+                ), outcomes AS MATERIALIZED (
+                    SELECT d.*, child.*,
+                           coalesce(inventory.resource_available
+                               AND (d.target_episode = 0 OR inventory.available_episode >= d.target_episode), false)
+                               AS fulfilled
+                      FROM due d
+                      CROSS JOIN LATERAL catalog_resource_inventory(d.unified_video_id, d.target_season) inventory
+                      CROSS JOIN LATERAL (
+                          SELECT coalesce(bool_or(t.enabled AND t.status IN ('QUEUED', 'RUNNING')), false) AS active,
+                                 coalesce(bool_or(NOT t.enabled OR t.status IN ('PAUSED', 'STOPPING')), false) AS paused,
+                                 coalesce(bool_or(t.status = 'FAILED'), false) AS failed,
+                                 coalesce(bool_or(t.status = 'COMPLETED'), false) AS completed,
+                                 coalesce(max(coalesce(t.stat_end_time, t.updated_at))
+                                     FILTER (WHERE t.status = 'COMPLETED')
+                                         > timezone('UTC', now()) - interval '5 minutes', false) AS settling
+                            FROM collection_tasks t
+                           WHERE t.headers -> 'ircsCatalogDiscovery' ->> 'requestKey' =
+                                 d.unified_video_id::text || ':' || d.target_season || ':' || d.target_episode
+                      ) child
                 )
                 UPDATE catalog_discovery_requests r
-                   SET status = 'RETRY', next_attempt_at = now() + interval '5 minutes', updated_at = now(),
-                       last_error = 'DISPATCH_FAILED_AFTER_ACCEPT', lease_token = NULL, lease_until = NULL
-                  FROM failed
-                 WHERE r.unified_video_id = failed.unified_video_id
-                   AND r.target_season = failed.target_season AND r.target_episode = failed.target_episode
-                """, Map.of("limit", Math.max(1, Math.min(5, limit))));
+                   SET status = CASE WHEN o.fulfilled OR o.paused OR o.active OR o.settling
+                                          THEN 'SUBMITTED' ELSE 'RETRY' END,
+                       fulfilled_at = CASE WHEN o.fulfilled THEN now() END,
+                       next_attempt_at = CASE
+                           WHEN o.fulfilled THEN now()
+                           WHEN o.paused THEN now() + interval '6 hours'
+                           WHEN o.active OR o.settling THEN now() + interval '2 minutes'
+                           WHEN o.completed THEN now() + make_interval(mins => least(360, 15 * greatest(1, o.attempts)))
+                           ELSE now() + interval '5 minutes'
+                       END,
+                       last_error = CASE
+                           WHEN o.fulfilled THEN NULL
+                           WHEN o.paused THEN 'OPERATOR_PAUSED'
+                           WHEN o.active OR o.settling THEN NULL
+                           WHEN o.completed THEN 'COLLECTION_NO_RESOURCE'
+                           WHEN o.failed THEN 'DISPATCH_FAILED_AFTER_ACCEPT'
+                           ELSE 'NO_COLLECTION_TASK_AFTER_ACCEPT'
+                       END,
+                       updated_at = now(), lease_token = NULL, lease_until = NULL
+                  FROM outcomes o
+                 WHERE r.unified_video_id = o.unified_video_id
+                   AND r.target_season = o.target_season AND r.target_episode = o.target_episode
+                """, Map.of("limit", Math.max(1, Math.min(50, limit))));
     }
 
     public List<CatalogDiscoveryCandidate> claimDue(int limit, Duration lease) {
@@ -59,6 +85,8 @@ public class CatalogDiscoveryRepository {
                       FROM catalog_discovery_requests r
                       JOIN unified_videos uv ON uv.id = r.unified_video_id
                      WHERE ((r.status IN ('PENDING', 'RETRY') AND r.next_attempt_at <= now())
+                         OR (r.status = 'RETRY' AND r.last_error = 'NO_ELIGIBLE_SOURCE'
+                             AND r.updated_at <= now() - interval '5 minutes')
                          OR (r.status = 'DISPATCHING' AND r.lease_until <= now()))
                        AND coalesce(uv.adult_restricted, false) = false
                        AND coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) = false
@@ -72,7 +100,7 @@ public class CatalogDiscoveryRepository {
                 UPDATE catalog_discovery_requests r
                    SET status = 'DISPATCHING', attempts = least(r.attempts + 1, 1000000),
                        lease_token = :token, lease_until = now() + (:leaseSeconds * interval '1 second'),
-                       updated_at = now()
+                       fulfilled_at = NULL, updated_at = now()
                   FROM due
                  WHERE r.unified_video_id = due.unified_video_id
                    AND r.target_season = due.target_season AND r.target_episode = due.target_episode
@@ -95,12 +123,22 @@ public class CatalogDiscoveryRepository {
     }
 
     public boolean markSubmitted(CatalogDiscoveryCandidate candidate) {
+        return acknowledge(candidate, false);
+    }
+
+    public boolean markFulfilled(CatalogDiscoveryCandidate candidate) {
+        return acknowledge(candidate, true);
+    }
+
+    private boolean acknowledge(CatalogDiscoveryCandidate candidate, boolean fulfilled) {
         return jdbc.update("""
                 UPDATE catalog_discovery_requests
                    SET status = 'SUBMITTED', submitted_at = now(), updated_at = now(),
+                       fulfilled_at = CASE WHEN :fulfilled THEN now() END,
+                       next_attempt_at = now() + interval '5 minutes',
                        lease_token = NULL, lease_until = NULL, last_error = NULL
                  WHERE
-                """ + OWNED_REQUEST, params(candidate)) == 1;
+                """ + OWNED_REQUEST, params(candidate).addValue("fulfilled", fulfilled)) == 1;
     }
 
     public boolean retry(CatalogDiscoveryCandidate candidate, Duration delay, String errorCode) {

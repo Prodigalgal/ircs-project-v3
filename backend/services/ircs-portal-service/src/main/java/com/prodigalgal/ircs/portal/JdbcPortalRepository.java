@@ -30,8 +30,8 @@ public class JdbcPortalRepository {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {
     };
 
-    private static final String CARD_SELECT = """
-            SELECT uv.id,
+    private static final String CARD_COLUMNS = """
+                   uv.id,
                    uv.title,
                    uv.alias_title,
                    uv.season,
@@ -54,11 +54,15 @@ public class JdbcPortalRepository {
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
                    sd.domain_value AS cover_source_domain
-              FROM unified_videos uv
-              LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+            """;
+    private static final String CARD_COVER_JOINS = """
               LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
               LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
             """;
+    private static final String CARD_SELECT = "SELECT " + CARD_COLUMNS + """
+              FROM unified_videos uv
+              LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+            """ + CARD_COVER_JOINS;
     private static final String SITEMAP_LAST_MODIFIED = """
             NULLIF(
                 GREATEST(
@@ -271,17 +275,29 @@ public class JdbcPortalRepository {
         Map<String, Object> params = new HashMap<>();
         params.put("categoryKeys", categoryKeys);
         params.put("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE uv.category_code IN (:categoryKeys)");
+        StringBuilder where = new StringBuilder(" WHERE uv.category_code = sc.slug");
         appendScopeFilters(where, params, principal);
 
         List<CategoryCardRow> rows = jdbcTemplate.query(
-                """
-                SELECT *
-                  FROM (
-                """ + categoryCardSelect() + where + """
-                  ) ranked
-                 WHERE ranked.section_rank <= :limit
-                 ORDER BY ranked.section_key ASC, ranked.section_rank ASC
+                "SELECT " + CARD_COLUMNS + """
+                     , sc.slug AS section_key
+                  FROM standard_category sc
+                 CROSS JOIN LATERAL (
+                       SELECT uv.id, uv.published_at, uv.updated_at
+                         FROM unified_videos uv
+                """ + where + """
+                        ORDER BY uv.published_at DESC NULLS LAST,
+                                 uv.updated_at DESC NULLS LAST,
+                                 uv.id ASC
+                        LIMIT :limit
+                  ) selected
+                  JOIN unified_videos uv ON uv.id = selected.id
+                """ + CARD_COVER_JOINS + """
+                 WHERE sc.slug IN (:categoryKeys)
+                 ORDER BY sc.slug ASC,
+                          selected.published_at DESC NULLS LAST,
+                          selected.updated_at DESC NULLS LAST,
+                          selected.id ASC
                 """,
                 params,
                 categoryCardMapper());
@@ -861,45 +877,6 @@ public class JdbcPortalRepository {
                 rs.getString("description"),
                 limitGenres(resolveGenreNames(rs.getString("genre_codes"))),
                 getInstant(rs, "last_trend_at"));
-    }
-
-    private String categoryCardSelect() {
-        return """
-                SELECT uv.id,
-                       uv.title,
-                       uv.alias_title,
-                       uv.season,
-                       uv.subtitle,
-                       uv.score,
-                       uv.year AS release_year,
-                       coalesce(sc.name, '未分类') AS category_name,
-                       CASE
-                           WHEN uv.description IS NULL THEN NULL
-                           WHEN length(uv.description) > 150 THEN substring(uv.description FROM 1 FOR 150)
-                           ELSE uv.description
-                       END AS description,
-                       uv.total_episodes,
-                       uv.duration,
-                       uv.remarks,
-                       uv.last_trend_at,
-                       cast(uv.area_codes as varchar) as area_codes,
-                       cast(uv.genre_codes as varchar) as genre_codes,
-                       ci.storage_type AS cover_storage_type,
-                       ci.original_url AS cover_original_url,
-                       ci.storage_path AS cover_storage_path,
-                       sd.domain_value AS cover_source_domain,
-                       sc.slug AS section_key,
-                       row_number() over (
-                           partition by sc.slug
-                           order by uv.published_at DESC NULLS LAST,
-                                    uv.updated_at DESC NULLS LAST,
-                                    uv.id ASC
-                       ) AS section_rank
-                  FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
-                  LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
-                  LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
-                """;
     }
 
     private RowMapper<CategoryCardRow> categoryCardMapper() {

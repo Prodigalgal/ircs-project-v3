@@ -135,6 +135,7 @@ class PortalControllerTest {
         var response = controller.getDetail(new MockHttpServletRequest(), movieId);
 
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        assertEquals("no-store", response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
         verify(portalQueryService).getMovieDetail(principal, movieId);
     }
 

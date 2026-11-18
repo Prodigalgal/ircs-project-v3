@@ -9,19 +9,28 @@ import com.prodigalgal.ircs.task.runtime.TaskHotKeys;
 import com.prodigalgal.ircs.task.infrastructure.JdbcCollectionTaskRepository;
 import com.prodigalgal.ircs.task.dto.TaskDetailSummary;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.task.TaskMasterSnapshot;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -57,16 +66,9 @@ class TaskSnapshotFlushServiceTest {
                 "totalItems", "10",
                 "updatedAt", Long.toString(updatedAt.toEpochMilli())));
         when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(pageOne.toString(), pageTwo.toString()));
-        when(hashes.entries(TaskHotKeys.pageState(pageOne))).thenReturn(Map.of(
-                "pageNumber", "1",
-                "detailScheduled", "2",
-                "detailCompleted", "2",
-                "detailFailed", "0"));
-        when(hashes.entries(TaskHotKeys.pageState(pageTwo))).thenReturn(Map.of(
-                "pageNumber", "2",
-                "detailScheduled", "2",
-                "detailCompleted", "2",
-                "detailFailed", "1"));
+        wirePageResults(
+                Map.of("pageNumber", "1", "detailScheduled", "2", "detailCompleted", "2", "detailFailed", "0"),
+                Map.of("pageNumber", "2", "detailScheduled", "2", "detailCompleted", "2", "detailFailed", "1"));
 
         TaskSnapshotFlushResult result = service.flushDirtyMasters(updatedAt, 10);
 
@@ -103,7 +105,7 @@ class TaskSnapshotFlushServiceTest {
                 "detailFailed", "0",
                 "updatedAt", Long.toString(now.toEpochMilli())));
         when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(pageOne.toString()));
-        when(hashes.entries(TaskHotKeys.pageState(pageOne))).thenReturn(Map.of(
+        wirePageResults(Map.of(
                 "pageNumber", "1",
                 "detailScheduled", "2",
                 "detailCompleted", "1",
@@ -138,7 +140,7 @@ class TaskSnapshotFlushServiceTest {
                 "lastError", "source timeout",
                 "updatedAt", Long.toString(now.toEpochMilli())));
         when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(pageOne.toString()));
-        when(hashes.entries(TaskHotKeys.pageState(pageOne))).thenReturn(Map.of(
+        wirePageResults(Map.of(
                 "pageNumber", "1",
                 "detailScheduled", "0",
                 "detailCompleted", "0",
@@ -198,7 +200,7 @@ class TaskSnapshotFlushServiceTest {
                 Map.entry("totalItems", "83814"),
                 Map.entry("updatedAt", Long.toString(now.toEpochMilli()))));
         when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(page.toString()));
-        when(hashes.entries(TaskHotKeys.pageState(page))).thenReturn(Map.of(
+        wirePageResults(Map.of(
                 "pageNumber", "54",
                 "detailScheduled", "20",
                 "detailCompleted", "20",
@@ -229,6 +231,69 @@ class TaskSnapshotFlushServiceTest {
         verify(taskRepository, never()).flushRuntimeLedger(org.mockito.Mockito.any());
         verify(snapshotService).markClean(masterTaskId);
         verify(snapshotService).deactivate(masterTaskId);
+    }
+
+    @Test
+    void incompletePageBatchLeavesTheDirtyMasterForRetry() {
+        UUID masterTaskId = UUID.randomUUID();
+        wireRedisOps();
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, UUID.randomUUID(), "RUNNING", 1, 2)));
+        when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(UUID.randomUUID().toString()));
+        wirePageResults();
+
+        assertThatThrownBy(() -> service.flushOne(masterTaskId)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Incomplete task page snapshot pipeline result");
+
+        verify(taskRepository, never()).flushRuntimeLedger(any());
+        verify(snapshotService, never()).markClean(masterTaskId);
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "IRCS_TEST_KEY_VALUE_PORT", matches = "\\d+")
+    void readsBoundedBatchesAndDistinguishesLegacyHashesFromMissingPages() {
+        UUID masterTaskId = UUID.randomUUID();
+        String pagesKey = TaskHotKeys.masterDiscoveredPages(masterTaskId);
+        String masterKey = TaskHotKeys.masterState(masterTaskId);
+        UUID completedPage = UUID.randomUUID();
+        UUID legacyPage = UUID.randomUUID();
+        String completedPageKey = TaskHotKeys.pageState(completedPage);
+        String legacyPageKey = TaskHotKeys.pageState(legacyPage);
+        List<String> members = new ArrayList<>(List.of(completedPage.toString(), legacyPage.toString(), "invalid-page-id"));
+        for (int index = 0; index < 128; index++) {
+            members.add(UUID.randomUUID().toString());
+        }
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, UUID.randomUUID(), "QUEUED", 1, 2)));
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(
+                "127.0.0.1", Integer.parseInt(System.getenv("IRCS_TEST_KEY_VALUE_PORT")));
+        factory.afterPropertiesSet();
+        factory.start();
+        var keyValue = spy(new StringRedisTemplate(factory));
+        try {
+            keyValue.opsForSet().add(pagesKey, members.toArray(String[]::new));
+            keyValue.opsForHash().put(masterKey, "pageCompleted", "2");
+            keyValue.opsForHash().putAll(completedPageKey, Map.of(
+                    "pageNumber", "2", "status", "COMPLETED", "detailScheduled", "malformed"));
+            keyValue.opsForHash().put(legacyPageKey, "legacyNote", "discovered");
+            var realService = new TaskSnapshotFlushService(taskRepository, snapshotService, keyValue);
+
+            assertThat(realService.flushOne(masterTaskId)).isTrue();
+            keyValue.delete(legacyPageKey);
+            assertThat(realService.flushOne(masterTaskId)).isTrue();
+
+            ArgumentCaptor<TaskDbRuntimeSnapshot> captor = ArgumentCaptor.forClass(TaskDbRuntimeSnapshot.class);
+            verify(taskRepository, times(2)).flushRuntimeLedger(captor.capture());
+            assertThat(captor.getAllValues()).extracting(TaskDbRuntimeSnapshot::status)
+                    .containsExactly("COMPLETED", "RUNNING");
+            assertThat(captor.getAllValues()).extracting(TaskDbRuntimeSnapshot::currentPage)
+                    .containsExactly(2, 2);
+            verify(keyValue, times(4)).executePipelined(any(RedisCallback.class));
+        } finally {
+            try {
+                keyValue.delete(List.of(pagesKey, masterKey, completedPageKey, legacyPageKey));
+            } finally {
+                factory.destroy();
+            }
+        }
     }
 
     private TaskDbRuntimeSnapshot captureLedger() {
@@ -320,5 +385,9 @@ class TaskSnapshotFlushServiceTest {
     private void wireRedisOps() {
         when(redisTemplate.opsForHash()).thenReturn(hashes);
         when(redisTemplate.opsForSet()).thenReturn(sets);
+    }
+
+    private void wirePageResults(Object... results) {
+        when(redisTemplate.executePipelined(any(RedisCallback.class))).thenReturn(List.of(results));
     }
 }

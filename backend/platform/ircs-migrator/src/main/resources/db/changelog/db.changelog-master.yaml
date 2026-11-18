@@ -181,3 +181,11 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 3.7.5
+  - include:
+      file: db/changelog/2026/11/19-01-catalog-discovery-resource-confirmation.sql
+  - changeSet:
+      id: 1785900000009-tag-3.8.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 3.8.0

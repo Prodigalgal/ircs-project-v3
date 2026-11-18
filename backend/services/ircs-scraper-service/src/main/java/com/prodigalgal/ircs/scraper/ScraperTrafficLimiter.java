@@ -66,11 +66,10 @@ class ScraperTrafficLimiter {
         TimeSliceReservation reservation = lockManager.reserveTimeSlice(new TimeSliceReservationRequest(
                 key,
                 gap,
-                effectiveMaxWait(),
+                ScraperTaskDeadline.capWait(effectiveMaxWait()),
                 ttl()));
         if (reservation.rejected()) {
-            throw new IllegalStateException("Traffic limit saturated: " + label
-                    + ", wait=" + reservation.waitTime().toMillis() + "ms");
+            throw new SourceTrafficLimitException(reservation.waitTime());
         }
         sleepIfNeeded(reservation.waitTime(), label);
     }
@@ -137,4 +136,10 @@ class ScraperTrafficLimiter {
         return millis > 0 ? Duration.ofMillis(millis) : fallback;
     }
 
+    static final class SourceTrafficLimitException extends IllegalStateException {
+
+        private SourceTrafficLimitException(Duration waitTime) {
+            super("Traffic limit saturated, wait=" + waitTime.toMillis() + "ms");
+        }
+    }
 }

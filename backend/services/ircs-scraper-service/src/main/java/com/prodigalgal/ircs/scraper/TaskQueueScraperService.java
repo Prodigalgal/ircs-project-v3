@@ -52,47 +52,40 @@ class TaskQueueScraperService {
             recordSkipped(JOB_NAME_PAGE, message.correlationId(), startedAt);
             return;
         }
-        try {
-            DataSourceRecord source = source(message.dataSourceId());
-            ManualScrapeConfigRequest config = config(message.options(), message.pageNumber(), false);
-            ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
-                    listScraperClient.fetchListPage(source, config, message.pageNumber()),
-                    message.pageNumber(),
-                    filterHours(message.options()));
-            ListPage page = filteredPage.page();
+        DataSourceRecord source = source(message.dataSourceId());
+        ManualScrapeConfigRequest config = config(message.options(), message.pageNumber(), false);
+        ScrapeUpdateWindowFilter.FilteredListPage filteredPage = updateWindowFilter.filter(
+                listScraperClient.fetchListPage(source, config, message.pageNumber()),
+                message.pageNumber(),
+                filterHours(message.options()));
+        ListPage page = filteredPage.page();
+        List<ListItem> uniqueItems = new ScrapeListItemVersionDeduplicator().keepUnseenVersions(page.items());
+        for (ListItem item : uniqueItems) {
             ScraperTaskDeadline.check();
-            List<ListItem> uniqueItems = new ScrapeListItemVersionDeduplicator().keepUnseenVersions(page.items());
-            for (ListItem item : uniqueItems) {
-                ScraperTaskDeadline.check();
-                queuePublisher.publishDetail(new TaskDetailMessage(
-                        message.masterTaskId(),
-                        message.pageTaskId(),
-                        IrcsUuidGenerators.nextId(),
-                        message.dataSourceId(),
-                        item.id(),
-                        null,
-                        0,
-                        idempotencyKey(message.masterTaskId(), message.pageTaskId(), item),
-                        message.options(),
-                        message.correlationId(),
-                        Instant.now()));
-            }
-            ScraperTaskDeadline.check();
-            queuePublisher.publishPageDiscovered(new TaskPageDiscoveredMessage(
+            queuePublisher.publishDetail(new TaskDetailMessage(
                     message.masterTaskId(),
                     message.pageTaskId(),
-                    message.pageNumber(),
-                    uniqueItems.size(),
-                    page.totalPages(),
-                    page.totalItems(),
+                    IrcsUuidGenerators.nextId(),
+                    message.dataSourceId(),
+                    item.id(),
+                    null,
+                    0,
+                    idempotencyKey(message.masterTaskId(), message.pageTaskId(), item),
+                    message.options(),
                     message.correlationId(),
                     Instant.now()));
-            recordSucceeded(JOB_NAME_PAGE, message.correlationId(), startedAt);
-        } catch (RuntimeException ex) {
-            recordFailed(JOB_NAME_PAGE, message == null ? null : message.correlationId(), startedAt,
-                    new TaskQueueScraperException("page task failed", ex));
-            throw ex;
         }
+        ScraperTaskDeadline.check();
+        queuePublisher.publishPageDiscovered(new TaskPageDiscoveredMessage(
+                message.masterTaskId(),
+                message.pageTaskId(),
+                message.pageNumber(),
+                uniqueItems.size(),
+                page.totalPages(),
+                page.totalItems(),
+                message.correlationId(),
+                Instant.now()));
+        recordSucceeded(JOB_NAME_PAGE, message.correlationId(), startedAt);
     }
 
     void processDetail(TaskDetailMessage message) {
@@ -102,30 +95,24 @@ class TaskQueueScraperService {
             recordSkipped(JOB_NAME_DETAIL, message.correlationId(), startedAt);
             return;
         }
-        try {
-            DataSourceRecord source = source(message.dataSourceId());
-            ManualScrapeConfigRequest config = config(message.options(), 1, forceIngest(message.options()));
-            String detailJson = listScraperClient.fetchDetail(source, config, message.sourceVid());
-            ScrapedVideoDraft draft = mappingService.mapDetail(detailJson, source);
-            IngestionItem item = mappingService.toItem(draft, forceIngest(message.options()));
-            ScraperTaskDeadline.check();
-            ingestionPublisher.publish(item);
-            ScraperTaskDeadline.check();
-            queuePublisher.publishDetailDone(new TaskDetailDoneMessage(
-                    message.masterTaskId(),
-                    message.pageTaskId(),
-                    message.detailTaskId(),
-                    message.sourceVid(),
-                    true,
-                    null,
-                    message.correlationId(),
-                    Instant.now()));
-            recordSucceeded(JOB_NAME_DETAIL, message.correlationId(), startedAt);
-        } catch (RuntimeException ex) {
-            recordFailed(JOB_NAME_DETAIL, message == null ? null : message.correlationId(), startedAt,
-                    new TaskQueueScraperException("detail task failed", ex));
-            throw ex;
-        }
+        DataSourceRecord source = source(message.dataSourceId());
+        ManualScrapeConfigRequest config = config(message.options(), 1, forceIngest(message.options()));
+        String detailJson = listScraperClient.fetchDetail(source, config, message.sourceVid());
+        ScrapedVideoDraft draft = mappingService.mapDetail(detailJson, source);
+        IngestionItem item = mappingService.toItem(draft, forceIngest(message.options()));
+        ScraperTaskDeadline.check();
+        ingestionPublisher.publish(item);
+        ScraperTaskDeadline.check();
+        queuePublisher.publishDetailDone(new TaskDetailDoneMessage(
+                message.masterTaskId(),
+                message.pageTaskId(),
+                message.detailTaskId(),
+                message.sourceVid(),
+                true,
+                null,
+                message.correlationId(),
+                Instant.now()));
+        recordSucceeded(JOB_NAME_DETAIL, message.correlationId(), startedAt);
     }
 
     private DataSourceRecord source(UUID dataSourceId) {
@@ -216,15 +203,6 @@ class TaskQueueScraperService {
                 elapsedSince(startedAt)));
     }
 
-    private void recordFailed(String jobName, String correlationId, Instant startedAt, RuntimeException error) {
-        recordAudit(WorkerJobAuditEvent.failed(
-                JOB_TYPE_QUEUE_CONSUMER,
-                jobName,
-                correlationId,
-                elapsedSince(startedAt),
-                error));
-    }
-
     private void recordSkipped(String jobName, String correlationId, Instant startedAt) {
         recordAudit(new WorkerJobAuditEvent(
                 JOB_TYPE_QUEUE_CONSUMER,
@@ -239,7 +217,7 @@ class TaskQueueScraperService {
         try {
             auditWriter.record(event);
         } catch (RuntimeException ex) {
-            log.warn("Task queue scraper audit write failed: {}", ex.getMessage());
+            log.warn("Task queue scraper audit write failed: {}", ex.getClass().getSimpleName());
         }
     }
 
@@ -247,22 +225,4 @@ class TaskQueueScraperService {
         return Duration.between(startedAt, Instant.now());
     }
 
-    private static class TaskQueueScraperException extends RuntimeException {
-        TaskQueueScraperException(String message, RuntimeException cause) {
-            super(message + rootCauseSummary(cause), cause);
-        }
-
-        private static String rootCauseSummary(Throwable cause) {
-            Throwable current = cause;
-            Throwable root = cause;
-            while (current != null) {
-                root = current;
-                current = current.getCause();
-            }
-            if (root == null || root.getMessage() == null || root.getMessage().isBlank()) {
-                return "";
-            }
-            return ": " + root.getMessage();
-        }
-    }
 }
