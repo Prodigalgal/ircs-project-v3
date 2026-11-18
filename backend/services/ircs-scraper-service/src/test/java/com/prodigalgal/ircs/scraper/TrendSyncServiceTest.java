@@ -1,9 +1,11 @@
 package com.prodigalgal.ircs.scraper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,8 +34,9 @@ class TrendSyncServiceTest {
         var result = new TrendSyncService(List.of(provider), content).syncTrends("corr");
         var captured = ArgumentCaptor.forClass(TrendSyncApplyRequest.class);
         verify(content).apply(captured.capture(), eq("corr"));
-        assertThat(captured.getValue().items()).containsExactly(item);
+        assertThat(captured.getValue().items()).isEmpty();
         assertThat(captured.getValue().boards()).containsExactly(board);
+        assertThat(result.fetchedItems()).isEqualTo(1);
         assertThat(result.applyResult().createdUnifiedVideoIds()).containsExactly(id);
         assertThat(result.discoveryResult().queuedTasks()).isZero();
     }
@@ -67,9 +70,51 @@ class TrendSyncServiceTest {
         when(content.apply(any(), any())).thenReturn(empty());
         var result = new TrendSyncService(List.of(first, second), content).syncTrends("corr");
         var captured = ArgumentCaptor.forClass(TrendSyncApplyRequest.class);
-        verify(content).apply(captured.capture(), eq("corr"));
-        assertThat(captured.getValue().boards()).containsExactly(unavailable, success);
+        verify(content, times(2)).apply(captured.capture(), eq("corr"));
+        assertThat(captured.getAllValues()).extracting(TrendSyncApplyRequest::boards)
+                .containsExactly(List.of(unavailable), List.of(success));
         assertThat(result.providerErrors()).hasSize(1);
+    }
+
+    @Test
+    void aTimedOutBoardIsNotSentAgainAndHealthyBoardsStillReachContent() {
+        var slow = new TrendBoardPayload("Douban", "chart", "movie", "chart", Instant.now(),
+                "SUCCESS", null, List.of());
+        var day = new TrendBoardPayload("TMDB", "trending-day", "movie", "day", Instant.now(),
+                "SUCCESS", null, List.of());
+        var week = new TrendBoardPayload("TMDB", "trending-week", "movie", "week", Instant.now(),
+                "SUCCESS", null, List.of());
+        var provider = mock(TrendListProvider.class);
+        when(provider.fetchBoards()).thenReturn(List.of(slow, day, week));
+        UUID id = UUID.randomUUID();
+        when(content.apply(any(), eq("corr")))
+                .thenThrow(new IllegalStateException("request timeout"))
+                .thenReturn(new TrendSyncApplyResponse("trend-sync", 1, 0, 0, 1, 0,
+                        List.of(), List.of(id), List.of()))
+                .thenReturn(new TrendSyncApplyResponse("trend-sync", 1, 1, 0, 0, 0,
+                        List.of(id), List.of(), List.of()));
+
+        var result = new TrendSyncService(List.of(provider), content).syncTrends("corr");
+
+        var captured = ArgumentCaptor.forClass(TrendSyncApplyRequest.class);
+        verify(content, times(3)).apply(captured.capture(), eq("corr"));
+        assertThat(captured.getAllValues()).extracting(TrendSyncApplyRequest::boards)
+                .containsExactly(List.of(slow), List.of(day), List.of(week));
+        assertThat(result.providerErrors()).containsExactly("Douban/chart: CONTENT_APPLY_FAILED");
+        assertThat(result.applyResult().createdUnifiedVideoIds()).containsExactly(id);
+        assertThat(result.applyResult().updatedUnifiedVideoIds()).isEmpty();
+    }
+
+    @Test
+    void totalContentFailureLetsTheSchedulerDeferTheRound() {
+        var provider = mock(TrendListProvider.class);
+        when(provider.fetchBoards()).thenReturn(List.of(new TrendBoardPayload("Douban", "chart", "movie",
+                "chart", Instant.now(), "SUCCESS", null, List.of())));
+        when(content.apply(any(), eq("corr"))).thenThrow(new IllegalStateException("request timeout"));
+
+        assertThatThrownBy(() -> new TrendSyncService(List.of(provider), content).syncTrends("corr"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("No trend board was accepted");
+        verify(content).apply(any(), eq("corr"));
     }
 
     private TrendSyncApplyResponse empty() {

@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.scraper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import tools.jackson.databind.ObjectMapper;
@@ -17,6 +18,12 @@ class TmdbCredentialResolverTest {
     private final ScraperTrendConfigValues configValues = org.mockito.Mockito.mock(ScraperTrendConfigValues.class);
     private final TmdbCredentialResolver resolver =
             TmdbCredentialResolver.forTest(new ObjectMapper(), httpClient, configValues);
+
+    @Test
+    void nativeBindingProbeUsesTheLeaseDecoderWithoutAnOutboundCall() {
+        resolver.verifyCredentialBinding();
+        verifyNoInteractions(httpClient, configValues);
+    }
 
     @Test
     void leasesTmdbApiKeyFromCredentialServiceBeforeEnvFallback() throws Exception {

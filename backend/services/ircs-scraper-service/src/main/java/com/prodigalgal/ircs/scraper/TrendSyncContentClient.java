@@ -40,6 +40,7 @@ class TrendSyncContentClient {
             byte[] body = objectMapper.writeValueAsBytes(request);
             OutboundHttpPolicy policy = OutboundHttpPolicy.internalService(
                             configValues.contentOwnerRequestTimeout())
+                    .withMaxRetries(0)
                     .withCallerCircuitBreakerKey("scraper-trend-content-maintenance");
             OutboundHttpRequest outbound = OutboundHttpRequest.post(applyUri(), policy)
                     .withHeader("Content-Type", "application/json")
@@ -58,7 +59,9 @@ class TrendSyncContentClient {
                 throw new IllegalStateException("content-service trend apply failed: upstream status "
                         + response.statusCode());
             }
-            return objectMapper.readValue(response.body(), TrendSyncApplyResponse.class);
+            var applied = objectMapper.readValue(response.body(), TrendSyncApplyResponse.class);
+            if (applied == null) throw new IllegalStateException("content-service returned an empty trend apply response");
+            return applied;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("content-service trend apply failed: interrupted", ex);

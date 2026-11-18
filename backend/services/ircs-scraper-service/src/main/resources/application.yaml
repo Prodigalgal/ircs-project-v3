@@ -64,7 +64,7 @@ app:
       provider-timeout: ${APP_SCRAPER_TREND_SYNC_PROVIDER_TIMEOUT:PT20S}
       max-provider-items: ${APP_SCRAPER_TREND_SYNC_MAX_PROVIDER_ITEMS:100}
       content-owner-base-url: ${APP_SCRAPER_CONTENT_SERVICE_BASE_URL:http://ircs-content-service.ircs-dev.svc.cluster.local:8080}
-      content-owner-request-timeout: ${APP_SCRAPER_CONTENT_SERVICE_REQUEST_TIMEOUT:PT30S}
+      content-owner-request-timeout: ${APP_SCRAPER_CONTENT_SERVICE_REQUEST_TIMEOUT:PT2M}
       content-owner-service-id: ${APP_SCRAPER_SERVICE_ID:scraper-service}
       content-owner-service-token: ${APP_SCRAPER_CONTENT_SERVICE_TOKEN:${APP_CONTENT_SERVICE_TOKEN:}}
       content-owner-scopes: ${APP_SCRAPER_CONTENT_SERVICE_SCOPES:content:maintenance}

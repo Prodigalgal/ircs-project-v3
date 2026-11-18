@@ -293,6 +293,20 @@ class TrendCatalogPostgresTest {
     }
 
     @Test
+    void firstNanosecondSamplePersistsAtPostgresPrecisionAndReplayCannotReplaceIt() {
+        Instant sampledAt = now.plusNanos(876);
+        var candidate = candidate("TMDB", "42", "movie", "Known Film", "2026", 0, 0, "trending-day", "day", 1, sampledAt, null);
+        UUID id = resolve(candidate).id();
+        var board = board(candidate, "SUCCESS", sampledAt);
+
+        assertThat(save(board, List.of(observation(candidate, id)))).isTrue();
+        assertThat(save(board, List.of())).isFalse();
+
+        assertThat(jdbc.queryForObject("select last_success_at from external_trend_boards", Timestamp.class).toInstant()).isEqualTo(now);
+        assertThat(count("external_trend_observations")).isEqualTo(1);
+    }
+
+    @Test
     void failedSourceRetainsLastGoodSnapshotAndAnOlderSuccessCannotOverwriteIt() {
         Instant successfulAt = now.minusSeconds(3600);
         var candidate = candidate("TMDB", "42", "movie", "Known Film", "2026", 0, 0, "trending-day", "day", 1, successfulAt, null);
