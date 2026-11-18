@@ -6,7 +6,7 @@ import type { MovieCard, TrendSourceStatus } from "@/lib/types";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { TrendingItem } from "./TrendingItem";
 import { cn } from "@/lib/utils";
-import { getEmptyTrendingMessage, getProviderName, getTrendSourceFreshnessLabel, getTrendSourceName, getTrendSourceStatusLabel } from "@/lib/domain/rankingPresentation";
+import { getEmptyTrendingMessage, getProviderName, getTrendSourceName, getTrendSourceStatusLabel } from "@/lib/domain/rankingPresentation";
 
 interface TrendingSectionProps {
     movies: MovieCard[];
@@ -54,7 +54,6 @@ export function TrendingSection({ movies, sources }: TrendingSectionProps) {
                                 <span className="text-foreground">{getTrendSourceName(source.provider, source.board)}</span>
                                 {` · ${source.mediaType === "movie" ? "电影" : source.mediaType === "tv" ? "剧集" : "全部"} · ${getTrendSourceStatusLabel(source)}`}
                                 {source.status === "SUCCESS" ? ` · ${source.itemCount}条` : ""}
-                                {getTrendSourceFreshnessLabel(source) ? ` · ${getTrendSourceFreshnessLabel(source)}` : ""}
                             </li>
                         ))}
                     </ul>

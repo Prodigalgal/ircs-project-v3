@@ -20,7 +20,7 @@
 | --- | --- | --- | --- |
 | 豆瓣 | 中文电影、剧集等明确榜单的榜位与升降 | 有明确上映或节目更新事件时间的条目 | 高评分榜不等于热播；挑战页、取数失败不作为空榜成功 |
 | TMDB | movie/tv 的 day、week 趋势，保留榜位和媒体类型 | 上映/发行日期、今日播出、剧集与季集的实际播出日期 | first_air_date 不是最近一集日期；now_playing 表示影院上映，不表示本站可播 |
-| IMDb | 可取得的 Most Popular/MOVIEmeter 等趋势；投票量辅助判断可信度 | 可核实的发行/季集播出事件 | Top 250、averageRating 不作为实时热度；免费数据集并不提供完整榜位，官方 API 有独立接入要求 |
+| IMDb | AWS Data Exchange 的官方 IMDb Meters 周榜，按 MOVIEmeter 和 TVmeter 获取榜位、IMDb ID 与榜单日期 | 已授权元数据中的实际发行、季集播出日期 | 上游榜位反映 IMDb 访客关注度；免费数据集包含基本资料和评分，缺少 Meters 榜位 |
 | Rotten Tomatoes | 明确的 Most popular 顺序 | 明确的 Newest/Latest Episode 对应事件与日期 | Tomatometer/Popcornmeter 是口碑信号；不把采样日期当作品更新时间，API/data feed 以实际可用接口为准 |
 
 不同来源保留独立信号，不能直接把豆瓣 8.5、IMDb 8.5、烂番茄 90% 相加。按榜位、近期升降、多源共同出现与时间衰减融合，口碑与投票量只作为有边界的辅助。先按电影、剧集、动漫、综艺等类别分别生成榜，再做首页多样性选择。无法获得权威榜单的类别沿用对应类别策略，不能伪造外部趋势。
@@ -42,7 +42,7 @@
 - **全网最近更新**：电影发行/上线、剧集新季新集播出等真实事件，保存事件类型、日期精度、地区及季集；首次上映、首播日期与最新集日期分开。
 - **本站资源更新**：本站新增可播放资源的事件，单独维护；资源补抓完成与全网节目更新不能共用一个时间字段。
 - collected_at、source_event_at/date、metadata_updated_at、resource_updated_at 独立维护。源只给日期时不伪造精确更新时间；补抓、海报修复、聚合重算不把旧作品刷新成“刚更新”。
-- 初始建议趋势采样 30—60 分钟、榜单物化 5—15 分钟，缓存按现有 L1/L2/L3 体系复用；实际频率配置化，并公开最后成功采样时间。上游不可用时降级至仍有效的快照，超期后明确提示，不能长期保留伪实时榜单。
+- 初始建议趋势采样 30—60 分钟、榜单物化 5—15 分钟，缓存按现有 L1/L2/L3 体系复用；实际频率配置化。后台记录最后成功采样时间用于判断过期，公开页面展示来源状态。上游不可用时降级至仍有效的快照，超期后明确提示，不能长期保留伪实时榜单。
 
 ## 实施范围与验收
 
@@ -116,11 +116,15 @@ R2 S3 SDK 原本未使用共享 HTTP facade，且每次操作创建/关闭客户
 
 公网页面验收发现逐榜状态常驻时挤占热播列表。前台保留现有卡片和榜单，只将来源状态改为可展开明细，折叠时显示本轮有有效样本的来源。近期更新卡片保留一次资源缺口提示。
 
+### 3.7.9 前台榜单文案
+
+榜单卡片显示来源名称，来源明细显示可用和更新状态。作品的实际上映、发行和新集播出日期继续作为事件展示。采样时间和有效期由后台用于快照追踪与新鲜度判断。
+
 ## 来源核验
 
 - [TMDB 趋势窗口](https://developer.themoviedb.org/reference/trending-all)：day/week。
 - [TMDB 今日播出](https://developer.themoviedb.org/reference/tv-series-airing-today-list)、[未来七天播出](https://developer.themoviedb.org/reference/tv-series-on-the-air-list)、[影院上映](https://developer.themoviedb.org/reference/movie-now-playing-list)。
-- [IMDb 数据集字段](https://data.imdb.com/non-commercial-datasets/)、[IMDb 官方 API](https://data.imdb.com/documentation/api-documentation/)。
+- [IMDb Meters 官方周榜](https://aws.amazon.com/marketplace/pp/prodview-xvao7edgmvvzy)、[IMDb 作品和分集数据字典](https://data.imdb.com/documentation/bulk-data-documentation/data-dictionary/titles)、[IMDb 非商业数据集字段](https://data.imdb.com/non-commercial-datasets/)、[IMDb 官方 API](https://data.imdb.com/documentation/api-documentation/)。
 - [Rotten Tomatoes 榜单](https://www.rottentomatoes.com/browse/tv_series_browse/sort:popular)、[数据接口接入说明](https://www.rottentomatoes.com/help_desk/licensing)。
 
 公开页面本次核验中 IMDb chart 返回 403、豆瓣 chart 跳转访问挑战，因此不能宣称四个来源已稳定接通；实现必须如实报告各来源状态。

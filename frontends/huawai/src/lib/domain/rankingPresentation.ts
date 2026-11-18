@@ -27,23 +27,6 @@ export function formatDateOnly(value: string | null | undefined): string | null 
     return dateOnly ?? null;
 }
 
-export function formatBeijingDateTime(value: string | null | undefined): string | null {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-
-    const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Shanghai",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23"
-    }).formatToParts(date);
-    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
-    return `${values.month}-${values.day} ${values.hour}:${values.minute}`;
-}
-
 export function getTrendSourceName(provider: string, board: string): string {
     const boardLabels: Record<string, string> = {
         "trending-day": "日榜", "trending-week": "周榜", chart: "排行榜", popular: "热门榜",
@@ -61,26 +44,10 @@ export function getTrendSourceStatusLabel(source: TrendSourceStatus): string {
     return source.stale ? `${statusLabel} · 数据已过期` : statusLabel;
 }
 
-export function getTrendSourceFreshnessLabel(source: TrendSourceStatus): string | null {
-    const successDateTime = formatBeijingDateTime(source.lastSuccessAt);
-    const attemptDateTime = formatBeijingDateTime(source.lastAttemptAt);
-
-    if (source.status === "SUCCESS" && successDateTime) return `采样北京时间 ${successDateTime}`;
-    if (attemptDateTime && successDateTime) {
-        return `尝试北京时间 ${attemptDateTime} · 上次成功北京时间 ${successDateTime}`;
-    }
-    if (successDateTime) return `上次成功北京时间 ${successDateTime}`;
-    if (attemptDateTime) return `尝试北京时间 ${attemptDateTime}`;
-    return null;
-}
-
 export function getRankingSourceLabel(ranking: MovieRanking | undefined): string {
     if (!ranking) return "来源信息待提供";
     if (ranking.sources.length === 0) return "来源信息待提供";
-
-    const observedDateTime = formatBeijingDateTime(ranking.observedAt);
-    const sourceNames = ranking.sources.map(getProviderName).join(" · ");
-    return observedDateTime ? `${sourceNames} · 采样北京时间 ${observedDateTime}` : sourceNames;
+    return ranking.sources.map(getProviderName).join(" · ");
 }
 
 export function getRankingEpisodeLabel(ranking: MovieRanking | undefined): string | null {
