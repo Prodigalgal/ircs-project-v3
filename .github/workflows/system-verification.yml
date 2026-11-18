@@ -1,0 +1,177 @@
+name: V3 System Verification
+
+on:
+  push:
+    branches: ['audit/system-verification-*']
+  workflow_dispatch:
+    inputs:
+      gitops_revision:
+        description: Verified production release ledger commit
+        required: true
+        default: '9a597cad79b8f5557f56cbb112bc4cfb1ae4715a'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-system-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Java regression with database fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ircs
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: ircs_test
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U ircs -d ircs_test" --health-interval 5s --health-timeout 3s --health-retries 10
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      IRCS_TEST_KEY_VALUE_PORT: '6379'
+      IRCS_TEST_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5432/ircs_test
+      IRCS_TEST_POSTGRES_USER: ircs
+      IRCS_TEST_POSTGRES_PASSWORD: ci-disposable-password
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+      - run: bash gradlew --no-daemon --console=plain --continue test
+      - name: Publish Java test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: system-java-test-results
+          path: 'backend/**/build/test-results/test/*.xml'
+          retention-days: 7
+
+  frontends:
+    name: Frontend ${{ matrix.frontend }} regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        frontend: [admin, huawai]
+    defaults:
+      run:
+        working-directory: frontends/${{ matrix.frontend }}
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      API_INTERNAL_URL: http://127.0.0.1:9/api/portal
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.13.0'
+          cache: npm
+          cache-dependency-path: frontends/${{ matrix.frontend }}/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test --if-present
+      - run: npm run build
+
+  classifier:
+    name: Offline content classification regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/services/ircs-adult-classifier-service/requirements*.txt
+      - run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
+          python -m pip install -r backend/services/ircs-adult-classifier-service/requirements-test.txt
+          python -m pip check
+      - working-directory: backend/services/ircs-adult-classifier-service
+        run: python -m unittest discover -s tests -v
+
+  runtime:
+    name: Published Native images in an isolated runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    env:
+      IRCS_AUDIT_PUBLISHED_IMAGES: 'true'
+      REGISTRY: docker.io/speedproxy
+      NATIVE_ARCH: amd64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read pinned production image ledger
+        env:
+          GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GITOPS_REVISION: ${{ inputs.gitops_revision || '9a597cad79b8f5557f56cbb112bc4cfb1ae4715a' }}
+        run: |
+          set -euo pipefail
+          [[ "$GITOPS_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          key_file="$(mktemp "$RUNNER_TEMP/ircs-audit-key.XXXXXX")"
+          hosts_file="$(mktemp "$RUNNER_TEMP/ircs-audit-hosts.XXXXXX")"
+          clone_dir="$(mktemp -d "$RUNNER_TEMP/ircs-audit-gitops.XXXXXX")"
+          trap 'rm -f "$key_file" "$hosts_file"; rm -rf "$clone_dir"' EXIT
+          printf '%s\n' "$GITOPS_DEPLOY_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$hosts_file"
+          export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$hosts_file"
+          git -C "$clone_dir" init -q
+          git -C "$clone_dir" fetch --depth 1 git@github.com:Prodigalgal/k8s-gitops-config.git "$GITOPS_REVISION"
+          git -C "$clone_dir" show FETCH_HEAD:ircs-prod/core/release-state.json > "$RUNNER_TEMP/system-audit-release.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          ledger = json.loads((Path(os.environ['RUNNER_TEMP']) / 'system-audit-release.json').read_text())
+          assert ledger['schema_version'] == 1
+          entries = ledger['images']
+          services = sorted(key for key in entries if key not in {
+              'ircs-admin-frontend', 'ircs-huawai-frontend', 'ircs-adult-classifier-service'
+          })
+          assert {'ircs-migrator', 'ircs-ingestion-worker', 'ircs-search-service'}.issubset(services)
+          values = {
+              'JAVA_IMAGES': json.dumps(services),
+              'IMAGE_REFS_JSON': json.dumps({key: item['image'] for key, item in entries.items()}),
+              'MODULE_VERSIONS_JSON': json.dumps({key: item['version'] for key, item in entries.items()}),
+              'SOURCE_REVISION': ledger['source_revision'],
+              'RELEASE_TAG': ledger['release_tag'],
+              'APP_VERSION': ledger['release_version'],
+          }
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for name, value in values.items():
+                  assert '\n' not in value and '\r' not in value
+                  print(f'{name}={value}', file=output)
+          print(f"Testing {len(services)} published Native images from {ledger['release_version']}.")
+          PY
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Exercise Native runtime and isolated persistence
+        run: |
+          set -o pipefail
+          bash backend/scripts/ci/native-consumer-smoke.sh | tee "$RUNNER_TEMP/system-native-smoke.log"
+      - name: Publish runtime evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: system-native-runtime-evidence
+          path: |
+            ${{ runner.temp }}/system-audit-release.json
+            ${{ runner.temp }}/system-native-smoke.log
+          retention-days: 7

@@ -20,6 +20,7 @@ password = os.environ['CI_PASSWORD']
 selected_services = set(json.loads(os.environ['JAVA_IMAGES']))
 image_refs = json.loads(os.environ.get('IMAGE_REFS_JSON', '{}'))
 module_versions = json.loads(os.environ.get('MODULE_VERSIONS_JSON', '{}'))
+audit_published_images = os.environ.get('IRCS_AUDIT_PUBLISHED_IMAGES') == 'true'
 authorization = 'Basic ' + base64.b64encode(f'ircs:{password}'.encode()).decode()
 
 
@@ -85,7 +86,7 @@ def docker(*args):
 
 
 def image(service):
-    if service in selected_services:
+    if service in selected_services and not audit_published_images:
         return f'{registry}/{service}:{release_tag}-{arch}'
     if service not in image_refs:
         raise AssertionError(f'Missing verified baseline image for fixture {service}')
@@ -93,7 +94,7 @@ def image(service):
 
 
 def version_for(service):
-    if service in selected_services:
+    if service in selected_services and not audit_published_images:
         return app_version
     if service not in module_versions:
         raise AssertionError(f'Missing verified baseline version for fixture {service}')

@@ -8,15 +8,16 @@ selected = set(json.loads(os.environ['JAVA_IMAGES']))
 assert selected, 'A runtime smoke requires selected Java images'
 refs = json.loads(os.environ.get('IMAGE_REFS_JSON', '{}'))
 versions = json.loads(os.environ.get('MODULE_VERSIONS_JSON', '{}'))
+published = os.environ.get('IRCS_AUDIT_PUBLISHED_IMAGES') == 'true'
 required = {'ircs-migrator'}
 if 'ircs-api-gateway' in selected:
     required.update({'ircs-ops-service', 'ircs-identity-service'})
 if selected & {'ircs-ops-service', 'ircs-identity-service'}:
     required.add('ircs-api-gateway')
-for fixture in required - selected:
+for fixture in (required | selected if published else required - selected):
     assert refs.get(fixture) and versions.get(fixture), 'Missing immutable baseline fixture: ' + fixture
 image = (os.environ['REGISTRY'] + '/ircs-migrator:' + os.environ['RELEASE_TAG'] + '-' + os.environ['NATIVE_ARCH']
-         if 'ircs-migrator' in selected else refs['ircs-migrator'])
+         if 'ircs-migrator' in selected and not published else refs['ircs-migrator'])
 print(image)
 PY
 )"
