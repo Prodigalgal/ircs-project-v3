@@ -412,11 +412,13 @@ def ingestion_pressure_round_trip():
 
     def publish_fixture(number):
         key = f'native-pressure-{number:02}'
+        title = f'測試影片 {number:02}'
+        raw_metadata = json.dumps({'title': title, 'description': '繁體國語', 'year': '2020'}, ensure_ascii=False)
         episodes = [{'name': f'EP{episode}', 'url': f'https://media.example/{key}/{episode}.m3u8'}
                     for episode in (1, 2)]
         publish_message(ingest, {'video': {
             'sourceVid': key, 'sourceHash': key, 'dataHash': 'fixture-v1',
-            'title': f'測試影片 {number:02}', 'playlists': [{'name': 'Fixture', 'episodes': episodes}]},
+            'title': title, 'rawMetadata': raw_metadata, 'playlists': [{'name': 'Fixture', 'episodes': episodes}]},
             'forceIngest': False})
 
     def persisted_and_handed_off():
@@ -451,19 +453,31 @@ def ingestion_pressure_round_trip():
 
 
 def normalization_pressure_handoff_probe():
-    def handed_off():
-        rows = json.loads(postgres("""
-            select coalesce(json_agg(json_build_object('id',id,'version',data_hash)),'[]')
-              from raw_videos where source_hash like 'native-pressure-%' and normalization_status = 'READY'
-                and title like '测试影片%'
+    def completed_rows():
+        return json.loads(postgres("""
+            select coalesce(json_agg(json_build_object(
+                'id',id,'version',data_hash,'status',normalization_status,'title',title,
+                'metadataPresent',jsonb_typeof(raw_metadata)='object' and raw_metadata <> '{}'::jsonb)), '[]')
+              from raw_videos where source_hash like 'native-pressure-%'
             """))
+
+    def handed_off():
+        rows = completed_rows()
+        if len(rows) != pressure_item_count or any(row['status'] != 'READY' for row in rows):
+            return False
+        assert all(row['title'].startswith('测试影片') for row in rows), 'Unexpected normalized fixture title'
         enrich = 'pipeline.enrich-metadata'
         aggregate = 'aggregation.raw-video'
-        return (len(rows) == pressure_item_count
-                and {f'{enrich}:{row["id"]}:{row["version"]}' for row in rows}.issubset(pending_tasks(enrich))
+        return ({f'{enrich}:{row["id"]}:{row["version"]}' for row in rows}.issubset(pending_tasks(enrich))
                 and {f'raw_video:{row["id"]}' for row in rows}.issubset(pending_tasks(aggregate)))
 
-    wait_for('all concurrent ingestion fixtures to finish normalization and submit downstream work', handed_off)
+    try:
+        wait_for('all concurrent ingestion fixtures to finish normalization and submit downstream work', handed_off)
+    except AssertionError:
+        rows = completed_rows()
+        print('Normalization pressure fixture states: ' + str(sorted({
+            (row['status'], row['metadataPresent']) for row in rows})), flush=True)
+        raise
     print(f'Native normalization pressure: {pressure_item_count}/{pressure_item_count} persisted as READY '
           'with normalized titles, enrichment handoffs and aggregation handoffs.', flush=True)
 
