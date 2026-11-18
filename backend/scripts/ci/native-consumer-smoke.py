@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
@@ -142,6 +143,17 @@ def queue(name):
         if error.code == 404:
             return {'consumers': 0, 'messages': 0}
         raise
+
+
+def publish_message(routing_key, payload):
+    result = request('/api/exchanges/%2F/amq.default/publish', {
+        'routing_key': routing_key, 'properties': {'content_type': 'application/json', 'delivery_mode': 2},
+        'payload': json.dumps(payload, ensure_ascii=False), 'payload_encoding': 'string'}, broker=True)
+    assert result['routed'] is True, routing_key
+
+
+def postgres(statement):
+    return docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc', statement)
 
 
 def start(service, values, container_name='ircs-native-consumer', listen_port=18080):
@@ -335,20 +347,11 @@ def ingestion_round_trip():
                       ]},
             'forceIngest': False}
 
-    def publish(routing_key, payload):
-        result = request('/api/exchanges/%2F/amq.default/publish', {
-            'routing_key': routing_key, 'properties': {'content_type': 'application/json', 'delivery_mode': 2},
-            'payload': json.dumps(payload, ensure_ascii=False), 'payload_encoding': 'string'}, broker=True)
-        assert result['routed'] is True
-
-    def database(statement):
-        return docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc', statement)
-
     def persisted():
-        return database("select count(*) from raw_videos where source_hash='native-smoke-source'") == '1'
+        return postgres("select count(*) from raw_videos where source_hash='native-smoke-source'") == '1'
 
     def expected_playlist():
-        record = json.loads(database("""
+        record = json.loads(postgres("""
             select json_build_object('playlists',count(distinct p.id),'episodes',count(e.id),
                 'domains',count(distinct e.source_domain_id),
                 'mainEpisodes',count(*) filter (where p.name='Native fixture'),
@@ -370,21 +373,21 @@ def ingestion_round_trip():
                          'ircs:work:v1:pipeline.normalize-video:pending')
         return pending == '1' and queue('q.ingest.video')['messages'] == 0 and queue('q.process.playlist_sync')['messages'] == 0
 
-    publish('q.ingest.video', item)
+    publish_message('q.ingest.video', item)
     wait_for('Native PostgreSQL persistence', persisted)
     wait_for('confirmed playlist consumption and normalization handoff', handed_off)
     wait_for('complete multi-batch playback resources', expected_playlist)
     wait_for('first ingestion acknowledgement', lambda: queue('q.ingest.video').get('message_stats', {}).get('ack', 0) > 0)
     acknowledgements = queue('q.ingest.video')['message_stats']['ack']
-    publish('q.ingest.video', item)
+    publish_message('q.ingest.video', item)
     wait_for('duplicate ingestion acknowledgement', lambda: queue('q.ingest.video').get('message_stats', {}).get('ack', 0) > acknowledgements)
     wait_for('duplicate message acknowledgement', handed_off)
     wait_for('deduplicated playback resources', expected_playlist)
     playlist_queue = 'q.process.playlist_sync'
     playlist_ack = queue(playlist_queue).get('message_stats', {}).get('ack', 0)
-    video_id = database("select id from raw_videos where source_hash='native-smoke-source'")
-    publish(playlist_queue, {'videoId': video_id, 'sourceHash': 'native-smoke-source',
-                             'dataHash': 'obsolete-fixture-version', 'playlists': []})
+    video_id = postgres("select id from raw_videos where source_hash='native-smoke-source'")
+    publish_message(playlist_queue, {'videoId': video_id, 'sourceHash': 'native-smoke-source',
+                                     'dataHash': 'obsolete-fixture-version', 'playlists': []})
     wait_for('stale playlist acknowledgement', lambda: queue(playlist_queue).get('message_stats', {}).get('ack', 0) > playlist_ack)
     assert expected_playlist(), 'An obsolete message must not erase the latest playable resources'
     assert persisted()
@@ -392,6 +395,77 @@ def ingestion_round_trip():
     assert queue('q.process.playlist_sync.dlq')['messages'] == 0
     print('Native ingestion persisted 513 main episodes and one bonus episode on separately named playlists, '
           'reused the media domain, ignored a stale playlist message and deduplicated normalization work.', flush=True)
+
+
+pressure_item_count = 48
+
+
+def pending_tasks(work_type):
+    return set(docker('exec', 'ircs-native-key-value', 'valkey-cli', '--raw', 'ZRANGE',
+                      f'ircs:work:v1:{work_type}:pending', '0', '-1').splitlines())
+
+
+def ingestion_pressure_round_trip():
+    concurrency = 8
+    ingest = 'q.ingest.video'
+    playlist = 'q.process.playlist_sync'
+
+    def publish_fixture(number):
+        key = f'native-pressure-{number:02}'
+        episodes = [{'name': f'EP{episode}', 'url': f'https://media.example/{key}/{episode}.m3u8'}
+                    for episode in (1, 2)]
+        publish_message(ingest, {'video': {
+            'sourceVid': key, 'sourceHash': key, 'dataHash': 'fixture-v1',
+            'title': f'測試影片 {number:02}', 'playlists': [{'name': 'Fixture', 'episodes': episodes}]},
+            'forceIngest': False})
+
+    def persisted_and_handed_off():
+        rows = json.loads(postgres("""
+            select coalesce(json_agg(ready.id::text || ':' || ready.data_hash),'[]')
+              from (
+                select rv.id, rv.data_hash from raw_videos rv
+                join playlists p on p.video_id = rv.id
+                join episodes e on e.playlist_id = p.id
+                join source_domains sd on sd.id = e.source_domain_id
+                where rv.source_hash like 'native-pressure-%' and sd.domain_value = 'https://media.example'
+                  and e.url in ('/' || rv.source_hash || '/1.m3u8','/' || rv.source_hash || '/2.m3u8')
+                group by rv.id, rv.data_hash
+                having count(e.id) = 2 and count(distinct e.url) = 2 and count(distinct p.id) = 1
+              ) ready
+            """))
+        normalize = 'pipeline.normalize-video'
+        return (len(rows) == pressure_item_count
+                and {f'{normalize}:{row}' for row in rows}.issubset(pending_tasks(normalize))
+                and all(queue(name)['messages'] == 0 for name in (ingest, playlist)))
+
+    start_time = time.monotonic()
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        list(pool.map(publish_fixture, range(pressure_item_count)))
+    submit_elapsed = time.monotonic() - start_time
+    wait_for('concurrent ingestion to persist and hand off each fixture', persisted_and_handed_off)
+    elapsed = time.monotonic() - start_time
+    assert all(queue(name + '.dlq')['messages'] == 0 for name in (ingest, playlist))
+    print(f'Native ingestion pressure: {pressure_item_count} messages, {concurrency} concurrent publishers, '
+          f'{submit_elapsed:.2f}s submit, {elapsed:.2f}s through durable handoff, '
+          f'{pressure_item_count * 2} verified episodes, zero DLQ.', flush=True)
+
+
+def normalization_pressure_handoff_probe():
+    def handed_off():
+        rows = json.loads(postgres("""
+            select coalesce(json_agg(json_build_object('id',id,'version',data_hash)),'[]')
+              from raw_videos where source_hash like 'native-pressure-%' and normalization_status = 'READY'
+                and title like '测试影片%'
+            """))
+        enrich = 'pipeline.enrich-metadata'
+        aggregate = 'aggregation.raw-video'
+        return (len(rows) == pressure_item_count
+                and {f'{enrich}:{row["id"]}:{row["version"]}' for row in rows}.issubset(pending_tasks(enrich))
+                and {f'raw_video:{row["id"]}' for row in rows}.issubset(pending_tasks(aggregate)))
+
+    wait_for('all concurrent ingestion fixtures to finish normalization and submit downstream work', handed_off)
+    print(f'Native normalization pressure: {pressure_item_count}/{pressure_item_count} persisted as READY '
+          'with normalized titles, enrichment handoffs and aggregation handoffs.', flush=True)
 
 
 def normalization_round_trip():
@@ -629,6 +703,8 @@ def main():
                     wait_for(f'{service} consumers enabled', lambda: all(queue(q)['consumers'] > 0 for q in queues))
                     if service == 'ircs-ingestion-worker':
                         ingestion_round_trip()
+                        if audit_published_images:
+                            ingestion_pressure_round_trip()
                 else:
                     wait_for(f'{service} consumers disabled', lambda: all(queue(q)['consumers'] == 0 for q in queues))
                 print(f'{service}: runtime {flag}={enabled} verified', flush=True)
@@ -666,6 +742,8 @@ def main():
                     aggregation_evaluation_probe()
                 if service == 'ircs-normalization-worker':
                     normalization_round_trip()
+                    if audit_published_images:
+                        normalization_pressure_handoff_probe()
                 if service == 'ircs-magnet-service':
                     magnet_search_round_trip()
                 if service == 'ircs-ops-service':
