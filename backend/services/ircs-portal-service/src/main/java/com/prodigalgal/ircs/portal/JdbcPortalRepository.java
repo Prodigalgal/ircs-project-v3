@@ -18,7 +18,6 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
@@ -166,15 +165,14 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return decorateRankings(jdbcTemplate.query(
+        return decorateRankings(queryCards(
                 CARD_SELECT + where + """
                  ORDER BY uv.published_at DESC NULLS LAST,
                           uv.updated_at DESC NULLS LAST,
                           uv.id ASC
                  LIMIT :limit
                 """,
-                params,
-                cardMapper()), false);
+                params), false);
     }
 
     public List<PortalMovieCard> findTrending(IrcsRequestPrincipal principal, int limit) {
@@ -182,15 +180,14 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return decorateRankings(jdbcTemplate.query(
+        return decorateRankings(queryCards(
                 CARD_SELECT + " JOIN external_catalog_rankings trend_rank ON trend_rank.unified_video_id = uv.id "
                         + where + " AND trend_rank.heat > 0 " + """
                  ORDER BY row_number() over (partition by uv.category_code order by trend_rank.heat desc, uv.id),
                           trend_rank.heat DESC, uv.id ASC
                  LIMIT :limit
                 """,
-                params,
-                cardMapper()), false);
+                params), false);
     }
 
     public List<PortalMovieCard> findRecentlyUpdated(IrcsRequestPrincipal principal, int limit) {
@@ -198,10 +195,10 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
-        return decorateRankings(jdbcTemplate.query(CARD_SELECT
+        return decorateRankings(queryCards(CARD_SELECT
                 + " JOIN external_catalog_recent_events recent_event ON recent_event.unified_video_id = uv.id "
                 + where + " ORDER BY recent_event.event_date DESC, recent_event.observed_at DESC, uv.id LIMIT :limit",
-                params, cardMapper()), true);
+                params), true);
     }
 
     public List<PortalTrendSourceState> findTrendSourceStates() {
@@ -254,15 +251,14 @@ public class JdbcPortalRepository {
         params.put("limit", limit);
         StringBuilder where = new StringBuilder(" WHERE uv.category_code = :categoryKey");
         appendScopeFilters(where, params, principal);
-        return jdbcTemplate.query(
+        return queryCards(
                 CARD_SELECT + where + """
                  ORDER BY uv.published_at DESC NULLS LAST,
                           uv.updated_at DESC NULLS LAST,
                           uv.id ASC
                  LIMIT :limit
                 """,
-                params,
-                cardMapper());
+                params);
     }
 
     public Map<String, List<PortalMovieCard>> findCategorySections(
@@ -300,10 +296,17 @@ public class JdbcPortalRepository {
                           selected.id ASC
                 """,
                 params,
-                categoryCardMapper());
+                (rs, rowNum) -> new CategoryCardRow(rs.getString("section_key"), readCardRow(rs)));
 
+        if (rows == null || rows.isEmpty()) {
+            return Map.of();
+        }
+        List<PortalMovieCard> cards = rows.stream()
+                .map(CategoryCardRow::card)
+                .map(this::resolveCard)
+                .toList();
         Map<UUID, PortalMovieCard> decorated = new HashMap<>();
-        for (PortalMovieCard card : decorateRankings(rows.stream().map(CategoryCardRow::card).toList(), false)) {
+        for (PortalMovieCard card : decorateRankings(cards, false)) {
             decorated.put(card.id(), card);
         }
         Map<String, List<PortalMovieCard>> cardsByCategory = new LinkedHashMap<>();
@@ -341,10 +344,9 @@ public class JdbcPortalRepository {
 
         params.put("limit", size);
         params.put("offset", (long) page * size);
-        List<PortalMovieCard> content = jdbcTemplate.query(
+        List<PortalMovieCard> content = queryCards(
                 CARD_SELECT + rankingJoin + where + orderBy(sort) + " LIMIT :limit OFFSET :offset",
-                params,
-                cardMapper());
+                params);
         long total = exploreRequiresExactTotal(principal, keyword, type, genre, area, year, language)
                 ? exactExploreTotal(where, params)
                 : estimatedTotal(page, size, content.size());
@@ -855,14 +857,19 @@ public class JdbcPortalRepository {
         return StringUtils.hasText(value) ? value : fallback;
     }
 
-    private RowMapper<PortalMovieCard> cardMapper() {
-        return (rs, rowNum) -> new PortalMovieCard(
+    private List<PortalMovieCard> queryCards(String sql, Map<String, Object> params) {
+        List<CardRow> rows = jdbcTemplate.query(sql, params, (rs, rowNum) -> readCardRow(rs));
+        return rows == null ? List.of() : rows.stream().map(this::resolveCard).toList();
+    }
+
+    private CardRow readCardRow(ResultSet rs) throws SQLException {
+        return new CardRow(
                 rs.getObject("id", UUID.class),
                 rs.getString("title"),
                 rs.getString("alias_title"),
                 getInteger(rs, "season"),
                 rs.getString("subtitle"),
-                coverImageUrlResolver.resolve(
+                new CoverReference(
                         rs.getString("cover_storage_type"),
                         rs.getString("cover_original_url"),
                         rs.getString("cover_storage_path"),
@@ -873,20 +880,57 @@ public class JdbcPortalRepository {
                 rs.getString("total_episodes"),
                 rs.getString("duration"),
                 rs.getString("remarks"),
-                String.join(", ", resolveAreaNames(rs.getString("area_codes"))),
+                rs.getString("area_codes"),
                 rs.getString("description"),
-                limitGenres(resolveGenreNames(rs.getString("genre_codes"))),
+                rs.getString("genre_codes"),
                 getInstant(rs, "last_trend_at"));
     }
 
-    private RowMapper<CategoryCardRow> categoryCardMapper() {
-        RowMapper<PortalMovieCard> delegate = cardMapper();
-        return (rs, rowNum) -> new CategoryCardRow(
-                rs.getString("section_key"),
-                delegate.mapRow(rs, rowNum));
+    private PortalMovieCard resolveCard(CardRow row) {
+        // Cold cover configuration and dictionaries can use JDBC. Resolve them after the card query returns.
+        CoverReference cover = row.cover();
+        return new PortalMovieCard(
+                row.id(),
+                row.title(),
+                row.aliasTitle(),
+                row.season(),
+                row.subtitle(),
+                coverImageUrlResolver.resolve(cover.storageType(), cover.originalUrl(), cover.storagePath(), cover.sourceDomain()),
+                row.rating(),
+                row.releaseYear(),
+                row.categoryName(),
+                row.totalEpisodes(),
+                row.duration(),
+                row.remarks(),
+                String.join(", ", resolveAreaNames(row.areaCodesJson())),
+                row.description(),
+                limitGenres(resolveGenreNames(row.genreCodesJson())),
+                row.lastTrendAt());
     }
 
-    private record CategoryCardRow(String sectionKey, PortalMovieCard card) {
+    private record CardRow(
+            UUID id,
+            String title,
+            String aliasTitle,
+            Integer season,
+            String subtitle,
+            CoverReference cover,
+            BigDecimal rating,
+            String releaseYear,
+            String categoryName,
+            String totalEpisodes,
+            String duration,
+            String remarks,
+            String areaCodesJson,
+            String description,
+            String genreCodesJson,
+            Instant lastTrendAt) {
+    }
+
+    private record CoverReference(String storageType, String originalUrl, String storagePath, String sourceDomain) {
+    }
+
+    private record CategoryCardRow(String sectionKey, CardRow card) {
     }
 
     private Integer getInteger(ResultSet rs, String column) throws SQLException {

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.zaxxer.hikari.HikariDataSource;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.json.JsonMapper;
 
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
@@ -67,8 +69,9 @@ class JdbcPortalRankingIntegrationTest {
         pool.setJdbcUrl(url);
         pool.setUsername(user);
         pool.setPassword(password);
-        pool.setMaximumPoolSize(3);
+        pool.setMaximumPoolSize(1);
         pool.setMinimumIdle(0);
+        pool.setConnectionTimeout(3_000);
         pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
         createSchema();
@@ -285,6 +288,50 @@ class JdbcPortalRankingIntegrationTest {
     }
 
     @Test
+    void cardsReleaseTheQueryConnectionBeforeReadingColdDictionaries() {
+        UUID populated = work("Present codes", "movie", 8.0);
+        UUID empty = work("Empty codes", "movie", 7.0);
+        jdbc.execute("create table standard_areas(code text primary key, name text)");
+        jdbc.update("insert into standard_areas values ('cn', '中国大陆'), ('us', '美国')");
+        jdbc.update("insert into standard_genre values (?, '剧情', 'drama'), (?, '动作', 'action'), (?, '恐怖', 'horror')",
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        jdbc.update("""
+                update unified_videos
+                   set published_at = current_date,
+                       area_codes = '["cn","zz"," cn ","us"," "]'::jsonb,
+                       genre_codes = '["drama","x-sci","action"," drama ","horror",""]'::jsonb
+                 where id = ?
+                """, populated);
+        jdbc.update("update unified_videos set area_codes = null, genre_codes = null where id = ?", empty);
+
+        List<PortalMovieCard> cards = repositoryWithColdLookups().findCategorySection(publicPrincipal, "movie", 2);
+
+        assertThat(cards).extracting(PortalMovieCard::id).containsExactly(populated, empty);
+        assertThat(cards.getFirst().area()).isEqualTo("zz, 中国大陆, 美国");
+        assertThat(cards.getFirst().genres()).containsExactly("x-sci", "剧情", "动作");
+        assertThat(cards.getLast().area()).isEmpty();
+        assertThat(cards.getLast().genres()).isEmpty();
+    }
+
+    @Test
+    void categoryCardsReleaseTheQueryConnectionBeforeReadingColdCoverConfiguration() {
+        UUID movie = work("Managed cover", "movie", 8.0);
+        UUID cover = UUID.randomUUID();
+        jdbc.execute("create table system_configs(config_key text primary key, config_value text)");
+        jdbc.update("insert into system_configs values ('app.storage.public-path', '/configured-media')");
+        jdbc.update("insert into cover_images(id, storage_type, storage_path) values (?, 'LOCAL', 'posters/movie.webp')", cover);
+        jdbc.update("update unified_videos set cover_image_id = ? where id = ?", cover, movie);
+
+        var sections = repositoryWithColdLookups().findCategorySections(publicPrincipal, List.of("movie"), 1);
+
+        assertThat(sections).containsOnlyKeys("movie");
+        assertThat(sections.get("movie")).singleElement().satisfies(card -> {
+            assertThat(card.id()).isEqualTo(movie);
+            assertThat(card.posterUrl()).isEqualTo("/configured-media/posters/movie.webp");
+        });
+    }
+
+    @Test
     void missingResourcesAreShownAsCollectingAndMirrorsDoNotInventEpisodeProgress() {
         UUID work = work("Resource gap", "series", 8.0);
         event(work, today, 2, 12);
@@ -344,6 +391,13 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(imdb.lastSuccessAt()).isNull();
         assertThat(imdb.stale()).isTrue();
         assertThat(repository.findTrending(publicPrincipal, 20)).extracting(PortalMovieCard::id).containsExactly(work);
+    }
+
+    private JdbcPortalRepository repositoryWithColdLookups() {
+        var namedJdbc = new NamedParameterJdbcTemplate(pool);
+        var names = new PortalStandardNameCache(namedJdbc, new CacheRegistry(), Duration.ofMinutes(30));
+        var covers = new PortalCoverImageUrlResolver(new MockEnvironment(), SystemConfigRepository.forTest(jdbc));
+        return new JdbcPortalRepository(namedJdbc, covers, JsonMapper.builder().findAndAddModules().build(), names);
     }
 
     private UUID work(String title, String category, double rating) {
