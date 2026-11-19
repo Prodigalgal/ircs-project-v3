@@ -71,20 +71,27 @@ final class MagnetSearchExecutor {
             return repository.createSkippedSearchJob(unifiedVideoId, trigger, skipped, queries, List.of());
         }
         MagnetSearchJobSummary job = coordinator.enqueue(unifiedVideoId, trigger, queries).job();
-        return execute(job.id(), unifiedVideoId, trigger, false);
+        return executeSearch(job.id(), unifiedVideoId, false, false);
     }
 
     MagnetSearchJobSummary execute(UUID jobId, UUID unifiedVideoId, String trigger, boolean retryAllowed) {
+        return executeSearch(jobId, unifiedVideoId, retryAllowed, true);
+    }
+
+    private MagnetSearchJobSummary executeSearch(UUID jobId, UUID unifiedVideoId, boolean retryAllowed,
+            boolean acknowledgeDeliveredPartial) {
         requireNoTransaction();
         MagnetQueueClaimGuard.checkCurrentOwnership();
         MagnetUnifiedVideoSearchTarget target = target(unifiedVideoId);
         List<MagnetExternalIdQuery> queries = queries(target);
         MagnetSearchJobCoordinator.Claim claim = coordinator.claim(jobId, unifiedVideoId, queries, leaseDuration);
         if (!claim.acquired()) {
-            if ("FAILED".equals(claim.job().status()) || "PARTIAL_SUCCESS".equals(claim.job().status())) {
+            MagnetSearchJobSummary job = claim.job();
+            if ("FAILED".equals(job.status()) || ("PARTIAL_SUCCESS".equals(job.status())
+                    && !canAcknowledgePartial(job, acknowledgeDeliveredPartial))) {
                 throw new MagnetSearchExecutionException(false, "MAGNET_SEARCH_ALREADY_FINISHED_WITH_FAILURE");
             }
-            return claim.job();
+            return job;
         }
         var lease = new MagnetSearchJobCoordinator.Lease(jobId, unifiedVideoId, claim.generation(), leaseDuration);
         try (var guard = new MagnetJobExecutionGuard(coordinator, lease)) {
@@ -175,7 +182,7 @@ final class MagnetSearchExecutor {
                 guard.checkOwnership();
                 return repository.finishSearchJob(jobId, providerCodes, total, accepted, failed);
             });
-            if (failed > 0) {
+            if (failed > 0 && !canAcknowledgePartial(finished, acknowledgeDeliveredPartial)) {
                 throw new MagnetSearchExecutionException(false,
                         retryableFailure ? "MAGNET_PROVIDER_RETRIES_EXHAUSTED" : "MAGNET_PROVIDER_PERMANENT_FAILURE");
             }
@@ -193,6 +200,10 @@ final class MagnetSearchExecutor {
             }
             throw failure;
         }
+    }
+
+    private static boolean canAcknowledgePartial(MagnetSearchJobSummary job, boolean acknowledgeDeliveredPartial) {
+        return acknowledgeDeliveredPartial && "PARTIAL_SUCCESS".equals(job.status()) && safeCount(job.acceptedCount()) > 0;
     }
 
     private void publishLinkChanges(UUID unifiedVideoId) {

@@ -13,6 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,10 +40,10 @@ class PortalReadModelCache {
 
     private final boolean enabledByDeployment;
     private final RuntimeConfigService runtimeConfig;
-    private final TieredReadThroughCache<String, PortalMetadataResponse> metadataCache;
-    private final TieredReadThroughCache<String, PortalHomeResponse> homeCache;
-    private final TieredReadThroughCache<String, PageResponse<PortalMovieCard>> exploreCache;
-    private final TieredReadThroughCache<String, PortalMovieDetailResponse> detailCache;
+    private final CoalescingCache<PortalMetadataResponse> metadataCache;
+    private final CoalescingCache<PortalHomeResponse> homeCache;
+    private final CoalescingCache<PageResponse<PortalMovieCard>> exploreCache;
+    private final CoalescingCache<PortalMovieDetailResponse> detailCache;
     PortalReadModelCache(
             ObjectMapper objectMapper,
             CacheRegistry cacheRegistry,
@@ -203,11 +207,11 @@ class PortalReadModelCache {
                 store);
     }
 
-    private <T> TieredReadThroughCache<String, T> register(
+    private <T> CoalescingCache<T> register(
             CacheRegistry registry,
             TieredReadThroughCache<String, T> cache) {
         registry.register(cache);
-        return cache;
+        return new CoalescingCache<>(cache);
     }
 
     private static Duration ttl(Duration value, Duration fallback) {
@@ -220,6 +224,48 @@ class PortalReadModelCache {
         }
         StringRedisTemplate template = redisTemplate.getIfAvailable();
         return template == null ? TieredStringCacheStore.noop() : new PortalStringCacheStore(template);
+    }
+
+    private static final class CoalescingCache<T> {
+        private final TieredReadThroughCache<String, T> cache;
+        private final ConcurrentMap<String, FutureTask<T>> inFlight = new ConcurrentHashMap<>();
+
+        private CoalescingCache(TieredReadThroughCache<String, T> cache) {
+            this.cache = cache;
+        }
+
+        private T get(String key, Supplier<T> loader) {
+            FutureTask<T> load = new FutureTask<>(() -> cache.get(key, loader));
+            FutureTask<T> running = inFlight.putIfAbsent(key, load);
+            if (running != null) {
+                return await(running);
+            }
+            try {
+                // Keep the load visible through both cache lookups and the completed backfill.
+                load.run();
+                return await(load);
+            } finally {
+                inFlight.remove(key, load);
+            }
+        }
+
+        private T await(FutureTask<T> load) {
+            try {
+                return load.get();
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for a portal cache load", failure);
+            } catch (ExecutionException failure) {
+                Throwable cause = failure.getCause();
+                if (cause instanceof RuntimeException exception) {
+                    throw exception;
+                }
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                throw new IllegalStateException("Portal cache load failed", cause);
+            }
+        }
     }
 
     private static final class DetailUnavailable extends RuntimeException {

@@ -146,7 +146,7 @@ class MagnetSearchExecutorTest {
     }
 
     @Test
-    void permanentProviderFailureIsTerminalAndPartialResultRemainsVisible() {
+    void partialResultWithoutAcceptedLinksRemainsATerminalFailure() {
         var healthy = provider("healthy", "TEST", List.of("IMDB"));
         var denied = provider("denied", "TEST", List.of("IMDB"));
         when(repository.listEnabledProviders()).thenReturn(List.of(healthy, denied));
@@ -160,6 +160,49 @@ class MagnetSearchExecutorTest {
     }
 
     @Test
+    void queuedPartialWithAcceptedLinksCompletesAfterProviderRetryBudgetIsExhausted() {
+        var healthy = provider("healthy", "TEST", List.of("IMDB"));
+        var flaky = provider("flaky", "TEST", List.of("IMDB"));
+        when(repository.listEnabledProviders()).thenReturn(List.of(healthy, flaky));
+        when(runner.search(eq(healthy), any(), any())).thenReturn(
+                response(candidate("Example 2026 1080p WEB-DL", Map.of("titleSource", "CANDIDATE"))));
+        when(runner.search(eq(flaky), any(), any())).thenThrow(
+                new MagnetProviderRunnerException("GENERIC_MAGNET_HTTP_ERROR", null, 503));
+
+        var failure = assertThrows(MagnetSearchExecutionException.class,
+                () -> executor.execute(jobId, videoId, "AUTO_SCHEDULED", true));
+        assertTrue(failure.retryable());
+        verify(coordinator).retry(any(), eq("MAGNET_PROVIDER_RETRY_PENDING"));
+        verify(repository, never()).finishSearchJob(any(), anyList(), anyInt(), anyInt(), anyInt());
+
+        var result = executor.execute(jobId, videoId, "AUTO_SCHEDULED", false);
+
+        assertEquals("PARTIAL_SUCCESS", result.status());
+        assertEquals(1, result.acceptedCount());
+        assertEquals(2, ledger.stream().filter(run -> "FAILED".equals(run.status()) && "flaky".equals(run.providerCode())).count());
+        verify(repository).finishSearchJob(jobId, List.of("healthy", "flaky"), 1, 1, 1);
+        verify(runner).search(eq(healthy), any(), any());
+        verify(runner, times(2)).search(eq(flaky), any(), any());
+    }
+
+    @Test
+    void immediateAdminSearchKeepsItsTerminalProviderFailureContract() {
+        var healthy = provider("healthy", "TEST", List.of("IMDB"));
+        var denied = provider("denied", "TEST", List.of("IMDB"));
+        when(repository.listEnabledProviders()).thenReturn(List.of(healthy, denied));
+        when(runner.search(eq(healthy), any(), any())).thenReturn(
+                response(candidate("Example 2026 1080p WEB-DL", Map.of("titleSource", "CANDIDATE"))));
+        when(runner.search(eq(denied), any(), any())).thenThrow(
+                new MagnetProviderRunnerException("GENERIC_MAGNET_ACCESS_RESTRICTED", null, 403));
+
+        var failure = assertThrows(MagnetSearchExecutionException.class, () -> executor.searchNow(videoId, "ADMIN_MANUAL"));
+
+        assertFalse(failure.retryable());
+        assertEquals("MAGNET_PROVIDER_PERMANENT_FAILURE", failure.getMessage());
+        verify(repository).finishSearchJob(jobId, List.of("healthy", "denied"), 1, 1, 1);
+    }
+
+    @Test
     void lastAttemptPersistsFailureInsteadOfReopeningPending() {
         when(runner.search(any(), any(), any())).thenThrow(new MagnetProviderRunnerException("GENERIC_MAGNET_HTTP_ERROR", null, 503));
         assertFalse(assertThrows(MagnetSearchExecutionException.class,
@@ -169,11 +212,28 @@ class MagnetSearchExecutorTest {
     }
 
     @Test
-    void terminalFailureReplayCannotBeAcknowledgedAsSuccess() {
-        when(coordinator.claim(any(), any(), anyList(), any())).thenReturn(new MagnetSearchJobCoordinator.Claim(job("PARTIAL_SUCCESS", 2, 1), null, false));
+    void terminalFailureReplayWithoutAcceptedLinksCannotBeAcknowledgedAsSuccess() {
+        when(coordinator.claim(any(), any(), anyList(), any())).thenReturn(
+                new MagnetSearchJobCoordinator.Claim(job("PARTIAL_SUCCESS", 2, 0), null, false),
+                new MagnetSearchJobCoordinator.Claim(job("FAILED", 0, 0), null, false));
+        assertFalse(assertThrows(MagnetSearchExecutionException.class,
+                () -> executor.execute(jobId, videoId, "ADMIN_MANUAL", true)).retryable());
         assertFalse(assertThrows(MagnetSearchExecutionException.class,
                 () -> executor.execute(jobId, videoId, "ADMIN_MANUAL", true)).retryable());
         verifyNoInteractions(runner);
+    }
+
+    @Test
+    void queuedReplayAcknowledgesDeliveredPartialWithoutCallingProvidersAgain() {
+        var delivered = job("PARTIAL_SUCCESS", 2, 1);
+        when(coordinator.claim(any(), any(), anyList(), any()))
+                .thenReturn(new MagnetSearchJobCoordinator.Claim(delivered, null, false));
+
+        assertSame(delivered, executor.execute(jobId, videoId, "ADMIN_MANUAL", true));
+
+        verifyNoInteractions(runner);
+        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean());
+        verify(repository, never()).finishSearchJob(any(), anyList(), anyInt(), anyInt(), anyInt());
     }
 
     @Test

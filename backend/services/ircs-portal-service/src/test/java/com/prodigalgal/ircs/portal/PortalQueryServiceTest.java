@@ -3,6 +3,8 @@ package com.prodigalgal.ircs.portal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -24,6 +26,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -312,6 +318,53 @@ class PortalQueryServiceTest {
         assertEquals(Optional.of(detail), cachedService.getMovieDetail(principal, movieId));
 
         verify(portalRepository, times(2)).findMovieDetail(principal, movieId);
+    }
+
+    @Test
+    void simultaneousDetailReadsShareFailureAndAllowOtherKeysAndALaterRetry() throws Exception {
+        PortalQueryService cachedService = serviceWithCache();
+        UUID movieId = UUID.randomUUID();
+        UUID otherMovieId = UUID.randomUUID();
+        PortalMovieDetailResponse detail = sampleDetail(movieId);
+        PortalMovieDetailResponse otherDetail = sampleDetail(otherMovieId);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        IllegalStateException outage = new IllegalStateException("Database unavailable");
+        when(portalRepository.findMovieDetail(principal, movieId)).thenAnswer(invocation -> {
+            entered.countDown();
+            assertTrue(release.await(15, TimeUnit.SECONDS));
+            throw outage;
+        }).thenReturn(Optional.of(detail));
+        when(portalRepository.findMovieDetail(principal, otherMovieId)).thenReturn(Optional.of(otherDetail));
+
+        var first = new FutureTask<>(() -> cachedService.getMovieDetail(principal, movieId));
+        var follower = new FutureTask<>(() -> cachedService.getMovieDetail(principal, movieId));
+        Thread.startVirtualThread(first);
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            awaitCacheLoad(Thread.startVirtualThread(follower));
+
+            var differentKey = new FutureTask<>(() -> cachedService.getMovieDetail(principal, otherMovieId));
+            Thread.startVirtualThread(differentKey);
+            assertEquals(Optional.of(otherDetail), differentKey.get(5, TimeUnit.SECONDS));
+            verify(portalRepository).findMovieDetail(principal, movieId);
+        } finally {
+            release.countDown();
+        }
+
+        assertSame(outage, assertThrows(ExecutionException.class, () -> first.get(5, TimeUnit.SECONDS)).getCause());
+        assertSame(outage, assertThrows(ExecutionException.class, () -> follower.get(5, TimeUnit.SECONDS)).getCause());
+        assertEquals(Optional.of(detail), cachedService.getMovieDetail(principal, movieId));
+        assertEquals(Optional.of(detail), cachedService.getMovieDetail(principal, movieId));
+        verify(portalRepository, times(2)).findMovieDetail(principal, movieId);
+    }
+
+    private static void awaitCacheLoad(Thread follower) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (follower.isAlive() && follower.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+            Thread.sleep(Duration.ofMillis(1));
+        }
+        assertEquals(Thread.State.WAITING, follower.getState());
     }
 
     private PortalMovieCard sampleCard() {
