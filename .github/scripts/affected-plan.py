@@ -265,6 +265,9 @@ def plan_changes(changes: Sequence[str | Mapping[str, str]], before: Mapping[str
             if path.startswith((".github/", ".gitea/")) or "/.github/" in path or "/.gitea/" in path:
                 reason(path, "ci", "CI implementation or workflow; validate CI without rebuilding applications")
                 continue
+            if path.startswith("cloudflare-workers/"):
+                reason(path, "ci", "The portal edge Worker has its own validation and release")
+                continue
             if path.startswith(PYTHON_ROOT):
                 python_test = True
                 if not is_test(path) and not path.endswith("/requirements-test.txt"):

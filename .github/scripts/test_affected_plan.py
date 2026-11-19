@@ -183,6 +183,14 @@ class AffectedPlanTest(unittest.TestCase):
         self.assertFalse(result["runtime_smoke"])
         self.assertFalse(result["requires_promoted_baseline"])
 
+    def test_worker_changes_only_validate_the_edge_release(self):
+        result = self.plan("cloudflare-workers/worker.js", "cloudflare-workers/worker.test.mjs",
+                           "cloudflare-workers/wrangler.toml")
+        self.assert_no_builds(result)
+        self.assertTrue(result["ci_validation"])
+        self.assertFalse(result["runtime_smoke"])
+        self.assertFalse(result["requires_promoted_baseline"])
+
     def test_package_root_version_only_is_ignored(self):
         result = self.changed_content("frontends/admin/package.json",
                                       '{"version":"3.2.1","dependencies":{"react":"19.3.1"}}',

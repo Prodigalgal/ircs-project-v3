@@ -1,0 +1,8 @@
+name = "ircs-huawai-edge-cache"
+main = "worker.js"
+compatibility_date = "2026-06-26"
+account_id = "15d9992e9b3ec4916dfb2d1918156e5a"
+
+routes = [
+  { pattern = "huawai.mnnu.eu.org/*", zone_id = "4a254fc1b885dec1538a098e7229d60d" }
+]

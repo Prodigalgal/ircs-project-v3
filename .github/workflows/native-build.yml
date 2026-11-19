@@ -44,6 +44,13 @@ jobs:
           fetch-depth: 0
       - name: Verify release metadata
         run: python3 .github/scripts/check-version.py
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Validate the HuaWai edge Worker
+        run: |
+          node --check cloudflare-workers/worker.js
+          node --test cloudflare-workers/worker.test.mjs
       - name: CI planner and publishing-script regression
         run: |
           python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
