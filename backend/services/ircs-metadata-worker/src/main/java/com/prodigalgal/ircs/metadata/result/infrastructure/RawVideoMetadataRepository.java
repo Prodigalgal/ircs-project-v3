@@ -23,7 +23,7 @@ import org.springframework.stereotype.Repository;
 public class RawVideoMetadataRepository {
 
     public static final String SELECT_BY_ID = """
-            select id, douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
+            select id, title, douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                    description, score, year, alias_title, raw_metadata::text, locked_fields,
                    enrichment_status, enrichment_retry_count, aggregation_status, data_hash,
                    actor_names::text, director_names::text, area_codes::text, language_codes::text, genre_codes::text
@@ -227,7 +227,7 @@ public class RawVideoMetadataRepository {
                 rs.getString("data_hash"),
                 readSet(rs.getString("actor_names")), readSet(rs.getString("director_names")),
                 readSet(rs.getString("area_codes")), readSet(rs.getString("language_codes")),
-                readSet(rs.getString("genre_codes")));
+                readSet(rs.getString("genre_codes")), rs.getString("title"));
     }
 
     private Set<String> readSet(String json) {

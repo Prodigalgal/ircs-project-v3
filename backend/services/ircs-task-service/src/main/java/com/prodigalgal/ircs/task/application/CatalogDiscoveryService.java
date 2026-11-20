@@ -14,6 +14,9 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 @Slf4j
 public class CatalogDiscoveryService {
+    private static final long NO_SOURCE_DELAY_MINUTES = 25;
+    private static final int NO_SOURCE_JITTER_MINUTES = 5;
+
 
     private final CatalogDiscoveryRepository repository;
     private final TrendDiscoveryTaskService discovery;
@@ -31,16 +34,16 @@ public class CatalogDiscoveryService {
                     continue;
                 }
                 if (repository.isPausedByOperator(candidate)) {
-                    repository.retry(candidate, Duration.ofHours(6), "OPERATOR_PAUSED");
+                    repository.defer(candidate, Duration.ofHours(6), "OPERATOR_PAUSED");
                     continue;
                 }
                 if (repository.hasActiveTasks(candidate)) {
-                    repository.markSubmitted(candidate);
+                    repository.markSubmittedRecovered(candidate);
                     continue;
                 }
                 int capacity = config.maxActiveTasks() - repository.activeTaskCount(config.maxActiveTasks());
                 if (capacity <= 0) {
-                    repository.retry(candidate, Duration.ofMinutes(5), "COLLECTION_BACKPRESSURE");
+                    repository.defer(candidate, Duration.ofMinutes(5), "COLLECTION_BACKPRESSURE");
                     continue;
                 }
                 TrendDiscoveryScheduleResponse result = discovery.scheduleCatalog(candidate,
@@ -52,7 +55,7 @@ public class CatalogDiscoveryService {
                     repository.markSubmitted(candidate);
                 } else if (result.dataSourceCount() == 0) {
                     // A busy source or a source in cooldown can become eligible on the next pass.
-                    repository.retry(candidate, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
+                    repository.defer(candidate, noSourceDelay(candidate), "NO_ELIGIBLE_SOURCE");
                 } else {
                     repository.retry(candidate, retryDelay(candidate.attempts()), "DISCOVERY_NOT_ACCEPTED");
                 }
@@ -76,5 +79,10 @@ public class CatalogDiscoveryService {
     static Duration retryDelay(int attempts) {
         long minutes = Math.min(360, 5L << Math.min(7, Math.max(0, attempts - 1)));
         return Duration.ofMinutes(minutes);
+    }
+
+    static Duration noSourceDelay(CatalogDiscoveryCandidate candidate) {
+        int jitterMinutes = Math.floorMod(candidate.requestKey().hashCode(), NO_SOURCE_JITTER_MINUTES + 1);
+        return Duration.ofMinutes(NO_SOURCE_DELAY_MINUTES + jitterMinutes);
     }
 }

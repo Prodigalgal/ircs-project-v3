@@ -31,6 +31,7 @@ public class RawVideoMetadataRecord {
     private Set<String> areaCodes;
     private Set<String> languageCodes;
     private Set<String> genreCodes;
+    private String title;
 
     public RawVideoMetadataRecord(UUID id, String doubanId, String tmdbId, String imdbId,
             String rottenTomatoesId, String description, BigDecimal score, String year, String aliasTitle,
@@ -38,7 +39,7 @@ public class RawVideoMetadataRecord {
             String aggregationStatus, String dataHash) {
         this(id, doubanId, tmdbId, imdbId, rottenTomatoesId, description, score, year, aliasTitle,
                 rawMetadata, lockedFields, enrichmentStatus, enrichmentRetryCount, aggregationStatus, dataHash,
-                Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
+                Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), null);
     }
 
     public boolean isFieldLocked(String fieldName) {

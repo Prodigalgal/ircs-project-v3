@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,6 +32,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -60,6 +63,14 @@ class MetadataResultCollectorServiceTest {
 
     @Mock
     private MetadataConfigValues configValues;
+
+    @BeforeEach
+    void pendingDurableAttempt() {
+        lenient().when(pipelineRunRepository.lockPendingProviderAttempt(any(), any(), any(), anyInt()))
+                .thenReturn(true);
+        lenient().when(pipelineRunRepository.findCompletionForUpdate(any(), any()))
+                .thenReturn(Optional.of(ProviderCompletion.tracked(false, 1, 0, 0, 0, 0, 0)));
+    }
 
     @Test
     void appliesSuccessfulMetadataAndPublishesSearchSync() {
@@ -318,6 +329,7 @@ class MetadataResultCollectorServiceTest {
         assertEquals("PENDING", result.enrichmentStatus());
         assertEquals("104", record.getValue().getTmdbId());
         assertEquals("PENDING", record.getValue().getEnrichmentStatus());
+        assertEquals("PENDING", record.getValue().getAggregationStatus());
         assertTrue(record.getValue().getRawMetadata().contains("动作"));
         verify(searchSyncPublisher, never()).publishIndex(id);
     }
@@ -326,10 +338,11 @@ class MetadataResultCollectorServiceTest {
     void untrackedProviderResultDoesNotFinalizeOrSaveMetadata() {
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.of(record(id)));
+        when(pipelineRunRepository.findCompletionForUpdate(id, "hash-v1")).thenReturn(Optional.empty());
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
         metadata.setTmdbId("105");
 
-        MetadataResultProcessingResult result = newService(ProviderCompletion.untracked()).process(EnrichmentResultMsg.builder()
+        MetadataResultProcessingResult result = newService().process(EnrichmentResultMsg.builder()
                 .videoId(id)
                 .pipelineVersion("hash-v1")
                 .providerType(ProviderType.TMDB)
@@ -374,7 +387,8 @@ class MetadataResultCollectorServiceTest {
         when(repository.findById(id)).thenReturn(Optional.of(record(id)));
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
         metadata.setTmdbId("107");
-        MetadataResultCollectorService service = newService(ProviderCompletion.tracked(false, 1, 0, 0, 0, 0, 0));
+        when(pipelineRunRepository.lockPendingProviderAttempt(id, "hash-v1", ProviderType.TMDB, 0)).thenReturn(false);
+        MetadataResultCollectorService service = newService();
 
         service.process(EnrichmentResultMsg.builder().videoId(id).pipelineVersion("hash-v1")
                 .providerType(ProviderType.TMDB).success(true).metadata(metadata).build(), 0);
@@ -382,6 +396,8 @@ class MetadataResultCollectorServiceTest {
         verify(repository, never()).save(any());
         verify(repository, never()).findByIdForUpdate(id);
         verify(searchSyncPublisher, never()).publishIndex(id);
+        verify(pipelineRunRepository, never()).completeProvider(any(), any(), any(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt());
         verify(pipelineRunRepository, never()).markRunFinished(any(), any(), any());
     }
 
@@ -470,9 +486,11 @@ class MetadataResultCollectorServiceTest {
         assertEquals(0, objectMapper.readTree(merged.getRawMetadata()).path("sourcePayload").path("doubanId").asInt());
         var order = org.mockito.Mockito.inOrder(repository, pipelineRunRepository);
         order.verify(repository).findById(id);
+        order.verify(pipelineRunRepository).lockPendingProviderAttempt(id, "hash-v1", ProviderType.TMDB, 0);
+        order.verify(pipelineRunRepository).findCompletionForUpdate(id, "hash-v1");
+        order.verify(repository).findByIdForUpdate(id);
         order.verify(pipelineRunRepository).completeProvider(eq(id), eq("hash-v1"), eq(ProviderType.TMDB),
                 eq(true), eq(false), any(), any(), eq(0));
-        order.verify(repository).findByIdForUpdate(id);
         order.verify(repository).save(firstCurrent);
     }
 
@@ -486,13 +504,60 @@ class MetadataResultCollectorServiceTest {
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
         metadata.setTmdbId("101");
 
-        var result = newService(completedSuccess()).process(message(id, ProviderType.TMDB, metadata), 0);
+        var result = newService().process(message(id, ProviderType.TMDB, metadata), 0);
 
         assertEquals("STALE", result.enrichmentStatus());
         verify(repository, never()).save(any());
+        verify(pipelineRunRepository, never()).completeProvider(any(), any(), any(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt());
         verify(pipelineRunRepository, never()).markRunFinished(any(), any(), any());
         verify(searchSyncPublisher, never()).publishIndex(any());
         verify(aggregationWorkPublisher, never()).enqueue(any(), any(), any());
+    }
+
+    @Test
+    void checksCrossProviderIdentityAgainstTheRowLockedAfterAnEarlierProviderWrite() {
+        UUID id = UUID.randomUUID();
+        RawVideoMetadataRecord current = record(id);
+        current.setImdbId("tt47657141");
+        current.setDescription("Source description");
+        when(repository.findById(id)).thenReturn(Optional.of(record(id)));
+        when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(current));
+        when(repository.save(any())).thenReturn(1);
+        EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
+        metadata.setTmdbId("293607");
+        metadata.setImdbId("tt39201866");
+        metadata.setDescription("Different work");
+
+        newService(ProviderCompletion.tracked(true, 2, 2, 1, 1, 0, 1))
+                .process(message(id, ProviderType.TMDB, metadata), 0);
+
+        assertNull(current.getTmdbId());
+        assertEquals("tt47657141", current.getImdbId());
+        assertEquals("Source description", current.getDescription());
+        verify(pipelineRunRepository).completeProvider(eq(id), eq("hash-v1"), eq(ProviderType.TMDB),
+                eq(false), eq(false), eq("PROVIDER_ID_CONFLICT"), any(), eq(0));
+    }
+
+    @Test
+    void acceptsShortTitleWhenCreditsUseDifferentWritingSystems() {
+        UUID id = UUID.randomUUID();
+        RawVideoMetadataRecord current = record(id);
+        current.setTitle("谎言");
+        current.setActorNames(Set.of("柳演锡", "徐玄振"));
+        when(repository.findById(id)).thenReturn(Optional.of(current));
+        when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(current));
+        when(repository.save(any())).thenReturn(1);
+        EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
+        metadata.setTmdbId("307478");
+        metadata.setActorNames(Set.of("Yoo Yeon-seok", "Seo Hyun-jin"));
+
+        var result = newService(completedSuccess()).process(message(id, ProviderType.TMDB, metadata), 0);
+
+        assertEquals("SUCCESS", result.enrichmentStatus());
+        assertEquals("307478", current.getTmdbId());
+        verify(pipelineRunRepository).completeProvider(eq(id), eq("hash-v1"), eq(ProviderType.TMDB),
+                eq(true), eq(false), eq(null), eq(null), eq(0));
     }
 
     @Test
@@ -541,7 +606,7 @@ class MetadataResultCollectorServiceTest {
         metadata.setArea("美国");
         metadata.setLanguage("英语");
 
-        newService(completedSuccess()).process(message(id, ProviderType.TMDB, metadata), 0);
+        newService(completedPermanentFailure()).process(message(id, ProviderType.TMDB, metadata), 0);
 
         assertEquals("123", existing.getDoubanId());
         assertEquals("456", existing.getTmdbId());
@@ -549,6 +614,8 @@ class MetadataResultCollectorServiceTest {
         assertEquals("manual_slug", existing.getRottenTomatoesId());
         assertEquals("人工别名", existing.getAliasTitle());
         assertEquals(before, objectMapper.readTree(existing.getRawMetadata()));
+        verify(pipelineRunRepository).completeProvider(eq(id), eq("hash-v1"), eq(ProviderType.TMDB),
+                eq(false), eq(false), eq("PROVIDER_ID_CONFLICT"), any(), eq(0));
     }
 
     @Test

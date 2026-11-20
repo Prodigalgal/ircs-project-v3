@@ -59,7 +59,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         scoped.setConnectionProperties(properties);
         jdbc = new JdbcTemplate(scoped);
         jdbc.execute("""
-                create table raw_videos(id uuid primary key, douban_id text, tmdb_id text, imdb_id text,
+                create table raw_videos(id uuid primary key, title text, douban_id text, tmdb_id text, imdb_id text,
                     rotten_tomatoes_id text, description text default 'preserved description', score numeric,
                     year text, alias_title text, raw_metadata jsonb default '{}', locked_fields jsonb default '[]',
                     enrichment_status text default 'PENDING', enrichment_retry_count integer default 2,
@@ -204,6 +204,42 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         assertThat(jdbc.queryForObject("select description from raw_videos where id=?", String.class, id)).isEqualTo("preserved description");
         assertThat(jdbc.queryForObject("select actor_names::text from raw_videos where id=?", String.class, id)).isEqualTo("[]");
         assertThat(jdbc.queryForObject("select raw_metadata->'sourcePayload'->'tmdbId' from raw_videos where id=?", String.class, id)).isEqualTo("0");
+    }
+
+    @Test
+    void disjointSameScriptCastRejectsShortTitleCandidateDurablyAndKeepsSourceData() {
+        UUID id = raw("hash-v1", null);
+        jdbc.update("""
+                update raw_videos set title='谎言',
+                    actor_names='["柳演锡","徐玄振","玉子妍"]'
+                where id=?
+                """, id);
+        prepare(id, ProviderType.TMDB);
+        EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
+        metadata.setTmdbId("293607");
+        metadata.setImdbId("tt39201866");
+        metadata.setActorNames(java.util.Set.of("金裕贞", "朴珍荣", "金贤珠"));
+        metadata.setDescription("Different work");
+        EnrichmentResultMsg result = EnrichmentResultMsg.builder().videoId(id).pipelineVersion("hash-v1")
+                .providerType(ProviderType.TMDB).success(true).metadata(metadata).build();
+
+        assertThat(collector.process(result, 0).enrichmentStatus()).isEqualTo("PERMANENT_FAILURE");
+        assertThat(collector.process(result, 0).enrichmentStatus()).isEqualTo("PERMANENT_FAILURE");
+
+        assertThat(jdbc.queryForMap("""
+                select status, error_code, retryable, attempt_count
+                from raw_video_enrichment_provider_runs where raw_video_id=?
+                """, id)).containsEntry("status", "PERMANENT_FAILURE")
+                .containsEntry("error_code", "PROVIDER_CAST_CONFLICT")
+                .containsEntry("retryable", false).containsEntry("attempt_count", 1);
+        assertThat(pipeline(id)).containsEntry("success_count", 0)
+                .containsEntry("permanent_failure_count", 1).containsEntry("completed_count", 1);
+        assertThat(jdbc.queryForMap("select tmdb_id,imdb_id,description,actor_names::text from raw_videos where id=?", id))
+                .containsEntry("tmdb_id", null).containsEntry("imdb_id", null)
+                .containsEntry("description", "preserved description")
+                .containsEntry("actor_names", "[\"柳演锡\", \"徐玄振\", \"玉子妍\"]");
+        verify(search, times(1)).publishIndex(id);
+        verify(aggregation, times(1)).enqueue(id, "hash-v1", "metadata-finalized");
     }
 
     @Test

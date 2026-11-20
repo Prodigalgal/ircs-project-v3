@@ -59,8 +59,8 @@ public class CatalogDiscoveryRepository {
                            WHEN o.fulfilled THEN now()
                            WHEN o.paused THEN now() + interval '6 hours'
                            WHEN o.active OR o.settling THEN now() + interval '2 minutes'
-                           WHEN o.completed THEN now() + make_interval(mins => least(360, 15 * greatest(1, o.attempts)))
-                           ELSE now() + interval '5 minutes'
+                           ELSE now() + make_interval(mins => least(360,
+                               5 * (1 << least(7, greatest(0, o.attempts - 1)))))
                        END,
                        last_error = CASE
                            WHEN o.fulfilled THEN NULL
@@ -85,14 +85,16 @@ public class CatalogDiscoveryRepository {
                       FROM catalog_discovery_requests r
                       JOIN unified_videos uv ON uv.id = r.unified_video_id
                      WHERE ((r.status IN ('PENDING', 'RETRY') AND r.next_attempt_at <= now())
-                         OR (r.status = 'RETRY' AND r.last_error = 'NO_ELIGIBLE_SOURCE'
-                             AND r.updated_at <= now() - interval '5 minutes')
                          OR (r.status = 'DISPATCHING' AND r.lease_until <= now()))
                        AND coalesce(uv.adult_restricted, false) = false
                        AND coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) = false
                        AND upper(coalesce(uv.adult_assessment ->> 'level', 'SAFE')) <> 'ADULT'
                        AND uv.content_visibility = 'PUBLIC'
-                     ORDER BY r.priority DESC, r.next_attempt_at, r.unified_video_id,
+                     ORDER BY r.priority + least(100000,
+                                  floor(extract(epoch FROM (now() - CASE
+                                      WHEN r.status = 'DISPATCHING' THEN r.lease_until
+                                      ELSE r.next_attempt_at END)) / 1800)) DESC,
+                              r.next_attempt_at, r.unified_video_id,
                               r.target_season, r.target_episode
                      LIMIT :limit
                      FOR UPDATE OF r SKIP LOCKED
@@ -123,33 +125,50 @@ public class CatalogDiscoveryRepository {
     }
 
     public boolean markSubmitted(CatalogDiscoveryCandidate candidate) {
-        return acknowledge(candidate, false);
+        return acknowledge(candidate, false, false);
     }
 
     public boolean markFulfilled(CatalogDiscoveryCandidate candidate) {
-        return acknowledge(candidate, true);
+        return acknowledge(candidate, true, true);
     }
 
-    private boolean acknowledge(CatalogDiscoveryCandidate candidate, boolean fulfilled) {
+    public boolean markSubmittedRecovered(CatalogDiscoveryCandidate candidate) {
+        return acknowledge(candidate, false, true);
+    }
+
+    private boolean acknowledge(CatalogDiscoveryCandidate candidate, boolean fulfilled, boolean releaseAttempt) {
         return jdbc.update("""
                 UPDATE catalog_discovery_requests
                    SET status = 'SUBMITTED', submitted_at = now(), updated_at = now(),
+                       attempts = CASE WHEN :releaseAttempt THEN greatest(0, attempts - 1) ELSE attempts END,
                        fulfilled_at = CASE WHEN :fulfilled THEN now() END,
                        next_attempt_at = now() + interval '5 minutes',
                        lease_token = NULL, lease_until = NULL, last_error = NULL
                  WHERE
-                """ + OWNED_REQUEST, params(candidate).addValue("fulfilled", fulfilled)) == 1;
+                """ + OWNED_REQUEST, params(candidate)
+                .addValue("fulfilled", fulfilled)
+                .addValue("releaseAttempt", releaseAttempt)) == 1;
+    }
+
+    public boolean defer(CatalogDiscoveryCandidate candidate, Duration delay, String errorCode) {
+        return retry(candidate, delay, errorCode, true);
     }
 
     public boolean retry(CatalogDiscoveryCandidate candidate, Duration delay, String errorCode) {
+        return retry(candidate, delay, errorCode, false);
+    }
+
+    private boolean retry(CatalogDiscoveryCandidate candidate, Duration delay, String errorCode, boolean releaseAttempt) {
         return jdbc.update("""
                 UPDATE catalog_discovery_requests
                    SET status = 'RETRY', next_attempt_at = now() + (:delaySeconds * interval '1 second'),
+                       attempts = CASE WHEN :releaseAttempt THEN greatest(0, attempts - 1) ELSE attempts END,
                        updated_at = now(), lease_token = NULL, lease_until = NULL, last_error = :errorCode
                  WHERE
                 """ + OWNED_REQUEST, params(candidate)
                 .addValue("delaySeconds", Math.max(60, delay.toSeconds()))
-                .addValue("errorCode", errorCode)) == 1;
+                .addValue("errorCode", errorCode)
+                .addValue("releaseAttempt", releaseAttempt)) == 1;
     }
 
     public int activeTaskCount(int limit) {

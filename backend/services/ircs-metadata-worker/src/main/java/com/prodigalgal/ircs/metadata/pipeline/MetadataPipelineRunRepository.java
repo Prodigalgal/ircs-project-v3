@@ -121,12 +121,24 @@ public class MetadataPipelineRunRepository {
     }
 
     public Optional<Integer> findPendingProviderAttempt(UUID rawVideoId, String pipelineVersion, ProviderType providerType) {
+        return findPendingProviderAttempt(rawVideoId, pipelineVersion, providerType, false);
+    }
+
+    public boolean lockPendingProviderAttempt(
+            UUID rawVideoId, String pipelineVersion, ProviderType providerType, int expectedAttempt) {
+        return providerType != null && findPendingProviderAttempt(rawVideoId, pipelineVersion, providerType, true)
+                .filter(attempt -> attempt == expectedAttempt)
+                .isPresent();
+    }
+
+    private Optional<Integer> findPendingProviderAttempt(
+            UUID rawVideoId, String pipelineVersion, ProviderType providerType, boolean forUpdate) {
         return jdbcTemplate.queryForList(
                 """
                 select attempt_count from raw_video_enrichment_provider_runs
                 where raw_video_id = :rawVideoId and pipeline_version = :pipelineVersion
                   and provider_type = :providerType and status = 'PENDING'
-                """,
+                """ + (forUpdate ? "\nfor update" : ""),
                 new MapSqlParameterSource()
                         .addValue("rawVideoId", rawVideoId)
                         .addValue("pipelineVersion", normalizeVersion(pipelineVersion))

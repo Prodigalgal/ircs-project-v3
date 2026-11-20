@@ -42,7 +42,7 @@ class RawVideoMetadataProjectionIntegrationTest {
         transaction = new TransactionTemplate(new DataSourceTransactionManager(scoped));
         jdbc.execute("""
                 create table raw_videos(
-                    id uuid primary key,douban_id text,tmdb_id text,imdb_id text,rotten_tomatoes_id text,
+                    id uuid primary key,title text,douban_id text,tmdb_id text,imdb_id text,rotten_tomatoes_id text,
                     description text,score numeric,year text,alias_title text,raw_metadata jsonb,
                     locked_fields jsonb default '[]',enrichment_status text default 'PENDING',
                     enrichment_retry_count integer default 0,aggregation_status text default 'BOUND',

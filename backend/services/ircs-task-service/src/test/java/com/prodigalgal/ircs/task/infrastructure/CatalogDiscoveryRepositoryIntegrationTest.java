@@ -88,14 +88,16 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         assertThat(current.attempts()).isEqualTo(2);
         assertThat(requests.renew(expired, LEASE)).isFalse();
         assertThat(requests.markSubmitted(expired)).isFalse();
+        assertThat(requests.markSubmittedRecovered(expired)).isFalse();
         assertThat(requests.markFulfilled(expired)).isFalse();
         assertThat(requests.retry(expired, Duration.ofHours(6), "STALE")).isFalse();
+        assertThat(requests.defer(expired, Duration.ofHours(6), "STALE")).isFalse();
         assertThat(requests.markSubmitted(current)).isTrue();
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
     }
 
     @Test
-    void retryRetainsRequestAndCannotBeReclaimedBeforeItsBackoff() {
+    void realRetryRetainsRequestAndCannotBeReclaimedBeforeItsBackoff() {
         insertRequest();
         CatalogDiscoveryCandidate current = requests.claimDue(1, LEASE).getFirst();
 
@@ -108,15 +110,48 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     }
 
     @Test
-    void overdueSourceAvailabilityChecksRecoverBackoffsCreatedBeforeUpgrade() {
+    void pureDeferralDoesNotBurnAttemptsAndOldUpdatedAtCannotBypassNextAttempt() {
         insertRequest();
         CatalogDiscoveryCandidate current = requests.claimDue(1, LEASE).getFirst();
-        assertThat(requests.retry(current, Duration.ofHours(6), "NO_ELIGIBLE_SOURCE")).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isEqualTo(1);
+        assertThat(requests.defer(current, Duration.ofMinutes(27), "NO_ELIGIBLE_SOURCE")).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
 
-        jdbc.update("update catalog_discovery_requests set updated_at = now() - interval '6 minutes'");
+        jdbc.update("update catalog_discovery_requests set updated_at = now() - interval '6 hours'");
+        assertThat(requests.claimDue(1, LEASE)).isEmpty();
 
-        assertThat(requests.claimDue(1, LEASE)).hasSize(1);
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '1 second'");
+        CatalogDiscoveryCandidate due = requests.claimDue(1, LEASE).getFirst();
+        assertThat(due.attempts()).isEqualTo(1);
+    }
+
+    @Test
+    void recoveredAcknowledgementAndAlreadyFulfilledRequestReleaseTheClaimAttempt() {
+        insertRequest();
+        CatalogDiscoveryCandidate recovered = requests.claimDue(1, LEASE).getFirst();
+        assertThat(requests.markSubmittedRecovered(recovered)).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
+
+        jdbc.update("update catalog_discovery_requests set status = 'PENDING', next_attempt_at = now(), "
+                + "lease_token = null, lease_until = null");
+        CatalogDiscoveryCandidate fulfilled = requests.claimDue(1, LEASE).getFirst();
+        assertThat(requests.markFulfilled(fulfilled)).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
+    }
+
+    @Test
+    void longOverdueLowPriorityRequestEventuallyRanksAheadOfFreshHighPriorityWork() {
+        UUID overdueId = UUID.randomUUID();
+        UUID freshId = UUID.randomUUID();
+        jdbc.update("insert into unified_videos(id, season) values (?, 2), (?, 2)", overdueId, freshId);
+        jdbc.update("insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword, priority) "
+                        + "values (?, 2, 12, 'Overdue', 0), (?, 2, 12, 'Fresh', 10)", overdueId, freshId);
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '72 hours' "
+                + "where unified_video_id = ?", overdueId);
+
+        assertThat(requests.claimDue(1, LEASE)).extracting(CatalogDiscoveryCandidate::unifiedVideoId)
+                .containsExactly(overdueId);
     }
 
     @Test

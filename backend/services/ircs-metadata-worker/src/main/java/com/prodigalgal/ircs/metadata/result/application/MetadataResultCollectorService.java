@@ -7,12 +7,12 @@ import tools.jackson.databind.node.ObjectNode;
 import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.EnrichmentResultMsg;
-import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.ProviderCompletion;
+import com.prodigalgal.ircs.metadata.result.domain.MetadataResultEvidence;
 import com.prodigalgal.ircs.metadata.result.domain.RawVideoMetadataRecord;
 import com.prodigalgal.ircs.metadata.result.dto.MetadataResultProcessingResult;
 import com.prodigalgal.ircs.metadata.result.infrastructure.RawVideoMetadataRepository;
@@ -61,7 +61,7 @@ public class MetadataResultCollectorService {
         if (!"PENDING".equals(record.getEnrichmentStatus())) {
             return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
         }
-        finalizeVideoStatus(record, completion, false);
+        finalizeVideoStatus(record, completion);
         if (repository.updateEnrichmentStatusIfPending(videoId, record.getDataHash(), record.getEnrichmentStatus(),
                 record.getEnrichmentRetryCount()) != 1) {
             return new MetadataResultProcessingResult(videoId, true, "STALE");
@@ -72,7 +72,7 @@ public class MetadataResultCollectorService {
         return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
     }
 
-    @Transactional
+    @Transactional(timeout = 30)
     public MetadataResultProcessingResult process(EnrichmentResultMsg message, int expectedAttempt) {
         if (expectedAttempt < 0) {
             throw new IllegalArgumentException("provider attempt is required");
@@ -94,16 +94,37 @@ public class MetadataResultCollectorService {
             return new MetadataResultProcessingResult(record.getId(), true, "STALE");
         }
 
-        boolean validResult = message.isSuccess() && validProviderIdentity(message.getProviderType(), message.getMetadata());
-        boolean invalidSuccess = message.isSuccess() && !validResult;
+        // Keep the provider -> pipeline -> raw lock order used by checkpoint completion.
+        // Assess identity on the locked row before committing the provider outcome.
+        if (!pipelineRunRepository.lockPendingProviderAttempt(record.getId(), record.getDataHash(),
+                message.getProviderType(), expectedAttempt)) {
+            return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
+        }
+        if (pipelineRunRepository.findCompletionForUpdate(record.getId(), record.getDataHash()).isEmpty()) {
+            log.warn("Metadata result has no durable pipeline run: videoId={}, provider={}, pipelineVersion={}",
+                    record.getId(), message.getProviderType(), record.getDataHash());
+            return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
+        }
+        Optional<RawVideoMetadataRecord> locked = repository.findByIdForUpdate(record.getId());
+        if (locked.isEmpty()) {
+            return new MetadataResultProcessingResult(record.getId(), false, null);
+        }
+        record = locked.orElseThrow();
+        if (isStale(message.getPipelineVersion(), record.getDataHash())) {
+            return new MetadataResultProcessingResult(record.getId(), true, "STALE");
+        }
+        MetadataResultEvidence.Rejection rejection = message.isSuccess()
+                ? MetadataResultEvidence.assess(record, message.getProviderType(), message.getMetadata())
+                : null;
+        boolean validResult = message.isSuccess() && rejection == null;
         ProviderCompletion completion = pipelineRunRepository.completeProvider(
                 record.getId(),
                 record.getDataHash(),
                 message.getProviderType(),
                 validResult,
-                !invalidSuccess && message.isRetryable(),
-                invalidSuccess ? "INVALID_PROVIDER_ID" : message.getErrorCode(),
-                invalidSuccess ? "Provider result did not contain a usable provider identifier" : message.getErrorMessage(),
+                !message.isSuccess() && message.isRetryable(),
+                rejection == null ? message.getErrorCode() : rejection.name(),
+                rejection == null ? message.getErrorMessage() : rejection.reason(),
                 expectedAttempt);
         if (!completion.tracked()) {
             log.warn(
@@ -116,24 +137,23 @@ public class MetadataResultCollectorService {
         if (!completion.newlyCompleted()) {
             return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
         }
-        // completeProvider holds the pipeline lock. Match reconciliation's pipeline -> raw lock order,
-        // then re-read so another provider result or a new scrape cannot be overwritten by our snapshot.
-        Optional<RawVideoMetadataRecord> locked = repository.findByIdForUpdate(record.getId());
-        if (locked.isEmpty()) {
-            return new MetadataResultProcessingResult(record.getId(), false, null);
+        if (rejection != null) {
+            log.info("Rejected metadata result: videoId={}, provider={}, code={}",
+                    record.getId(), message.getProviderType(), rejection.name());
         }
-        record = locked.orElseThrow();
-        if (isStale(message.getPipelineVersion(), record.getDataHash())) {
-            return new MetadataResultProcessingResult(record.getId(), true, "STALE");
+        if (!validResult && !completion.allCompleted()) {
+            return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
         }
         normalizeIdentifiers(record);
-        boolean metadataUpdated = validResult && applyMetadata(record, message.getMetadata());
+        if (validResult && applyMetadata(record, message.getMetadata())) {
+            record.setAggregationStatus("PENDING");
+        }
         if (!completion.allCompleted()) {
             saveCurrent(record);
             return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
         }
 
-        finalizeVideoStatus(record, completion, metadataUpdated);
+        finalizeVideoStatus(record, completion);
         saveCurrent(record);
         pipelineRunRepository.markRunFinished(record.getId(), record.getDataHash(), record.getEnrichmentStatus());
         searchSyncPublisher.publishIndex(record.getId());
@@ -147,18 +167,6 @@ public class MetadataResultCollectorService {
         if (repository.save(record) != 1) {
             throw new IllegalStateException("Metadata input changed before projection was saved: " + record.getId());
         }
-    }
-
-    private boolean validProviderIdentity(ProviderType provider, EnrichedMetadataDTO metadata) {
-        if (provider == null || metadata == null) {
-            return false;
-        }
-        return switch (provider) {
-            case DOUBAN -> AuthoritativeIds.normalizeDouban(metadata.getDoubanId()) != null;
-            case TMDB -> AuthoritativeIds.normalizeTmdb(metadata.getTmdbId()) != null;
-            case ROTTEN_TOMATOES -> AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()) != null;
-            default -> false;
-        };
     }
 
     private void normalizeIdentifiers(RawVideoMetadataRecord record) {
@@ -361,14 +369,10 @@ public class MetadataResultCollectorService {
 
     private void finalizeVideoStatus(
             RawVideoMetadataRecord record,
-            ProviderCompletion completion,
-            boolean metadataUpdated) {
+            ProviderCompletion completion) {
         if (record.hasAuthoritativeId()) {
             record.setEnrichmentStatus("SUCCESS");
             record.setEnrichmentRetryCount(0);
-            if (metadataUpdated) {
-                record.setAggregationStatus("PENDING");
-            }
             return;
         }
 

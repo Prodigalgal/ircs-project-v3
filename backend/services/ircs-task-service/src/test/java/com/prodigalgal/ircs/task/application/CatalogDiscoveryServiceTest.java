@@ -58,7 +58,7 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).markSubmitted(candidate);
+        verify(repository).markSubmittedRecovered(candidate);
         verifyNoInteractions(discovery);
     }
 
@@ -78,7 +78,7 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).retry(candidate, Duration.ofHours(6), "OPERATOR_PAUSED");
+        verify(repository).defer(candidate, Duration.ofHours(6), "OPERATOR_PAUSED");
         verifyNoInteractions(discovery);
     }
 
@@ -88,7 +88,7 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).retry(candidate, Duration.ofMinutes(5), "COLLECTION_BACKPRESSURE");
+        verify(repository).defer(candidate, Duration.ofMinutes(5), "COLLECTION_BACKPRESSURE");
         verify(repository, never()).markSubmitted(any());
         verifyNoInteractions(discovery);
     }
@@ -105,7 +105,7 @@ class CatalogDiscoveryServiceTest {
     }
 
     @Test
-    void unavailableSourcesAreRecheckedPromptlyEvenAfterManyAttempts() {
+    void unavailableSourcesAreSpreadAcrossTheFirstHalfHourWithoutBurningAttempts() {
         CatalogDiscoveryCandidate delayed = new CatalogDiscoveryCandidate(
                 candidate.unifiedVideoId(), 2, 12, "Example", 37, candidate.leaseToken());
         when(repository.claimDue(5, LEASE)).thenReturn(List.of(delayed));
@@ -115,7 +115,11 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).retry(delayed, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
+        Duration delay = CatalogDiscoveryService.noSourceDelay(delayed);
+        assertThat(delay).isBetween(Duration.ofMinutes(25), Duration.ofMinutes(30));
+        assertThat(CatalogDiscoveryService.noSourceDelay(delayed)).isEqualTo(delay);
+        verify(repository).defer(delayed, delay, "NO_ELIGIBLE_SOURCE");
+        verify(repository, never()).retry(any(), any(), any());
         verify(repository, never()).markSubmitted(any());
     }
 
