@@ -231,7 +231,7 @@ public class RawVideoMetadataRepository {
     }
 
     private Set<String> readSet(String json) {
-        return json == null ? Set.of() : objectMapper.readValue(json, new TypeReference<Set<String>>() {});
+        return json == null ? Set.of() : objectMapper.readValue(json, new TypeReference<LinkedHashSet<String>>() {});
     }
 
     private Set<String> readLockedFields(String json) {
