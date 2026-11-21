@@ -218,15 +218,15 @@ public class JdbcAggregationRepository {
         // Read one extra link so callers can distinguish a complete view from the review limit.
         // Bound the indexed association lookup before loading the narrow identity projection.
         return jdbcTemplate.query("""
-                with members as materialized (
+                select rv.id, rv.title, rv.alias_title, rv.subtitle, rv.remarks, rv.year,
+                       rv.season, rv.category_code, rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
+                from (
                     select raw_video_id
                     from raw_video_unified_video
                     where unified_video_id in (:ids)
                     limit :limit
-                )
-                select rv.id, rv.title, rv.alias_title, rv.subtitle, rv.remarks, rv.year,
-                       rv.season, rv.category_code, rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
-                from members join raw_videos rv on rv.id = members.raw_video_id
+                ) members
+                join raw_videos rv on rv.id = members.raw_video_id
                 order by rv.created_at asc, rv.id asc
                 """, new MapSqlParameterSource("ids", unifiedVideoIds)
                         .addValue("limit", AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1),

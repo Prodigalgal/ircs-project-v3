@@ -913,7 +913,7 @@ class JdbcAggregationRepositoryTest {
         UUID second = UUID.randomUUID();
         UUID third = UUID.randomUUID();
         seedScalarUnlockedFixture(jdbc, unifiedId, first, second, third);
-        jdbc.update("update unified_videos set douban_id = '0', tmdb_id = 'unknown', imdb_id = 'tt0000000', rotten_tomatoes_id = '-', locked_fields = '[\"doubanId\"]' where id = ?", unifiedId);
+        jdbc.update("update unified_videos set year = '2026', douban_id = '0', tmdb_id = 'unknown', imdb_id = 'tt0000000', rotten_tomatoes_id = '-', locked_fields = '[\"doubanId\"]' where id = ?", unifiedId);
         jdbc.update("update raw_videos set tmdb_id = 'tmdb-invalid', imdb_id = '1.0', rotten_tomatoes_id = 'https://invalid.example/' where id = ?", first);
         jdbc.update("update raw_videos set tmdb_id = '00070002', imdb_id = 'TT0133093', rotten_tomatoes_id = '  second_valid  ' where id = ?", second);
         JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(
@@ -937,7 +937,7 @@ class JdbcAggregationRepositoryTest {
         createPipelineSchema(jdbc);
         UUID unifiedId = UUID.randomUUID();
         seedScalarUnlockedFixture(jdbc, unifiedId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
-        jdbc.update("update unified_videos set douban_id = '', tmdb_id = '', imdb_id = '', rotten_tomatoes_id = '' where id = ?", unifiedId);
+        jdbc.update("update unified_videos set year = '2026', douban_id = '', tmdb_id = '', imdb_id = '', rotten_tomatoes_id = '' where id = ?", unifiedId);
         NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource) {
             private boolean edited;
 
@@ -1743,14 +1743,14 @@ class JdbcAggregationRepositoryTest {
                 "2026",
                 new BigDecimal("9.5"),
                 LocalDate.of(2025, 2, 1),
-                "35000002",
-                "70002",
+                "35000999",
+                "70001",
                 "tt0133093",
                 null,
                 "24",
                 "60m",
                 "latest remarks",
-                3,
+                2,
                 "longest subtitle value",
                 LocalDateTime.of(2026, 1, 2, 0, 0),
                 LocalDateTime.of(2026, 1, 4, 1, 0));
@@ -1765,13 +1765,13 @@ class JdbcAggregationRepositoryTest {
                 new BigDecimal("7.0"),
                 LocalDate.of(2025, 3, 1),
                 null,
-                "70003",
-                "tt0133094",
-                "rt-third-valid",
+                null,
+                null,
+                null,
                 "36",
                 "90m",
                 "middle remarks",
-                4,
+                null,
                 "subtitle",
                 LocalDateTime.of(2026, 1, 3, 0, 0),
                 LocalDateTime.of(2026, 1, 3, 1, 0));
