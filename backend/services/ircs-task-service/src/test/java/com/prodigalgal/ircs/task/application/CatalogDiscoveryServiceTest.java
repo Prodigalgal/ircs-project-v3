@@ -103,7 +103,7 @@ class CatalogDiscoveryServiceTest {
         service.dispatchDue();
 
         verify(discovery).scheduleCatalog(eq(candidate), eq(1), any());
-        verify(repository).markSubmitted(candidate);
+        verify(repository).markDispatchAccepted(candidate);
     }
 
     @Test
@@ -128,8 +128,27 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).retry(candidate, Duration.ofMinutes(5), "DISCOVERY_DISPATCH_FAILED");
+        verify(repository).retry(candidate, Duration.ofMinutes(10), "DISCOVERY_DISPATCH_FAILED");
         verify(repository, never()).markSubmitted(any());
+    }
+
+    @Test
+    void precheckFailureUsesStableShortRetryWithoutSourceDispatch() {
+        when(repository.hasRequestedResources(candidate)).thenThrow(new IllegalStateException("database unavailable"));
+
+        service.dispatchDue();
+
+        verify(repository).retry(candidate, Duration.ofMinutes(5), "DISCOVERY_PRECHECK_FAILED");
+        verifyNoInteractions(discovery);
+    }
+
+    @Test
+    void nonAcceptedDispatchUsesTheNextAttemptBackoffStep() {
+        when(discovery.scheduleCatalog(eq(candidate), anyInt(), any())).thenReturn(result("SKIPPED"));
+
+        service.dispatchDue();
+
+        verify(repository).retry(candidate, Duration.ofMinutes(10), "DISCOVERY_NOT_ACCEPTED");
     }
 
     @Test

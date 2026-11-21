@@ -56,11 +56,14 @@ public class CatalogDiscoveryService {
                     // Source eligibility excludes busy sources and applies a 30-minute failed-source cooldown.
                     repository.retry(candidate, Duration.ofMinutes(30), "NO_ELIGIBLE_SOURCE");
                 } else {
-                    repository.retry(candidate, retryDelay(candidate.attempts()), "DISCOVERY_NOT_ACCEPTED");
+                    repository.retry(candidate, retryDelay(candidate.attempts() + 1), "DISCOVERY_NOT_ACCEPTED");
                 }
             } catch (RuntimeException ex) {
                 String failureCode = dispatchStarted ? "DISCOVERY_DISPATCH_FAILED" : "DISCOVERY_PRECHECK_FAILED";
-                repository.retry(candidate, retryDelay(candidate.attempts()), failureCode);
+                Duration delay = dispatchStarted
+                        ? retryDelay(candidate.attempts() + 1)
+                        : Duration.ofMinutes(5);
+                repository.retry(candidate, delay, failureCode);
                 // External exception text can contain source URLs and credentials; persist only a stable code.
                 log.warn("Catalog discovery deferred: videoId={}, season={}, episode={}, failureType={}",
                         candidate.unifiedVideoId(), candidate.targetSeason(), candidate.targetEpisode(),

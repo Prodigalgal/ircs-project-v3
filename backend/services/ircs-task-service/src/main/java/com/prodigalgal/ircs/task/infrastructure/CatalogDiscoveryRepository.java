@@ -90,7 +90,10 @@ public class CatalogDiscoveryRepository {
                        AND coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) = false
                        AND upper(coalesce(uv.adult_assessment ->> 'level', 'SAFE')) <> 'ADULT'
                        AND uv.content_visibility = 'PUBLIC'
-                     ORDER BY r.next_attempt_at, r.priority DESC, r.unified_video_id,
+                     ORDER BY CASE WHEN r.next_attempt_at <= now() - interval '30 minutes' THEN 0 ELSE 1 END,
+                              CASE WHEN r.next_attempt_at <= now() - interval '30 minutes'
+                                  THEN r.next_attempt_at END,
+                              r.priority DESC, r.next_attempt_at, r.unified_video_id,
                               r.target_season, r.target_episode
                      LIMIT :limit
                      FOR UPDATE OF r SKIP LOCKED

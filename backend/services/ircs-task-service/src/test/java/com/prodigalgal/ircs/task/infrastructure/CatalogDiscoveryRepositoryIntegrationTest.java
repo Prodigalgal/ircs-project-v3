@@ -136,6 +136,18 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     }
 
     @Test
+    void recentDueRequestsKeepPriorityAheadOfSlightlyOlderWork() {
+        insertRequest(2, 0, "older", 0);
+        insertRequest(2, 1, "higher-priority", 100);
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '2 minutes' "
+                + "where target_episode = 0");
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '1 minute' "
+                + "where target_episode = 1");
+
+        assertThat(requests.claimDue(1, LEASE).getFirst().targetEpisode()).isEqualTo(1);
+    }
+
+    @Test
     void acceptedDispatchIsCountedButFulfillmentAndLeaseReclaimAreNot() {
         insertRequest();
         CatalogDiscoveryCandidate candidate = requests.claimDue(1, LEASE).getFirst();
