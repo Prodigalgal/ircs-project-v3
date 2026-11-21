@@ -61,6 +61,32 @@ class AggregationBindingCorrectionServiceTest {
     }
 
     @Test
+    void previewAllowsAnExistingPendingBindingAfterItsDependenciesFinish() {
+        RawVideoAggregationRecord pending = raw(rawId, "SUCCESS", "PENDING");
+        when(repository.findRawVideos(List.of(rawId))).thenReturn(List.of(pending));
+        when(repository.findUnifiedCandidatesByIds(List.of(sourceId))).thenReturn(List.of(source));
+        when(repository.findUnifiedCandidatesByIds(List.of(targetId))).thenReturn(List.of(target));
+        when(matcher.bindingConflictReason(pending, source)).thenReturn("EXTERNAL_ID_CONFLICT_TMDB");
+        when(matcher.findBestMatch(pending, List.of(target))).thenReturn(Optional.of(targetId));
+        when(repository.findBindingCorrectionSnapshot(sourceId, targetId, List.of(rawId)))
+                .thenReturn(snapshot(2, 1, 0, 1, "pending-snapshot"));
+
+        assertThat(service.preview(sourceId, targetId, List.of(rawId)).status()).isEqualTo("READY");
+        verify(repository, never()).moveCorrectionBindings(sourceId, targetId, List.of(rawId));
+    }
+
+    @Test
+    void previewBlocksPendingDependenciesAndInProgressWork() {
+        when(repository.findRawVideos(List.of(rawId))).thenReturn(
+                List.of(raw(rawId, "PENDING", "PENDING")),
+                List.of(raw(rawId, "SUCCESS", "PROCESSING")));
+
+        assertThat(service.preview(sourceId, targetId, List.of(rawId)).status()).isEqualTo("SOURCE_INPUT_NOT_READY");
+        assertThat(service.preview(sourceId, targetId, List.of(rawId)).status()).isEqualTo("SOURCE_INPUT_NOT_READY");
+        verifyNoInteractions(matcher, publisher);
+    }
+
+    @Test
     void applyRejectsStaleFingerprintBeforeAnyCommitSynchronizationOrMutation() {
         arrangeReadyPreview();
 
@@ -148,9 +174,13 @@ class AggregationBindingCorrectionServiceTest {
     }
 
     private static RawVideoAggregationRecord raw(UUID id) {
+        return raw(id, "SUCCESS", "BOUND");
+    }
+
+    private static RawVideoAggregationRecord raw(UUID id, String enrichmentStatus, String aggregationStatus) {
         return new RawVideoAggregationRecord(id, "Correction Target Movie", null, null, "2024", null, null,
                 null, null, null, null, null, "电影", "movie", null, null, "101", null,
-                "READY", "SUCCESS", "BOUND");
+                "READY", enrichmentStatus, aggregationStatus);
     }
 
     private static UnifiedVideoAggregationCandidate candidate(UUID id, String title) {

@@ -73,8 +73,7 @@ class AggregationBindingCorrectionService {
 
     private CorrectionPlan inspect(UUID source, UUID target, List<UUID> rawIds) {
         List<RawVideoAggregationRecord> rows = repository.findRawVideos(rawIds);
-        if (rows.size() != rawIds.size() || rows.stream().anyMatch(raw -> !"BOUND".equals(raw.aggregationStatus())
-                || !"READY".equals(raw.normalizationStatus()) || "PENDING".equals(raw.enrichmentStatus()))) {
+        if (rows.size() != rawIds.size() || rows.stream().anyMatch(raw -> !isReadyForCorrection(raw))) {
             return new CorrectionPlan("SOURCE_INPUT_NOT_READY", source, target, rawIds, List.of(), null);
         }
         var sourceWork = repository.findUnifiedCandidatesByIds(List.of(source)).stream().findFirst();
@@ -98,6 +97,14 @@ class AggregationBindingCorrectionService {
         var snapshot = repository.findBindingCorrectionSnapshot(source, destination, rawIds);
         String status = reviewStatus(rows, targetWork.orElseThrow(), snapshot);
         return new CorrectionPlan(status, source, destination, rawIds, evidence, snapshot);
+    }
+
+    private boolean isReadyForCorrection(RawVideoAggregationRecord raw) {
+        // Older refreshes may have parked an existing association in PENDING. Its exact
+        // membership and version are still checked by the same preview and commit guards.
+        return "BOUND".equals(raw.aggregationStatus()) && "READY".equals(raw.normalizationStatus())
+                && !"PENDING".equals(raw.enrichmentStatus())
+                || "PENDING".equals(raw.aggregationStatus()) && raw.isAggregationEligible();
     }
 
     private String reviewStatus(List<RawVideoAggregationRecord> rows, UnifiedVideoAggregationCandidate target,

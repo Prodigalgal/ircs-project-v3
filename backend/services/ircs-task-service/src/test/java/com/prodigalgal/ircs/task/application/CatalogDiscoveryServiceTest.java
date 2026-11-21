@@ -48,7 +48,8 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).markSubmitted(candidate);
+        verify(repository).markDispatchAccepted(candidate);
+        verify(repository, never()).markSubmitted(candidate);
         verify(repository, never()).retry(any(), any(), any());
     }
 
@@ -59,6 +60,7 @@ class CatalogDiscoveryServiceTest {
         service.dispatchDue();
 
         verify(repository).markSubmitted(candidate);
+        verify(repository, never()).markDispatchAccepted(candidate);
         verifyNoInteractions(discovery);
     }
 
@@ -105,7 +107,7 @@ class CatalogDiscoveryServiceTest {
     }
 
     @Test
-    void unavailableSourcesAreRecheckedPromptlyEvenAfterManyAttempts() {
+    void unavailableSourcesUseTheCooldownWithoutCountingADispatchAttempt() {
         CatalogDiscoveryCandidate delayed = new CatalogDiscoveryCandidate(
                 candidate.unifiedVideoId(), 2, 12, "Example", 37, candidate.leaseToken());
         when(repository.claimDue(5, LEASE)).thenReturn(List.of(delayed));
@@ -115,7 +117,7 @@ class CatalogDiscoveryServiceTest {
 
         service.dispatchDue();
 
-        verify(repository).retry(delayed, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
+        verify(repository).retry(delayed, Duration.ofMinutes(30), "NO_ELIGIBLE_SOURCE");
         verify(repository, never()).markSubmitted(any());
     }
 

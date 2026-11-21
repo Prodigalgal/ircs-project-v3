@@ -24,6 +24,7 @@ public class CatalogDiscoveryService {
         int batchSize = config.batchSize();
         repository.reconcileSubmitted(batchSize * 4);
         for (CatalogDiscoveryCandidate candidate : repository.claimDue(batchSize, config.leaseDuration())) {
+            boolean dispatchStarted = false;
             try {
                 checkOwnership(candidate);
                 if (repository.hasRequestedResources(candidate)) {
@@ -43,21 +44,23 @@ public class CatalogDiscoveryService {
                     repository.retry(candidate, Duration.ofMinutes(5), "COLLECTION_BACKPRESSURE");
                     continue;
                 }
+                dispatchStarted = true;
                 TrendDiscoveryScheduleResponse result = discovery.scheduleCatalog(candidate,
                         Math.min(config.maxDataSources(), capacity), () -> checkOwnership(candidate));
                 checkOwnership(candidate);
                 boolean accepted = result.tasks().stream()
                         .anyMatch(task -> "QUEUED".equals(task.status()) || "ACTIVE".equals(task.status()));
                 if (accepted) {
-                    repository.markSubmitted(candidate);
+                    repository.markDispatchAccepted(candidate);
                 } else if (result.dataSourceCount() == 0) {
-                    // A busy source or a source in cooldown can become eligible on the next pass.
-                    repository.retry(candidate, Duration.ofMinutes(5), "NO_ELIGIBLE_SOURCE");
+                    // Source eligibility excludes busy sources and applies a 30-minute failed-source cooldown.
+                    repository.retry(candidate, Duration.ofMinutes(30), "NO_ELIGIBLE_SOURCE");
                 } else {
                     repository.retry(candidate, retryDelay(candidate.attempts()), "DISCOVERY_NOT_ACCEPTED");
                 }
             } catch (RuntimeException ex) {
-                repository.retry(candidate, retryDelay(candidate.attempts()), "DISCOVERY_DISPATCH_FAILED");
+                String failureCode = dispatchStarted ? "DISCOVERY_DISPATCH_FAILED" : "DISCOVERY_PRECHECK_FAILED";
+                repository.retry(candidate, retryDelay(candidate.attempts()), failureCode);
                 // External exception text can contain source URLs and credentials; persist only a stable code.
                 log.warn("Catalog discovery deferred: videoId={}, season={}, episode={}, failureType={}",
                         candidate.unifiedVideoId(), candidate.targetSeason(), candidate.targetEpisode(),

@@ -74,7 +74,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
             for (var result : executor.invokeAll(calls, 10, TimeUnit.SECONDS)) claimed += result.get().size();
         }
         assertThat(claimed).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
     }
 
     @Test
@@ -85,12 +85,13 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         CatalogDiscoveryCandidate current = requests.claimDue(1, LEASE).getFirst();
 
         assertThat(current.leaseToken()).isNotEqualTo(expired.leaseToken());
-        assertThat(current.attempts()).isEqualTo(2);
+        assertThat(current.attempts()).isZero();
         assertThat(requests.renew(expired, LEASE)).isFalse();
         assertThat(requests.markSubmitted(expired)).isFalse();
         assertThat(requests.markFulfilled(expired)).isFalse();
         assertThat(requests.retry(expired, Duration.ofHours(6), "STALE")).isFalse();
         assertThat(requests.markSubmitted(current)).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
     }
 
@@ -108,15 +109,60 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     }
 
     @Test
-    void overdueSourceAvailabilityChecksRecoverBackoffsCreatedBeforeUpgrade() {
+    void noEligibleSourceRetryDoesNotCountAClaimOrBypassItsBackoff() {
         insertRequest();
         CatalogDiscoveryCandidate current = requests.claimDue(1, LEASE).getFirst();
         assertThat(requests.retry(current, Duration.ofHours(6), "NO_ELIGIBLE_SOURCE")).isTrue();
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
 
         jdbc.update("update catalog_discovery_requests set updated_at = now() - interval '6 minutes'");
+        assertThat(requests.claimDue(1, LEASE)).isEmpty();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
 
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '1 second'");
         assertThat(requests.claimDue(1, LEASE)).hasSize(1);
+    }
+
+    @Test
+    void oldestDueRequestGetsTheSlotBeforeNewerHighPriorityWork() {
+        insertRequest(2, 0, "older", 0);
+        insertRequest(2, 1, "newer", 100);
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '2 hours' "
+                + "where target_episode = 0");
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '1 minute' "
+                + "where target_episode = 1");
+
+        assertThat(requests.claimDue(1, LEASE).getFirst().targetEpisode()).isZero();
+    }
+
+    @Test
+    void acceptedDispatchIsCountedButFulfillmentAndLeaseReclaimAreNot() {
+        insertRequest();
+        CatalogDiscoveryCandidate candidate = requests.claimDue(1, LEASE).getFirst();
+
+        assertThat(requests.markFulfilled(candidate)).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isZero();
+
+        insertRequest(2, 13, "Another", 0);
+        CatalogDiscoveryCandidate dispatched = requests.claimDue(1, LEASE).getFirst();
+        assertThat(requests.markDispatchAccepted(dispatched)).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests "
+                + "where target_episode = 13", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void realDispatchFailureIncrementsAttemptsButNoSourceDeferralPreservesHistory() {
+        insertRequest();
+        jdbc.update("update catalog_discovery_requests set attempts = 680");
+        CatalogDiscoveryCandidate candidate = requests.claimDue(1, LEASE).getFirst();
+
+        assertThat(requests.retry(candidate, Duration.ofMinutes(30), "NO_ELIGIBLE_SOURCE")).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isEqualTo(680);
+
+        jdbc.update("update catalog_discovery_requests set next_attempt_at = now() - interval '1 second'");
+        CatalogDiscoveryCandidate retryCandidate = requests.claimDue(1, LEASE).getFirst();
+        assertThat(requests.retry(retryCandidate, Duration.ofMinutes(5), "DISCOVERY_DISPATCH_FAILED")).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isEqualTo(681);
     }
 
     @Test
@@ -248,7 +294,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     private CatalogDiscoveryCandidate acceptedRequest() {
         insertRequest();
         CatalogDiscoveryCandidate candidate = requests.claimDue(1, LEASE).getFirst();
-        assertThat(requests.markSubmitted(candidate)).isTrue();
+        assertThat(requests.markDispatchAccepted(candidate)).isTrue();
         makeReconciliationDue();
         return candidate;
     }
@@ -266,8 +312,12 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     }
 
     private void insertRequest() {
-        jdbc.update("insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword) "
-                + "values (?, 2, 12, 'Example')", workId);
+        insertRequest(2, 12, "Example", 0);
+    }
+
+    private void insertRequest(int season, int episode, String keyword, int priority) {
+        jdbc.update("insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword, priority) "
+                + "values (?, ?, ?, ?, ?)", workId, season, episode, keyword, priority);
     }
 
     private UUID insertSource() {

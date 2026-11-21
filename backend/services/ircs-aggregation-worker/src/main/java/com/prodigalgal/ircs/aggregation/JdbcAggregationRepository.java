@@ -16,11 +16,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -549,13 +551,20 @@ public class JdbcAggregationRepository {
     }
 
     public void rebuildUnifiedPipelineBasicAttributes(UUID unifiedVideoId) {
-        Set<String> lockedFields = findLockedFields(unifiedVideoId);
+        var display = findUnifiedDisplayState(unifiedVideoId);
+        if (display.isEmpty()) { return; }
+        UnifiedDisplayState current = display.orElseThrow();
+        Set<String> lockedFields = lockedFieldsWithCatalog(unifiedVideoId, current.storedLocks());
         MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
-        if (!isLocked(lockedFields, "title")) {
-            updateUnifiedStringByVote("title", "title", params);
-        }
-        if (!isLocked(lockedFields, "year")) {
-            updateUnifiedStringByVote("year", "year", params);
+        if (current.sports()) {
+            rebuildSportsDisplayIdentity(unifiedVideoId, current.identity(), lockedFields, params);
+        } else {
+            if (!isLocked(lockedFields, "title")) {
+                updateUnifiedStringByVote("title", "title", params);
+            }
+            if (!isLocked(lockedFields, "year")) {
+                updateUnifiedStringByVote("year", "year", params);
+            }
         }
         if (!isLocked(lockedFields, "score")) {
             updateUnifiedScoreMax(params);
@@ -628,7 +637,10 @@ public class JdbcAggregationRepository {
     }
 
     public void rebuildUnifiedPipelineDynamicFields(UUID unifiedVideoId) {
-        Set<String> lockedFields = findLockedFields(unifiedVideoId);
+        var display = findUnifiedDisplayState(unifiedVideoId);
+        if (display.isEmpty()) { return; }
+        UnifiedDisplayState current = display.orElseThrow();
+        Set<String> lockedFields = lockedFieldsWithCatalog(unifiedVideoId, current.storedLocks());
         MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
         if (!isLocked(lockedFields, "aliasTitle")) {
             updateUnifiedLongestString("alias_title", "alias_title", params);
@@ -648,10 +660,56 @@ public class JdbcAggregationRepository {
         if (!isLocked(lockedFields, "season")) {
             updateUnifiedFirstInteger("season", "season", params);
         }
-        if (!isLocked(lockedFields, "subtitle")) {
+        if (!current.sports() && !isLocked(lockedFields, "subtitle")) {
             updateUnifiedLongestString("subtitle", "subtitle", params);
         }
     }
+
+    private Optional<UnifiedDisplayState> findUnifiedDisplayState(UUID unifiedVideoId) {
+        return jdbcTemplate.query("""
+                select category_code, title, subtitle, year, cast(locked_fields as varchar) as field_locks
+                  from unified_videos where id=:unifiedVideoId
+                """, new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                (rs, row) -> new UnifiedDisplayState("sports".equals(rs.getString("category_code")),
+                        new SportsDisplayIdentity(rs.getString("title"), rs.getString("subtitle"), rs.getString("year")),
+                        rs.getString("field_locks"))).stream().findFirst();
+    }
+
+    private void rebuildSportsDisplayIdentity(UUID unifiedVideoId, SportsDisplayIdentity current,
+            Set<String> lockedFields, MapSqlParameterSource params) {
+        boolean titleLocked = isLocked(lockedFields, "title");
+        boolean subtitleLocked = isLocked(lockedFields, "subtitle");
+        boolean yearLocked = isLocked(lockedFields, "year");
+        if (titleLocked && subtitleLocked && yearLocked) { return; }
+        List<AggregationMemberIdentity> members = findBoundMemberIdentities(List.of(unifiedVideoId));
+        if (members.size() > AggregationMemberIdentity.REVIEW_MEMBER_LIMIT) { return; }
+        // A competition heading and the opposing teams must come from the same observed row.
+        // Vote over complete tuples so a long subtitle from another event cannot win alone.
+        Map<SportsDisplayIdentity, Integer> votes = new LinkedHashMap<>();
+        for (AggregationMemberIdentity member : members) {
+            if (!"sports".equals(member.category()) || !StringUtils.hasText(member.title())) { continue; }
+            SportsDisplayIdentity source = new SportsDisplayIdentity(member.title(), member.subtitle(), member.year());
+            if (titleLocked && !Objects.equals(current.title(), source.title())
+                    || subtitleLocked && !Objects.equals(current.subtitle(), source.subtitle())
+                    || yearLocked && !Objects.equals(current.year(), source.year())) { continue; }
+            votes.merge(source, 1, Integer::sum);
+        }
+        SportsDisplayIdentity selected = votes.entrySet().stream().max(
+                Comparator.<Map.Entry<SportsDisplayIdentity, Integer>>comparingInt(Map.Entry::getValue)
+                        .thenComparing(entry -> entry.getKey().equals(current)))
+                .map(Map.Entry::getKey).orElse(current);
+        if (!selected.equals(current)) {
+            jdbcTemplate.update("""
+                    update unified_videos set title=:sportsTitle, subtitle=:sportsSubtitle, year=:sportsYear,
+                      updated_at=now(), version=coalesce(version, 0)+1 where id=:unifiedVideoId
+                    """, params.addValue("sportsTitle", selected.title()).addValue("sportsSubtitle", selected.subtitle())
+                            .addValue("sportsYear", selected.year()));
+        }
+    }
+
+    private record SportsDisplayIdentity(String title, String subtitle, String year) { }
+
+    private record UnifiedDisplayState(boolean sports, SportsDisplayIdentity identity, String storedLocks) { }
 
     public void rebuildUnifiedPipelineCategory(UUID unifiedVideoId) {
         Set<String> lockedFields = findLockedFields(unifiedVideoId);
@@ -1167,12 +1225,16 @@ public class JdbcAggregationRepository {
                     """,
                     new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
                     String.class);
-              Set<String> retained = new LinkedHashSet<>(parseLockedFields(lockedFields));
-              retainVerifiedCatalogFields(unifiedVideoId, retained);
-              return retained;
+            return lockedFieldsWithCatalog(unifiedVideoId, lockedFields);
         } catch (EmptyResultDataAccessException ignored) {
             return Set.of();
         }
+    }
+
+    private Set<String> lockedFieldsWithCatalog(UUID unifiedVideoId, String storedLocks) {
+        Set<String> retained = new LinkedHashSet<>(parseLockedFields(storedLocks));
+        retainVerifiedCatalogFields(unifiedVideoId, retained);
+        return retained;
     }
 
     private void retainVerifiedCatalogFields(UUID unifiedVideoId, Set<String> retained) {

@@ -902,6 +902,40 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
+    void sportsDisplayRebuildTakesTitleSubtitleAndYearFromOneObservedFixture() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:aggregation-sports-display-" + UUID.randomUUID()
+                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=YEAR;DB_CLOSE_DELAY=-1");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createPipelineSchema(jdbc);
+        UUID work = UUID.randomUUID();
+        UUID first = UUID.randomUUID(), second = UUID.randomUUID(), other = UUID.randomUUID();
+        seedScalarUnlockedFixture(jdbc, work, first, second, other);
+        jdbc.update("update unified_videos set category_code='sports' where id=?", work);
+        jdbc.update("update raw_videos set category_code='sports', title=?, subtitle=?, year='2026' where id in (?,?)",
+                "7月4日城市足球联赛", "福州队VS龙岩队", first, second);
+        jdbc.update("update raw_videos set category_code='sports', title=?, subtitle=?, year='2025' where id=?",
+                "6月13日篮球邀请赛", "男子组决赛甲城高中篮球代表队VS乙城高中篮球代表队", other);
+        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(
+                new NamedParameterJdbcTemplate(dataSource), AggregationTestFixtures.matchingStrategy());
+
+        repository.rebuildUnifiedPipelineScalars(work);
+
+        assertEquals("7月4日城市足球联赛", scalar(jdbc, "select title from unified_videos where id=?", work, String.class));
+        assertEquals("福州队VS龙岩队", scalar(jdbc, "select subtitle from unified_videos where id=?", work, String.class));
+        assertEquals("2026", scalar(jdbc, "select year from unified_videos where id=?", work, String.class));
+
+        jdbc.update("update unified_videos set title=?, locked_fields=? where id=?",
+                "6月13日篮球邀请赛", "[\"title\"]", work);
+        repository.rebuildUnifiedPipelineScalars(work);
+
+        assertEquals("6月13日篮球邀请赛", scalar(jdbc, "select title from unified_videos where id=?", work, String.class));
+        assertEquals("男子组决赛甲城高中篮球代表队VS乙城高中篮球代表队",
+                scalar(jdbc, "select subtitle from unified_videos where id=?", work, String.class));
+        assertEquals("2025", scalar(jdbc, "select year from unified_videos where id=?", work, String.class));
+    }
+
+    @Test
     void externalIdFillIgnoresMalformedEvidenceAndPreservesLockedPlaceholders() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:aggregation-provider-ids-" + UUID.randomUUID()

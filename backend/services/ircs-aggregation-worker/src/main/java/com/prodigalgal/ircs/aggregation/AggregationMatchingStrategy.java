@@ -70,14 +70,41 @@ public class AggregationMatchingStrategy {
                     ? AggregationMatchPlan.rootWithVictims(matches.getFirst(), matches.subList(1, matches.size()))
                     : AggregationMatchPlan.rootOnly(canonicalEquivalent(rawFingerprint, matches, matchedCandidates));
         }
-        // A single positively supported candidate can own the raw without destroying alternatives.
-        // A score tie or several ID-supported alternatives is an unresolved identity decision.
+        // Authority-backed matches can be resolved independently of fuzzy alternatives.
+        // This path binds the raw only, even when existing works in that subset are equivalent.
         List<UnifiedVideoAggregationCandidate> supported = matchedCandidates.stream()
                 .filter(candidate -> checkExternalIds(rawVideo, candidate) > 0)
                 .toList();
-        return supported.size() == 1
-                ? AggregationMatchPlan.rootOnly(supported.getFirst().id())
+        if (supported.size() == 1) {
+            return AggregationMatchPlan.rootOnly(supported.getFirst().id());
+        }
+        if (!supported.isEmpty()) {
+            Set<UUID> supportedIds = supported.stream().map(UnifiedVideoAggregationCandidate::id)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            return isSafeUnifiedMerge(supported, supportedIds)
+                    ? AggregationMatchPlan.rootOnly(canonicalEquivalent(rawFingerprint,
+                            matches.stream().filter(supportedIds::contains).toList(), supported))
+                    : AggregationMatchPlan.ambiguous();
+        }
+        List<UnifiedVideoAggregationCandidate> corroborated = matchedCandidates.stream()
+                .filter(candidate -> hasExactScreenIdentity(rawFingerprint, fingerprint(candidate)))
+                .toList();
+        return corroborated.size() == 1
+                ? AggregationMatchPlan.rootOnly(corroborated.getFirst().id())
                 : AggregationMatchPlan.ambiguous();
+    }
+
+    private boolean hasExactScreenIdentity(VideoFingerprint raw, VideoFingerprint candidate) {
+        if (raw.profile() != candidate.profile() || raw.year() == null || !raw.year().equals(candidate.year())
+                || raw.completeTitle().isEmpty() || !raw.completeTitle().equals(candidate.completeTitle())) {
+            return false;
+        }
+        return switch (raw.profile()) {
+            case MOVIE, SERIES, ANIMATION, PROGRAMME, DOCUMENTARY ->
+                    raw.directors().stream().anyMatch(candidate.directors()::contains)
+                            || raw.actors().stream().filter(candidate.actors()::contains).limit(2).count() == 2;
+            default -> false;
+        };
     }
 
     private UUID canonicalEquivalent(VideoFingerprint raw, List<UUID> rankedMatches,

@@ -248,6 +248,44 @@ class AggregationMatchingStrategyTest {
     }
 
     @Test
+    void equivalentAuthorityBackedCandidatesResolveWithoutMergingAnUncorroboratedTitleMatch() {
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", null, "2026",
+                null, "9001", null, null, null, null);
+        UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID alternativeId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        var root = candidate(rootId, "Codex Signal", null, "2026", null, "9001", "tt0133093", null, null, null);
+        var alternative = candidate(alternativeId, "Codex Signal", null, "2026", null, "9001", null, null, null, null);
+        var titleMatch = candidate(UUID.randomUUID(), "Codex Signal", null, "2026",
+                null, null, null, null, null, null);
+
+        var plan = strategy.findMatchPlan(raw, List.of(alternative, titleMatch, root));
+
+        assertEquals(rootId, plan.rootUnifiedVideoId());
+        assertEquals(List.of(), plan.victimUnifiedVideoIds());
+
+        var conflictingAlternative = candidate(alternativeId, "Codex Signal", null, "2026",
+                null, "9001", "tt0234215", null, null, null);
+        assertTrue(strategy.findMatchPlan(raw, List.of(root, conflictingAlternative, titleMatch)).isAmbiguous());
+    }
+
+    @Test
+    void exactReleaseAndTwoSharedCastMembersCanDisambiguateWithoutAnExternalId() {
+        String title = "Codex Signal";
+        Set<String> cast = Set.of("Alice Winters", "Noah Stone");
+        var raw = rawVideoWithMetadata(title, "2026", "12", cast, Set.of(), Set.of());
+        var corroborated = candidateWithMetadata(UUID.randomUUID(), title, "2026", "12", cast, Set.of(), Set.of());
+        var sparse = candidateWithMetadata(UUID.randomUUID(), title, "2026", "12", Set.of(), Set.of(), Set.of());
+        var previousYear = candidateWithMetadata(UUID.randomUUID(), title, "2025", "12", cast, Set.of(), Set.of());
+
+        var plan = strategy.findMatchPlan(raw, List.of(sparse, previousYear, corroborated));
+
+        assertEquals(corroborated.id(), plan.rootUnifiedVideoId());
+        assertEquals(List.of(), plan.victimUnifiedVideoIds());
+        var sameEvidence = candidateWithMetadata(UUID.randomUUID(), title, "2026", "12", cast, Set.of(), Set.of());
+        assertTrue(strategy.findMatchPlan(raw, List.of(corroborated, sameEvidence)).isAmbiguous());
+    }
+
+    @Test
     void exactTitleFallsBackToTitleConfidenceWhenMetadataIsEmptyLikeV1() {
         RawVideoAggregationRecord rawVideo = rawVideo(
                 "Codex Signal",

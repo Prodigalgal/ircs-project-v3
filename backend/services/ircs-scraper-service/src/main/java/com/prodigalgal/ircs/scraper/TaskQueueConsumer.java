@@ -215,10 +215,15 @@ class TaskQueueConsumer {
         if (!(classified instanceof TaskSourceTerminalException) && failureClassifier.retryable(classified)
                 && retryPublisher.retryCount(rawMessage) < maxRetries) {
             int retryCount = retryPublisher.publishRetry(topic, rawMessage, failure);
+            log.debug("Scraper task scheduled for retry: topic={}, job={}, correlationId={}, attempt={}/{}, failure={}, failurePath={}",
+                    topic.name(), jobName, correlationId, retryCount, maxRetries, failure.getMessage(),
+                    failurePath(classified));
             recordOutcome(jobName, correlationId, startedAt, "retrying", new ScraperTaskFailure(
                     "Retry scheduled " + retryCount + "/" + maxRetries + ": " + failure.getMessage()));
             return;
         }
+        log.warn("Scraper task failed: topic={}, job={}, correlationId={}, failure={}, failurePath={}",
+                topic.name(), jobName, correlationId, failure.getMessage(), failurePath(classified));
         notifyFailure.accept(failure.getMessage());
         if (sourceError != null) {
             recordOutcome(jobName, correlationId, startedAt, "failed", failure);
@@ -248,6 +253,24 @@ class TaskQueueConsumer {
             }
         }
         return null;
+    }
+
+    /** Code locations and class names are safe even when the exception message contains an endpoint. */
+    private String failurePath(Throwable error) {
+        java.util.StringJoiner path = new java.util.StringJoiner(" -> ");
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 8; depth++, cause = cause.getCause()) {
+            String type = cause.getClass().getSimpleName();
+            StackTraceElement[] frames = cause.getStackTrace();
+            for (StackTraceElement frame : frames) {
+                if (frame.getClassName().startsWith("com.prodigalgal.ircs.")) {
+                    type += "@" + frame.getClassName() + "#" + frame.getMethodName() + ":" + frame.getLineNumber();
+                    break;
+                }
+            }
+            path.add(type);
+        }
+        return path.toString();
     }
 
     private void publishPageFailed(TaskPageMessage message, String reason) {
