@@ -189,7 +189,7 @@ class AggregationBucketRecallIntegrationTest {
     void loadsOnlyRequestedMemberEvidenceAndDetectsTheReviewLimit() {
         jdbc.execute("""
                 create table raw_videos(
-                    id uuid primary key, title text, alias_title text, subtitle text, remarks text,
+                    id uuid primary key, created_at timestamptz default now(), title text, alias_title text, subtitle text, remarks text,
                     year text, season integer, category_code text, douban_id text, tmdb_id text,
                     imdb_id text, rotten_tomatoes_id text);
                 create table raw_video_unified_video(raw_video_id uuid primary key, unified_video_id uuid);

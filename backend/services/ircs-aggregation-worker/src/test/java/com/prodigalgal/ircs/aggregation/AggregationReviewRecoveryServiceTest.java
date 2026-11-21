@@ -64,6 +64,17 @@ class AggregationReviewRecoveryServiceTest {
     }
 
     @Test
+    void compatiblePendingBindingCanResumeWithoutChangingItsWork() {
+        when(evaluation.evaluate(List.of(rawId))).thenReturn(response(
+                decision("EXISTING_BINDING_COMPATIBLE", targetId, targetId, List.of())));
+        when(queue.requeueReviewedWork(reviewed)).thenReturn(true);
+
+        assertThat(service.recover(List.of(rawId), true).decisions()).containsExactly(
+                new AggregationReviewRecoveryService.RecoveryDecision(rawId, targetId, "REQUEUED", "IDENTITY_CONFLICT"));
+        verify(queue).requeueReviewedWork(reviewed);
+    }
+
+    @Test
     void invalidAndEmptyRequestsAreRejected() {
         assertThatThrownBy(() -> service.recover(List.of(), false)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.recover(java.util.Collections.singletonList(null), false))

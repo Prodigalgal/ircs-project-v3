@@ -383,6 +383,26 @@ class AdultAssessmentTransactionIntegrationTest {
     }
 
     @Test
+    void conflictedHistoricalClusterClearsRejectedIdWithoutCopyingMemberIds() {
+        UUID other = UUID.randomUUID();
+        jdbc.update("update unified_videos set douban_id='123' where id=?", id);
+        jdbc.update("update raw_videos set douban_id='987654', tmdb_id='101' where id=?", rawId);
+        jdbc.update("insert into raw_videos(id,title,douban_id,tmdb_id) values (?,?,?,?)",
+                other, "Another film", "876543", "102");
+        jdbc.update("insert into raw_video_unified_video values (?, ?)", other, id);
+
+        transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
+
+        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isNull();
+        transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
+        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select douban_id from raw_videos where id=?", String.class, rawId))
+                .isEqualTo("987654");
+    }
+
+    @Test
     void pendingBackfillSelectsReadyInputsWithoutDemotingExistingBoundMembers() {
         jdbc.update("update raw_videos set aggregation_status='PENDING' where id=?", rawId);
         jdbc.update("insert into raw_videos(id,title,normalization_status,aggregation_status) values (?, 'Not ready', 'PENDING', 'PENDING')",

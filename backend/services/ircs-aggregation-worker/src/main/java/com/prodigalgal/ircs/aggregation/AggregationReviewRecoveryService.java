@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.aggregation;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,7 +17,7 @@ class AggregationReviewRecoveryService {
 
     RecoveryResponse recover(List<UUID> rawIds, boolean execute) {
         if (rawIds == null || rawIds.isEmpty() || rawIds.size() > MAX_RAW_VIDEOS
-                || rawIds.stream().anyMatch(java.util.Objects::isNull)) {
+                || rawIds.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("rawVideoIds must contain 1 to 50 non-null UUIDs");
         }
         Map<UUID, AggregationWorkDeferrer.ReviewedWork> reviewed = new LinkedHashMap<>();
@@ -38,8 +39,10 @@ class AggregationReviewRecoveryService {
             return new RecoveryDecision(id, null, "NOT_PENDING_IDENTITY_REVIEW", null);
         }
         UUID target = decision.proposedRootUnifiedVideoId();
-        if (!"MATCH".equals(decision.decision()) || decision.originalUnifiedVideoId() != null
-                || target == null || !decision.proposedVictimUnifiedVideoIds().isEmpty()) {
+        boolean newBinding = "MATCH".equals(decision.decision()) && decision.originalUnifiedVideoId() == null;
+        boolean retainedBinding = "EXISTING_BINDING_COMPATIBLE".equals(decision.decision())
+                && Objects.equals(decision.originalUnifiedVideoId(), target);
+        if ((!newBinding && !retainedBinding) || target == null || !decision.proposedVictimUnifiedVideoIds().isEmpty()) {
             return new RecoveryDecision(id, target, "STILL_REQUIRES_REVIEW", decision.reason());
         }
         String result = execute

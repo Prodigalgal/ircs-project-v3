@@ -227,6 +227,7 @@ public class JdbcAggregationRepository {
                 select rv.id, rv.title, rv.alias_title, rv.subtitle, rv.remarks, rv.year,
                        rv.season, rv.category_code, rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
                 from members join raw_videos rv on rv.id = members.raw_video_id
+                order by rv.created_at asc, rv.id asc
                 """, new MapSqlParameterSource("ids", unifiedVideoIds)
                         .addValue("limit", AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1),
                 (rs, row) -> new AggregationMemberIdentity(
@@ -588,22 +589,23 @@ public class JdbcAggregationRepository {
             needsAnyEvidence |= needsEvidence[index];
         }
         if (!needsAnyEvidence) { return; }
+        List<UUID> target = List.of(unifiedVideoId);
+        List<AggregationMemberIdentity> members = findBoundMemberIdentities(target);
         String[] selected = new String[columns.size()];
-        // One projection over this root's bound members. Keep only four scalar results in memory;
-        // provider syntax belongs to the shared Java contract, not a second SQL approximation.
-        jdbcTemplate.query("""
-                select rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
-                  from raw_video_unified_video rvuv
-                  join raw_videos rv on rv.id = rvuv.raw_video_id
-                 where rvuv.unified_video_id = :unifiedVideoId
-                 order by rv.created_at asc, rv.id asc
-                """, params, (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
-                    for (int index = 0; index < columns.size(); index++) {
-                        if (needsEvidence[index] && selected[index] == null) {
-                            selected[index] = usableExternalIdOrNull(externalIdProvider(columns.get(index)), rs.getString(columns.get(index)));
-                        }
+        if (members.size() <= AggregationMemberIdentity.REVIEW_MEMBER_LIMIT) {
+            for (AggregationMemberIdentity member : members) {
+                String[] memberIds = {member.doubanId(), member.tmdbId(), member.imdbId(), member.rottenTomatoesId()};
+                for (int index = 0; index < columns.size(); index++) {
+                    if (needsEvidence[index] && selected[index] == null) {
+                        selected[index] = usableExternalIdOrNull(externalIdProvider(columns.get(index)), memberIds[index]);
                     }
-                });
+                }
+            }
+            if (java.util.Arrays.stream(selected).anyMatch(java.util.Objects::nonNull)
+                    && !canRefillUnifiedExternalIds(target, members)) {
+                java.util.Arrays.fill(selected, null);
+            }
+        }
         for (int index = 0; index < columns.size(); index++) {
             if (selected[index] == null && !clearRejected[index]) { continue; }
             String column = columns.get(index);
@@ -615,6 +617,14 @@ public class JdbcAggregationRepository {
                     .addValue("selectedId", selected[index]).addValue("observedId", observed[index])
                     .addValue("observedLocks", observed[4]));
         }
+    }
+
+    private boolean canRefillUnifiedExternalIds(List<UUID> ids, List<AggregationMemberIdentity> members) {
+        // A historical cluster may have been joined by a rejected ID. Keep clearing a
+        // placeholder separate from copying a new authority ID into the cluster.
+        return findUnifiedCandidatesByIds(ids).stream().findFirst()
+                .map(root -> matchingStrategy.clusterBindingConflictReason(root, members, List.of()) == null)
+                .orElse(false);
     }
 
     public void rebuildUnifiedPipelineDynamicFields(UUID unifiedVideoId) {
