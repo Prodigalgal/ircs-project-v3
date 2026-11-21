@@ -21,7 +21,6 @@ import com.prodigalgal.ircs.scraper.ScraperDtos.ListItem;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ListPage;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ManualScrapeConfigRequest;
 import java.io.StringReader;
-import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -35,6 +34,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 @Component
 class ListScraperClient {
@@ -357,22 +357,18 @@ class ListScraperClient {
                 key,
                 replaceTokens(value, page, sourceVid, config.keyword(), config.filterType(), config.filterHours())));
         if (page != null && StringUtils.hasText(config.filterType()) && !params.containsKey("t")) {
-            builder.queryParam("t", config.filterType());
+            builder.queryParam("t", encodeUriValue(config.filterType()));
         }
         if (page != null && config.filterHours() != null && config.filterHours() > 0 && !params.containsKey("h")) {
             builder.queryParam("h", config.filterHours());
         }
         if (page != null && StringUtils.hasText(config.keyword()) && !params.containsKey("wd")) {
-            builder.queryParam("wd", config.keyword());
+            builder.queryParam("wd", encodeUriValue(config.keyword()));
         }
+        // Preserve existing escapes in the configured endpoint and parameters. Encode values only
+        // when they are inserted, so a raw keyword cannot change the query structure.
         String url = builder.build(false).toUriString();
-        if (sourceVid != null) {
-            url = url.replace("{ids}", encode(sourceVid))
-                    .replace("{id}", encode(sourceVid))
-                    .replace("{sourceVid}", encode(sourceVid))
-                    .replace("{vod_id}", encode(sourceVid));
-        }
-        return url;
+        return sourceVid == null ? url : replaceSourceIdTokens(url, sourceVid);
     }
 
     private Map<String, String> readParams(String paramsJson) {
@@ -406,22 +402,20 @@ class ListScraperClient {
             String keyword,
             String filterType,
             Integer filterHours) {
+        if (value == null) { return null; }
         String result = value;
         if (page != null) {
             result = result.replace("{page}", String.valueOf(page));
         }
         if (sourceVid != null) {
-            result = result.replace("{ids}", sourceVid)
-                    .replace("{id}", sourceVid)
-                    .replace("{sourceVid}", sourceVid)
-                    .replace("{vod_id}", sourceVid);
+            result = replaceSourceIdTokens(result, sourceVid);
         }
         if (keyword != null) {
-            result = result.replace("{keyword}", keyword);
+            result = result.replace("{keyword}", encodeUriValue(keyword));
         }
         if (filterType != null) {
-            result = result.replace("{type}", filterType)
-                    .replace("{filterType}", filterType);
+            String type = encodeUriValue(filterType);
+            result = result.replace("{type}", type).replace("{filterType}", type);
         }
         if (filterHours != null) {
             String hours = String.valueOf(filterHours);
@@ -429,6 +423,12 @@ class ListScraperClient {
                     .replace("{filterHours}", hours);
         }
         return result;
+    }
+
+    private String replaceSourceIdTokens(String template, String sourceVid) {
+        String encoded = encodeUriValue(sourceVid);
+        return template.replace("{ids}", encoded).replace("{id}", encoded)
+                .replace("{sourceVid}", encoded).replace("{vod_id}", encoded);
     }
 
     private String cleanBase(String baseUrl) {
@@ -445,8 +445,8 @@ class ListScraperClient {
         return leaf.replaceAll("\\[.*?\\]", "");
     }
 
-    private String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    private String encodeUriValue(String value) {
+        return UriUtils.encode(value, StandardCharsets.UTF_8);
     }
 
     private static OutboundHttpClient httpClient(ObjectProvider<OutboundHttpClient> httpClientProvider) {

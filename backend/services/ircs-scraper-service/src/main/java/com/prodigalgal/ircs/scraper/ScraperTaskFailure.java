@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.messaging.TaskSourceTerminalException;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.net.http.HttpTimeoutException;
 import java.util.Locale;
@@ -30,6 +31,7 @@ final class ScraperTaskFailure extends RuntimeException {
             String knownReason = switch (cause) {
                 case TaskHttpStatusException http -> "HTTP status " + http.statusCode();
                 case TaskSourceTerminalException ignored -> "Invalid collection source response";
+                case URISyntaxException ignored -> "Invalid source request URI";
                 case ScraperTrafficLimiter.SourceTrafficLimitException traffic -> traffic.getMessage();
                 case OutboundCircuitOpenException ignored -> "Outbound circuit is open";
                 case HttpTimeoutException ignored -> "Outbound HTTP timeout";

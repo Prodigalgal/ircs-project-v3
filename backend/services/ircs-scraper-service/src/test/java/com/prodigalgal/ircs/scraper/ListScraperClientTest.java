@@ -16,6 +16,7 @@ import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ManualScrapeConfigRequest;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -125,6 +126,44 @@ class ListScraperClientTest {
 
         assertThat(transport.requests.getFirst().uri().toString())
                 .isEqualTo("https://provider.example.test/api.php?ac=list&pg=3&t=movie&h=48&wd=codex");
+    }
+
+    @Test
+    void fallbackKeywordStaysOneQueryValueForCatalogTitlesWithSpacesAndPunctuation() {
+        transport.enqueue(new OutboundHttpResponse(200, Map.of(), utf8("{\"items\":[{\"vod_id\":\"v1\"}]}")));
+        String keyword = "City 青年 + A&B=#50% [2026]";
+
+        client.fetchList(source("https://provider.example.test"), keywordConfig(keyword), 1);
+
+        String[] pairs = transport.requests.getFirst().uri().getRawQuery().split("&");
+        assertThat(pairs).hasSize(3);
+        assertThat(pairs[2]).startsWith("wd=").contains("%20", "%2B", "%26", "%3D", "%23", "%25", "%5B");
+        assertThat(URLDecoder.decode(pairs[2].substring(3), StandardCharsets.UTF_8)).isEqualTo(keyword);
+        assertThat(transport.requests.getFirst().uri().getRawFragment()).isNull();
+    }
+
+    @Test
+    void keywordTemplateLeavesConfiguredEscapesIntactAndEncodesNewValuesOnce() {
+        transport.enqueue(new OutboundHttpResponse(200, Map.of(), utf8("{\"items\":[{\"vod_id\":\"v1\"}]}")));
+        DataSourceRecord source = source("https://provider.example.test", """
+                {"ac":"list","pg":"{page}","wd":"name%3A{keyword}","format":"application%2Fjson"}
+                """, "{}");
+
+        client.fetchList(source, keywordConfig("A B+C"), 2);
+
+        assertThat(transport.requests.getFirst().uri().getRawQuery())
+                .isEqualTo("ac=list&pg=2&wd=name%3AA%20B%2BC&format=application%2Fjson");
+    }
+
+    @Test
+    void detailIdRemainsOnePathSegmentAndOneQueryValue() {
+        transport.enqueue(new OutboundHttpResponse(200, Map.of(), utf8("{}")));
+        DataSourceRecord source = source("https://provider.example.test", "{}", "{\"ids\":\"{ids}\"}");
+
+        client.fetchDetail(source, keywordConfig(null), "part A/1+2");
+
+        assertThat(transport.requests.getFirst().uri().getRawPath()).isEqualTo("/detail/part%20A%2F1%2B2");
+        assertThat(transport.requests.getFirst().uri().getRawQuery()).isEqualTo("ids=part%20A%2F1%2B2");
     }
 
     @Test
@@ -385,16 +424,20 @@ class ListScraperClientTest {
     }
 
     private DataSourceRecord source(String baseUrl) {
+        return source(baseUrl, """
+                {"ac":"list","pg":"{page}"}
+                """, "{}");
+    }
+
+    private DataSourceRecord source(String baseUrl, String listParams, String detailParams) {
         return new DataSourceRecord(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 "Fake",
                 baseUrl,
                 "/api.php",
-                """
-                        {"ac":"list","pg":"{page}"}
-                        """,
+                listParams,
                 "/detail/{id}",
-                "{}",
+                detailParams,
                 """
                         {
                           "list_mapping": {
@@ -460,8 +503,20 @@ class ListScraperClientTest {
             String headers,
             String filterType,
             Integer filterHours) {
+        return config("codex", userAgent, enableRandomUa, useCustomProxy, proxyHost, proxyPort,
+                proxyUsername, proxyPassword, headers, filterType, filterHours);
+    }
+
+    private ManualScrapeConfigRequest keywordConfig(String keyword) {
+        return config(keyword, null, false, false, null, null, null, null, null, null, null);
+    }
+
+    private ManualScrapeConfigRequest config(
+            String keyword, String userAgent, boolean enableRandomUa, boolean useCustomProxy,
+            String proxyHost, Integer proxyPort, String proxyUsername, String proxyPassword,
+            String headers, String filterType, Integer filterHours) {
         return new ManualScrapeConfigRequest(
-                "codex",
+                keyword,
                 filterType,
                 filterHours,
                 1,
@@ -478,6 +533,10 @@ class ListScraperClientTest {
                 0,
                 false,
                 List.of());
+    }
+
+    private byte[] utf8(String json) {
+        return encoded(json, StandardCharsets.UTF_8);
     }
 
     private byte[] encoded(String value, Charset charset) {

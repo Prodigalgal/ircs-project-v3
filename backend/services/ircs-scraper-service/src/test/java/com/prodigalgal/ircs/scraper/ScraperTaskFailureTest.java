@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.net.UnknownHostException;
+import java.net.URISyntaxException;
 import org.junit.jupiter.api.Test;
 
 class ScraperTaskFailureTest {
@@ -35,5 +36,13 @@ class ScraperTaskFailureTest {
                         new UnknownHostException("private-host.test"))));
 
         assertThat(failure).hasMessage("Outbound DNS resolution failed").hasNoCause();
+    }
+
+    @Test
+    void malformedRequestUriIsIdentifiableWithoutCopyingItsInput() {
+        var failure = ScraperTaskFailure.summarize(new IllegalStateException("HTTP fetch failed",
+                new IllegalArgumentException(new URISyntaxException("credential-bearing-input", "bad query"))));
+
+        assertThat(failure).hasMessage("Invalid source request URI").hasNoCause();
     }
 }
