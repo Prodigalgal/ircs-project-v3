@@ -38,7 +38,7 @@ final class AggregationRecallKeys {
         if (profile == AggregationCategoryProfile.SPORTS || AggregationSportsIdentity.looksLikeEvent(completeTitle)) {
             AggregationSportsIdentity event = AggregationSportsIdentity.parse(completeTitle, null);
             if (event.date() != null && (!event.participants().isEmpty() || event.standaloneEvent())) {
-                addTitle(titles, event.identityDetails());
+                addTitle(titles, event.recallTitle());
             }
         }
         for (String alias : AggregationTitleNormalizer.splitAliases(raw.aliasTitle())) {

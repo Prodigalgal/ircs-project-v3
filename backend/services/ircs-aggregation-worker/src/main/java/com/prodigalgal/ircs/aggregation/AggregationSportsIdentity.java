@@ -129,6 +129,15 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
         return "event:" + year + ":" + date + "|" + details;
     }
 
+    String recallTitle() {
+        if (participants.isEmpty()) {
+            return identityDetails;
+        }
+        // A word boundary preserves trigram overlap with sources that store teams in the subtitle.
+        int participantsStart = identityDetails.length() - participants.length();
+        return identityDetails.substring(0, participantsStart) + " " + participants;
+    }
+
     private static String matches(Pattern pattern, String value) {
         Matcher matcher = pattern.matcher(value);
         StringBuilder found = new StringBuilder();

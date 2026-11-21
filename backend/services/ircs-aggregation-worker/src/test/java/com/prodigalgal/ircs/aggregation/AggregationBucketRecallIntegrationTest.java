@@ -179,6 +179,7 @@ class AggregationBucketRecallIntegrationTest {
                 "体育", "sports", Set.of(), Set.of(), Set.of(), null, null, null, null,
                 "READY", "SUCCESS", "PENDING");
 
+        assertThat(recall(raw)).contains(correct);
         assertThat(repository.findMatchPlan(raw)).isEqualTo(AggregationMatchPlan.rootOnly(correct));
     }
 

@@ -59,7 +59,7 @@ class AggregationMatchKeysTest {
 
         assertThat(fullDateEventKeys).hasSize(1);
         assertThat(AggregationMatchKeys.forRawVideo(shortDate)).containsAll(fullDateEventKeys);
-        assertThat(AggregationRecallKeys.titles(fullDate)).contains("nba常规赛黄蜂vs太阳");
+        assertThat(AggregationRecallKeys.titles(fullDate)).contains("nba常规赛 黄蜂vs太阳");
     }
 
     @Test

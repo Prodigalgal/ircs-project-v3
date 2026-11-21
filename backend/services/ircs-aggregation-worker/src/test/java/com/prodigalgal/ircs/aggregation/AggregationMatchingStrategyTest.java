@@ -498,16 +498,21 @@ class AggregationMatchingStrategyTest {
     }
 
     @Test
-    void twoSharedProvidersCorroborateCrossLanguageTitlesButOneUnverifiedIdDoesNot() {
+    void sharedProviderIdsNeedCorroborationForCrossLanguageTitles() {
         RawVideoAggregationRecord raw = rawVideo(
                 "流浪地球", null, "2026", "9001", "70001", null, null, null, null);
         UnifiedVideoAggregationCandidate twoProviders = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", "70001", null, null, null, null);
         UnifiedVideoAggregationCandidate onlyOne = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", null, null, null, null, null);
+        UnifiedVideoAggregationCandidate translatedAlias = candidate(
+                UUID.randomUUID(), "The Wandering Earth", "流浪地球", "2026", "9001", "70001", null, null, null, null);
 
-        assertEquals(1.0, strategy.calculateSimilarity(raw, twoProviders));
+        assertEquals(0.0, strategy.calculateSimilarity(raw, twoProviders));
         assertEquals(0.0, strategy.calculateSimilarity(raw, onlyOne));
+        assertEquals("SHARED_IDS_WITHOUT_CORROBORATION",
+                strategy.findMatchPlan(raw, List.of(twoProviders)).resolutionReason());
+        assertEquals(1.0, strategy.calculateSimilarity(raw, translatedAlias));
     }
 
     @Test

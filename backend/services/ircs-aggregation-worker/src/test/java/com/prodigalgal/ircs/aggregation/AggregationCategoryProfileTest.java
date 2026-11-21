@@ -63,7 +63,7 @@ class AggregationCategoryProfileTest {
         RawVideoAggregationRecord hornetsTitle = raw("sports", "NBA常规赛:黄蜂VS太阳20261113", null);
         RawVideoAggregationRecord sourceSeasonNoise = raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
         assertSameEvent(hornetsTitle, sourceSeasonNoise);
-        assertDistinct(hornetsTitle, raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null));
+        assertDistinct(sourceSeasonNoise, raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null));
         assertDistinct(hornetsTitle, raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS国王", null));
     }
 
