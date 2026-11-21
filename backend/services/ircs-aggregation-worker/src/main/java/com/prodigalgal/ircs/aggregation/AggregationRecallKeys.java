@@ -31,8 +31,16 @@ final class AggregationRecallKeys {
 
     static List<String> titles(RawVideoAggregationRecord raw) {
         LinkedHashMap<String, String> titles = new LinkedHashMap<>();
-        addTitle(titles, completeTitle(raw.title(), raw.subtitle()));
+        String completeTitle = completeTitle(raw.title(), raw.subtitle());
+        addTitle(titles, completeTitle);
         addTitle(titles, raw.title());
+        AggregationCategoryProfile profile = AggregationCategoryProfile.from(AggregationCategoryProfile.category(raw));
+        if (profile == AggregationCategoryProfile.SPORTS || AggregationSportsIdentity.looksLikeEvent(completeTitle)) {
+            AggregationSportsIdentity event = AggregationSportsIdentity.parse(completeTitle, null);
+            if (event.date() != null && (!event.participants().isEmpty() || event.standaloneEvent())) {
+                addTitle(titles, event.identityDetails());
+            }
+        }
         for (String alias : AggregationTitleNormalizer.splitAliases(raw.aliasTitle())) {
             if (AggregationTitleNormalizer.isDistinctiveSecondaryTitle(alias)) {
                 addTitle(titles, alias);

@@ -34,12 +34,32 @@ class AggregationMatchKeysTest {
     }
 
     @Test
+    void rejectedDouban456DoesNotProduceAnIdentityBucketKey() {
+        List<String> keys = AggregationMatchKeys.forRawVideo(rawVideo("Source title", "456"));
+
+        assertThat(keys).noneMatch(key -> key.startsWith("douban:"));
+        assertThat(keys).anyMatch(key -> key.startsWith("title:"));
+    }
+
+    @Test
     void canonicalExternalIdVariantsShareTheSameProviderLock() {
         List<String> padded = AggregationMatchKeys.forRawVideo(rawVideo("Source title", "0035000001"));
         List<String> canonical = AggregationMatchKeys.forRawVideo(rawVideo("Another title", "35000001"));
         assertThat(padded.stream().filter(key -> key.startsWith("douban:")).toList())
                 .containsExactlyElementsOf(canonical.stream().filter(key -> key.startsWith("douban:")).toList())
                 .hasSize(1);
+    }
+
+    @Test
+    void dateAndSeasonSpellingsShareASportsFixtureLock() {
+        RawVideoAggregationRecord shortDate = rawVideo("11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
+        RawVideoAggregationRecord fullDate = rawVideo("NBA常规赛:黄蜂VS太阳20261113", null);
+        List<String> fullDateEventKeys = AggregationMatchKeys.forRawVideo(fullDate).stream()
+                .filter(key -> key.startsWith("event:")).toList();
+
+        assertThat(fullDateEventKeys).hasSize(1);
+        assertThat(AggregationMatchKeys.forRawVideo(shortDate)).containsAll(fullDateEventKeys);
+        assertThat(AggregationRecallKeys.titles(fullDate)).contains("nba常规赛黄蜂vs太阳");
     }
 
     @Test

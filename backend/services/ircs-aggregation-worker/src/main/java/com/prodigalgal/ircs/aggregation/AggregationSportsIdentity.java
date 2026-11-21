@@ -11,15 +11,17 @@ import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 
 /** Bounded in-memory fixture evidence. Scores and broadcast labels are never participant names. */
-record AggregationSportsIdentity(Integer year, MonthDay date, String details, String competition,
-        String participants, Map<String, String> rounds, String group, String competitionSeason,
+record AggregationSportsIdentity(Integer year, MonthDay date, String details, String identityDetails,
+        String competition, String participants, Map<String, String> rounds, String group, CompetitionSeason competitionSeason,
         boolean fixture, boolean standaloneEvent) {
 
     private static final Pattern COMPACT_DATE = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])(?!\\d)");
     private static final Pattern FULL_DATE = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})[年/.-](\\d{1,2})[月/.-](\\d{1,2})日?");
     private static final Pattern MONTH_DAY = Pattern.compile("(?<!\\d)(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日");
-    private static final Pattern SEASON = Pattern.compile("(?:\\d{2}|(?:19|20)\\d{2})\\s*[-/]\\s*(?:\\d{2}|(?:19|20)\\d{2})\\s*赛季");
+    private static final Pattern SEASON = Pattern.compile("(?<!\\d)((?:19|20)?\\d{2})\\s*[-/]\\s*((?:19|20)?\\d{2})\\s*赛季");
     private static final Pattern YEAR = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})(?!\\d)");
+    private static final Pattern SEASON_OR_STANDALONE_YEAR = Pattern.compile(
+            "(" + SEASON.pattern() + ")|(?<![\\d/-])(?:19|20)\\d{2}(?![\\d/-])年?");
     private static final Pattern BROADCAST = Pattern.compile("(?i)(?:^|[\\s(（【\\[])(?:全场)?(?:回放|录像|录播|重播|直播|集锦|精华|高清|完整版|全场)(?:版)?[)）】\\]]?(?=$|[\\s)）】\\]]|世界杯|NBA|(?<=[)）】\\]]))|(?:全场回放|全场录像|集锦|录像|回放)\\s*$|(?:1080|2160)p|4k");
     private static final Pattern SCORED_VS = Pattern.compile("\\d{1,3}\\s*(?i:vs)\\s*\\d{1,3}");
     private static final Pattern SCORE = Pattern.compile("(?<=[\\p{L}])\\s*[(（]?\\s*(?:暂|比分)?\\s*\\d{1,3}\\s*[-:]\\s*\\d{1,3}\\s*[)）]?\\s*(?=[\\p{L}])(?!(?:赛季|比赛|开赛|开始))");
@@ -67,7 +69,7 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
             if (year.find()) { parsedYear = Integer.valueOf(year.group(1)); }
         }
         // The edition year is already retained as a field; keep competition-season ranges intact.
-        text = text.replaceAll("(?<![\\d/-])(?:19|20)\\d{2}(?![\\d/-])年?", " ");
+        text = SEASON_OR_STANDALONE_YEAR.matcher(text).replaceAll(match -> match.group(1) == null ? " " : match.group());
         text = BROADCAST.matcher(text).replaceAll(" ");
         text = TRAILING_SCORE.matcher(text).replaceAll(" ");
         text = SCORED_VS.matcher(text).replaceAll("vs");
@@ -75,20 +77,23 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
         text = VS.matcher(text).replaceAll("vs");
         text = text.replaceAll("([0-9]+)[/.之_]([0-9]+)决赛", "$1of$2决赛");
         Matcher season = SEASON.matcher(text);
-        String competitionSeason = season.find() ? key(season.group()) : null;
+        CompetitionSeason competitionSeason = season.find()
+                ? new CompetitionSeason(Integer.parseInt(season.group(1)), Integer.parseInt(season.group(2))) : null;
         String details = key(text);
-        int versus = details.indexOf("vs");
-        String competition = details;
+        // Keep the season label in the legacy event key. Compare it separately from the fixture.
+        String identityDetails = key(SEASON.matcher(text).replaceAll(" "));
+        int versus = identityDetails.indexOf("vs");
+        String competition = identityDetails;
         String participants = "";
-        boolean fixture = versus > 0 && versus + 2 < details.length();
+        boolean fixture = versus > 0 && versus + 2 < identityDetails.length();
         if (fixture) {
-            String before = details.substring(0, versus);
+            String before = identityDetails.substring(0, versus);
             Matcher context = CONTEXT_END.matcher(before);
             int boundary = 0;
             while (context.find()) { boundary = context.end(); }
             competition = before.substring(0, boundary);
             String first = before.substring(boundary);
-            String second = details.substring(versus + 2);
+            String second = identityDetails.substring(versus + 2);
             if (!first.isEmpty() && !second.isEmpty()) { participants = first + "vs" + second; }
         }
         Map<String, String> rounds = rounds(details);
@@ -96,22 +101,27 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
         competition = GROUP.matcher(ROUND.matcher(competition).replaceAll("")).replaceAll("");
         Integer resolvedYear = parsedYear == null ? metadataYear : parsedYear;
         if (date != null && resolvedYear != null && !date.isValidYear(resolvedYear)) { date = null; }
-        return new AggregationSportsIdentity(resolvedYear, date, details,
+        return new AggregationSportsIdentity(resolvedYear, date, details, identityDetails,
                 competition, participants, rounds, group, competitionSeason, fixture, STANDALONE.matcher(details).find());
     }
 
     boolean conflictsWith(AggregationSportsIdentity other) {
         return knownConflict(year, other.year) || knownConflict(date, other.date)
+                || (competitionSeason != null && other.competitionSeason != null
+                    && !competitionSeason.matches(other.competitionSeason))
                 || textConflict(participants, other.participants) || textConflict(competition, other.competition)
                 || AggregationCategoryProfile.installmentsConflict(rounds, other.rounds) || textConflict(group, other.group);
     }
 
     boolean supportsSameEvent(AggregationSportsIdentity other) {
         // A league/day heading or an undated recurring fixture cannot prove one concrete event.
-        boolean calendarAnchor = year != null && other.year != null
-                || competitionSeason != null && competitionSeason.equals(other.competitionSeason);
-        return !conflictsWith(other) && calendarAnchor && date != null && date.equals(other.date)
-                && !details.isEmpty() && details.equals(other.details)
+        boolean sharedYear = year != null && year.equals(other.year);
+        boolean sharedSeason = competitionSeason != null && other.competitionSeason != null
+                && competitionSeason.matches(other.competitionSeason);
+        // If only one title carries a competition-season label, ignore it only with a shared
+        // resolved year. A season label alone remains a conservative anchor and must agree.
+        return !conflictsWith(other) && (sharedYear || sharedSeason) && date != null && date.equals(other.date)
+                && !identityDetails.isEmpty() && identityDetails.equals(other.identityDetails)
                 && ((fixture && other.fixture) || (standaloneEvent && other.standaloneEvent));
     }
 
@@ -152,5 +162,15 @@ record AggregationSportsIdentity(Integer year, MonthDay date, String details, St
 
     private static String key(String value) {
         return value.replaceAll("[\\p{P}\\p{Z}\\s]+", "").trim();
+    }
+
+    private record CompetitionSeason(int start, int end) {
+        boolean matches(CompetitionSeason other) {
+            return sameYearLabel(start, other.start) && sameYearLabel(end, other.end);
+        }
+
+        private static boolean sameYearLabel(int left, int right) {
+            return left == right || ((left < 100 || right < 100) && left % 100 == right % 100);
+        }
     }
 }

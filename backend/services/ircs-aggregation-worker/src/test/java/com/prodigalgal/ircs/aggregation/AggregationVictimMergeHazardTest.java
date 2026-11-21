@@ -122,6 +122,20 @@ class AggregationVictimMergeHazardTest {
     }
 
     @Test
+    void twoSharedProviderIdsStillRequireCorroboration() {
+        RawVideoAggregationRecord raw = rawVideo("荒原来信", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "荒原来信", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate second = candidate(UUID.randomUUID(), "深海漫游", "2026", "9001", "70001");
+
+        AggregationMatchPlan unsupported = strategy.findMatchPlan(raw, List.of(second));
+
+        assertThat(unsupported.isAmbiguous()).isTrue();
+        assertThat(unsupported.resolutionReason()).isEqualTo("SHARED_IDS_WITHOUT_CORROBORATION");
+        assertThat(strategy.findMatchPlan(raw, List.of(first, second))).isEqualTo(AggregationMatchPlan.rootOnly(first.id()));
+        assertThat(strategy.isSafeUnifiedMerge(List.of(first, second), Set.of(first.id(), second.id()))).isFalse();
+    }
+
+    @Test
     void unifiedMergeUsesReleaseToleranceButUnknownYearCannotHideKnownConflict() {
         UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2025", "9001", null);
         UnifiedVideoAggregationCandidate next = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);

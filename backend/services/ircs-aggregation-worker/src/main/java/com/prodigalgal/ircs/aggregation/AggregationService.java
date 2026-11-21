@@ -513,6 +513,12 @@ public class AggregationService {
                         || !matchingStrategy.isSafeUnifiedMerge(candidates, expectedIds))) {
                     return AggregationResult.skipped(rawVideo.id(), "MERGE_AMBIGUOUS");
                 }
+                String clusterConflict = clusterBindingConflict(root, expectedIds, List.of(rawVideo));
+                if (clusterConflict != null) {
+                    String status = AggregationMemberIdentity.REVIEW_LIMIT_REASON.equals(clusterConflict)
+                            ? "MERGE_AMBIGUOUS" : "IDENTITY_CONFLICT";
+                    return AggregationResult.skipped(rawVideo.id(), status);
+                }
             }
             UUID unifiedVideoId = matchPlan.hasRoot() ? matchPlan.rootUnifiedVideoId() : repository.createUnifiedVideo(rawVideo);
             if (matchPlan.hasVictims()) {
@@ -581,6 +587,9 @@ public class AggregationService {
                 }
                 if (matchPlan.hasVictims() && (!safetyPolicy.automaticUnifiedMergeEnabled()
                         || !matchingStrategy.isSafeUnifiedMerge(candidates, expectedIds))) {
+                    return BoundClusterResult.skipped(cluster.rawVideoIds(), "SPLIT_CLUSTER");
+                }
+                if (clusterBindingConflict(root, expectedIds, rawVideos) != null) {
                     return BoundClusterResult.skipped(cluster.rawVideoIds(), "SPLIT_CLUSTER");
                 }
             }
@@ -656,6 +665,19 @@ public class AggregationService {
         Set<UUID> ids = new LinkedHashSet<>(plan.victimUnifiedVideoIds());
         ids.add(plan.rootUnifiedVideoId());
         return ids;
+    }
+
+    private String clusterBindingConflict(UnifiedVideoAggregationCandidate root, Set<UUID> expectedIds,
+            List<RawVideoAggregationRecord> incoming) {
+        // Root and victim row locks serialize membership writes. Witness rows are read
+        // without acquiring a second set of raw locks in the reverse order.
+        String conflict = matchingStrategy.clusterBindingConflictReason(root,
+                repository.findBoundMemberIdentities(expectedIds), incoming);
+        if (conflict != null) {
+            log.warn("Aggregation cluster requires review: unifiedVideoId={}, rawVideoIds={}, reason={}",
+                    root.id(), incoming.stream().map(RawVideoAggregationRecord::id).toList(), conflict);
+        }
+        return conflict;
     }
 
     private List<RawVideoAggregationRecord> leaderFirst(

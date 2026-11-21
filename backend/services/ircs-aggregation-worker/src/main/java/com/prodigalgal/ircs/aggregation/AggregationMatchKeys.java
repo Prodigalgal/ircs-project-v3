@@ -16,7 +16,7 @@ import org.springframework.util.StringUtils;
 final class AggregationMatchKeys {
 
     private static final int MAX_KEYS = 12;
-    private static final AggregationSafetyPolicy DEFAULT_SAFETY_POLICY = new AggregationSafetyPolicy(false, "douban:123");
+    private static final AggregationSafetyPolicy DEFAULT_SAFETY_POLICY = new AggregationSafetyPolicy(false, "douban:123,douban:456");
 
     private AggregationMatchKeys() {
     }
@@ -40,7 +40,12 @@ final class AggregationMatchKeys {
             AggregationSportsIdentity event = AggregationSportsIdentity.parse(completeTitle, null);
             // The year is intentionally omitted: month/day sources can match an explicitly dated
             // source, and both writers must share one lock before a unified row exists.
-            if (event.date() != null) { keys.add("event:" + digest(event.date() + "|" + event.details())); }
+            if (event.date() != null) {
+                keys.add("event:" + digest(event.date() + "|" + event.details()));
+                // Keep the old key during a rollout while serializing the spellings accepted
+                // by the new comparison under the same lock.
+                keys.add("event:" + digest(event.date() + "|" + event.identityDetails()));
+            }
         }
         addTitleKeys(keys, rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.season());
         if (keys.isEmpty() && rawVideo.id() != null) {

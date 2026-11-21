@@ -213,6 +213,30 @@ public class JdbcAggregationRepository {
                 UUID.class);
     }
 
+    List<AggregationMemberIdentity> findBoundMemberIdentities(Collection<UUID> unifiedVideoIds) {
+        if (unifiedVideoIds.isEmpty()) { return List.of(); }
+        // Read one extra link so callers can distinguish a complete view from the review limit.
+        // Bound the indexed association lookup before loading the narrow identity projection.
+        return jdbcTemplate.query("""
+                with members as materialized (
+                    select raw_video_id
+                    from raw_video_unified_video
+                    where unified_video_id in (:ids)
+                    limit :limit
+                )
+                select rv.id, rv.title, rv.alias_title, rv.subtitle, rv.remarks, rv.year,
+                       rv.season, rv.category_code, rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
+                from members join raw_videos rv on rv.id = members.raw_video_id
+                """, new MapSqlParameterSource("ids", unifiedVideoIds)
+                        .addValue("limit", AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1),
+                (rs, row) -> new AggregationMemberIdentity(
+                        rs.getObject("id", UUID.class), rs.getString("title"), rs.getString("alias_title"),
+                        rs.getString("subtitle"), rs.getString("remarks"), rs.getString("year"),
+                        rs.getObject("season", Integer.class), rs.getString("category_code"),
+                        rs.getString("douban_id"), rs.getString("tmdb_id"), rs.getString("imdb_id"),
+                        rs.getString("rotten_tomatoes_id")));
+    }
+
     public List<UUID> findDirtyUnifiedIds(int limit) {
         return jdbcTemplate.queryForList(
                 """

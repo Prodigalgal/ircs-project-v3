@@ -7,7 +7,7 @@ package com.prodigalgal.ircs.aggregation;
  */
 final class AggregationTestFixtures {
 
-    private static final String DEFAULT_REJECTED_EXTERNAL_IDS = "douban:123";
+    private static final String DEFAULT_REJECTED_EXTERNAL_IDS = "douban:123,douban:456";
 
     private AggregationTestFixtures() {
     }

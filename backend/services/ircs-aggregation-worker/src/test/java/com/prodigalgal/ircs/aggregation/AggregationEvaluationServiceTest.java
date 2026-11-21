@@ -98,7 +98,31 @@ class AggregationEvaluationServiceTest {
         verify(repository).findRawVideo(id);
         verify(repository).findExistingBinding(id);
         verify(repository).findUnifiedCandidatesByIds(Set.of(existing));
+        verify(repository).findBoundMemberIdentities(Set.of(existing));
         verifyNoMoreInteractions(repository);
+    }
+
+    @Test
+    void shadowReportExposesConflictBetweenStoredMembersOfAnExistingBinding() {
+        UUID id = UUID.randomUUID();
+        UUID existing = UUID.randomUUID();
+        RawVideoAggregationRecord raw = raw(id, "READY", "SUCCESS", "BOUND", null);
+        when(repository.findRawVideo(id)).thenReturn(Optional.of(raw));
+        when(repository.findExistingBinding(id)).thenReturn(Optional.of(existing));
+        UnifiedVideoAggregationCandidate root = candidate(existing, null);
+        when(repository.findUnifiedCandidatesByIds(Set.of(existing))).thenReturn(List.of(root));
+        when(repository.findBoundMemberIdentities(Set.of(existing))).thenReturn(List.of(
+                new AggregationMemberIdentity(UUID.randomUUID(), root.title(), null, null, null,
+                        "2026", null, "movie", null, "101", null, null),
+                new AggregationMemberIdentity(UUID.randomUUID(), root.title(), null, null, null,
+                        "2026", null, "movie", null, "202", null, null)));
+
+        var decision = service.evaluate(List.of(id)).decisions().getFirst();
+
+        assertThat(decision.decision()).isEqualTo("IDENTITY_CONFLICT");
+        assertThat(decision.originalUnifiedVideoId()).isEqualTo(existing);
+        assertThat(decision.reason()).isEqualTo("CLUSTER_IDENTITY:EXTERNAL_ID_CONFLICT_TMDB");
+        verify(repository, never()).bindRawToUnified(any(), any());
     }
 
     @Test

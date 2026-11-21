@@ -60,6 +60,26 @@ class AggregationCategoryProfileTest {
         }
         assertSameEvent(raw("sports", "7月4日25-26赛季浙BA", "桐庐76VS74临安"),
                 raw("sports", "7月4日25-26赛季浙BA 桐庐VS临安", null));
+        RawVideoAggregationRecord hornetsTitle = raw("sports", "NBA常规赛:黄蜂VS太阳20261113", null);
+        RawVideoAggregationRecord sourceSeasonNoise = raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
+        assertSameEvent(hornetsTitle, sourceSeasonNoise);
+        assertDistinct(hornetsTitle, raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null));
+        assertDistinct(hornetsTitle, raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS国王", null));
+    }
+
+    @Test
+    void competitionSeasonOnlyAnchorsWhenBothSourcesAgreeAndNoYearIsAvailable() {
+        RawVideoAggregationRecord first = withEvidence(raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null),
+                null, null, Set.of(), Set.of(), null);
+        RawVideoAggregationRecord sameSeason = withEvidence(raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null),
+                null, null, Set.of(), Set.of(), null);
+        RawVideoAggregationRecord expandedSeason = withEvidence(raw("sports", "11月13日2025 - 2026 赛季NBA常规赛黄蜂VS太阳", null),
+                null, null, Set.of(), Set.of(), null);
+        RawVideoAggregationRecord otherSeason = withEvidence(raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null),
+                null, null, Set.of(), Set.of(), null);
+        assertSameEvent(first, sameSeason);
+        assertSameEvent(first, expandedSeason);
+        assertDistinct(first, otherSeason);
     }
 
     @Test

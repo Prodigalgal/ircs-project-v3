@@ -7,16 +7,17 @@ import org.junit.jupiter.api.Test;
 
 class AggregationSafetyPolicyTest {
 
-    private final AggregationSafetyPolicy policy = new AggregationSafetyPolicy(false, "douban:123,imdb:tt0000000");
+    private final AggregationSafetyPolicy policy = new AggregationSafetyPolicy(false, "douban:123,douban:456,imdb:tt0000000");
 
     @Test
     void rejectedAndPlaceholderIdsNeverProvideIdentityEvidence() {
-        for (String value : new String[] {"0", "0.0", "000", "null", "unknown", "N/A", "-", "123"}) {
+        for (String value : new String[] {"0", "0.0", "000", "null", "unknown", "N/A", "-", "123", "456"}) {
             assertFalse(policy.isUsableExternalId("douban", value));
         }
         assertFalse(policy.isUsableExternalId("imdb", "tt0000000"));
         assertTrue(policy.isUsableExternalId("tmdb", "123"));
         assertTrue(policy.rejectedExternalIdValues("douban").contains("123"));
+        assertTrue(policy.rejectedExternalIdValues("douban").contains("456"));
         assertFalse(policy.rejectedExternalIdValues("tmdb").contains("123"));
         assertTrue(policy.rejectedExternalIdValues("imdb").contains("tt0000000"));
         assertFalse(policy.isUsableExternalId("tmdb", "unknown"));

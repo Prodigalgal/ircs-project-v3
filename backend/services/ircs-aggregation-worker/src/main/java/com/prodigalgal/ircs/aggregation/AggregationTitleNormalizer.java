@@ -16,11 +16,16 @@ import org.springframework.util.StringUtils;
 final class AggregationTitleNormalizer {
 
     static final Pattern SEASON_PATTERN = Pattern.compile(
-            "(?i)(?:season|s)\\s*(\\d+)|第\\s*([0-9零一二三四五六七八九十百两]+)\\s*季");
+            "(?i)(?:season|s)\\s*(\\d+)|第\\s*([0-9零一二三四五六七八九十百两]+)\\s*季(?![度节])|"
+                    + "(?<!\\d)([0-9]{1,3}|[零一二三四五六七八九十百两]+)\\s*季(?![度节])");
     static final Pattern VERSION_REAL = Pattern.compile("(?i)(真人版|剧版|live\\s*action)");
     static final Pattern VERSION_ANIME = Pattern.compile("(?i)(动画版|动漫|anime|animation)");
     static final Pattern RELEASE_NOISE = Pattern.compile(
             "(?i)(全集|更新至|完结|国语|粤语|中字|4k|1080p|2160p|bluray|web-dl|第\\d+集|\\d+集全)");
+    private static final Pattern AUDIO_VERSION_LABEL = Pattern.compile(
+            "(?:原声(?:版)?|(?:普通话|国语|粤语|泰语|英语|日语|韩语)(?:配音)?版)");
+    private static final Pattern AUDIO_VERSION_SUFFIX = Pattern.compile(
+            "[\\p{P}\\p{Z}\\s]+" + AUDIO_VERSION_LABEL.pattern() + "[\\p{P}\\p{Z}\\s]*$");
     private static final Pattern GENERIC_SECONDARY_TITLE = Pattern.compile(
             "(?i)(?:动态漫画|漫画|动漫|动画|动画版|完整版|完整|正片|电影版|剧场版|特别篇|番外篇|预告片|合集|"
                     + "第?[0-9零一二三四五六七八九十百两]+[部季集篇卷]|[上中下]部|part[0-9ivx]+|season\\d+|s\\d+)+");
@@ -45,6 +50,7 @@ final class AggregationTitleNormalizer {
         String main = title == null ? "" : title.trim();
         if (!StringUtils.hasText(subtitle)) { return main; }
         String secondary = subtitle.trim();
+        if (AUDIO_VERSION_LABEL.matcher(compactIdentityText(secondary)).matches()) { return main; }
         return compactIdentityText(main).contains(compactIdentityText(secondary)) ? main : main + " " + secondary;
     }
 
@@ -54,7 +60,8 @@ final class AggregationTitleNormalizer {
     }
 
     static String normalizeTitle(String value) {
-        String normalized = RELEASE_NOISE.matcher(value).replaceAll(" ");
+        String normalized = AUDIO_VERSION_SUFFIX.matcher(value).replaceFirst(" ");
+        normalized = RELEASE_NOISE.matcher(normalized).replaceAll(" ");
         normalized = SEASON_PATTERN.matcher(normalized).replaceAll(" ");
         normalized = VERSION_REAL.matcher(normalized).replaceAll(" ");
         normalized = VERSION_ANIME.matcher(normalized).replaceAll(" ");
@@ -75,6 +82,7 @@ final class AggregationTitleNormalizer {
         }
         String original = value.trim().replaceAll("[\\p{P}\\p{Z}\\s]+", "");
         return StringUtils.hasText(normalized)
+                && !AUDIO_VERSION_LABEL.matcher(original).matches()
                 && !GENERIC_SECONDARY_TITLE.matcher(original).matches()
                 && !GENERIC_SECONDARY_TITLE.matcher(normalized).matches();
     }
@@ -95,7 +103,8 @@ final class AggregationTitleNormalizer {
         if (!matcher.find()) {
             return null;
         }
-        String token = matcher.group(1) == null ? matcher.group(2) : matcher.group(1);
+        String token = matcher.group(1) != null ? matcher.group(1)
+                : matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
         if (!StringUtils.hasText(token)) {
             return null;
         }

@@ -42,7 +42,7 @@ app:
     auto-unified-merge:
       enabled: ${APP_AGGREGATION_AUTO_UNIFIED_MERGE_ENABLED:false}
     identity:
-      rejected-external-ids: ${APP_AGGREGATION_IDENTITY_REJECTED_EXTERNAL_IDS:douban:123}
+      rejected-external-ids: ${APP_AGGREGATION_IDENTITY_REJECTED_EXTERNAL_IDS:douban:123,douban:456}
     work-queue:
       worker:
         initial-delay-ms: ${APP_AGGREGATION_WORK_QUEUE_INITIAL_DELAY_MS:10000}

@@ -155,6 +155,9 @@ class AggregationServiceTest {
         when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
         when(repository.findExistingBinding(rawVideoId)).thenReturn(Optional.empty());
         when(repository.findMatchPlan(rawVideo)).thenReturn(AggregationMatchPlan.rootOnly(unifiedVideoId));
+        when(repository.findBoundMemberIdentities(java.util.Set.of(unifiedVideoId))).thenReturn(
+                java.util.stream.IntStream.range(0, 25)
+                        .mapToObj(index -> memberWithTmdb("210001")).toList());
         when(aggregationPipelineRuntime.run(unifiedVideoId))
                 .thenReturn(pipelineExecution(unifiedVideoId, List.of()));
 
@@ -168,6 +171,52 @@ class AggregationServiceTest {
         verify(repository).markBound(rawVideoId);
         verify(publisher).publishUnifiedIndex(unifiedVideoId);
         verify(publisher).publishRawIndex(rawVideoId);
+    }
+
+    @Test
+    void checksConflictsBetweenPreviouslyBoundMembersBeforeAppendingToSparseRoot() {
+        UUID rawId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        RawVideoAggregationRecord raw = readyRawVideo(rawId);
+        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        when(repository.findMatchPlan(raw)).thenReturn(AggregationMatchPlan.rootOnly(rootId));
+        when(repository.findBoundMemberIdentities(java.util.Set.of(rootId)))
+                .thenReturn(List.of(memberWithTmdb("210001"), memberWithTmdb("210002")));
+
+        AggregationResult result = service.aggregateRuntimeWork(rawId);
+
+        assertEquals("IDENTITY_CONFLICT", result.status());
+        InOrder order = inOrder(repository);
+        order.verify(repository).lockUnifiedVideos(java.util.Set.of(rootId));
+        order.verify(repository).findBoundMemberIdentities(java.util.Set.of(rootId));
+        verify(repository, never()).upsertUnifiedFields(any(), any());
+        verify(repository, never()).bindRawToUnified(any(), any());
+        verifyNoInteractions(aggregationPipelineRuntime, publisher);
+    }
+
+    @Test
+    void unverifiedLargeClusterGoesToReviewWithoutChangingItsExistingBinding() {
+        UUID rawId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        RawVideoAggregationRecord raw = readyRawVideo(rawId);
+        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        when(repository.findExistingBinding(rawId)).thenReturn(Optional.of(rootId));
+        when(repository.findBoundMemberIdentities(java.util.Set.of(rootId))).thenReturn(
+                java.util.stream.IntStream.rangeClosed(0, AggregationMemberIdentity.REVIEW_MEMBER_LIMIT)
+                        .mapToObj(index -> memberWithTmdb("210001")).toList());
+
+        AggregationResult result = service.aggregateRuntimeWork(rawId);
+
+        assertEquals("MERGE_AMBIGUOUS", result.status());
+        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
+        verify(repository, never()).upsertUnifiedFields(any(), any());
+        verify(repository, never()).bindRawToUnified(any(), any());
+        verifyNoInteractions(aggregationPipelineRuntime, publisher);
+    }
+
+    private AggregationMemberIdentity memberWithTmdb(String tmdbId) {
+        return new AggregationMemberIdentity(UUID.randomUUID(), "Codex Aggregation", null, null, null,
+                "2026", null, "movie", "1234567", tmdbId, null, null);
     }
 
     @Test

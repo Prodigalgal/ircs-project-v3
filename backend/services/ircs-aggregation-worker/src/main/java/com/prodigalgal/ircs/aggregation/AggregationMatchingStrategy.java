@@ -47,8 +47,16 @@ public class AggregationMatchingStrategy {
     public AggregationMatchPlan findMatchPlan(
             RawVideoAggregationRecord rawVideo,
             List<UnifiedVideoAggregationCandidate> candidates) {
-        List<UUID> matches = findMergeableMatches(rawVideo, candidates);
+        VideoFingerprint rawFingerprint = fingerprint(rawVideo);
+        List<UUID> matches = findMergeableMatches(rawVideo, rawFingerprint, candidates);
         if (matches.isEmpty()) {
+            if (!rawFingerprint.externalIds().isEmpty() && candidates.stream().anyMatch(candidate -> {
+                VideoFingerprint candidateFingerprint = fingerprint(candidate);
+                return checkExternalIds(rawFingerprint, candidateFingerprint) > 0
+                        && isHardIdentityCompatible(rawVideo, candidate, rawFingerprint, candidateFingerprint);
+            })) {
+                return new AggregationMatchPlan(null, List.of(), "SHARED_IDS_WITHOUT_CORROBORATION");
+            }
             return AggregationMatchPlan.none();
         }
         if (matches.size() == 1) {
@@ -73,7 +81,7 @@ public class AggregationMatchingStrategy {
     /**
      * Validates the complete proposed set, including victims against one another. Usable IDs are
      * not verified identities; each pair needs shared provider evidence and independent title/name
-     * corroboration (or two shared providers). A raw carrying unrelated IDs cannot prove this link.
+     * corroboration. Multiple IDs can originate from one metadata lookup.
      */
     boolean isSafeUnifiedMerge(
             List<UnifiedVideoAggregationCandidate> candidates, Set<UUID> expectedUnifiedIds) {
@@ -110,12 +118,11 @@ public class AggregationMatchingStrategy {
     }
 
     private boolean hasUnifiedMergeEvidence(VideoFingerprint left, VideoFingerprint right) {
-        int sharedIdCount = sharedExternalIdCount(left, right);
-        if (sharedIdCount == 0) {
+        if (sharedExternalIdCount(left, right) == 0) {
             return false;
         }
         // Destroying an existing work needs stronger corroboration than ordinary raw matching.
-        if (sharedIdCount > 1 || sharesPeopleInSameRole(left, right)) {
+        if (sharesPeopleInSameRole(left, right)) {
             return true;
         }
         return left.titles().stream()
@@ -125,8 +132,8 @@ public class AggregationMatchingStrategy {
 
     private List<UUID> findMergeableMatches(
             RawVideoAggregationRecord rawVideo,
+            VideoFingerprint rawFingerprint,
             List<UnifiedVideoAggregationCandidate> candidates) {
-        VideoFingerprint rawFingerprint = fingerprint(rawVideo);
         return candidates.stream()
                 .map(candidate -> new ScoredCandidate(candidate.id(),
                         calculateSimilarity(rawVideo, candidate, rawFingerprint, fingerprint(candidate))))
@@ -160,11 +167,10 @@ public class AggregationMatchingStrategy {
             return 0.0;
         }
 
-        double titleScore = titleSimilarity(rawFingerprint, candidateFingerprint);
         if (externalIdCheck > 0) {
-            return corroboratesSharedIdentity(rawFingerprint, candidateFingerprint,
-                    sharedExternalIdCount(rawFingerprint, candidateFingerprint)) ? 1.0 : 0.0;
+            return corroboratesSharedIdentity(rawFingerprint, candidateFingerprint) ? 1.0 : 0.0;
         }
+        double titleScore = titleSimilarity(rawFingerprint, candidateFingerprint);
         if (titleScore < TITLE_BLOCK_THRESHOLD) {
             return 0.0;
         }
@@ -200,11 +206,10 @@ public class AggregationMatchingStrategy {
             return 0.0;
         }
 
-        double titleScore = titleSimilarity(leftFingerprint, rightFingerprint);
         if (externalIdCheck > 0) {
-            return corroboratesSharedIdentity(leftFingerprint, rightFingerprint,
-                    sharedExternalIdCount(leftFingerprint, rightFingerprint)) ? 1.0 : 0.0;
+            return corroboratesSharedIdentity(leftFingerprint, rightFingerprint) ? 1.0 : 0.0;
         }
+        double titleScore = titleSimilarity(leftFingerprint, rightFingerprint);
         if (titleScore < TITLE_BLOCK_THRESHOLD) {
             return 0.0;
         }
@@ -250,15 +255,8 @@ public class AggregationMatchingStrategy {
         return 0.0;
     }
 
-    private boolean corroboratesSharedIdentity(VideoFingerprint left, VideoFingerprint right,
-            int sharedIdCount) {
-        if (sharedIdCount == 0) {
-            return false;
-        }
-        if (sharedIdCount > 1 || titleSimilarity(left, right) >= SAME_ID_TITLE_FLOOR) {
-            return true;
-        }
-        return sharesPeopleInSameRole(left, right);
+    private boolean corroboratesSharedIdentity(VideoFingerprint left, VideoFingerprint right) {
+        return titleSimilarity(left, right) >= SAME_ID_TITLE_FLOOR || sharesPeopleInSameRole(left, right);
     }
 
     SimilaritySession prepareSimilaritySession(List<AggregationGraphCandidate> candidates) {
@@ -624,9 +622,46 @@ public class AggregationMatchingStrategy {
 
     String bindingConflictReason(RawVideoAggregationRecord raw, UnifiedVideoAggregationCandidate unified) {
         if (raw == null || unified == null) { return "MISSING_IDENTITY"; }
-        VideoFingerprint left = fingerprint(raw);
-        VideoFingerprint right = fingerprint(unified);
-        if (!AggregationSafetyPolicy.categoriesCompatible(AggregationCategoryProfile.category(raw), unified.categoryName())) {
+        return knownBindingConflict(AggregationCategoryProfile.category(raw), fingerprint(raw),
+                unified.categoryName(), fingerprint(unified));
+    }
+
+    String clusterBindingConflictReason(UnifiedVideoAggregationCandidate root,
+            List<AggregationMemberIdentity> existingMembers, List<RawVideoAggregationRecord> incoming) {
+        if (existingMembers.size() > AggregationMemberIdentity.REVIEW_MEMBER_LIMIT) {
+            return AggregationMemberIdentity.REVIEW_LIMIT_REASON;
+        }
+        Map<UUID, BindingWitness> byRawId = new java.util.TreeMap<>();
+        for (AggregationMemberIdentity member : existingMembers) {
+            byRawId.computeIfAbsent(member.rawVideoId(), ignored -> new BindingWitness(member.category(),
+                    fingerprint(member.title(), member.aliasTitle(), member.subtitle(), member.remarks(), member.season(),
+                            Set.of(), Set.of(), parseYear(member.year()), null, Set.of(),
+                            normalizedExternalIds(new String[] {member.doubanId(), member.tmdbId(),
+                                    member.imdbId(), member.rottenTomatoesId()}), member.category())));
+        }
+        for (RawVideoAggregationRecord raw : incoming) {
+            byRawId.put(raw.id(), new BindingWitness(AggregationCategoryProfile.category(raw), fingerprint(raw)));
+        }
+
+        // Compare stored members against one another as well as the display row. Missing fields
+        // in a sparse root can otherwise allow incompatible known seasons or IDs to coexist.
+        List<BindingWitness> witnesses = new ArrayList<>(new java.util.LinkedHashSet<>(byRawId.values()));
+        witnesses.add(new BindingWitness(root.categoryName(), fingerprint(root)));
+        for (int i = 0; i < witnesses.size(); i++) {
+            BindingWitness left = witnesses.get(i);
+            for (int j = i + 1; j < witnesses.size(); j++) {
+                BindingWitness right = witnesses.get(j);
+                String conflict = knownBindingConflict(left.category(), left.fingerprint(),
+                        right.category(), right.fingerprint());
+                if (conflict != null) { return conflict; }
+            }
+        }
+        return null;
+    }
+
+    private String knownBindingConflict(String leftCategory, VideoFingerprint left,
+            String rightCategory, VideoFingerprint right) {
+        if (!AggregationSafetyPolicy.categoriesCompatible(leftCategory, rightCategory)) {
             return "CATEGORY_CONFLICT";
         }
         if (!profileYearsCompatible(left, right)) { return "YEAR_CONFLICT"; }
@@ -792,6 +827,8 @@ public class AggregationMatchingStrategy {
             Set<String> areas, Map<String, String> externalIds, String primaryTitle, String subtitle,
             AggregationCategoryProfile profile, String completeTitle, Map<String, String> installments, String originalCompleteTitle) {
     }
+
+    private record BindingWitness(String category, VideoFingerprint fingerprint) { }
 
     private enum VideoVersion {
         NORMAL,

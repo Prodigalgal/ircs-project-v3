@@ -17,7 +17,7 @@ final class AggregationSafetyPolicy {
 
     AggregationSafetyPolicy(
             @Value("${app.aggregation.auto-unified-merge.enabled:false}") boolean automaticUnifiedMergeEnabled,
-            @Value("${app.aggregation.identity.rejected-external-ids:douban:123}") String rejectedExternalIds) {
+            @Value("${app.aggregation.identity.rejected-external-ids:douban:123,douban:456}") String rejectedExternalIds) {
         this.automaticUnifiedMergeEnabled = automaticUnifiedMergeEnabled;
         this.rejectedExternalIds = Arrays.stream(rejectedExternalIds == null ? new String[0] : rejectedExternalIds.split(","))
                 .map(AggregationSafetyPolicy::normalizeRejectedId)

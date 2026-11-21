@@ -104,6 +104,13 @@ class AggregationEvaluationService {
         if (plan.hasVictims() && !matchingStrategy.isSafeUnifiedMerge(candidates, expected)) {
             return decision(raw, original, plan, "AMBIGUOUS", "FINAL_UNIFIED_SET_LACKS_MERGE_EVIDENCE");
         }
+        String clusterConflict = matchingStrategy.clusterBindingConflictReason(root,
+                repository.findBoundMemberIdentities(expected), List.of(raw));
+        if (clusterConflict != null) {
+            String status = AggregationMemberIdentity.REVIEW_LIMIT_REASON.equals(clusterConflict)
+                    ? "AMBIGUOUS" : "IDENTITY_CONFLICT";
+            return decision(raw, original, plan, status, "CLUSTER_IDENTITY:" + clusterConflict);
+        }
         return decision(raw, original, plan, alreadyBound ? "ALREADY_BOUND"
                         : existing.isPresent() ? "EXISTING_BINDING_COMPATIBLE" : "MATCH",
                 alreadyBound ? "BOUND_IDENTITY_COMPATIBLE_CONTENT_SAFETY_NOT_EVALUATED"

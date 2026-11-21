@@ -168,6 +168,59 @@ class AggregationBucketRecallIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from unified_videos", Integer.class)).isEqualTo(30);
     }
 
+    @Test
+    void recallsTheSameFixtureAcrossDateAndSeasonSpellings() {
+        jdbc.update("insert into standard_category values ('sports', '体育')");
+        UUID correct = insert("11月13日25-26赛季NBA常规赛", "黄蜂VS太阳", "2026", null, null, 0);
+        UUID otherFixture = insert("11月13日25-26赛季NBA常规赛", "黄蜂VS湖人", "2026", null, null, 1);
+        jdbc.update("update unified_videos set category_code = 'sports' where id in (?, ?)", correct, otherFixture);
+        RawVideoAggregationRecord raw = new RawVideoAggregationRecord(UUID.randomUUID(),
+                "NBA常规赛:黄蜂VS太阳20261113", null, null, "2026", null, null, null, null, null, null, null,
+                "体育", "sports", Set.of(), Set.of(), Set.of(), null, null, null, null,
+                "READY", "SUCCESS", "PENDING");
+
+        assertThat(repository.findMatchPlan(raw)).isEqualTo(AggregationMatchPlan.rootOnly(correct));
+    }
+
+    @Test
+    void loadsOnlyRequestedMemberEvidenceAndDetectsTheReviewLimit() {
+        jdbc.execute("""
+                create table raw_videos(
+                    id uuid primary key, title text, alias_title text, subtitle text, remarks text,
+                    year text, season integer, category_code text, douban_id text, tmdb_id text,
+                    imdb_id text, rotten_tomatoes_id text);
+                create table raw_video_unified_video(raw_video_id uuid primary key, unified_video_id uuid);
+                create index on raw_video_unified_video(unified_video_id, raw_video_id);
+                """);
+        UUID full = UUID.randomUUID();
+        UUID single = UUID.randomUUID();
+        UUID rawId = UUID.randomUUID();
+        jdbc.update("""
+                with inserted as (
+                    insert into raw_videos(id, title) select gen_random_uuid(), 'Matched Work'
+                    from generate_series(1, ?) returning id
+                )
+                insert into raw_video_unified_video select id, ? from inserted
+                """, AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 2, full);
+        jdbc.update("""
+                insert into raw_videos(id, title, alias_title, subtitle, remarks, year, season, category_code,
+                    douban_id, tmdb_id, imdb_id, rotten_tomatoes_id)
+                values (?, 'Other Work', 'Alias', 'Subtitle', 'Remarks', '2025', 2, 'series',
+                    '1234567', '4567', 'tt9876543', 'other_work')
+                """, rawId);
+        jdbc.update("insert into raw_video_unified_video values (?, ?)", rawId, single);
+        JdbcAggregationRepository identities = JdbcAggregationRepository.forTest(
+                new NamedParameterJdbcTemplate(pool), AggregationTestFixtures.matchingStrategy());
+
+        assertThat(identities.findBoundMemberIdentities(List.of(single)))
+                .containsExactly(new AggregationMemberIdentity(rawId, "Other Work", "Alias", "Subtitle", "Remarks",
+                        "2025", 2, "series", "1234567", "4567", "tt9876543", "other_work"));
+        assertThat(identities.findBoundMemberIdentities(List.of(full, UUID.randomUUID())))
+                .hasSize(AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1)
+                .allMatch(member -> "Matched Work".equals(member.title()));
+        assertThat(identities.findBoundMemberIdentities(List.of(UUID.randomUUID()))).isEmpty();
+    }
+
     private void addNamesakes() {
         for (int index = 1; index <= 125; index++) {
             insert("Echo", "Other Story " + index, "2026", "Other Actor " + index,
