@@ -52,6 +52,49 @@ class AggregationVictimMergeHazardTest {
     }
 
     @Test
+    void verifiedDuplicateCandidatesChooseRootWithoutVictimsWhenAutomaticMergeIsDisabled() {
+        AggregationMatchingStrategy noAutomaticMerge = strategyWithAutomaticUnifiedMerge(false);
+        UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID duplicateId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate duplicate = candidate(duplicateId, "Codex Signal", "2026", "9001", null);
+
+        AggregationMatchPlan plan = noAutomaticMerge.findMatchPlan(raw, List.of(root, duplicate));
+
+        assertThat(plan).isEqualTo(AggregationMatchPlan.rootOnly(rootId));
+    }
+
+    @Test
+    void canonicalDuplicateSelectionPrefersUsableProviderEvidenceOverAPlaceholder() {
+        AggregationMatchingStrategy noAutomaticMerge = strategyWithAutomaticUnifiedMerge(false);
+        UUID pollutedId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID verifiedId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        RawVideoAggregationRecord raw = rawVideo("Harbor Village", "2026", null, "70001");
+        var polluted = candidate(pollutedId, "Harbor Village", "2026", "456", "70001");
+        var verified = candidate(verifiedId, "Harbor Village", "2026", "94000001", "70001");
+
+        assertThat(noAutomaticMerge.findMatchPlan(raw, List.of(polluted, verified)))
+                .isEqualTo(AggregationMatchPlan.rootOnly(verifiedId));
+    }
+
+    @Test
+    void independentlySupportedConflictingAlternativesRemainAmbiguousWhenAutomaticMergeIsDisabled() {
+        AggregationMatchingStrategy noAutomaticMerge = strategyWithAutomaticUnifiedMerge(false);
+        UUID firstId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID secondId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate first = candidate(firstId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate second = candidate(secondId, "Codex Signal", "2026", null, "70001");
+
+        AggregationMatchPlan plan = noAutomaticMerge.findMatchPlan(raw, List.of(first, second));
+
+        assertThat(plan.isAmbiguous()).isTrue();
+        assertThat(plan.rootUnifiedVideoId()).isNull();
+        assertThat(plan.victimUnifiedVideoIds()).isEmpty();
+    }
+
+    @Test
     void rawCarryingDifferentProviderIdsDoesNotProveStoredWorksAreDuplicates() {
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID otherId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -189,5 +232,10 @@ class AggregationVictimMergeHazardTest {
                 null,
                 null,
                 null);
+    }
+
+    private AggregationMatchingStrategy strategyWithAutomaticUnifiedMerge(boolean enabled) {
+        return new AggregationMatchingStrategy(
+                new AggregationSafetyPolicy(enabled, "douban:123,douban:456"));
     }
 }

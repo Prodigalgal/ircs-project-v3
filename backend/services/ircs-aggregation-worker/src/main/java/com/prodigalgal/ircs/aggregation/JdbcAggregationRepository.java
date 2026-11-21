@@ -373,6 +373,82 @@ public class JdbcAggregationRepository {
         return candidateRepository.findMatchPlan(rawVideo);
     }
 
+    AggregationMatchPlan findCorrectionMatch(RawVideoAggregationRecord rawVideo, UUID sourceUnifiedId) {
+        return candidateRepository.findMatchPlan(rawVideo, sourceUnifiedId);
+    }
+
+    BindingCorrectionSnapshot findBindingCorrectionSnapshot(UUID source, UUID target, List<UUID> rawIds) {
+        return jdbcTemplate.queryForObject("""
+                with source_refs as (
+                    select
+                        (select count(*) from raw_video_unified_video where unified_video_id=:source) as source_members,
+                        (select count(*) from raw_video_unified_video where unified_video_id=:target) as target_members,
+                        (select count(*) from member_favorites where unified_video_id=:source) as favorites,
+                        (select count(*) from member_watch_histories h
+                          where h.unified_video_id=:source or h.last_video_id in (:rawIds)
+                             or h.last_episode_id in (
+                                 select ep.id from episodes ep join playlists pl on pl.id=ep.playlist_id
+                                  where pl.video_id in (:rawIds)
+                             )) as histories,
+                        (select count(*) from magnet_links where unified_video_id=:source) as magnets
+                ), chosen_bindings as (
+                    select raw_video_id from raw_video_unified_video
+                     where raw_video_id in (:rawIds)
+                     group by raw_video_id having count(*)=1 and bool_and(unified_video_id=:source)
+                ), target_member_versions as materialized (
+                    select r.id, r.xmin::text as revision
+                      from raw_video_unified_video link join raw_videos r on r.id=link.raw_video_id
+                     where link.unified_video_id=:target
+                     order by link.raw_video_id
+                     limit :memberLimit
+                )
+                select source_members, target_members, favorites, histories, magnets,
+                    (select count(*) from chosen_bindings) as expected_bindings,
+                    encode(sha256(convert_to(jsonb_build_array(
+                        cast(:source as uuid), cast(:target as uuid), to_jsonb(source_refs),
+                        (select jsonb_agg(jsonb_build_array(id, xmin::text) order by id)
+                           from raw_videos where id in (:rawIds)),
+                        (select jsonb_agg(jsonb_build_array(id, xmin::text) order by id)
+                           from unified_videos where id in (:source, :target)),
+                        (select jsonb_agg(jsonb_build_array(id, revision) order by id) from target_member_versions)
+                    )::text, 'UTF8')), 'hex') as fingerprint
+                from source_refs
+                """, correctionParams(source, target, rawIds)
+                        .addValue("memberLimit", AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1),
+                (rs, row) -> new BindingCorrectionSnapshot(rs.getLong("source_members"), rs.getLong("target_members"),
+                        rs.getLong("favorites"), rs.getLong("histories"), rs.getLong("magnets"),
+                        rs.getInt("expected_bindings"), rs.getString("fingerprint")));
+    }
+
+    boolean lockRetainedCorrectionBinding(UUID source, List<UUID> movedIds) {
+        return !jdbcTemplate.queryForList("""
+                select raw_video_id from raw_video_unified_video
+                 where unified_video_id=:source and raw_video_id not in (:rawIds)
+                 order by raw_video_id limit 1 for update
+                """, new MapSqlParameterSource("source", source).addValue("rawIds", movedIds), UUID.class).isEmpty();
+    }
+
+    void lockSelectedCorrectionBindings(List<UUID> rawIds) {
+        jdbcTemplate.queryForList("""
+                select raw_video_id from raw_video_unified_video where raw_video_id in (:rawIds)
+                 order by raw_video_id, unified_video_id for update
+                """, new MapSqlParameterSource("rawIds", rawIds), UUID.class);
+    }
+
+    int moveCorrectionBindings(UUID source, UUID target, List<UUID> rawIds) {
+        return jdbcTemplate.update("""
+                update raw_video_unified_video set unified_video_id=:target
+                 where unified_video_id=:source and raw_video_id in (:rawIds)
+                """, correctionParams(source, target, rawIds));
+    }
+
+    private static MapSqlParameterSource correctionParams(UUID source, UUID target, List<UUID> rawIds) {
+        return new MapSqlParameterSource("source", source).addValue("target", target).addValue("rawIds", rawIds);
+    }
+
+    record BindingCorrectionSnapshot(long sourceMembers, long targetMembers, long favorites,
+            long histories, long magnets, int expectedBindings, String fingerprint) { }
+
     public List<UnifiedVideoAggregationCandidate> findContextUnifiedCandidates(List<RawVideoAggregationRecord> rawVideos) {
         return candidateRepository.findContextUnifiedCandidates(rawVideos);
     }

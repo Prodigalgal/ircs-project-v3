@@ -66,13 +66,18 @@ final class AggregationSafetyPolicy {
     }
 
     static boolean categoriesCompatible(String left, String right) {
-        String normalizedLeft = category(left);
-        String normalizedRight = category(right);
+        String normalizedLeft = canonicalCategory(left);
+        String normalizedRight = canonicalCategory(right);
         // Missing classification is not evidence of a different work. Known conflicting buckets are.
         if (normalizedLeft == null || normalizedRight == null || normalizedLeft.equals(normalizedRight)) { return true; }
         AggregationCategoryProfile leftProfile = AggregationCategoryProfile.from(normalizedLeft);
         AggregationCategoryProfile rightProfile = AggregationCategoryProfile.from(normalizedRight);
         return leftProfile != AggregationCategoryProfile.OTHER && leftProfile == rightProfile;
+    }
+
+    private static String canonicalCategory(String value) {
+        String normalized = category(value);
+        return "其他".equals(normalized) ? "other" : normalized;
     }
 
     private static String category(String value) {

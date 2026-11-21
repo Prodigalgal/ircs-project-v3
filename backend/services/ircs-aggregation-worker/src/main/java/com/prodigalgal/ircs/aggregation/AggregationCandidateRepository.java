@@ -57,14 +57,21 @@ final class AggregationCandidateRepository {
     }
 
     AggregationMatchPlan findMatchPlan(RawVideoAggregationRecord rawVideo) {
+        return findMatchPlan(rawVideo, null);
+    }
+
+    AggregationMatchPlan findMatchPlan(RawVideoAggregationRecord rawVideo, UUID excludedUnifiedId) {
         Map<UUID, UnifiedVideoAggregationCandidate> candidates = new LinkedHashMap<>();
-        addCandidatesUpToLimit(candidates, findExternalIdCandidates(rawVideo));
-        addCandidatesUpToLimit(candidates, findTitleYearCandidates(rawVideo, false));
+        addCandidatesUpToLimit(candidates, findExternalIdCandidates(rawVideo).stream()
+                .filter(candidate -> !candidate.id().equals(excludedUnifiedId)).toList());
+        addCandidatesUpToLimit(candidates, findTitleYearCandidates(rawVideo, false).stream()
+                .filter(candidate -> !candidate.id().equals(excludedUnifiedId)).toList());
         if (candidates.isEmpty()) {
             return AggregationMatchPlan.none();
         }
-        List<UnifiedVideoAggregationCandidate> enriched =
-                metadataNameRepository.populateUnifiedMetadata(List.copyOf(candidates.values()));
+        List<UnifiedVideoAggregationCandidate> enriched = excludedUnifiedId == null
+                ? metadataNameRepository.populateUnifiedMetadata(List.copyOf(candidates.values()))
+                : queryUnifiedCandidatesByIdsForWrite(List.copyOf(candidates.keySet()));
         return matchingStrategy.findMatchPlan(rawVideo, enriched);
     }
 

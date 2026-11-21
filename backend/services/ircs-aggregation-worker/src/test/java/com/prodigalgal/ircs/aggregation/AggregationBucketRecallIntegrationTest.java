@@ -17,7 +17,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Exercises PostgreSQL trigram, JSONB and escaped LIKE behavior against the CI database. */
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
@@ -220,6 +222,63 @@ class AggregationBucketRecallIntegrationTest {
                 .hasSize(AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1)
                 .allMatch(member -> "Matched Work".equals(member.title()));
         assertThat(identities.findBoundMemberIdentities(List.of(UUID.randomUUID()))).isEmpty();
+    }
+
+    @Test
+    void bindingCorrectionSnapshotDetectsEvidenceChangesAndPreservesWorkReferences() {
+        jdbc.execute("""
+                create table raw_videos(id uuid primary key);
+                create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid,
+                    primary key(raw_video_id, unified_video_id));
+                create table member_favorites(unified_video_id uuid);
+                create table member_watch_histories(unified_video_id uuid, last_video_id uuid, last_episode_id uuid);
+                create table magnet_links(unified_video_id uuid);
+                create table playlists(id uuid primary key, video_id uuid);
+                create table episodes(id uuid primary key, playlist_id uuid);
+                """);
+        UUID source = insert("Old mixed work", null, "2026", null, null, 0);
+        UUID target = insert("Correct work", null, "2026", null, null, 0);
+        UUID moved = UUID.randomUUID();
+        UUID retained = UUID.randomUUID();
+        UUID targetMember = UUID.randomUUID();
+        UUID playlist = UUID.randomUUID();
+        UUID episode = UUID.randomUUID();
+        jdbc.update("insert into raw_videos values (?), (?), (?)", moved, retained, targetMember);
+        jdbc.update("insert into raw_video_unified_video values (?, ?), (?, ?), (?, ?)",
+                moved, source, retained, source, targetMember, target);
+        jdbc.update("insert into member_favorites values (?)", source);
+        jdbc.update("insert into magnet_links values (?)", source);
+        jdbc.update("insert into playlists values (?, ?)", playlist, moved);
+        jdbc.update("insert into episodes values (?, ?)", episode, playlist);
+
+        var identities = JdbcAggregationRepository.forTest(new NamedParameterJdbcTemplate(pool),
+                AggregationTestFixtures.matchingStrategy());
+        var selected = List.of(moved);
+        var before = identities.findBindingCorrectionSnapshot(source, target, selected);
+        assertThat(before.expectedBindings()).isOne();
+        assertThat(before.fingerprint()).matches("[0-9a-f]{64}");
+        jdbc.update("update raw_videos set id=id where id=?", targetMember);
+        assertThat(identities.findBindingCorrectionSnapshot(source, target, selected).fingerprint())
+                .isNotEqualTo(before.fingerprint());
+        jdbc.update("insert into member_watch_histories values (?, null, ?)", target, episode);
+        assertThat(identities.findBindingCorrectionSnapshot(source, target, selected).histories()).isOne();
+        jdbc.update("delete from member_watch_histories");
+
+        new TransactionTemplate(new DataSourceTransactionManager(pool)).executeWithoutResult(status -> {
+            identities.lockSelectedCorrectionBindings(selected);
+            assertThat(identities.lockRetainedCorrectionBinding(source, selected)).isTrue();
+            assertThat(identities.moveCorrectionBindings(source, target, selected)).isOne();
+        });
+
+        assertThat(identities.findExistingBinding(moved)).contains(target);
+        assertThat(identities.findExistingBinding(retained)).contains(source);
+        var after = identities.findBindingCorrectionSnapshot(source, target, selected);
+        assertThat(after.sourceMembers()).isOne();
+        assertThat(after.targetMembers()).isEqualTo(2);
+        assertThat(after.expectedBindings()).isZero();
+        assertThat(after.favorites()).isOne();
+        assertThat(after.magnets()).isOne();
+        assertThat(jdbc.queryForObject("select count(*) from unified_videos", Integer.class)).isEqualTo(2);
     }
 
     private void addNamesakes() {

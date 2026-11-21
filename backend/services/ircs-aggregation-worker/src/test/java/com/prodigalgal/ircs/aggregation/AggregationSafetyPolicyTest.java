@@ -40,4 +40,18 @@ class AggregationSafetyPolicyTest {
         assertTrue(AggregationSafetyPolicy.categoriesCompatible(null, "电影"));
         assertFalse(AggregationSafetyPolicy.categoriesCompatible("电影", "电视剧"));
     }
+
+    @Test
+    void standardOtherCategoryAliasesAreCompatibleInEitherDirection() {
+        assertTrue(AggregationSafetyPolicy.categoriesCompatible("other", "其他"));
+        assertTrue(AggregationSafetyPolicy.categoriesCompatible("其他", "other"));
+    }
+
+    @Test
+    void otherCategoryDoesNotBridgeKnownOrUnmappedCategories() {
+        assertFalse(AggregationSafetyPolicy.categoriesCompatible("other", "体育"));
+        assertFalse(AggregationSafetyPolicy.categoriesCompatible("体育", "其他"));
+        assertFalse(AggregationSafetyPolicy.categoriesCompatible("other", "unmapped_genre"));
+        assertFalse(AggregationSafetyPolicy.categoriesCompatible("unmapped_genre", "另一个未映射类别"));
+    }
 }

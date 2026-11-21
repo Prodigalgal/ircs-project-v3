@@ -66,7 +66,9 @@ public class AggregationMatchingStrategy {
                 .filter(candidate -> matches.contains(candidate.id()))
                 .toList();
         if (isSafeUnifiedMerge(matchedCandidates, Set.copyOf(matches))) {
-            return AggregationMatchPlan.rootWithVictims(matches.getFirst(), matches.subList(1, matches.size()));
+            return safetyPolicy.automaticUnifiedMergeEnabled()
+                    ? AggregationMatchPlan.rootWithVictims(matches.getFirst(), matches.subList(1, matches.size()))
+                    : AggregationMatchPlan.rootOnly(canonicalEquivalent(rawFingerprint, matches, matchedCandidates));
         }
         // A single positively supported candidate can own the raw without destroying alternatives.
         // A score tie or several ID-supported alternatives is an unresolved identity decision.
@@ -76,6 +78,18 @@ public class AggregationMatchingStrategy {
         return supported.size() == 1
                 ? AggregationMatchPlan.rootOnly(supported.getFirst().id())
                 : AggregationMatchPlan.ambiguous();
+    }
+
+    private UUID canonicalEquivalent(VideoFingerprint raw, List<UUID> rankedMatches,
+            List<UnifiedVideoAggregationCandidate> candidates) {
+        Map<UUID, VideoFingerprint> identities = new HashMap<>();
+        candidates.forEach(candidate -> identities.put(candidate.id(), fingerprint(candidate)));
+        // Pairwise identity equivalence is already required. Favor a well-described existing work
+        // when a placeholder-bearing duplicate would otherwise win the UUID tie-break.
+        return rankedMatches.stream().max(Comparator
+                .comparingInt((UUID id) -> sharedExternalIdCount(raw, identities.get(id)))
+                .thenComparingInt(id -> identities.get(id).externalIds().size())
+                .thenComparingInt(id -> -rankedMatches.indexOf(id))).orElseThrow();
     }
 
     /**

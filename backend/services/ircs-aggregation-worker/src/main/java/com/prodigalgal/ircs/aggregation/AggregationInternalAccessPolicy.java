@@ -27,4 +27,9 @@ class AggregationInternalAccessPolicy {
                 serviceToken,
                 serviceScopes);
     }
+
+    void assertCorrectionAccess(String serviceId, String serviceToken, String serviceScopes) {
+        InternalServiceAccessPolicy.require("Aggregation correction", configuredToken, "aggregation:correction",
+                serviceId, serviceToken, serviceScopes);
+    }
 }
