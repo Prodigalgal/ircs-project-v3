@@ -128,6 +128,61 @@ class DistributedAggregationWorkDeferrerIntegrationTest {
     }
 
     @Test
+    void reviewedRetryMovesOnlySelectedTaskAndCannotReplaySameSubmissionTwice() {
+        UUID selectedRawId = UUID.randomUUID();
+        UUID unrelatedRawId = UUID.randomUUID();
+        String selectedTaskId = AggregationWorkTypes.taskId(selectedRawId);
+        String unrelatedTaskId = AggregationWorkTypes.taskId(unrelatedRawId);
+        queue.submit(reviewRequest(selectedTaskId, selectedRawId, "v1"));
+        queue.submit(reviewRequest(unrelatedTaskId, unrelatedRawId, "v1"));
+        var claimed = queue.claim(type, "worker", 2, Duration.ofMinutes(1));
+        RuntimeWorkItem selected = claimed.stream().filter(item -> item.taskId().equals(selectedTaskId)).findFirst().orElseThrow();
+        RuntimeWorkItem unrelated = claimed.stream().filter(item -> item.taskId().equals(unrelatedTaskId)).findFirst().orElseThrow();
+        assertThat(queue.fail(selected, false, Duration.ZERO, "IDENTITY_CONFLICT")).isTrue();
+        assertThat(queue.fail(unrelated, false, Duration.ZERO, "MERGE_AMBIGUOUS")).isTrue();
+
+        var reviewed = deferrer.findReviewedWork(selectedRawId).orElseThrow();
+        assertThat(deferrer.requeueReviewedWork(reviewed)).isTrue();
+
+        assertThat(queue.counts(type).pending()).isEqualTo(1);
+        assertThat(queue.counts(type).dlq()).isEqualTo(1);
+        var replayed = claim("recovery-worker");
+        assertThat(replayed.taskId()).isEqualTo(selectedTaskId);
+        assertThat(queue.complete(replayed)).isTrue();
+        assertThat(deferrer.findReviewedWork(selectedRawId)).isEmpty();
+        assertThat(deferrer.findReviewedWork(unrelatedRawId)).isPresent();
+    }
+
+    @Test
+    void reviewedRetryCasRejectsNewerSubmissionAndSameSubmissionCanOnlyReplayOnce() {
+        UUID rawId = UUID.randomUUID();
+        String id = AggregationWorkTypes.taskId(rawId);
+        queue.submit(reviewRequest(id, rawId, "v1"));
+        RuntimeWorkItem failed = claim("worker");
+        assertThat(queue.fail(failed, false, Duration.ZERO, "MERGE_AMBIGUOUS")).isTrue();
+        var staleReview = deferrer.findReviewedWork(rawId).orElseThrow();
+
+        queue.submit(reviewRequest(id, rawId, "v2"));
+        assertThat(deferrer.requeueReviewedWork(staleReview)).isFalse();
+        var newer = claim("worker");
+        assertThat(newer.version()).isEqualTo("v2");
+        assertThat(queue.complete(newer)).isTrue();
+
+        queue.submit(reviewRequest(id, rawId, "v3"));
+        RuntimeWorkItem failedAgain = claim("worker");
+        assertThat(queue.fail(failedAgain, false, Duration.ZERO, "MERGE_AMBIGUOUS")).isTrue();
+        var firstReview = deferrer.findReviewedWork(rawId).orElseThrow();
+        assertThat(deferrer.requeueReviewedWork(firstReview)).isTrue();
+        RuntimeWorkItem replay = claim("worker");
+        assertThat(queue.fail(replay, false, Duration.ZERO, "MERGE_AMBIGUOUS")).isTrue();
+
+        assertThat(deferrer.findReviewedWork(rawId)).isEmpty();
+        assertThat(deferrer.requeueReviewedWork(firstReview)).isFalse();
+        assertThat(queue.counts(type).dlq()).isEqualTo(1);
+        assertThat(queue.counts(type).pending()).isZero();
+    }
+
+    @Test
     void expiredOwnerCannotDeferEvenBeforeItsReplacementClaims() {
         queue.submit(request("v1"));
         RuntimeWorkItem old = queue.claim(type, "owner-a", 1, Duration.ofSeconds(1)).getFirst();
@@ -192,6 +247,10 @@ class DistributedAggregationWorkDeferrerIntegrationTest {
 
     private RuntimeWorkItemRequest request(String version) {
         return new RuntimeWorkItemRequest(type, taskId, "raw", version, "{}");
+    }
+
+    private RuntimeWorkItemRequest reviewRequest(String id, UUID rawId, String version) {
+        return new RuntimeWorkItemRequest(type, id, rawId.toString(), version, "{}");
     }
 
     private static final class MutableClock extends Clock {

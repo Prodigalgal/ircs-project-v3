@@ -41,6 +41,12 @@ final class AggregationSafetyPolicy {
         return normalizeExternalId(provider, value) != null;
     }
 
+    boolean isRejectedExternalId(String provider, String value) {
+        String normalizedProvider = provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
+        String canonical = canonicalExternalId(normalizedProvider, value);
+        return canonical != null && rejectedExternalIds.contains(normalizedProvider + ":" + canonical);
+    }
+
     String normalizeExternalId(String provider, String value) {
         String normalizedProvider = provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
         String canonical = canonicalExternalId(normalizedProvider, value);

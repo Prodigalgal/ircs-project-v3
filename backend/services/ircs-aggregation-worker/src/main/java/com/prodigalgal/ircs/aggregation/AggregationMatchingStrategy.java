@@ -600,6 +600,10 @@ public class AggregationMatchingStrategy {
         return safetyPolicy.isUsableExternalId(provider, value);
     }
 
+    boolean isRejectedExternalId(String provider, String value) {
+        return safetyPolicy.isRejectedExternalId(provider, value);
+    }
+
     Set<String> rejectedExternalIdValues(String provider) {
         return safetyPolicy.rejectedExternalIdValues(provider);
     }

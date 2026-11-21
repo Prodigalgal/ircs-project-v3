@@ -5,6 +5,8 @@ import com.prodigalgal.ircs.common.work.RuntimeWorkItem;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -53,6 +55,31 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
             redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[9], '*',
                 'event', ARGV[10], 'taskType', ARGV[1], 'taskId', ARGV[2],
                 'submissionId', ARGV[3], 'reason', ARGV[8], 'dueAt', ARGV[7])
+            return 1
+            """, Long.class);
+    private static final DefaultRedisScript<Long> REQUEUE_REVIEW = new DefaultRedisScript<>("""
+            if redis.call('HGET', KEYS[1], 'taskType') ~= ARGV[1]
+                or redis.call('HGET', KEYS[1], 'taskId') ~= ARGV[2]
+                or redis.call('HGET', KEYS[1], 'aggregateId') ~= ARGV[3]
+                or redis.call('HGET', KEYS[1], 'status') ~= 'PERMANENT_FAILURE'
+                or redis.call('HGET', KEYS[1], 'submissionId') ~= ARGV[4]
+                or redis.call('HGET', KEYS[1], 'updatedAt') ~= ARGV[5]
+                or redis.call('HGET', KEYS[1], 'lastError') ~= ARGV[6]
+                or redis.call('HGET', KEYS[1], 'reviewReplayedSubmissionId') == ARGV[4]
+                or not redis.call('ZSCORE', KEYS[4], ARGV[2])
+                or redis.call('ZSCORE', KEYS[2], ARGV[2])
+                or redis.call('ZSCORE', KEYS[3], ARGV[2]) then return 0 end
+            redis.call('HSET', KEYS[1], 'status', 'PENDING', 'ownerId', '', 'visibleAt', '',
+                'updatedAt', ARGV[7], 'dueAt', ARGV[7], 'lastError', '',
+                'reviewReplayedSubmissionId', ARGV[4],
+                'attemptCycleStart', redis.call('HGET', KEYS[1], 'attempt') or '0')
+            redis.call('HDEL', KEYS[1], 'completedAt')
+            redis.call('PERSIST', KEYS[1])
+            redis.call('ZREM', KEYS[4], ARGV[2])
+            redis.call('ZADD', KEYS[2], ARGV[7], ARGV[2])
+            redis.call('XADD', KEYS[5], 'MAXLEN', '~', ARGV[8], '*',
+                'event', 'aggregation_review_requeued', 'taskType', ARGV[1], 'taskId', ARGV[2],
+                'submissionId', ARGV[4], 'reason', ARGV[6])
             return 1
             """, Long.class);
 
@@ -114,6 +141,38 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
         return (int) Math.max(1, Math.min(Integer.MAX_VALUE, (long) item.attempt() - start));
     }
 
+    @Override
+    public Optional<ReviewedWork> findReviewedWork(UUID rawVideoId) {
+        String key = taskKey(AggregationWorkTypes.taskId(rawVideoId));
+        List<Object> fields = redis.opsForHash().multiGet(key,
+                List.of("status", "submissionId", "updatedAt", "lastError", "reviewReplayedSubmissionId"));
+        if (fields.size() != 5 || !"PERMANENT_FAILURE".equals(fields.get(0))
+                || !(fields.get(1) instanceof String submission) || !(fields.get(2) instanceof String updatedAt)
+                || !(fields.get(3) instanceof String reason) || !isReviewReason(reason)
+                || submission.equals(fields.get(4))) {
+            return Optional.empty();
+        }
+        return Optional.of(new ReviewedWork(rawVideoId, submission, updatedAt, reason));
+    }
+
+    @Override
+    public boolean requeueReviewedWork(ReviewedWork work) {
+        if (!isReviewReason(work.reason())) { return false; }
+        String type = AggregationWorkTypes.RAW_VIDEO;
+        String id = AggregationWorkTypes.taskId(work.rawVideoId());
+        String typePrefix = prefix + ":" + type;
+        Long result = redis.execute(REQUEUE_REVIEW,
+                List.of(taskKey(id), typePrefix + ":pending", typePrefix + ":inflight",
+                        typePrefix + ":dlq", prefix + ":events"),
+                type, id, work.rawVideoId().toString(), work.submissionId(), work.updatedAt(), work.reason(),
+                Long.toString(clock.millis()), Integer.toString(streamMaxLen));
+        return Long.valueOf(1).equals(result);
+    }
+
+    private static boolean isReviewReason(String reason) {
+        return "MERGE_AMBIGUOUS".equals(reason) || "IDENTITY_CONFLICT".equals(reason);
+    }
+
     private boolean valid(RuntimeWorkItem item) {
         return item != null && AggregationWorkTypes.RAW_VIDEO.equals(item.taskType())
                 && StringUtils.hasText(item.taskId()) && item.taskId().startsWith("raw_video:")
@@ -122,6 +181,10 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
     }
 
     private String taskKey(RuntimeWorkItem item) {
-        return prefix + ":" + AggregationWorkTypes.RAW_VIDEO + ":task:" + item.taskId();
+        return taskKey(item.taskId());
+    }
+
+    private String taskKey(String taskId) {
+        return prefix + ":" + AggregationWorkTypes.RAW_VIDEO + ":task:" + taskId;
     }
 }

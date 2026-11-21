@@ -577,11 +577,14 @@ public class JdbcAggregationRepository {
         String[] observed = roots.getFirst();
         Set<String> lockedFields = parseLockedFields(observed[4]);
         boolean[] needsEvidence = new boolean[columns.size()];
+        boolean[] clearRejected = new boolean[columns.size()];
         boolean needsAnyEvidence = false;
         for (int index = 0; index < columns.size(); index++) {
             String column = columns.get(index);
             needsEvidence[index] = !isLocked(lockedFields, column, column.replace("_", ""), "externalIds", "external_ids")
                     && usableExternalIdOrNull(externalIdProvider(column), observed[index]) == null;
+            clearRejected[index] = needsEvidence[index]
+                    && matchingStrategy.isRejectedExternalId(externalIdProvider(column), observed[index]);
             needsAnyEvidence |= needsEvidence[index];
         }
         if (!needsAnyEvidence) { return; }
@@ -602,7 +605,7 @@ public class JdbcAggregationRepository {
                     }
                 });
         for (int index = 0; index < columns.size(); index++) {
-            if (selected[index] == null) { continue; }
+            if (selected[index] == null && !clearRejected[index]) { continue; }
             String column = columns.get(index);
             jdbcTemplate.update("""
                     update unified_videos set %s = :selectedId, updated_at = now(), version = coalesce(version, 0) + 1

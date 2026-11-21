@@ -359,6 +359,29 @@ class AdultAssessmentTransactionIntegrationTest {
         assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isEqualTo("123");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"123", "456"})
+    void rejectedLegacyUnifiedIdIsClearedWhenNoUsableMemberReplacementExists(String rejectedId) {
+        jdbc.update("update unified_videos set douban_id=? where id=?", rejectedId, id);
+        jdbc.update("update raw_videos set douban_id=? where id=?", rejectedId, rawId);
+
+        transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
+
+        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select douban_id from raw_videos where id=?", String.class, rawId)).isEqualTo(rejectedId);
+    }
+
+    @Test
+    void unrelatedLegacyUnifiedIdIsPreservedWhenNoUsableMemberReplacementExists() {
+        jdbc.update("update unified_videos set douban_id='legacy-value' where id=?", id);
+        jdbc.update("update raw_videos set douban_id='123' where id=?", rawId);
+
+        transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
+
+        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id))
+                .isEqualTo("legacy-value");
+    }
+
     @Test
     void pendingBackfillSelectsReadyInputsWithoutDemotingExistingBoundMembers() {
         jdbc.update("update raw_videos set aggregation_status='PENDING' where id=?", rawId);
