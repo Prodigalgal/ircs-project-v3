@@ -80,20 +80,23 @@ public class MetadataProviderWorker {
     }
 
     private void execute(MetadataSearchContext context, ProviderType providerType, Instant startedAt) {
-        Optional<Integer> expectedAttempt = pipelineRunRepository.findPendingProviderAttempt(
+        var pendingAttempt = pipelineRunRepository.findPendingProviderAttempt(
                 context.getVideoId(), context.getPipelineVersion(), providerType);
-        if (expectedAttempt.isEmpty()) {
+        if (pendingAttempt.isEmpty()) {
             recordSkipped(startedAt, providerType, correlationId(context), "PROVIDER_RUN_NOT_PENDING");
             return;
         }
-        if (expectedAttempt.orElseThrow() < 0) {
+        var providerAttempt = pendingAttempt.orElseThrow();
+        if (providerAttempt.attempt() < 0) {
             throw new IllegalStateException("Invalid durable provider attempt");
         }
-        executeAttempt(context, providerType, startedAt, expectedAttempt.orElseThrow());
+        executeAttempt(context, providerType, startedAt, providerAttempt);
     }
 
     private void executeAttempt(
-            MetadataSearchContext context, ProviderType providerType, Instant startedAt, int expectedAttempt) {
+            MetadataSearchContext context, ProviderType providerType, Instant startedAt,
+            MetadataPipelineRunRepository.PendingProviderAttempt attempt) {
+        int expectedAttempt = attempt.attempt();
         try {
             if (!isProviderEnabled(providerType)) {
                 sendFinalFailure(context, providerType, "Provider disabled by configuration", "PROVIDER_DISABLED", expectedAttempt);
@@ -117,7 +120,7 @@ public class MetadataProviderWorker {
                 return;
             }
 
-            Optional<EnrichedMetadataDTO> result = provider.enrich(context);
+            Optional<EnrichedMetadataDTO> result = provider.enrich(context, attempt.evidence());
             if (result.isPresent()) {
                 resultPublisher.publishSuccess(context, providerType, result.get(), expectedAttempt);
                 recordSucceeded(startedAt, providerType, correlationId(context));

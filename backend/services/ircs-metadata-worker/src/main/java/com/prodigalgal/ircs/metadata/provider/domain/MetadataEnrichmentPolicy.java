@@ -30,6 +30,10 @@ public final class MetadataEnrichmentPolicy {
     }
 
     public static String searchType(MetadataSearchContext context) {
+        return searchType(context, MetadataSourceEvidence.NONE);
+    }
+
+    public static String searchType(MetadataSearchContext context, MetadataSourceEvidence evidence) {
         String category = category(context);
         if (SOURCE_ONLY.contains(category)) {
             return "none";
@@ -37,11 +41,11 @@ public final class MetadataEnrichmentPolicy {
         if ("movie".equals(category)) {
             return "movie";
         }
-        if (TELEVISION.contains(category) || context != null && context.getSeason() != null && context.getSeason() >= 0) {
+        if (TELEVISION.contains(category) || evidence.episodic()
+                || context != null && context.getSeason() != null && context.getSeason() >= 0) {
             return "tv";
         }
-        // Animation/documentaries may be either films or series. Bound multi-search then checks
-        // the concrete candidate type and year; a display category alone cannot choose the format.
+        // Animation and documentaries without season or episode evidence can be films or series.
         return "multi";
     }
 

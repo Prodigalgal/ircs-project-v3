@@ -11,5 +11,9 @@ public interface MetadataProvider {
 
     boolean supports(MetadataSearchContext context);
 
-    Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context);
+    default Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context) {
+        return enrich(context, MetadataSourceEvidence.NONE);
+    }
+
+    Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context, MetadataSourceEvidence evidence);
 }

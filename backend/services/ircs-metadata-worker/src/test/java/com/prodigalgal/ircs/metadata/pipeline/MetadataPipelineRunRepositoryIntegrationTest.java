@@ -61,7 +61,8 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         jdbc.execute("""
                 create table raw_videos(id uuid primary key, douban_id text, tmdb_id text, imdb_id text,
                     rotten_tomatoes_id text, description text default 'preserved description', score numeric,
-                    year text, alias_title text, raw_metadata jsonb default '{}', locked_fields jsonb default '[]',
+                    title text, total_episodes text, year text, alias_title text,
+                    raw_metadata jsonb default '{}', locked_fields jsonb default '[]',
                     enrichment_status text default 'PENDING', enrichment_retry_count integer default 2,
                     aggregation_status text default 'PENDING', data_hash text, updated_at timestamptz default now(),
                     actor_names jsonb default '[]',director_names jsonb default '[]',area_codes jsonb default '[]',
@@ -250,6 +251,10 @@ class MetadataPipelineRunRepositoryIntegrationTest {
     @Test
     void retryResetsCountersRejectsLateOldAttemptAndCountsNewSuccessOnlyOnce() {
         UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into raw_videos(id,data_hash,title,total_episodes,raw_metadata)
+                values (?, 'hash-v1', '夜曲', '全40集', '{"title":"夜曲 2020"}')
+                """, id);
         assertThat(prepare(id, ProviderType.TMDB)).containsExactly(ProviderType.TMDB);
         var failed = transaction.execute(ignored -> repository.completeProvider(
                 id, "hash-v1", ProviderType.TMDB, false, true, "TRANSIENT", "try again", 0));
@@ -264,14 +269,20 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         assertThat(reset.get("success_count")).isEqualTo(0);
         assertThat(reset.get("failure_count")).isEqualTo(0);
         assertThat(reset.get("retryable_failure_count")).isEqualTo(0);
-        assertThat(repository.findPendingProviderAttempt(id, "hash-v1", ProviderType.TMDB)).contains(1);
+        assertThat(repository.findPendingProviderAttempt(id, "hash-v1", ProviderType.TMDB))
+                .hasValueSatisfying(attempt -> {
+                    assertThat(attempt.attempt()).isEqualTo(1);
+                    assertThat(attempt.evidence().titleYear()).isEqualTo(2020);
+                    assertThat(attempt.evidence().episodic()).isTrue();
+                });
 
         var late = transaction.execute(ignored -> repository.completeProvider(
                 id, "hash-v1", ProviderType.TMDB, true, false, null, null, 0));
         assertThat(late.newlyCompleted()).isFalse();
         assertThat(late.completedCount()).isZero();
         assertThat(providerStatus(id)).isEqualTo("PENDING");
-        assertThat(repository.findPendingProviderAttempt(id, "hash-v1", ProviderType.TMDB)).contains(1);
+        assertThat(repository.findPendingProviderAttempt(id, "hash-v1", ProviderType.TMDB)
+                .map(MetadataPipelineRunRepository.PendingProviderAttempt::attempt)).contains(1);
 
         var succeeded = transaction.execute(ignored -> repository.completeProvider(
                 id, "hash-v1", ProviderType.TMDB, true, false, null, null, 1));

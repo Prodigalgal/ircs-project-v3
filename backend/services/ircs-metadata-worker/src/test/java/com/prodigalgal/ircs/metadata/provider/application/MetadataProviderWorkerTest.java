@@ -11,8 +11,11 @@ import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
+import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.PendingProviderAttempt;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProvider;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataSourceEvidence;
 import com.prodigalgal.ircs.metadata.provider.messaging.MetadataProviderResultPublisher;
 import java.util.List;
 import java.util.Optional;
@@ -42,7 +45,7 @@ class MetadataProviderWorkerTest {
     private WorkerJobAuditWriter auditWriter;
 
     @Mock
-    private com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository pipelineRunRepository;
+    private MetadataPipelineRunRepository pipelineRunRepository;
 
     private MetadataProviderWorker worker;
 
@@ -51,7 +54,7 @@ class MetadataProviderWorkerTest {
         org.mockito.Mockito.lenient().when(configValues.isProviderEnabled(ProviderType.TMDB)).thenReturn(true);
         org.mockito.Mockito.lenient().when(pipelineRunRepository.findPendingProviderAttempt(
                         org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any()))
-                .thenReturn(Optional.of(0));
+                .thenReturn(Optional.of(new PendingProviderAttempt(0, MetadataSourceEvidence.NONE)));
         worker = new MetadataProviderWorker(
                 List.of(provider),
                 new MetadataSearchContextMessageParser(new ObjectMapper()),
@@ -68,7 +71,10 @@ class MetadataProviderWorkerTest {
         metadata.setTmdbId("603");
         when(provider.getType()).thenReturn(ProviderType.TMDB);
         when(provider.supports(context)).thenReturn(true);
-        when(provider.enrich(context)).thenReturn(Optional.of(metadata));
+        var evidence = MetadataSourceEvidence.from("The Matrix (1999)", "The Matrix", null);
+        when(pipelineRunRepository.findPendingProviderAttempt(context.getVideoId(), null, ProviderType.TMDB))
+                .thenReturn(Optional.of(new PendingProviderAttempt(0, evidence)));
+        when(provider.enrich(context, evidence)).thenReturn(Optional.of(metadata));
 
         worker.execute(context, ProviderType.TMDB);
 
@@ -76,7 +82,7 @@ class MetadataProviderWorkerTest {
         var executionOrder = org.mockito.Mockito.inOrder(pipelineRunRepository, provider, resultPublisher);
         executionOrder.verify(pipelineRunRepository).findPendingProviderAttempt(
                 context.getVideoId(), context.getPipelineVersion(), ProviderType.TMDB);
-        executionOrder.verify(provider).enrich(context);
+        executionOrder.verify(provider).enrich(context, evidence);
         executionOrder.verify(resultPublisher).publishSuccess(context, ProviderType.TMDB, metadata, 0);
         verify(resultPublisher, never()).publishFailure(
                 org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.anyBoolean(),
@@ -93,7 +99,8 @@ class MetadataProviderWorkerTest {
         MetadataSearchContext context = context();
         when(provider.getType()).thenReturn(ProviderType.TMDB);
         when(provider.supports(context)).thenReturn(true);
-        when(provider.enrich(context)).thenThrow(new MetadataProviderRetryableException("POOL_EXHAUSTED", "no keys"));
+        when(provider.enrich(context, MetadataSourceEvidence.NONE))
+                .thenThrow(new MetadataProviderRetryableException("POOL_EXHAUSTED", "no keys"));
 
         worker.execute(context, ProviderType.TMDB);
 
@@ -117,7 +124,7 @@ class MetadataProviderWorkerTest {
                 "Provider does not support context",
                 false,
                 "UNSUPPORTED_CONTEXT", 0);
-        verify(provider, never()).enrich(context);
+        verify(provider, never()).enrich(context, MetadataSourceEvidence.NONE);
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.status()).isEqualTo("skipped");
         org.assertj.core.api.Assertions.assertThat(event.error().getMessage()).isEqualTo("UNSUPPORTED_CONTEXT");
@@ -137,7 +144,7 @@ class MetadataProviderWorkerTest {
                 false,
                 "PROVIDER_DISABLED", 0);
         verify(provider, never()).supports(org.mockito.Mockito.any());
-        verify(provider, never()).enrich(org.mockito.Mockito.any());
+        verify(provider, never()).enrich(org.mockito.Mockito.any(), org.mockito.Mockito.any());
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.status()).isEqualTo("skipped");
         org.assertj.core.api.Assertions.assertThat(event.error().getMessage()).isEqualTo("PROVIDER_DISABLED");

@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.metadata.pipeline;
 
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataSourceEvidence;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -120,18 +121,25 @@ public class MetadataPipelineRunRepository {
                 .toList();
     }
 
-    public Optional<Integer> findPendingProviderAttempt(UUID rawVideoId, String pipelineVersion, ProviderType providerType) {
-        return jdbcTemplate.queryForList(
+    public Optional<PendingProviderAttempt> findPendingProviderAttempt(
+            UUID rawVideoId, String pipelineVersion, ProviderType providerType) {
+        return jdbcTemplate.query(
                 """
-                select attempt_count from raw_video_enrichment_provider_runs
-                where raw_video_id = :rawVideoId and pipeline_version = :pipelineVersion
-                  and provider_type = :providerType and status = 'PENDING'
+                select p.attempt_count, r.title, r.raw_metadata ->> 'title' as original_title,
+                       coalesce(nullif(r.raw_metadata ->> 'totalEpisodes', ''), r.total_episodes) as total_episodes
+                from raw_video_enrichment_provider_runs p
+                join raw_videos r on r.id = p.raw_video_id
+                where p.raw_video_id = :rawVideoId and p.pipeline_version = :pipelineVersion
+                  and p.provider_type = :providerType and p.status = 'PENDING'
+                  and coalesce(nullif(btrim(r.data_hash), ''), '_') = p.pipeline_version
                 """,
                 new MapSqlParameterSource()
                         .addValue("rawVideoId", rawVideoId)
                         .addValue("pipelineVersion", normalizeVersion(pipelineVersion))
                         .addValue("providerType", providerType.name()),
-                Integer.class).stream().findFirst();
+                (rs, row) -> new PendingProviderAttempt(rs.getInt("attempt_count"),
+                        MetadataSourceEvidence.from(rs.getString("original_title"), rs.getString("title"),
+                                rs.getString("total_episodes")))).stream().findFirst();
     }
 
     @Transactional
@@ -279,6 +287,8 @@ public class MetadataPipelineRunRepository {
     private static String normalizeVersion(String pipelineVersion) {
         return StringUtils.hasText(pipelineVersion) ? pipelineVersion.trim() : "_";
     }
+
+    public record PendingProviderAttempt(int attempt, MetadataSourceEvidence evidence) {}
 
     public record ProviderCompletion(
             boolean tracked,

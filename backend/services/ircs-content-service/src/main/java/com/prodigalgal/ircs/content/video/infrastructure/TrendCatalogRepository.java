@@ -136,15 +136,11 @@ public class TrendCatalogRepository {
     public boolean requestMissingResources(TrendCatalogCandidate candidate, UUID id) {
         MapSqlParameterSource p = params(candidate).addValue("id", id).addValue("episode", candidate.episode())
                 .addValue("priority", discoveryPriority(candidate));
-        // A binding alone is not playable. Unknown episode numbering remains an explicit resource gap.
+        // A binding alone is not playable. Episode targets require an exact parsed episode match.
         return jdbc.update("""
                 insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword, priority)
                 select :id, :season, :episode, :title, :priority
-                 where not exists (
-                    select 1 from catalog_resource_inventory(:id, :season) inventory
-                     where inventory.resource_available
-                       and (:episode = 0 or inventory.available_episode >= :episode)
-                 )
+                 where not catalog_has_target_resources(:id, :season, :episode)
                 on conflict (unified_video_id, target_season, target_episode) do update
                     set priority = greatest(catalog_discovery_requests.priority, excluded.priority),
                         status = case when catalog_discovery_requests.status = 'SUBMITTED'

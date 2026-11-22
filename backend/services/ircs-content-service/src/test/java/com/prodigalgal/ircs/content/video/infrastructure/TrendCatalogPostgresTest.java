@@ -91,6 +91,13 @@ class TrendCatalogPostgresTest {
             }
             return null;
         });
+        String targetResourcesMigration = Files.readString(targetResourcesMigrationPath());
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            try (var statement = connection.createStatement()) {
+                statement.execute(targetResourcesMigration);
+            }
+            return null;
+        });
         var covers = Mockito.mock(VideoAdminCoverImageRepository.class);
         when(covers.getOrCreateCoverImage(any())).thenReturn(Optional.empty());
         publisher = Mockito.mock(ContentCommandPublisher.class);
@@ -243,6 +250,35 @@ class TrendCatalogPostgresTest {
         assertThat(jdbc.queryForObject("select available_episode from catalog_resource_inventory(?,2)", Integer.class, existing)).isEqualTo(5);
         assertThat(count("catalog_discovery_requests")).isEqualTo(1);
         assertThat(jdbc.queryForObject("select target_episode from catalog_discovery_requests", Integer.class)).isEqualTo(6);
+    }
+
+    @Test
+    void laterEpisodeCannotSatisfyEarlierTargetAndExactEpisodeDoes() {
+        UUID existing = seedVideo("Known Show", "2026", "series", 2, "42");
+        UUID playlist = bindPlaylist(existing, 2, false);
+        episode(playlist, "S02E14", "https://media.example/14", null);
+        resolve(candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 12, "popular", "popular", 1, now, null));
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
+
+        UUID anotherId = seedVideo("Another Show", "2026", "series", 2, "43");
+        UUID anotherPlaylist = bindPlaylist(anotherId, 2, false);
+        episode(anotherPlaylist, "S02E14", "https://media.example/14", null);
+        episode(anotherPlaylist, "S02E12", "https://media.example/12", null);
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 12)", Boolean.class, anotherId)).isTrue();
+    }
+
+    @Test
+    void approvedMagnetSatisfiesOnlyPublicAdultSafeWholeWorkRequest() {
+        UUID existing = seedVideo("Known Film", "2026", "movie", 0, "42");
+        jdbc.update("insert into magnet_links(unified_video_id, status) values (?, 'CANDIDATE')", existing);
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
+        jdbc.update("update magnet_links set status = 'APPROVED'");
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isTrue();
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 12)", Boolean.class, existing)).isFalse();
+        jdbc.update("update unified_videos set content_visibility = 'PRIVATE' where id = ?", existing);
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
+        jdbc.update("update unified_videos set content_visibility = 'PUBLIC', adult_restricted = true where id = ?", existing);
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
     }
 
     @Test
@@ -478,6 +514,7 @@ class TrendCatalogPostgresTest {
                 create table raw_video_unified_video(raw_video_id uuid not null, unified_video_id uuid not null);
                 create table playlists(id uuid primary key,video_id uuid not null);
                 create table episodes(id uuid primary key,playlist_id uuid not null,name text,url text,source_domain_id uuid);
+                create table magnet_links(unified_video_id uuid,status text);
                 """);
     }
 
@@ -488,6 +525,15 @@ class TrendCatalogPostgresTest {
             if (Files.isRegularFile(candidate)) return candidate;
         }
         throw new IllegalStateException("Real global-rankings migration was not found in checkout");
+    }
+
+    private static Path targetResourcesMigrationPath() {
+        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/22-01-catalog-target-resources.sql");
+        for (Path parent = Path.of(System.getProperty("user.dir")).toAbsolutePath(); parent != null; parent = parent.getParent()) {
+            Path candidate = parent.resolve(relative);
+            if (Files.isRegularFile(candidate)) return candidate;
+        }
+        throw new IllegalStateException("Target resource migration was not found in checkout");
     }
 
     private static String requiredEnvironment(String key) {

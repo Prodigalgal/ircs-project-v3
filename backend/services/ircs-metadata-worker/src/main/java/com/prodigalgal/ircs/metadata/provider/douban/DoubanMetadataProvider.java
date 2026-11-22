@@ -10,6 +10,7 @@ import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataEnrichmentPolicy;
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataSourceEvidence;
 import java.net.URI;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +38,7 @@ public class DoubanMetadataProvider implements MetadataProvider {
     }
 
     @Override
-    public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context) {
+    public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context, MetadataSourceEvidence evidence) {
         if (!supports(context)) {
             return Optional.empty();
         }
@@ -46,7 +47,7 @@ public class DoubanMetadataProvider implements MetadataProvider {
         if (response.isEmpty()) {
             return Optional.empty();
         }
-        return mapFirstMatch(context, response.get());
+        return mapFirstMatch(context, evidence, response.get());
     }
 
     private URI buildSuggestUri(MetadataSearchContext context) {
@@ -57,14 +58,16 @@ public class DoubanMetadataProvider implements MetadataProvider {
                 .toUri();
     }
 
-    private Optional<EnrichedMetadataDTO> mapFirstMatch(MetadataSearchContext context, String response) {
+    private Optional<EnrichedMetadataDTO> mapFirstMatch(
+            MetadataSearchContext context, MetadataSourceEvidence evidence, String response) {
         try {
             JsonNode root = objectMapper.readTree(response);
             if (root == null || !root.isArray()) {
                 throw new IllegalArgumentException("Douban suggest response must be an array");
             }
             for (JsonNode candidate : root) {
-                if (AuthoritativeIds.normalizeDouban(text(candidate, "id")) != null && isMatch(context, candidate)) {
+                if (AuthoritativeIds.normalizeDouban(text(candidate, "id")) != null
+                        && isMatch(context, evidence, candidate)) {
                     return Optional.of(mapCandidate(candidate));
                 }
             }
@@ -88,8 +91,11 @@ public class DoubanMetadataProvider implements MetadataProvider {
         return metadata;
     }
 
-    private boolean isMatch(MetadataSearchContext source, JsonNode candidate) {
-        if (!yearMatches(source.getYear(), text(candidate, "year"))) {
+    private boolean isMatch(MetadataSearchContext source, MetadataSourceEvidence evidence, JsonNode candidate) {
+        String candidateYear = cleanYear(text(candidate, "year"));
+        boolean compatibleYear = evidence.titleYear() == null ? yearMatches(source.getYear(), candidateYear)
+                : evidence.matchesTitleYear(candidateYear);
+        if (!compatibleYear) {
             return false;
         }
         return MetadataCandidateTitles.matches(source, text(candidate, "title"),

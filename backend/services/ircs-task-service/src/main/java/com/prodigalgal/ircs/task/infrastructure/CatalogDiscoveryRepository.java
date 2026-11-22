@@ -33,11 +33,9 @@ public class CatalogDiscoveryRepository {
                      LIMIT :limit FOR UPDATE OF r SKIP LOCKED
                 ), outcomes AS MATERIALIZED (
                     SELECT d.*, child.*,
-                           coalesce(inventory.resource_available
-                               AND (d.target_episode = 0 OR inventory.available_episode >= d.target_episode), false)
+                           catalog_has_target_resources(d.unified_video_id, d.target_season, d.target_episode)
                                AS fulfilled
                       FROM due d
-                      CROSS JOIN LATERAL catalog_resource_inventory(d.unified_video_id, d.target_season) inventory
                       CROSS JOIN LATERAL (
                           SELECT coalesce(bool_or(t.enabled AND t.status IN ('QUEUED', 'RUNNING')), false) AS active,
                                  coalesce(bool_or(NOT t.enabled OR t.status IN ('PAUSED', 'STOPPING')), false) AS paused,
@@ -195,8 +193,7 @@ public class CatalogDiscoveryRepository {
 
     public boolean hasRequestedResources(CatalogDiscoveryCandidate candidate) {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT resource_available AND (:episode = 0 OR available_episode >= :episode)
-                  FROM catalog_resource_inventory(:id, :season)
+                SELECT catalog_has_target_resources(:id, :season, :episode)
                 """, params(candidate), Boolean.class));
     }
 

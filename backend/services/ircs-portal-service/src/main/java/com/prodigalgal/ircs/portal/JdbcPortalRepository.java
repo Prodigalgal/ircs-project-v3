@@ -197,7 +197,11 @@ public class JdbcPortalRepository {
         appendScopeFilters(where, params, principal);
         return decorateRankings(queryCards(CARD_SELECT
                 + " JOIN external_catalog_recent_events recent_event ON recent_event.unified_video_id = uv.id "
-                + where + " ORDER BY recent_event.event_date DESC, recent_event.observed_at DESC, uv.id LIMIT :limit",
+                + where + """
+                   AND catalog_has_target_resources(uv.id,
+                           coalesce(nullif(recent_event.season, 0), uv.season, 0), coalesce(recent_event.episode, 0))
+                  """
+                + " ORDER BY recent_event.event_date DESC, recent_event.observed_at DESC, uv.id LIMIT :limit",
                 params), true);
     }
 
@@ -221,12 +225,18 @@ public class JdbcPortalRepository {
                        case when :recent then coalesce(recent_event.observed_at, trend_rank.observed_at)
                             else coalesce(trend_rank.observed_at, recent_event.observed_at) end as observed_at,
                        recent_event.event_date, recent_event.event_type, nullif(recent_event.season, 0) as season, recent_event.episode,
-                       inventory.resource_available, inventory.available_episode,
+                       case when :recent then catalog_has_target_resources(uv.id, requested.season,
+                                                                           coalesce(recent_event.episode, 0))
+                            else inventory.resource_available end as resource_available,
+                       inventory.available_episode,
                        recent_event.provider as event_provider
                   from unified_videos uv
                   left join external_catalog_rankings trend_rank on trend_rank.unified_video_id = uv.id
                   left join external_catalog_recent_events recent_event on recent_event.unified_video_id = uv.id
-                  cross join lateral catalog_resource_inventory(uv.id, coalesce(uv.season, 0)) inventory
+                  cross join lateral (
+                      select coalesce(case when :recent then nullif(recent_event.season, 0) end, uv.season, 0) as season
+                  ) requested
+                  cross join lateral catalog_resource_inventory(uv.id, requested.season) inventory
                  where uv.id in (:ids)
                 """, Map.of("ids", cards.stream().map(PortalMovieCard::id).toList(), "recent", recent), rs -> {
                     Instant observed = getInstant(rs, "observed_at");

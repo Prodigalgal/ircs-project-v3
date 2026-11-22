@@ -74,7 +74,7 @@ public final class MetadataCandidateTitles {
         return !normalized.isEmpty() && normalized.equals(normalize(right));
     }
 
-    private static String normalize(String value) {
+    static String normalize(String value) {
         return value == null ? "" : Normalizer.normalize(value, Normalizer.Form.NFKC)
                 .toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\p{Z}\\s]+", "");
     }

@@ -8,6 +8,7 @@ import com.prodigalgal.ircs.metadata.provider.domain.MetadataCandidateTitles;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataEnrichmentPolicy;
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataSourceEvidence;
 import java.net.URI;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -38,8 +39,9 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
     }
 
     @Override
-    public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context) {
-        if (!supports(context)) {
+    public Optional<EnrichedMetadataDTO> enrich(MetadataSearchContext context, MetadataSourceEvidence evidence) {
+        // The search links do not supply a verified release year.
+        if (!supports(context) || evidence.titleYear() != null) {
             return Optional.empty();
         }
         Optional<RottenTomatoesCredential> credential = credentialRepository.findPreferred();
@@ -47,7 +49,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
         if (response.isEmpty()) {
             return Optional.empty();
         }
-        return mapFirstMatch(context, response.get());
+        return mapFirstMatch(context, evidence, response.get());
     }
 
     private URI buildSearchUri(MetadataSearchContext context) {
@@ -58,7 +60,8 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
                 .toUri();
     }
 
-    private Optional<EnrichedMetadataDTO> mapFirstMatch(MetadataSearchContext context, String html) {
+    private Optional<EnrichedMetadataDTO> mapFirstMatch(
+            MetadataSearchContext context, MetadataSourceEvidence evidence, String html) {
         try {
             Document document = Jsoup.parse(html);
             Elements links = document.select("search-page-media-row a[slot=title]");
@@ -68,7 +71,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
             for (Element link : links) {
                 String title = link.text();
                 String id = AuthoritativeIds.normalizeRottenTomatoes(extractIdFromUrl(link.attr("href")));
-                if (StringUtils.hasText(id) && matchesMediaType(context, link.attr("href"))
+                if (StringUtils.hasText(id) && matchesMediaType(context, evidence, link.attr("href"))
                         && MetadataCandidateTitles.matches(context, title)) {
                     EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
                     metadata.setRottenTomatoesId(id);
@@ -81,7 +84,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
         }
     }
 
-    private boolean matchesMediaType(MetadataSearchContext context, String href) {
+    private boolean matchesMediaType(MetadataSearchContext context, MetadataSourceEvidence evidence, String href) {
         String path;
         try {
             path = URI.create(href).getPath();
@@ -91,7 +94,7 @@ public class RottenTomatoesMetadataProvider implements MetadataProvider {
         if (path == null || (!path.startsWith("/m/") && !path.startsWith("/tv/"))) {
             return false;
         }
-        boolean television = "tv".equals(MetadataEnrichmentPolicy.searchType(context));
+        boolean television = "tv".equals(MetadataEnrichmentPolicy.searchType(context, evidence));
         return television ? path.startsWith("/tv/")
                 : !"movie".equals(context.getCategorySlug()) || path.startsWith("/m/");
     }

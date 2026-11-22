@@ -189,3 +189,11 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 3.8.1
+  - include:
+      file: db/changelog/2026/11/22-01-catalog-target-resources.sql
+  - changeSet:
+      id: 1795300000001-tag-3.12.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 3.12.0

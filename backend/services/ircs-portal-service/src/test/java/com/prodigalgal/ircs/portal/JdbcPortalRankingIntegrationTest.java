@@ -44,6 +44,7 @@ class JdbcPortalRankingIntegrationTest {
             UUID tomorrow=work("北京时间明天播出","series",7.0);
             event(aired,today,2,12);
             event(tomorrow,today.plusDays(1),2,13);
+            resource(aired, 2, 12);
             assertThat(repository.findRecentlyUpdated(publicPrincipal,20)).extracting(PortalMovieCard::id).containsExactly(aired);
         });
     }
@@ -161,6 +162,8 @@ class JdbcPortalRankingIntegrationTest {
         event(yesterday, today.minusDays(1), 2, 11);
         event(current, today, 2, 12);
         event(future, today.plusDays(1), 2, 13);
+        resource(yesterday, 2, 11);
+        resource(current, 2, 12);
         jdbc.update("update unified_videos set updated_at = now() - interval '30 days' where id = ?", current);
         jdbc.update("update unified_videos set updated_at = now(), published_at = current_date where id in (?, ?)",
                 yesterday, merelyTouched);
@@ -175,9 +178,28 @@ class JdbcPortalRankingIntegrationTest {
     }
 
     @Test
+    void recentRailFiltersMissingOrWrongEpisodeResourcesBeforeApplyingLimit() {
+        UUID olderAvailable = work("Older available episode", "series", 8.0);
+        UUID newerPlaceholder = work("Newer external placeholder", "series", 8.0);
+        UUID wrongEpisodeOnly = work("Wrong episode only", "series", 8.0);
+        event(olderAvailable, today.minusDays(1), 2, 11);
+        resource(olderAvailable, 2, 11);
+        resource(olderAvailable, 2, 14);
+        event(newerPlaceholder, today, 2, 12);
+        event(wrongEpisodeOnly, today, 2, 13);
+        resource(wrongEpisodeOnly, 2, 14);
+
+        var card = repository.findRecentlyUpdated(publicPrincipal, 1).getFirst();
+        assertThat(card.id()).isEqualTo(olderAvailable);
+        assertThat(card.ranking().availableEpisode()).isEqualTo(14);
+        assertThat(card.ranking().latestEpisode()).isEqualTo(11);
+    }
+
+    @Test
     void yesterdayEventSurvivesDailyBoardRotationWithoutPretendingItsSampleIsFresh() {
         UUID yesterday = work("Retained broadcast", "series", 8.0);
         event(yesterday, today.minusDays(1), 2, 12);
+        resource(yesterday, 2, 12);
         jdbc.update("update external_catalog_events set observed_at = now() - interval '1 day'");
         observation(yesterday, "TMDB", "airing-today", "event", 1, sampleTime.minus(Duration.ofDays(1)));
         jdbc.update("delete from external_trend_observations");
@@ -195,6 +217,7 @@ class JdbcPortalRankingIntegrationTest {
         UUID work = work("Fresh episode with old heat sample", "series", 8.0);
         observation(work, "TMDB", "trending-day", "day", 1, sampleTime.minus(Duration.ofHours(8)));
         event(work, today, 2, 12);
+        resource(work, 2, 12);
 
         PortalRankingInfo trending = repository.findTrending(publicPrincipal, 20).getFirst().ranking();
         PortalRankingInfo recent = repository.findRecentlyUpdated(publicPrincipal, 20).getFirst().ranking();
@@ -230,6 +253,7 @@ class JdbcPortalRankingIntegrationTest {
         for (UUID id : List.of(safe, restricted, assessed, privateWork, adultCategory)) {
             observation(id, "TMDB", "trending-day", "day", 1, sampleTime);
             event(id, today, 0, 0);
+            resource(id, 0, 0);
         }
 
         assertThat(repository.findTrending(publicPrincipal, 20)).extracting(PortalMovieCard::id).containsExactly(safe);
@@ -332,26 +356,24 @@ class JdbcPortalRankingIntegrationTest {
     }
 
     @Test
-    void missingResourcesAreShownAsCollectingAndMirrorsDoNotInventEpisodeProgress() {
+    void recentEpisodesRequireAValidResourceAndMirrorsDoNotInventEpisodeProgress() {
         UUID work = work("Resource gap", "series", 8.0);
         event(work, today, 2, 12);
-        PortalRankingInfo missing = repository.findRecentlyUpdated(publicPrincipal, 20).getFirst().ranking();
-        assertThat(missing.resourceAvailable()).isFalse();
-        assertThat(missing.availableEpisode()).isNull();
+        assertThat(repository.findRecentlyUpdated(publicPrincipal, 20)).isEmpty();
 
         UUID raw = raw(work, 2, false);
         for (int i = 0; i < 15; i++) episode(raw, "HD", "https://source.example/mirror" + i + ".m3u8");
         episode(raw, "第12集", " ");
-        PortalRankingInfo mirrors = repository.findRecentlyUpdated(publicPrincipal, 20).getFirst().ranking();
-        assertThat(mirrors.resourceAvailable()).isTrue();
-        assertThat(mirrors.availableEpisode()).isNull();
+        assertThat(repository.findRecentlyUpdated(publicPrincipal, 20)).isEmpty();
 
         episode(raw, "第10集", "https://source.example/episode10.m3u8");
+        assertThat(repository.findRecentlyUpdated(publicPrincipal, 20)).isEmpty();
+        episode(raw, "第12集", "https://source.example/episode12.m3u8");
         episode(raw, "S01E20", "https://source.example/wrong-season.m3u8");
         UUID adultRaw = raw(work, 2, true);
         episode(adultRaw, "第30集", "https://source.example/restricted.m3u8");
         PortalRankingInfo progress = repository.findRecentlyUpdated(publicPrincipal, 20).getFirst().ranking();
-        assertThat(progress.availableEpisode()).isEqualTo(10);
+        assertThat(progress.availableEpisode()).isEqualTo(12);
         assertThat(progress.latestEpisode()).isEqualTo(12);
     }
 
@@ -365,10 +387,7 @@ class JdbcPortalRankingIntegrationTest {
         episode(current, "第12集", "javascript:invalid");
         episode(current, "第12集", "/missing-source-domain.m3u8");
 
-        PortalRankingInfo ranking = repository.findRecentlyUpdated(publicPrincipal, 20).getFirst().ranking();
-
-        assertThat(ranking.resourceAvailable()).isFalse();
-        assertThat(ranking.availableEpisode()).isNull();
+        assertThat(repository.findRecentlyUpdated(publicPrincipal, 20)).isEmpty();
     }
 
     @Test
@@ -438,6 +457,12 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, ?, ?)", UUID.randomUUID(), playlist, name, url);
     }
 
+    private void resource(UUID unifiedVideoId, int season, int episode) {
+        UUID rawId = raw(unifiedVideoId, season == 0 ? null : season, false);
+        episode(rawId, episode == 0 ? "正片" : "第" + episode + "集",
+                "https://source.example/resource" + UUID.randomUUID() + ".m3u8");
+    }
+
     private static PortalMovieCard card(List<PortalMovieCard> cards, UUID id) {
         return cards.stream().filter(card -> card.id().equals(id)).findFirst().orElseThrow();
     }
@@ -466,14 +491,16 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid)");
         jdbc.execute("create table playlists(id uuid primary key, video_id uuid)");
         jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");
+        jdbc.execute("create table magnet_links(unified_video_id uuid, status text)");
         for (String category : List.of("movie", "series", "adult")) {
             jdbc.update("insert into standard_category values (?, ?, ?)", UUID.randomUUID(), category, category);
         }
-        jdbc.execute(Files.readString(migrationPath()));
+        jdbc.execute(Files.readString(migrationPath("16-02-global-rankings-and-discovery.sql")));
+        jdbc.execute(Files.readString(migrationPath("22-01-catalog-target-resources.sql")));
     }
 
-    private static Path migrationPath() {
-        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/16-02-global-rankings-and-discovery.sql");
+    private static Path migrationPath(String filename) {
+        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11", filename);
         for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
             if (Files.isRegularFile(root.resolve(relative))) return root.resolve(relative);
             if (Files.isRegularFile(root.resolve("backend").resolve(relative))) return root.resolve("backend").resolve(relative);

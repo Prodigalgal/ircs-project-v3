@@ -222,12 +222,34 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         jdbc.update("insert into raw_videos(id, season) values (?, 2)", raw);
         jdbc.update("insert into raw_video_unified_video values (?, ?)", raw, workId);
         jdbc.update("insert into playlists values (?, ?)", playlist, raw);
-        jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, 'S02E12', 'https://source.example/12')",
+        jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, 'S02E14', 'https://source.example/14')",
                 UUID.randomUUID(), playlist);
 
         assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
+        assertThat(requestState()).containsEntry("status", "RETRY").containsEntry("fulfilled", false);
+
+        jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, 'S02E12', 'https://source.example/12')",
+                UUID.randomUUID(), playlist);
+        jdbc.update("update catalog_discovery_requests set status = 'SUBMITTED', fulfilled_at = null");
+        makeReconciliationDue();
+        assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
         assertThat(requestState()).containsEntry("status", "SUBMITTED").containsEntry("fulfilled", true);
         assertThat(requests.reconcileSubmitted(5)).isZero();
+    }
+
+    @Test
+    void wholeWorkMayUseApprovedMagnetButEpisodeRequestMayNot() {
+        jdbc.update("insert into magnet_links values (?, 'CANDIDATE')", workId);
+        CatalogDiscoveryCandidate wholeWork = new CatalogDiscoveryCandidate(workId, 0, 0, "Example", 1, UUID.randomUUID());
+        CatalogDiscoveryCandidate episode = new CatalogDiscoveryCandidate(workId, 2, 12, "Example", 1, UUID.randomUUID());
+        assertThat(requests.hasRequestedResources(wholeWork)).isFalse();
+        jdbc.update("update magnet_links set status = 'APPROVED'");
+        assertThat(requests.hasRequestedResources(wholeWork)).isTrue();
+        assertThat(requests.hasRequestedResources(episode)).isFalse();
+        jdbc.update("update unified_videos set content_visibility = 'PRIVATE'");
+        assertThat(requests.hasRequestedResources(wholeWork)).isFalse();
+        jdbc.update("update unified_videos set content_visibility = 'PUBLIC', adult_restricted = true");
+        assertThat(requests.hasRequestedResources(wholeWork)).isFalse();
     }
 
     @Test
@@ -353,6 +375,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid)");
         jdbc.execute("create table playlists(id uuid primary key, video_id uuid)");
         jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");
+        jdbc.execute("create table magnet_links(unified_video_id uuid, status text)");
         jdbc.execute("create table data_sources(id uuid primary key, name text, base_url text, list_path text, detail_path text, "
                 + "field_mapping jsonb, adult_restricted boolean default false)");
         jdbc.execute("create table collection_tasks(id uuid primary key, data_source_id uuid, status text, enabled boolean, "
@@ -365,6 +388,11 @@ class CatalogDiscoveryRepositoryIntegrationTest {
             if (!matcher.find()) throw new IllegalStateException("Catalog migration contract was not found");
             jdbc.execute(matcher.group());
         }
+        String targetResources = Files.readString(targetResourcesMigrationPath());
+        var targetFunction = Pattern.compile("CREATE FUNCTION catalog_has_target_resources[\\s\\S]*?\\$\\$;")
+                .matcher(targetResources);
+        if (!targetFunction.find()) throw new IllegalStateException("Target resource migration contract was not found");
+        jdbc.execute(targetFunction.group());
         jdbc.execute("alter table catalog_discovery_requests add column fulfilled_at timestamptz");
     }
 
@@ -375,5 +403,14 @@ class CatalogDiscoveryRepositoryIntegrationTest {
             if (Files.isRegularFile(root.resolve("backend").resolve(relative))) return root.resolve("backend").resolve(relative);
         }
         throw new IllegalStateException("Cannot locate catalog migration");
+    }
+
+    private static Path targetResourcesMigrationPath() {
+        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/22-01-catalog-target-resources.sql");
+        for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
+            if (Files.isRegularFile(root.resolve(relative))) return root.resolve(relative);
+            if (Files.isRegularFile(root.resolve("backend").resolve(relative))) return root.resolve("backend").resolve(relative);
+        }
+        throw new IllegalStateException("Cannot locate target resource migration");
     }
 }

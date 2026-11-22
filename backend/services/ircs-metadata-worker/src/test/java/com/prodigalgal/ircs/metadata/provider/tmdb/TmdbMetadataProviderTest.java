@@ -15,6 +15,7 @@ import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataSourceEvidence;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
@@ -244,6 +245,45 @@ class TmdbMetadataProviderTest {
                 && uri.getQuery().contains("year=2026")));
         verify(httpClient, times(3)).getJson(argThat(uri -> uri.getPath().endsWith("/search/multi")
                 && !uri.getQuery().contains("year=")));
+    }
+
+    @Test
+    void rejectsSameNameLiveActionForMultipleEpisodeAnimation() {
+        var context = MetadataSearchContext.builder().title("深渊之上").categorySlug("anime").year("2026").build();
+        var evidence = MetadataSourceEvidence.from("深渊之上", "深渊之上", "40");
+        when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
+        when(httpClient.getJson(argThat(uri -> uri.getPath().endsWith("/search/tv")))).thenReturn(Optional.of("""
+                {"results":[
+                  {"id":1198746,"media_type":"movie","title":"深渊之上","release_date":"2026-11-20","genre_ids":[53]},
+                  {"id":42,"name":"深渊之上","first_air_date":"2026-05-01","genre_ids":[18]}
+                ]}
+                """));
+
+        assertTrue(provider.enrich(context, evidence).isEmpty());
+        verify(httpClient, times(1)).getJson(any(URI.class));
+    }
+
+    @Test
+    void recoversStrippedYearAndUsesDocumentaryEvidenceForSameNameCandidates() {
+        var context = MetadataSearchContext.builder().title("夜曲").categorySlug("documentary").year("2026").build();
+        var evidence = MetadataSourceEvidence.from("夜曲（２０２０）", "夜曲", null);
+        when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
+        when(httpClient.getJson(argThat(uri -> uri.getPath().endsWith("/search/multi")))).thenReturn(Optional.of("""
+                {"results":[
+                  {"id":292741,"media_type":"tv","name":"夜曲","first_air_date":"2026-10-30","genre_ids":[80]},
+                  {"id":101,"media_type":"movie","title":"夜曲","release_date":"2020-10-13","genre_ids":[27]},
+                  {"id":102,"media_type":"movie","title":"夜曲","release_date":"2020-09-08","genre_ids":[99]}
+                ]}
+                """));
+        when(httpClient.getJson(argThat(uri -> uri.getPath().endsWith("/movie/102")))).thenReturn(Optional.of("""
+                {"title":"夜曲","original_title":"Notturno","release_date":"2020-09-08",
+                 "genres":[{"id":99,"name":"Documentary"}]}
+                """));
+
+        var metadata = provider.enrich(context, evidence).orElseThrow();
+        assertEquals("102", metadata.getTmdbId());
+        assertEquals("2020", metadata.getYear());
+        verify(httpClient, times(2)).getJson(any(URI.class));
     }
 
     @Test
