@@ -7,7 +7,7 @@
 ## 变更
 
 - Metadata Worker 从同一个持久化尝试查询读取原始标题和集数。标题末尾已被清洗移除的明确年份参与匹配，明确的多集证据限定检索形态，TMDB 候选须提供与动画或纪录片分类一致的类型证据。
-- Migrator 在 3.12.0 增加 `catalog_has_target_resources(uuid, integer, integer)`。Content、Task 和 Portal 共同使用该判定。集号大于零时查找同季同集的有效播放记录。整作品请求也支持公开作品的已审核磁链。
+- Migrator 在 3.12.1 增加 `catalog_has_target_resources(uuid, integer, integer)`。Content、Task 和 Portal 共同使用该判定。集号大于零时查找同季同集的有效播放记录。整作品请求也支持公开作品的已审核磁链。
 - 首页按现有权威事件排序，在限量前筛选资源。相应季集入库后才进入「最近更新」。热播、上映信息来源和后台补抓沿用现有流程。
 - 对既有错绑按作品身份和用户引用复核。搜索缺文档按精确实体 ID 重新同步。历史大簇处理以来源证据、目标指纹和资源引用保护为前提。
 

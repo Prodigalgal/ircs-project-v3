@@ -268,14 +268,14 @@ class TmdbMetadataProviderTest {
         var context = MetadataSearchContext.builder().title("夜曲").categorySlug("documentary").year("2026").build();
         var evidence = MetadataSourceEvidence.from("夜曲（２０２０）", "夜曲", null);
         when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
-        when(httpClient.getJson(argThat(uri -> uri.getPath().endsWith("/search/multi")))).thenReturn(Optional.of("""
+        when(httpClient.getJson(argThat(uri -> uri != null && uri.getPath().endsWith("/search/multi")))).thenReturn(Optional.of("""
                 {"results":[
                   {"id":292741,"media_type":"tv","name":"夜曲","first_air_date":"2026-10-30","genre_ids":[80]},
                   {"id":101,"media_type":"movie","title":"夜曲","release_date":"2020-10-13","genre_ids":[27]},
                   {"id":102,"media_type":"movie","title":"夜曲","release_date":"2020-09-08","genre_ids":[99]}
                 ]}
                 """));
-        when(httpClient.getJson(argThat(uri -> uri.getPath().endsWith("/movie/102")))).thenReturn(Optional.of("""
+        when(httpClient.getJson(argThat(uri -> uri != null && uri.getPath().endsWith("/movie/102")))).thenReturn(Optional.of("""
                 {"title":"夜曲","original_title":"Notturno","release_date":"2020-09-08",
                  "genres":[{"id":99,"name":"Documentary"}]}
                 """));

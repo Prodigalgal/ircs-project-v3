@@ -1,7 +1,7 @@
 -- liquibase formatted sql
 
 -- changeset codex:20261122-catalog-target-resources
--- Business version 3.12.0. Keep catalog_resource_inventory unchanged for existing consumers.
+-- Business version 3.12.1. Keep catalog_resource_inventory unchanged for existing consumers.
 CREATE FUNCTION catalog_has_target_resources(
     target_video_id uuid,
     required_season integer,
