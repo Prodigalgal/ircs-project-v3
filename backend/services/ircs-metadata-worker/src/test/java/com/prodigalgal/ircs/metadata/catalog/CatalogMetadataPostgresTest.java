@@ -55,8 +55,6 @@ class CatalogMetadataPostgresTest {
                     adult_restricted boolean default false,adult_assessment jsonb default '{}',content_visibility text default 'PUBLIC',
                     metadata_status text default 'DIRTY',updated_at timestamptz default now(),version bigint default 0,
                     created_at timestamptz default now(),category_code text,total_episodes text);
-                create table raw_videos(id uuid primary key);
-                create function catalog_has_target_resources(uuid,integer,integer) returns boolean language sql as 'select false';
                 create table standard_areas(code text,name text);
                 create table standard_languages(code text,name text,english_name text,native_name text);
                 create table standard_genre(code text,name text);
@@ -69,12 +67,11 @@ class CatalogMetadataPostgresTest {
                     unique(original_url,source_domain_id));
                 """);
         String migration=Files.readString(migration());
-        for (String table:List.of("external_catalog_identities","catalog_metadata_requests","catalog_discovery_requests")) {
+        for (String table:List.of("external_catalog_identities","catalog_metadata_requests")) {
             var matcher=Pattern.compile("CREATE TABLE "+table+"[\\s\\S]*?\\n\\);").matcher(migration);
             assertThat(matcher.find()).as("production migration table %s",table).isTrue();
             jdbc.execute(matcher.group());
         }
-        jdbc.execute(Files.readString(migration().resolveSibling("23-01-authority-first-catalog.sql")));
     }
 
     @AfterEach
@@ -155,7 +152,8 @@ class CatalogMetadataPostgresTest {
     }
 
     @Test
-    void commitsTypedWorksAndEpisodesBeforeCreatingDiscovery() {
+    void commitsTypedWorksAndEpisodesBeforeCreatingDiscovery() throws Exception {
+        installAuthoritySchema();
         jdbc.update("""
                 insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
                 values ('movie',42,-1,100),('tv',42,1,200)
@@ -184,7 +182,8 @@ class CatalogMetadataPostgresTest {
     }
 
     @Test
-    void oneSeasonAdultRejectionBlocksAnInFlightImportForTheSameWork() {
+    void oneSeasonAdultRejectionBlocksAnInFlightImportForTheSameWork() throws Exception {
+        installAuthoritySchema();
         jdbc.update("""
                 insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
                 values ('tv',42,1,200),('tv',42,2,100)
@@ -206,6 +205,18 @@ class CatalogMetadataPostgresTest {
         var facts = evidence().metadata();
         facts.setTitle(title);
         return facts;
+    }
+
+    private void installAuthoritySchema() throws Exception {
+        jdbc.execute("""
+                create table raw_videos(id uuid primary key);
+                create function catalog_has_target_resources(uuid,integer,integer) returns boolean language sql as 'select false';
+                """);
+        var table = Pattern.compile("CREATE TABLE catalog_discovery_requests[\\s\\S]*?\\n\\);")
+                .matcher(Files.readString(migration()));
+        assertThat(table.find()).isTrue();
+        jdbc.execute(table.group());
+        jdbc.execute(Files.readString(migration().resolveSibling("23-01-authority-first-catalog.sql")));
     }
 
     private UUID enqueue() {
