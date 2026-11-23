@@ -2,7 +2,6 @@ package com.prodigalgal.ircs.ingestion;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -11,7 +10,6 @@ import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionVideoDTO;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -36,8 +34,7 @@ class SourceRecordIngestionTransactionBoundaryTest {
             var video = mock(IngestionVideoDTO.class);
             when(video.sourceHash()).thenReturn("source");
             when(video.dataHash()).thenReturn("version");
-            when(video.playlists()).thenReturn(List.of());
-            when(repository.lockStateBySourceHash("source")).thenAnswer(invocation -> {
+            when(repository.lockState(video)).thenAnswer(invocation -> {
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
                 assertThat(jdbc.queryForObject("select 1", Integer.class)).isEqualTo(1);
                 assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);

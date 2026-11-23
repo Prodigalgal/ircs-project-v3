@@ -12,6 +12,7 @@ dependencies {
 
     runtimeOnly 'org.postgresql:postgresql'
     testFixturesApi 'org.springframework:spring-jdbc'
+    testFixturesImplementation 'org.springframework:spring-context'
     testFixturesImplementation 'org.liquibase:liquibase-core'
     testFixturesRuntimeOnly 'org.postgresql:postgresql'
 }

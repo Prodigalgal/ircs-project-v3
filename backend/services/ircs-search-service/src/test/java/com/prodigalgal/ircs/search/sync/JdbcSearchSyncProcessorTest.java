@@ -8,6 +8,7 @@ import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SearchSyncMessage;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
+import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
 import com.prodigalgal.ircs.search.index.SearchIndexService;
 import com.prodigalgal.ircs.search.repository.SearchDocumentJdbcRepository;
 import java.util.Optional;
@@ -52,13 +53,15 @@ class JdbcSearchSyncProcessorTest {
     }
 
     @Test
-    void deleteOperationDoesNotReadDatabase() {
+    void aStaleCatalogDeleteReconcilesTheCurrentPublication() {
         UUID id = UUID.randomUUID();
-
+        CatalogEntrySearchDocument current = new CatalogEntrySearchDocument();
+        current.setId(id);
+        when(documentRepository.findCatalogEntry(id)).thenReturn(Optional.of(current));
         JdbcSearchSyncProcessor processor = new JdbcSearchSyncProcessor(documentRepository, searchIndexService);
         processor.process(new SearchSyncMessage(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.DELETE));
 
-        verify(documentRepository, never()).findCatalogEntry(id);
-        verify(searchIndexService).delete(id, SearchEntityType.CATALOG_ENTRY);
+        verify(searchIndexService).saveUnified(current);
+        verify(searchIndexService, never()).delete(id, SearchEntityType.CATALOG_ENTRY);
     }
 }

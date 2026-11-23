@@ -32,24 +32,24 @@ class AuthorityCatalogImportWorker {
     @Scheduled(initialDelayString = "${app.catalog.authority-first.initial-delay-ms:45000}",
             fixedDelayString = "${app.catalog.authority-first.import-delay-ms:15000}")
     void importDue() {
-        submit(importing, this::runImports, "catalog.authority.details");
+        ScheduledTriggers.submit(executor, () -> runIfAvailable(importing, this::runImports),
+                log, "catalog.authority.details");
     }
 
     @Scheduled(initialDelayString = "${app.catalog.authority-first.initial-sync-delay-ms:105000}",
             fixedDelayString = "${app.catalog.authority-first.sync-delay-ms:60000}")
     void syncChanges() {
-        submit(syncing, this::runChanges, "catalog.authority.changes");
+        ScheduledTriggers.submit(executor, () -> runIfAvailable(syncing, this::runChanges),
+                log, "catalog.authority.changes");
     }
 
-    private void submit(AtomicBoolean running, Runnable action, String operation) {
+    private void runIfAvailable(AtomicBoolean running, Runnable action) {
         if (!enabled || !running.compareAndSet(false, true)) return;
-        ScheduledTriggers.submit(executor, () -> {
-            try {
-                action.run();
-            } finally {
-                running.set(false);
-            }
-        }, log, operation);
+        try {
+            action.run();
+        } finally {
+            running.set(false);
+        }
     }
 
     private void runImports() {

@@ -61,6 +61,19 @@ public class JdbcAuxiliaryAdminRepository {
             "dataSourceName", "ds.name",
             "createdAt", "sd.created_at",
             "updatedAt", "sd.updated_at");
+    private static final String SOURCE_ORIGIN_WITH_SOURCE = """
+            select sd.id, sd.domain_hash, sd.domain_value, sd.remark, ds.id as collection_source_id,
+                   ds.name as data_source_name, coalesce(ds.adult_restricted, false) as adult_restricted,
+                   sd.created_at, sd.updated_at
+            from source_origins sd
+            left join lateral (
+                select source.id,source.name,source.adult_restricted
+                from collection_source_origins membership
+                join collection_sources source on source.id=membership.collection_source_id
+                where membership.source_origin_id=sd.id
+                order by membership.first_seen_at desc,source.id limit 1
+            ) ds on true
+            """;
     private static final Map<String, String> RESOLVER_SORT_COLUMNS = Map.of(
             "id", "id",
             "name", "name",
@@ -203,18 +216,11 @@ public class JdbcAuxiliaryAdminRepository {
         MapSqlParameterSource params = pagingParams(safe);
         String where = sourceDomainWhere(params, keyword, dataSourceId);
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from source_origins sd left join collection_sources ds on sd.collection_source_id = ds.id" + where,
+                "select count(*) from source_origins sd" + where,
                 params,
                 Long.class);
         List<SourceDomainResponse> content = jdbcTemplate.query(
-                """
-                select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.collection_source_id,
-                       ds.name as data_source_name,
-                       coalesce(ds.adult_restricted, false) as adult_restricted,
-                       sd.created_at, sd.updated_at
-                from source_origins sd
-                left join collection_sources ds on sd.collection_source_id = ds.id
-                """
+                SOURCE_ORIGIN_WITH_SOURCE
                         + where
                         + orderBy(safe, SOURCE_DOMAIN_SORT_COLUMNS, "sd.domain_value asc")
                         + " limit :limit offset :offset",
@@ -226,15 +232,7 @@ public class JdbcAuxiliaryAdminRepository {
     public Optional<SourceDomainResponse> findSourceDomain(UUID id) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    """
-                    select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.collection_source_id,
-                           ds.name as data_source_name,
-                           coalesce(ds.adult_restricted, false) as adult_restricted,
-                           sd.created_at, sd.updated_at
-                    from source_origins sd
-                    left join collection_sources ds on sd.collection_source_id = ds.id
-                    where sd.id = :id
-                    """,
+                    SOURCE_ORIGIN_WITH_SOURCE + "where sd.id = :id",
                     new MapSqlParameterSource("id", id),
                     this::mapSourceDomain));
         } catch (EmptyResultDataAccessException ignored) {
@@ -252,7 +250,6 @@ public class JdbcAuxiliaryAdminRepository {
                 update source_origins
                 set domain_value = :domainValue,
                     remark = :remark,
-                    collection_source_id = :dataSourceId,
                     updated_at = :now,
                     version = coalesce(version, 0) + 1
                 where id = :id
@@ -261,8 +258,8 @@ public class JdbcAuxiliaryAdminRepository {
                         .addValue("id", id)
                         .addValue("domainValue", trimToLength(request.domainValue(), 255))
                         .addValue("remark", trimToLength(request.remark(), 255))
-                        .addValue("dataSourceId", request.dataSourceId())
                         .addValue("now", Timestamp.from(Instant.now())));
+        linkCollectionSource(id, request.dataSourceId());
         return findSourceDomain(id).orElseThrow(() -> notFound("Source domain not found after update: " + id));
     }
 
@@ -415,43 +412,26 @@ public class JdbcAuxiliaryAdminRepository {
     }
 
     private UUID getOrCreateSourceDomain(String domain, UUID dataSourceId) {
-        String hash = sha256(domain);
-        Optional<UUID> existing = findSourceDomainIdByHash(hash);
-        if (existing.isPresent()) {
-            if (dataSourceId != null) {
-                jdbcTemplate.update(
-                        "update source_origins set collection_source_id = coalesce(collection_source_id, :dataSourceId) where id = :id",
-                        new MapSqlParameterSource()
-                                .addValue("id", existing.get())
-                                .addValue("dataSourceId", dataSourceId));
-            }
-            return existing.get();
-        }
-        UUID id = IrcsUuidGenerators.nextId();
-        Timestamp now = Timestamp.from(Instant.now());
-        jdbcTemplate.update(
+        UUID id = jdbcTemplate.queryForObject(
                 """
-                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
-                values (:id, :now, :now, 0, :hash, :domain, 'Auto-discovered', :dataSourceId)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark)
+                values (:id, now(), now(), 0, :hash, :domain, 'Auto-discovered')
+                on conflict (domain_hash) do update set updated_at=source_origins.updated_at
+                returning id
                 """,
-                new MapSqlParameterSource()
-                        .addValue("id", id)
-                        .addValue("now", now)
-                        .addValue("hash", hash)
-                        .addValue("domain", domain)
-                        .addValue("dataSourceId", dataSourceId));
+                new MapSqlParameterSource("id", IrcsUuidGenerators.nextId())
+                        .addValue("hash", sha256(domain)).addValue("domain", domain), UUID.class);
+        linkCollectionSource(id, dataSourceId);
         return id;
     }
 
-    private Optional<UUID> findSourceDomainIdByHash(String hash) {
-        try {
-            return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select id from source_origins where domain_hash = :hash",
-                    new MapSqlParameterSource("hash", hash),
-                    UUID.class));
-        } catch (EmptyResultDataAccessException ignored) {
-            return Optional.empty();
-        }
+    private void linkCollectionSource(UUID originId, UUID sourceId) {
+        if (sourceId == null) return;
+        jdbcTemplate.update("""
+                insert into collection_source_origins(collection_source_id,source_origin_id,first_seen_at)
+                values(:sourceId,:originId,now())
+                on conflict (collection_source_id,source_origin_id) do nothing
+                """, Map.of("sourceId",sourceId,"originId",originId));
     }
 
     private List<EpisodeResponse> findEpisodes(UUID playlistId) {
@@ -567,7 +547,10 @@ public class JdbcAuxiliaryAdminRepository {
         }
         if (dataSourceId != null) {
             params.addValue("dataSourceId", dataSourceId);
-            where.add("sd.collection_source_id = :dataSourceId");
+            where.add("""
+                    exists(select from collection_source_origins membership
+                           where membership.source_origin_id=sd.id and membership.collection_source_id=:dataSourceId)
+                    """);
         }
         return where.isEmpty() ? "" : " where " + String.join(" and ", where);
     }

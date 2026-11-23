@@ -19,7 +19,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -500,28 +502,26 @@ class JdbcAggregationRepositoryTest {
 
         repository.mergeDuplicateCatalogEntries(rootId, List.of(victimId));
 
-        verify(jdbcTemplate, times(8)).update(sqlCaptor.capture(), paramsCaptor.capture());
+        verify(jdbcTemplate, times(7)).update(sqlCaptor.capture(), paramsCaptor.capture());
         List<String> sqlStatements = sqlCaptor.getAllValues();
-        assertTrue(sqlStatements.get(0).contains("insert into catalog_source_bindings"));
-        assertTrue(sqlStatements.get(0).contains("on conflict do nothing"));
-        assertTrue(sqlStatements.get(1).contains("delete from catalog_source_bindings"));
+        assertTrue(sqlStatements.get(0).contains("update catalog_source_bindings"));
+        assertTrue(sqlStatements.get(1).contains("insert into member_catalog_favorites"));
+        assertTrue(sqlStatements.get(1).contains("on conflict (member_id, catalog_entry_id) do nothing"));
         assertTrue(sqlStatements.get(2).contains("delete from member_catalog_favorites"));
-        assertTrue(sqlStatements.get(2).contains("root.member_id = member_catalog_favorites.member_id"));
-        assertTrue(sqlStatements.get(3).contains("update member_catalog_favorites"));
+        assertTrue(sqlStatements.get(3).contains("insert into member_playback_progress"));
+        assertTrue(sqlStatements.get(3).contains("member_playback_progress.last_watched_at < excluded.last_watched_at"));
         assertTrue(sqlStatements.get(4).contains("delete from member_playback_progress"));
-        assertTrue(sqlStatements.get(4).contains("root.member_id = member_playback_progress.member_id"));
-        assertTrue(sqlStatements.get(5).contains("update member_playback_progress"));
-        assertTrue(sqlStatements.get(6).contains("update catalog_entries root"));
-        assertTrue(sqlStatements.get(6).contains("victim.id = :victimId"));
-        assertTrue(sqlStatements.get(7).contains("delete from catalog_entries"));
+        assertTrue(sqlStatements.get(5).contains("update catalog_entries root"));
+        assertTrue(sqlStatements.get(5).contains("victim.id = :victimId"));
+        assertTrue(sqlStatements.get(6).contains("delete from catalog_entries"));
         assertTrue(sqlStatements.stream().noneMatch(this::containsRetiredUnifiedMetadataTable));
-        assertTrue(paramsCaptor.getAllValues().subList(0, 6).stream()
+        assertTrue(paramsCaptor.getAllValues().subList(0, 5).stream()
                 .allMatch(params -> rootId.equals(params.getValue("rootId"))
                         && List.of(victimId).equals(params.getValue("victimIds"))));
+        assertEquals(rootId, paramsCaptor.getAllValues().get(5).getValue("rootId"));
+        assertEquals(victimId, paramsCaptor.getAllValues().get(5).getValue("victimId"));
         assertEquals(rootId, paramsCaptor.getAllValues().get(6).getValue("rootId"));
-        assertEquals(victimId, paramsCaptor.getAllValues().get(6).getValue("victimId"));
-        assertEquals(rootId, paramsCaptor.getAllValues().get(7).getValue("rootId"));
-        assertEquals(List.of(victimId), paramsCaptor.getAllValues().get(7).getValue("victimIds"));
+        assertEquals(List.of(victimId), paramsCaptor.getAllValues().get(6).getValue("victimIds"));
     }
 
     @Test
@@ -623,58 +623,58 @@ class JdbcAggregationRepositoryTest {
     }
 
     @Test
-    void mergeDuplicateCatalogEntriesMigratesRowsWithConflictSafeCleanup() {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                "jdbc:h2:mem:aggregation-merge-" + UUID.randomUUID()
-                        + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1");
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        createMergeSchema(jdbc);
-        NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
-        JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
-        UUID rootId = UUID.randomUUID();
-        UUID victimId = UUID.randomUUID();
-        UUID rawId = UUID.randomUUID();
-        UUID memberWithConflict = UUID.randomUUID();
-        UUID memberWithoutConflict = UUID.randomUUID();
-        seedMergeFixture(jdbc, rootId, victimId, rawId, memberWithConflict, memberWithoutConflict);
+    @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
+    void mergeDuplicateCatalogEntriesMigratesRowsWithConflictSafeCleanup() throws Exception {
+        try (var database = CatalogTestDatabase.open()) {
+            var dataSource = database.dataSource();
+            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+            NamedParameterJdbcTemplate namedJdbc = new NamedParameterJdbcTemplate(dataSource);
+            JdbcAggregationRepository repository = JdbcAggregationRepository.forTest(namedJdbc, AggregationTestFixtures.matchingStrategy());
+            UUID rootId = UUID.randomUUID();
+            UUID victimId = UUID.randomUUID();
+            UUID rawId = UUID.randomUUID();
+            UUID memberWithConflict = UUID.randomUUID();
+            UUID memberWithoutConflict = UUID.randomUUID();
+            seedMergeFixture(jdbc, rootId, victimId, rawId, memberWithConflict, memberWithoutConflict);
 
-        repository.mergeDuplicateCatalogEntries(rootId, List.of(victimId));
+            repository.mergeDuplicateCatalogEntries(rootId, List.of(victimId));
 
-        assertEquals(1, count(jdbc, "select count(*) from catalog_entries where id = ?", rootId));
-        assertEquals(0, count(jdbc, "select count(*) from catalog_entries where id = ?", victimId));
-        assertEquals(1, count(jdbc, "select count(*) from catalog_source_bindings where source_record_id = ? and catalog_entry_id = ?", rawId, rootId));
-        assertEquals(0, count(jdbc, "select count(*) from catalog_source_bindings where catalog_entry_id = ?", victimId));
-        assertEquals("BOUND", jdbc.queryForObject(
-                "select aggregation_status from source_records where id = ?",
-                String.class,
-                rawId));
-        assertEquals(1, count(jdbc, "select count(*) from member_catalog_favorites where member_id = ? and catalog_entry_id = ?", memberWithConflict, rootId));
-        assertEquals(0, count(jdbc, "select count(*) from member_catalog_favorites where catalog_entry_id = ?", victimId));
-        assertEquals(1, count(jdbc, "select count(*) from member_playback_progress where member_id = ? and catalog_entry_id = ?", memberWithoutConflict, rootId));
-        assertEquals(0, count(jdbc, "select count(*) from member_playback_progress where catalog_entry_id = ?", victimId));
-        assertEquals(Set.of("Root Actor", "Victim Actor"), jsonSet(jdbc, "select actor_names from catalog_entries where id = ?", rootId));
-        assertEquals(Set.of("Victim Director"), jsonSet(jdbc, "select director_names from catalog_entries where id = ?", rootId));
-        assertEquals(Set.of("shared-genre", "victim-genre"), jsonSet(jdbc, "select genre_codes from catalog_entries where id = ?", rootId));
-        assertEquals(Set.of("zh"), jsonSet(jdbc, "select language_codes from catalog_entries where id = ?", rootId));
-        assertEquals(Set.of("CN"), jsonSet(jdbc, "select area_codes from catalog_entries where id = ?", rootId));
-        assertEquals("movie", scalar(jdbc, "select category_code from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("victim-douban", scalar(jdbc, "select douban_id from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("root-tmdb", scalar(jdbc, "select tmdb_id from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("victim-imdb", scalar(jdbc, "select imdb_id from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("victim-rt", scalar(jdbc, "select rotten_tomatoes_id from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("victim-description", scalar(jdbc, "select description from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("root-alias", scalar(jdbc, "select alias_title from catalog_entries where id = ?", rootId, String.class));
-        assertEquals(new BigDecimal("8.8"), scalar(jdbc, "select score from catalog_entries where id = ?", rootId, BigDecimal.class));
-        assertEquals(LocalDate.of(2026, 1, 2), scalar(jdbc, "select published_at from catalog_entries where id = ?", rootId, LocalDate.class));
-        assertEquals("12", scalar(jdbc, "select total_episodes from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("45m", scalar(jdbc, "select duration from catalog_entries where id = ?", rootId, String.class));
-        assertEquals("root-remarks", scalar(jdbc, "select remarks from catalog_entries where id = ?", rootId, String.class));
-        assertEquals(2, scalar(jdbc, "select season from catalog_entries where id = ?", rootId, Integer.class));
-        assertEquals("victim-subtitle", scalar(jdbc, "select subtitle from catalog_entries where id = ?", rootId, String.class));
-        assertEquals(
-                LocalDateTime.of(2026, 6, 2, 10, 0),
-                scalar(jdbc, "select last_trend_at from catalog_entries where id = ?", rootId, LocalDateTime.class));
-        assertEquals("DIRTY", scalar(jdbc, "select metadata_status from catalog_entries where id = ?", rootId, String.class));
+            assertEquals(1, count(jdbc, "select count(*) from catalog_entries where id = ?", rootId));
+            assertEquals(0, count(jdbc, "select count(*) from catalog_entries where id = ?", victimId));
+            assertEquals(1, count(jdbc, "select count(*) from catalog_source_bindings where source_record_id = ? and catalog_entry_id = ?", rawId, rootId));
+            assertEquals(0, count(jdbc, "select count(*) from catalog_source_bindings where catalog_entry_id = ?", victimId));
+            assertEquals("BOUND", jdbc.queryForObject(
+                    "select aggregation_status from source_records where id = ?",
+                    String.class,
+                    rawId));
+            assertEquals(1, count(jdbc, "select count(*) from member_catalog_favorites where member_id = ? and catalog_entry_id = ?", memberWithConflict, rootId));
+            assertEquals(0, count(jdbc, "select count(*) from member_catalog_favorites where catalog_entry_id = ?", victimId));
+            assertEquals(1, count(jdbc, "select count(*) from member_playback_progress where member_id = ? and catalog_entry_id = ?", memberWithoutConflict, rootId));
+            assertEquals(0, count(jdbc, "select count(*) from member_playback_progress where catalog_entry_id = ?", victimId));
+            assertEquals(Set.of("Root Actor", "Victim Actor"), jsonSet(jdbc, "select actor_names from catalog_entries where id = ?", rootId));
+            assertEquals(Set.of("Victim Director"), jsonSet(jdbc, "select director_names from catalog_entries where id = ?", rootId));
+            assertEquals(Set.of("shared-genre", "victim-genre"), jsonSet(jdbc, "select genre_codes from catalog_entries where id = ?", rootId));
+            assertEquals(Set.of("zh"), jsonSet(jdbc, "select language_codes from catalog_entries where id = ?", rootId));
+            assertEquals(Set.of("CN"), jsonSet(jdbc, "select area_codes from catalog_entries where id = ?", rootId));
+            assertEquals("movie", scalar(jdbc, "select category_code from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("victim-douban", scalar(jdbc, "select douban_id from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("root-tmdb", scalar(jdbc, "select tmdb_id from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("victim-imdb", scalar(jdbc, "select imdb_id from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("victim-rt", scalar(jdbc, "select rotten_tomatoes_id from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("victim-description", scalar(jdbc, "select description from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("root-alias", scalar(jdbc, "select alias_title from catalog_entries where id = ?", rootId, String.class));
+            assertEquals(new BigDecimal("8.8"), scalar(jdbc, "select score from catalog_entries where id = ?", rootId, BigDecimal.class));
+            assertEquals(LocalDate.of(2026, 1, 2), scalar(jdbc, "select published_at from catalog_entries where id = ?", rootId, LocalDate.class));
+            assertEquals("12", scalar(jdbc, "select total_episodes from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("45m", scalar(jdbc, "select duration from catalog_entries where id = ?", rootId, String.class));
+            assertEquals("root-remarks", scalar(jdbc, "select remarks from catalog_entries where id = ?", rootId, String.class));
+            assertEquals(2, scalar(jdbc, "select season from catalog_entries where id = ?", rootId, Integer.class));
+            assertEquals("victim-subtitle", scalar(jdbc, "select subtitle from catalog_entries where id = ?", rootId, String.class));
+            assertEquals(
+                    LocalDateTime.of(2026, 6, 2, 10, 0),
+                    scalar(jdbc, "select last_trend_at from catalog_entries where id = ?", rootId, LocalDateTime.class));
+            assertEquals("DIRTY", scalar(jdbc, "select metadata_status from catalog_entries where id = ?", rootId, String.class));
+        }
     }
 
     @Test
@@ -1277,108 +1277,6 @@ class JdbcAggregationRepositoryTest {
                 """);
     }
 
-    private void createMergeSchema(JdbcTemplate jdbc) {
-        jdbc.execute("""
-                create table catalog_entries (
-                    id uuid primary key,
-                    created_at timestamp not null,
-                    updated_at timestamp not null,
-                    version bigint,
-                    title varchar(255) not null,
-                    alias_title varchar(255),
-                    description text,
-                    score decimal(3, 1),
-                    published_at date,
-                    douban_id varchar(20),
-                    tmdb_id varchar(20),
-                    imdb_id varchar(20),
-                    rotten_tomatoes_id varchar(50),
-                    total_episodes varchar(50),
-                    duration varchar(50),
-                    remarks varchar(255),
-                    season integer,
-                    subtitle varchar(255),
-                    last_trend_at timestamp,
-                    locked_fields jsonb,
-                    category_code varchar(100),
-                    actor_names jsonb default '[]',
-                    director_names jsonb default '[]',
-                    area_codes jsonb default '[]',
-                    language_codes jsonb default '[]',
-                    genre_codes jsonb default '[]',
-                    adult_restricted boolean default false not null,
-                    adult_assessment jsonb default '{}',
-                    adult_checked_at timestamp,
-                    metadata_status varchar(50) not null
-                )
-                """);
-        jdbc.execute("""
-                create table source_records (
-                    id uuid primary key,
-                    created_at timestamp not null,
-                    updated_at timestamp not null,
-                    aggregation_status_updated_at timestamp default now() not null,
-                    version bigint,
-                    source_vid varchar(255) not null,
-                    source_hash varchar(64) not null unique,
-                    title varchar(255) not null,
-                    enrichment_status varchar(50) not null,
-                    normalization_status varchar(50) not null,
-                    aggregation_status varchar(50) not null,
-                    actor_names jsonb default '[]',
-                    director_names jsonb default '[]',
-                    area_codes jsonb default '[]',
-                    language_codes jsonb default '[]',
-                    genre_codes jsonb default '[]',
-                    category_code varchar(100)
-                )
-                """);
-        jdbc.execute("""
-                create table catalog_source_bindings (
-                    source_record_id uuid not null,
-                    catalog_entry_id uuid not null,
-                    primary key (source_record_id, catalog_entry_id)
-                )
-                """);
-        jdbc.execute("""
-                create table member_accounts (
-                    id uuid primary key,
-                    created_at timestamp not null,
-                    updated_at timestamp not null,
-                    email varchar(255) not null,
-                    password_hash varchar(255) not null,
-                    role varchar(50) not null,
-                    status varchar(50) not null
-                )
-                """);
-        jdbc.execute("""
-                create table member_catalog_favorites (
-                    id uuid primary key,
-                    created_at timestamp not null,
-                    updated_at timestamp not null,
-                    version bigint,
-                    member_id uuid not null,
-                    catalog_entry_id uuid not null,
-                    unique (member_id, catalog_entry_id)
-                )
-                """);
-        jdbc.execute("""
-                create table member_playback_progress (
-                    id uuid primary key,
-                    created_at timestamp not null,
-                    updated_at timestamp not null,
-                    version bigint,
-                    member_id uuid not null,
-                    catalog_entry_id uuid not null,
-                    episode_name varchar(255) not null,
-                    progress_seconds integer,
-                    duration_seconds integer,
-                    last_watched_at timestamp not null,
-                    unique (member_id, catalog_entry_id)
-                )
-                """);
-    }
-
     private void createPipelineSchema(JdbcTemplate jdbc) {
         jdbc.execute("create table catalog_metadata_enrichment_jobs(catalog_entry_id uuid primary key,last_success_at timestamp)");
         jdbc.execute("""
@@ -1551,15 +1449,14 @@ class JdbcAggregationRepositoryTest {
                 LocalDateTime.of(2026, 6, 2, 10, 0));
         jdbc.update("insert into source_records (id, created_at, updated_at, version, source_vid, source_hash, title, enrichment_status, normalization_status, aggregation_status) values (?, now(), now(), 0, 'raw-1', 'hash-1', 'Raw', 'SUCCESS', 'READY', 'BOUND')", rawId);
         jdbc.update("insert into catalog_source_bindings (source_record_id, catalog_entry_id) values (?, ?)", rawId, victimId);
-        jdbc.update("insert into catalog_source_bindings (source_record_id, catalog_entry_id) values (?, ?)", rawId, rootId);
         seedMember(jdbc, memberWithConflict, "conflict@example.test");
         seedMember(jdbc, memberWithoutConflict, "move@example.test");
         jdbc.update("insert into member_catalog_favorites (id, created_at, updated_at, version, member_id, catalog_entry_id) values (?, now(), now(), 0, ?, ?)", UUID.randomUUID(), memberWithConflict, rootId);
         jdbc.update("insert into member_catalog_favorites (id, created_at, updated_at, version, member_id, catalog_entry_id) values (?, now(), now(), 0, ?, ?)", UUID.randomUUID(), memberWithConflict, victimId);
         jdbc.update("insert into member_catalog_favorites (id, created_at, updated_at, version, member_id, catalog_entry_id) values (?, now(), now(), 0, ?, ?)", UUID.randomUUID(), memberWithoutConflict, victimId);
-        jdbc.update("insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id, episode_name, progress_seconds, duration_seconds, last_watched_at) values (?, now(), now(), 0, ?, ?, 'Root Episode', 1, 10, now())", UUID.randomUUID(), memberWithConflict, rootId);
-        jdbc.update("insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id, episode_name, progress_seconds, duration_seconds, last_watched_at) values (?, now(), now(), 0, ?, ?, 'Victim Episode', 2, 10, now())", UUID.randomUUID(), memberWithConflict, victimId);
-        jdbc.update("insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id, episode_name, progress_seconds, duration_seconds, last_watched_at) values (?, now(), now(), 0, ?, ?, 'Move Episode', 3, 10, now())", UUID.randomUUID(), memberWithoutConflict, victimId);
+        jdbc.update("insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id, work_id, season_id, episode_name, progress_seconds, duration_seconds, last_watched_at) select ?, now(), now(), 0, ?, id, work_id, season_id, 'Root Episode', 1, 10, now() from catalog_entries where id=?", UUID.randomUUID(), memberWithConflict, rootId);
+        jdbc.update("insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id, work_id, season_id, episode_name, progress_seconds, duration_seconds, last_watched_at) select ?, now(), now(), 0, ?, id, work_id, season_id, 'Victim Episode', 2, 10, now() from catalog_entries where id=?", UUID.randomUUID(), memberWithConflict, victimId);
+        jdbc.update("insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id, work_id, season_id, episode_name, progress_seconds, duration_seconds, last_watched_at) select ?, now(), now(), 0, ?, id, work_id, season_id, 'Move Episode', 3, 10, now() from catalog_entries where id=?", UUID.randomUUID(), memberWithoutConflict, victimId);
         jdbc.update("""
                 update catalog_entries
                    set actor_names = cast(? as jsonb),

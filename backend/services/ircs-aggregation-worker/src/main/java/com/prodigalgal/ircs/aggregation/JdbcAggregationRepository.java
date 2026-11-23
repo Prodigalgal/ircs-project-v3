@@ -293,8 +293,8 @@ public class JdbcAggregationRepository {
                     from catalog_source_bindings
                     where catalog_entry_id in (:ids)
                     limit :limit
-                ) members
-                join source_records rv on rv.id = member_accounts.source_record_id
+                ) linked
+                join source_records rv on rv.id = linked.source_record_id
                 order by rv.created_at asc, rv.id asc
                 """, new MapSqlParameterSource("ids", catalogEntryIds)
                         .addValue("limit", AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1),
@@ -506,13 +506,8 @@ public class JdbcAggregationRepository {
 
     int moveCorrectionBindings(UUID source, UUID target, List<UUID> rawIds) {
         return jdbcTemplate.update("""
-                with moved as (
-                    delete from catalog_source_bindings
-                    where catalog_entry_id=:source and source_record_id in (:rawIds)
-                    returning source_record_id
-                )
-                insert into catalog_source_bindings(source_record_id,catalog_entry_id)
-                select source_record_id,:target from moved
+                update catalog_source_bindings set catalog_entry_id=:target
+                where catalog_entry_id=:source and source_record_id in (:rawIds)
                 """, correctionParams(source, target, rawIds));
     }
 

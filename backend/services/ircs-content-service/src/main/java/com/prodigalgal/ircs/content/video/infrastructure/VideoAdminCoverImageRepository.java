@@ -55,8 +55,8 @@ class VideoAdminCoverImageRepository {
         String hash = VideoAdminText.sha256(domain);
         return jdbcTemplate.queryForObject(
                 """
-                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
-                values (:id, now(), now(), 0, :hash, :domain, null, null)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value)
+                values (:id, now(), now(), 0, :hash, :domain)
                 on conflict (domain_hash) do update
                 set updated_at = source_origins.updated_at
                 returning id

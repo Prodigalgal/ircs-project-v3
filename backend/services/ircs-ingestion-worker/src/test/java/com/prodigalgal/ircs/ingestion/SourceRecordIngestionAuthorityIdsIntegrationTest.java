@@ -3,6 +3,10 @@ package com.prodigalgal.ircs.ingestion;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.prodigalgal.ircs.contracts.ingestion.IngestionVideoDTO;
+import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
+import com.prodigalgal.ircs.contracts.ingestion.PlaylistSyncMessage;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -11,46 +15,35 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.json.JsonMapper;
 
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
 class SourceRecordIngestionAuthorityIdsIntegrationTest {
-    private JdbcTemplate admin;
+    private CatalogTestDatabase database;
     private JdbcTemplate jdbc;
     private SourceRecordIngestionRepository repository;
-    private String schema;
+    private TransactionTemplate transactions;
+    private UUID collectionSourceId;
 
     @BeforeEach
-    void setUp() {
-        var source = new DriverManagerDataSource(System.getenv("IRCS_TEST_POSTGRES_URL"),
-                System.getenv("IRCS_TEST_POSTGRES_USER"), System.getenv("IRCS_TEST_POSTGRES_PASSWORD"));
-        admin = new JdbcTemplate(source);
-        schema = "ingestion_ids_" + UUID.randomUUID().toString().replace("-", "");
-        admin.execute("create schema " + schema);
-        var scoped = new DriverManagerDataSource(source.getUrl(), source.getUsername(), source.getPassword());
-        var properties = new java.util.Properties();
-        properties.setProperty("currentSchema", schema);
-        scoped.setConnectionProperties(properties);
-        jdbc = new JdbcTemplate(scoped);
-        repository = new SourceRecordIngestionRepository(new NamedParameterJdbcTemplate(scoped));
-        jdbc.execute("""
-                create table source_records(
-                    id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
-                    source_vid text,source_hash text unique,data_hash text,title text,alias_title text,
-                    description text,media_image_source_id uuid,year text,area text,raw_language_str text,remarks text,
-                    score numeric,published_at date,total_episodes text,duration text,
-                    douban_id text,tmdb_id text,imdb_id text,rotten_tomatoes_id text,locked_fields jsonb,
-                    enrichment_status text,enrichment_retry_count integer,normalization_status text,
-                    normalization_retry_count integer,aggregation_status text,raw_metadata jsonb,collection_source_id uuid);
-                """);
+    void setUp() throws Exception {
+        database = CatalogTestDatabase.open();
+        jdbc = new JdbcTemplate(database.dataSource());
+        repository = new SourceRecordIngestionRepository(new NamedParameterJdbcTemplate(database.dataSource()),
+                JsonMapper.builder().findAndAddModules().build());
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(database.dataSource()));
+        collectionSourceId = UUID.randomUUID();
+        jdbc.update("""
+                insert into collection_sources(id,created_at,updated_at,name,base_url,list_path,detail_path)
+                values(?,now(),now(),'Fixture','https://example.invalid','/list','/detail')
+                """, collectionSourceId);
     }
 
     @AfterEach
     void tearDown() {
-        if (admin != null && schema != null) {
-            // This randomly named schema is created and owned exclusively by this test.
-            admin.execute("drop schema " + schema + " cascade");
-        }
+        if (database != null) database.close();
     }
 
     @Test
@@ -83,9 +76,34 @@ class SourceRecordIngestionAuthorityIdsIntegrationTest {
                 .containsEntry("imdb_id", "tt7654321").containsEntry("rotten_tomatoes_id", "new_slug");
     }
 
+    @Test
+    void aLateObservationDoesNotReplaceTheActiveVersionAndAReplayIsIdempotent() {
+        var service = new SourceRecordIngestionTransactions(repository);
+        String identity = UUID.randomUUID().toString();
+        var first = video(identity, "12", "34", "tt1234567", "slug");
+        var next = video(identity, "12", "34", "tt1234567", "slug");
+        var late = video(identity, "12", "34", "tt1234567", "slug");
+        Instant now = Instant.parse("2026-11-23T00:00:00Z");
+        var initial = transactions.execute(status -> service.persist(new IngestionItem(first, false, now)));
+        UUID id = initial.id();
+        assertThat(transactions.execute(status -> service.persist(new IngestionItem(next, false, now.plusSeconds(2)))).id())
+                .isEqualTo(id);
+        assertThat(transactions.execute(status -> service.persist(new IngestionItem(late, false, now.plusSeconds(1)))).skipped())
+                .isTrue();
+        assertThat(transactions.execute(status -> service.persist(new IngestionItem(next, false, now.plusSeconds(3)))).skipped())
+                .isTrue();
+        assertThat(jdbc.queryForObject("select data_hash from source_records where id=?", String.class, id))
+                .isEqualTo(next.dataHash());
+        assertThat(jdbc.queryForObject("select count(*) from source_record_versions where source_record_id=?",
+                Integer.class,id)).isEqualTo(3);
+        var stale = transactions.execute(status -> service.syncPlaylists(new PlaylistSyncMessage(id, identity,
+                late.dataHash(), List.of())));
+        assertThat(stale.result().status()).isEqualTo("STALE");
+    }
+
     private IngestionVideoDTO video(String hash, String douban, String tmdb, String imdb, String rt) {
-        return new IngestionVideoDTO("0", hash, UUID.randomUUID().toString(), "原题", null, null, null,
+        return new IngestionVideoDTO(hash, hash, UUID.randomUUID().toString(), "原题", null, null, null,
                 null, null, null, null, null, null, null, null, douban, tmdb, imdb, rt,
-                "{\"doubanId\":0,\"rawTypeId\":0}", "PENDING", UUID.randomUUID(), List.of(), 0);
+                "{\"doubanId\":0,\"rawTypeId\":0}", "PENDING", collectionSourceId, List.of(), 0);
     }
 }

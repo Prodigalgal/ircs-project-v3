@@ -62,9 +62,9 @@ class CatalogPeopleRepository {
                     (names.credited_name, coalesce(names.original_name,known.original_name))
                 order by names.person_id
                 on conflict (id) do update set display_name=excluded.display_name,
-                    original_name=coalesce(excluded.original_name,people.original_name),updated_at=now()
-                where (catalog_people.display_name,people.original_name) is distinct from
-                    (excluded.display_name,coalesce(excluded.original_name,people.original_name))
+                    original_name=coalesce(excluded.original_name,catalog_people.original_name),updated_at=now()
+                where (catalog_people.display_name,catalog_people.original_name) is distinct from
+                    (excluded.display_name,coalesce(excluded.original_name,catalog_people.original_name))
                 """, params);
     }
 

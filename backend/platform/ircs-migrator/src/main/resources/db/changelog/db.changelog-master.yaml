@@ -261,8 +261,10 @@ databaseChangeLog:
       file: db/changelog/2026/11/24-05-collection-runs.sql
   - include:
       file: db/changelog/2026/11/24-07-media-assets.sql
+  - include:
+      file: db/changelog/2026/11/24-08-source-origin-and-work-taxonomy.sql
   - changeSet:
-      id: 1795470000013-tag-5.0.0
+      id: 1795470000015-tag-5.0.0
       author: codex
       changes:
         - tagDatabase:

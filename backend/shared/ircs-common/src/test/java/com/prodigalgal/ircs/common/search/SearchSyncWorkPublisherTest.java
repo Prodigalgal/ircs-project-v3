@@ -36,7 +36,7 @@ class SearchSyncWorkPublisherTest {
         assertThat(accepted).isEqualTo(1);
         RuntimeWorkItemRequest request = queue.requests.getFirst();
         assertThat(request.taskType()).isEqualTo(SearchSyncWorkTypes.RAW);
-        assertThat(request.taskId()).isEqualTo("raw_video:" + id);
+        assertThat(request.taskId()).isEqualTo("source_record:" + id);
         assertThat(request.aggregateId()).isEqualTo(id.toString());
         assertThat(request.version()).isEqualTo("INDEX");
         SearchSyncWorkPayload payload = new ObjectMapper().readValue(request.payload(), SearchSyncWorkPayload.class);

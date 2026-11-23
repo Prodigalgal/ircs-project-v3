@@ -31,7 +31,11 @@ class DashboardStatsSnapshotRepositorySqlPolicyTest {
                 "platform/ircs-migrator/src/main/resources/db/changelog/db.changelog-master.yaml",
                 "../platform/ircs-migrator/src/main/resources/db/changelog/db.changelog-master.yaml"));
 
-        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS operations_pipeline_metric_snapshots");
+        String rename = Files.readString(sourceFile(
+                "platform/ircs-migrator/src/main/resources/db/changelog/2026/11/24-01-domain-table-names.sql",
+                "../platform/ircs-migrator/src/main/resources/db/changelog/2026/11/24-01-domain-table-names.sql"));
+        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS ops_dashboard_stats_snapshots");
+        assertThat(rename).contains("ALTER TABLE ops_dashboard_stats_snapshots RENAME TO operations_pipeline_metric_snapshots");
         assertThat(changelog).contains("raw_count_db BIGINT");
         assertThat(changelog).contains("raw_count_es BIGINT");
         assertThat(changelog).contains("generated_at TIMESTAMPTZ");

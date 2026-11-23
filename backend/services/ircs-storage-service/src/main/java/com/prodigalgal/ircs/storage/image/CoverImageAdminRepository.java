@@ -470,8 +470,8 @@ public class CoverImageAdminRepository {
     private UUID getLocalSentinelId() {
         return jdbcTemplate.queryForObject(
                 """
-                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
-                values (:id, now(), now(), 0, :hash, 'LOCAL_STORAGE', 'System Sentinel', null)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark)
+                values (:id, now(), now(), 0, :hash, 'LOCAL_STORAGE', 'System Sentinel')
                 on conflict (domain_hash) do update
                 set updated_at = source_origins.updated_at
                 returning id
@@ -485,8 +485,8 @@ public class CoverImageAdminRepository {
     private UUID getOrCreateSourceDomain(String domain, String remark) {
         return jdbcTemplate.queryForObject(
                 """
-                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
-                values (:id, now(), now(), 0, :hash, :domain, :remark, null)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark)
+                values (:id, now(), now(), 0, :hash, :domain, :remark)
                 on conflict (domain_hash) do update
                 set updated_at = source_origins.updated_at
                 returning id

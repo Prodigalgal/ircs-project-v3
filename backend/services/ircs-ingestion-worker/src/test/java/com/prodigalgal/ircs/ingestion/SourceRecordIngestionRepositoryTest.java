@@ -10,10 +10,10 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionVideoDTO;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionEpisodeDTO;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionPlaylistDTO;
-import com.prodigalgal.ircs.contracts.ingestion.PlaylistSyncMessage;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -22,7 +22,8 @@ import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 class SourceRecordIngestionRepositoryTest {
 
     private final NamedParameterJdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(NamedParameterJdbcTemplate.class);
-    private final SourceRecordIngestionRepository repository = new SourceRecordIngestionRepository(jdbcTemplate);
+    private final JsonMapper mapper = JsonMapper.builder().build();
+    private final SourceRecordIngestionRepository repository = new SourceRecordIngestionRepository(jdbcTemplate, mapper);
 
     @Test
     void upsertSourceRecordCreatesCoverImageAndLinksSourceRecord() {
@@ -52,7 +53,6 @@ class SourceRecordIngestionRepositoryTest {
         CapturedSql captured = captureQueryForObjectCalls();
         MapSqlParameterSource sourceDomainParams = captured.paramsFor("insert into source_origins");
         assertThat(sourceDomainParams.getValue("domainValue")).isEqualTo("https://pic.example.invalid");
-        assertThat(sourceDomainParams.getValue("dataSourceId")).isEqualTo(videoDataSourceId());
         MapSqlParameterSource coverParams = captured.paramsFor("insert into media_image_sources");
         assertThat(coverParams.getValue("originalUrl")).isEqualTo("/upload/vod/cover.jpg?token=abc#main");
         assertThat(coverParams.getValue("sourceDomainId")).isEqualTo(sourceDomainId);
@@ -117,10 +117,11 @@ class SourceRecordIngestionRepositoryTest {
         when(jdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.any(SqlParameterSource.class), eq(UUID.class)))
                 .thenReturn(sourceDomainId);
 
-        repository.replacePlaylists(new PlaylistSyncMessage(videoId, "source-hash", "data-hash",
-                List.of(new IngestionPlaylistDTO("Main", List.of(
-                        new IngestionEpisodeDTO("EP1", "https://cdn.example.invalid/1", null),
-                        new IngestionEpisodeDTO("EP2", "/2.m3u8", preassignedDomainId))))));
+        var playlists = List.of(new IngestionPlaylistDTO("Main", List.of(
+                new IngestionEpisodeDTO("EP1", "https://cdn.example.invalid/1", null),
+                new IngestionEpisodeDTO("EP2", "/2.m3u8", preassignedDomainId))));
+        repository.replacePlaylists(videoId, new SourceRecordIngestionRepository.PlaybackSyncState(
+                "data-hash", "PENDING", UUID.randomUUID(), null, mapper.writeValueAsString(playlists)));
 
         ArgumentCaptor<SqlParameterSource> paramsCaptor = ArgumentCaptor.forClass(SqlParameterSource.class);
         verify(jdbcTemplate).update(
@@ -129,7 +130,7 @@ class SourceRecordIngestionRepositoryTest {
                 paramsCaptor.capture());
         SqlParameterSource params = paramsCaptor.getValue();
         assertThat(params.getValue("domainIds")).isEqualTo(List.of(sourceDomainId, preassignedDomainId));
-        assertThat(params.getValue("videoId")).isEqualTo(videoId);
+        assertThat(params.getValue("sourceRecordId")).isEqualTo(videoId);
     }
 
     private IngestionVideoDTO withIds(IngestionVideoDTO video, String douban, String tmdb, String imdb, String rt) {

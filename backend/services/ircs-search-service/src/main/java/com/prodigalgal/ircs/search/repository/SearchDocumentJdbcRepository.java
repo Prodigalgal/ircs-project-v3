@@ -80,7 +80,7 @@ public class SearchDocumentJdbcRepository {
 
     private static final String CATALOG_ENTRY_SQL = """
             SELECT uv.id,
-                   uv.title,
+                   summary.title,
                    uv.alias_title,
                    uv.description,
                    uv.year,
@@ -103,10 +103,10 @@ public class SearchDocumentJdbcRepository {
                    cast(uv.area_codes as varchar) AS area_codes,
                    cast(uv.language_codes as varchar) AS language_codes,
                    cast(uv.genre_codes as varchar) AS genre_codes,
-                   uv.category_code AS category_slug,
+                   summary.category_code AS category_slug,
                    sc.name AS category_name,
                    sc.id AS category_id,
-                   uv.content_visibility,
+                   summary.content_visibility,
                    uv.metadata_status,
                    coalesce(uv.adult_restricted, false) AS adult_restricted,
                    coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) AS adult_assessment_restricted,
@@ -116,11 +116,16 @@ public class SearchDocumentJdbcRepository {
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
                    sd.domain_value AS cover_source_domain
-              FROM catalog_entries uv
-              LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
-              LEFT JOIN media_image_sources ci ON uv.media_image_source_id = ci.id
+              FROM catalog_entry_summaries summary
+              JOIN catalog_entries uv ON uv.id = summary.catalog_entry_id
+              LEFT JOIN catalog_categories sc ON sc.slug = summary.category_code
+              LEFT JOIN media_image_sources ci ON summary.media_image_source_id = ci.id
               LEFT JOIN source_origins sd ON ci.source_origin_id = sd.id
              WHERE uv.id = :id
+               AND summary.content_visibility <> 'HIDDEN'
+               AND NOT coalesce(uv.adult_restricted, false)
+               AND lower(coalesce(uv.adult_assessment ->> 'adultRestricted','false')) = 'false'
+               AND upper(coalesce(uv.adult_assessment ->> 'level','SAFE')) <> 'ADULT'
             """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;

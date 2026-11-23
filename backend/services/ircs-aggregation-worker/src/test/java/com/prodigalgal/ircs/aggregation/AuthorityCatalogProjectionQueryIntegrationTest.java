@@ -2,7 +2,7 @@ package com.prodigalgal.ircs.aggregation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.zaxxer.hikari.HikariDataSource;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -11,68 +11,36 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /** Exercises the authority recall query with PostgreSQL's real prepared-statement parameter typing. */
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
 class AuthorityCatalogProjectionQueryIntegrationTest {
 
-    private JdbcTemplate admin;
-    private JdbcTemplate jdbc;
-    private HikariDataSource pool;
-    private String schema;
+    private CatalogTestDatabase database;
     private JdbcAggregationRepository repository;
-    private UUID workId;
     private UUID projectionId;
 
     @BeforeEach
-    void setUp() {
-        String url = System.getenv("IRCS_TEST_POSTGRES_URL");
-        String user = System.getenv("IRCS_TEST_POSTGRES_USER");
-        String password = System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
-        schema = "authority_projection_" + UUID.randomUUID().toString().replace("-", "");
-        admin.execute("create schema " + schema);
-        pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
-        pool.setUsername(user);
-        pool.setPassword(password);
-        pool.setMaximumPoolSize(1);
-        pool.setMinimumIdle(0);
-        pool.setConnectionInitSql("set search_path to " + schema);
-        jdbc = new JdbcTemplate(pool);
-        jdbc.execute("""
-                create table catalog_works(
-                    id uuid primary key, media_type varchar(8) not null, tmdb_id bigint not null,
-                    imdb_id varchar(32), title_key varchar(500) not null, original_title_key varchar(500),
-                    release_year smallint, released_on date, regular_season_count integer not null default 0);
-                create table catalog_authority_publications(
-                    work_id uuid not null, season_number integer not null, catalog_entry_id uuid not null);
-                create table catalog_seasons(
-                    work_id uuid not null, season_number integer not null, released_on date);
-                create table catalog_entries(
-                    id uuid primary key, content_visibility varchar(32) not null, adult_restricted boolean);
-                """);
-        workId = UUID.randomUUID();
+    void setUp() throws Exception {
+        database = CatalogTestDatabase.open();
+        var jdbc = new JdbcTemplate(database.dataSource());
+        UUID workId = UUID.randomUUID();
         projectionId = UUID.randomUUID();
-        jdbc.update("insert into catalog_works(id,media_type,tmdb_id,title_key,release_year) values (?,?,?,?,?)",
-                workId, "movie", 603L, "thematrix", 1999);
-        jdbc.update("insert into catalog_authority_publications(work_id,season_number,catalog_entry_id) values (?,?,?)",
-                workId, -1, projectionId);
-        jdbc.update("insert into catalog_entries(id,content_visibility,adult_restricted) values (?,?,?)",
-                projectionId, "PUBLIC", false);
+        jdbc.update("""
+                insert into catalog_works(id,media_type,tmdb_id,title,title_key,release_year,last_verified_at)
+                values(?,'movie',603,'The Matrix','thematrix',1999,now())
+                """, workId);
+        jdbc.update("""
+                insert into catalog_entries(id,work_id,title,created_at,updated_at)
+                values(?,?,'The Matrix',now(),now())
+                """, projectionId, workId);
         repository = JdbcAggregationRepository.forTest(
-                new NamedParameterJdbcTemplate(pool), AggregationTestFixtures.matchingStrategy());
+                new NamedParameterJdbcTemplate(database.dataSource()), AggregationTestFixtures.matchingStrategy());
     }
 
     @AfterEach
     void tearDown() {
-        if (pool != null) {
-            pool.close();
-        }
-        if (admin != null && schema != null) {
-            admin.execute("drop schema if exists " + schema + " cascade");
-        }
+        if (database != null) database.close();
     }
 
     @Test

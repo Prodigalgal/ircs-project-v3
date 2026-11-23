@@ -72,7 +72,7 @@ class MemberAdminServiceTest {
     void updateMemberPersistsV1AdminFieldsAndRefreshesStatusCache() {
         UUID memberId = UUID.randomUUID();
         MemberRecord current = member(memberId, MemberStatus.ACTIVE);
-        when(memberRepository.findById(memberId)).thenReturn(Optional.of(current));
+        when(memberRepository.findByIdForUpdate(memberId)).thenReturn(Optional.of(current));
         when(memberAdminRepository.existsByEmailExcludingId("next@example.com", memberId)).thenReturn(false);
         when(passwordEncoder.encode("Next123")).thenReturn("hash-next");
 
@@ -100,13 +100,14 @@ class MemberAdminServiceTest {
         assertEquals(300, saved.experience());
         assertEquals(80, saved.points());
         assertEquals(7, saved.checkInStreak());
+        verify(memberRepository).setPointBalance(memberId, 80);
         verify(statusCacheService).updateStatus(memberId, MemberStatus.BANNED);
     }
 
     @Test
     void updateMemberRejectsDuplicateEmail() {
         UUID memberId = UUID.randomUUID();
-        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(memberId, MemberStatus.ACTIVE)));
+        when(memberRepository.findByIdForUpdate(memberId)).thenReturn(Optional.of(member(memberId, MemberStatus.ACTIVE)));
         when(memberAdminRepository.existsByEmailExcludingId("other@example.com", memberId)).thenReturn(true);
 
         ApiException ex = assertThrows(ApiException.class, () -> service.updateMember(memberId,
@@ -119,7 +120,7 @@ class MemberAdminServiceTest {
     @Test
     void updateStatusNoopsWhenStatusIsUnchanged() {
         UUID memberId = UUID.randomUUID();
-        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member(memberId, MemberStatus.ACTIVE)));
+        when(memberRepository.findByIdForUpdate(memberId)).thenReturn(Optional.of(member(memberId, MemberStatus.ACTIVE)));
 
         MemberAdminResponse response = service.updateStatus(memberId, MemberStatus.ACTIVE);
 

@@ -211,7 +211,9 @@ public class JdbcInteractionRepository {
                     last_source_record_id, last_source_playback_item_id, episode_name, progress_seconds,
                     duration_seconds, last_watched_at, created_at, updated_at, version
                 )
-                select ?, account.id, entry.id, entry.work_id, entry.season_id,
+                select ?, account.id, entry.id, entry.work_id,
+                       case when input.source_playback_item_id is not null
+                         then coalesce(playable.catalog_season_id,entry.season_id) else entry.season_id end,
                        case when input.source_playback_item_id is not null then playable.catalog_episode_id end,
                        playable.source_id,
                        case when input.source_playback_item_id is not null then playable.episode_id end,
@@ -221,8 +223,10 @@ public class JdbcInteractionRepository {
                   join member_accounts account on account.id = ?
                   cross join input
                   left join lateral (
-                      select item.source_id, item.episode_id, item.episode_name, item.catalog_episode_id
+                      select item.source_id, item.episode_id, item.episode_name, item.catalog_episode_id,
+                             binding.season_id as catalog_season_id
                         from catalog_list_playable_episodes(entry.id) item
+                        join catalog_playback_bindings binding on binding.source_playback_item_id=item.episode_id
                        where (input.source_playback_item_id is not null or input.source_record_id is not null)
                          and (input.source_playback_item_id is null or item.episode_id = input.source_playback_item_id)
                          and (input.source_record_id is null or item.source_id = input.source_record_id)

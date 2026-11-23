@@ -147,7 +147,8 @@ class MemberProfileServiceTest {
                 today.minusDays(1),
                 1);
         when(configService.value(IdentityConfigKey.MEMBER_REGISTER_TIMEZONE)).thenReturn("Asia/Shanghai");
-        when(memberRepository.findById(memberId)).thenReturn(Optional.of(member));
+        when(memberRepository.findByIdForUpdate(memberId)).thenReturn(Optional.of(member));
+        when(memberRepository.grantDailyCheckInPoints(memberId, today, 15)).thenReturn(25);
 
         CheckInResult result = profileService.checkIn(memberId);
 

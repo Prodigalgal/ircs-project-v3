@@ -11,8 +11,6 @@ import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -20,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +26,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -50,32 +48,22 @@ class JdbcPortalRankingIntegrationTest {
     }
 
     private final IrcsRequestPrincipal publicPrincipal = IrcsRequestPrincipal.publicPrincipal();
-    private JdbcTemplate admin;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
-    private String schema;
+    private CatalogTestDatabase database;
     private JdbcPortalRepository repository;
     private Instant sampleTime;
     private LocalDate today;
 
     @BeforeEach
     void setUp() throws Exception {
-        String url = System.getenv("IRCS_TEST_POSTGRES_URL");
-        String user = System.getenv("IRCS_TEST_POSTGRES_USER");
-        String password = System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
-        schema = "portal_ranking_" + UUID.randomUUID().toString().replace("-", "");
-        admin.execute("create schema " + schema);
+        database = CatalogTestDatabase.open();
         pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
-        pool.setUsername(user);
-        pool.setPassword(password);
+        pool.setDataSource(database.dataSource());
         pool.setMaximumPoolSize(1);
         pool.setMinimumIdle(0);
         pool.setConnectionTimeout(3_000);
-        pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
-        createSchema();
         sampleTime = jdbc.queryForObject("select current_timestamp", Timestamp.class).toInstant();
         today = jdbc.queryForObject("select (now() at time zone 'Asia/Shanghai')::date", Date.class).toLocalDate();
         PortalStandardNameCache names = mock(PortalStandardNameCache.class);
@@ -89,7 +77,7 @@ class JdbcPortalRankingIntegrationTest {
     @AfterEach
     void tearDown() {
         if (pool != null) pool.close();
-        if (admin != null && schema != null) admin.execute("drop schema if exists " + schema + " cascade");
+        if (database != null) database.close();
     }
 
     @Test
@@ -316,9 +304,9 @@ class JdbcPortalRankingIntegrationTest {
     void cardsReleaseTheQueryConnectionBeforeReadingColdDictionaries() {
         UUID populated = work("Present codes", "movie", 8.0);
         UUID empty = work("Empty codes", "movie", 7.0);
-        jdbc.execute("create table catalog_regions(code text primary key, name text)");
-        jdbc.update("insert into catalog_regions values ('cn', '中国大陆'), ('us', '美国')");
-        jdbc.update("insert into catalog_genres values (?, '剧情', 'drama'), (?, '动作', 'action'), (?, '恐怖', 'horror')",
+        jdbc.update("insert into catalog_regions(id,created_at,updated_at,name,code) values (?,now(),now(),'中国大陆','cn'), (?,now(),now(),'美国','us')",
+                UUID.randomUUID(), UUID.randomUUID());
+        jdbc.update("insert into catalog_genres(id,created_at,updated_at,name,code) values (?,now(),now(),'剧情','drama'), (?,now(),now(),'动作','action'), (?,now(),now(),'恐怖','horror')",
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         jdbc.update("""
                 update catalog_entries
@@ -342,9 +330,10 @@ class JdbcPortalRankingIntegrationTest {
     void categoryCardsReleaseTheQueryConnectionBeforeReadingColdCoverConfiguration() {
         UUID movie = work("Managed cover", "movie", 8.0);
         UUID cover = UUID.randomUUID();
-        jdbc.execute("create table application_settings(config_key text primary key, config_value text)");
-        jdbc.update("insert into application_settings values ('app.storage.public-path', '/configured-media')");
-        jdbc.update("insert into media_image_sources(id, storage_type, storage_path) values (?, 'LOCAL', 'posters/movie.webp')", cover);
+        jdbc.update("insert into application_settings(id,created_at,updated_at,config_key,config_value) "
+                + "values (?,now(),now(),'app.storage.public-path','/configured-media')",
+                UUID.randomUUID());
+        jdbc.update("insert into media_image_sources(id,created_at,updated_at,storage_type,storage_path) values (?,now(),now(),'LOCAL','posters/movie.webp')", cover);
         jdbc.update("update catalog_entries set media_image_source_id = ? where id = ?", cover, movie);
 
         var sections = repositoryWithColdLookups().findCategorySections(publicPrincipal, List.of("movie"), 1);
@@ -396,8 +385,8 @@ class JdbcPortalRankingIntegrationTest {
         UUID video = work("Authoritative season", "series", 7.5);
         UUID authority = authorityProjection(video, "tv", 2);
         jdbc.update("""
-                insert into catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
-                values (?,2,1,101), (?,2,2,102)
+                insert into catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id,title)
+                values (?,2,1,101,'One'), (?,2,2,102,'Two')
                 """, authority, authority);
         UUID correct = raw(video, 2, false);
         episode(correct, "S02E01", "https://source.example/correct");
@@ -413,6 +402,9 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 1)", Boolean.class, video)).isFalse();
         recordAuthorityBinding(correct, video);
         assertThat(detailEpisodeNames(video)).containsExactly("S02E01");
+        UUID canonicalEpisodeOne = jdbc.queryForObject(
+                "select id from catalog_episodes where work_id=? and season_number=2 and episode_number=1", UUID.class, authority);
+        assertThat(detailEpisodes(video).getFirst().catalogEpisodeId()).isEqualTo(canonicalEpisodeOne.toString());
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 2)", Boolean.class, video)).isFalse();
         assertThat(jdbc.queryForObject("select available_episode from catalog_resource_inventory(?, 2)", Integer.class, video))
                 .isEqualTo(1);
@@ -422,6 +414,10 @@ class JdbcPortalRankingIntegrationTest {
         recordAuthorityBinding(verifiedBinding, video);
         episode(verifiedBinding, "第2集", "https://source.example/bound");
         assertThat(detailEpisodeNames(video)).containsExactlyInAnyOrder("S02E01", "第2集");
+        assertThat(detailEpisodes(video)).extracting(PortalMovieDetailResponse.Episode::catalogEpisodeId)
+                .containsExactlyInAnyOrder(canonicalEpisodeOne.toString(), jdbc.queryForObject(
+                        "select id from catalog_episodes where work_id=? and season_number=2 and episode_number=2",
+                        UUID.class, authority).toString());
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 2)", Boolean.class, video)).isTrue();
     }
 
@@ -430,8 +426,8 @@ class JdbcPortalRankingIntegrationTest {
         UUID special = work("Specials", "series", 7.5);
         UUID authority = authorityProjection(special, "tv", 0);
         jdbc.update("""
-                insert into catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
-                values (?,0,1,201)
+                insert into catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id,title)
+                values (?,0,1,201,'Special')
                 """, authority);
         UUID rawSpecial = raw(special, null, false);
         recordAuthorityBinding(rawSpecial, special);
@@ -490,8 +486,10 @@ class JdbcPortalRankingIntegrationTest {
 
     private UUID work(String title, String category, double rating) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into catalog_entries(id, title, category_code, score, season) values (?, ?, ?, ?, ?)",
-                id, title, category, BigDecimal.valueOf(rating), "series".equals(category) ? 2 : null);
+        jdbc.update("""
+                insert into catalog_entries(id, created_at, updated_at, title, category_code, score, season)
+                values (?, now(), now(), ?, ?, ?, ?)
+                """, id, title, category, BigDecimal.valueOf(rating), "series".equals(category) ? 2 : null);
         return id;
     }
 
@@ -514,45 +512,66 @@ class JdbcPortalRankingIntegrationTest {
     private UUID raw(UUID id, Integer season, boolean adult) {
         UUID rawId = UUID.randomUUID();
         UUID source = UUID.randomUUID();
-        jdbc.update("insert into collection_sources(id,adult_restricted) values(?,?)", source, adult);
-        jdbc.update("insert into source_records(id, season, collection_source_id) values (?, ?, ?)", rawId, season, source);
-        jdbc.update("insert into catalog_source_bindings values (?, ?)", rawId, id);
+        jdbc.update("""
+                insert into collection_sources(id,created_at,updated_at,name,base_url,list_path,detail_path,adult_restricted)
+                values (?,now(),now(),'Fixture source','https://source.example','/list','/detail',?)
+                """, source, adult);
+        jdbc.update("""
+                insert into source_records(id,created_at,updated_at,collection_source_id,source_vid,source_hash,title,season,
+                    data_hash,enrichment_status,normalization_status)
+                values (?,now(),now(),?,?,?,?, ?,?,'PENDING','PENDING')
+                """, rawId, source, rawId.toString(), UUID.randomUUID().toString().replace("-", ""), "Source fixture", season,
+                UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", ""));
+        jdbc.update("insert into catalog_source_bindings(source_record_id,catalog_entry_id) values (?,?)", rawId, id);
         return rawId;
     }
 
     private void episode(UUID rawId, String name, String url) {
         UUID playlist = UUID.randomUUID();
-        jdbc.update("insert into source_playlists(id,video_id) values (?, ?)", playlist, rawId);
-        jdbc.update("insert into source_playback_items(id, playlist_id, name, url) values (?, ?, ?, ?)", UUID.randomUUID(), playlist, name, url);
+        UUID version = jdbc.queryForObject("select current_version_id from source_records where id=?", UUID.class, rawId);
+        if (version == null) {
+            version = UUID.randomUUID();
+            jdbc.update("insert into source_record_versions(id,source_record_id,data_hash,payload,observed_at) values (?,?,(select data_hash from source_records where id=?), '{}'::jsonb,now())",
+                    version, rawId, rawId);
+            jdbc.update("update source_records set current_version_id=?,playback_version_id=?,current_observed_at=now() where id=?",
+                    version, version, rawId);
+        }
+        jdbc.update("insert into source_playlists(id,created_at,updated_at,name,source_record_id,source_record_version_id) values (?,now(),now(),'Main',?,?)",
+                playlist, rawId, version);
+        jdbc.update("insert into source_playback_items(id,created_at,updated_at,name,url,playlist_id,source_record_id) values (?,now(),now(),?,?,?,?)",
+                UUID.randomUUID(), name, url, playlist, rawId);
+        jdbc.query("select reconcile_catalog_playback(?)", (org.springframework.jdbc.core.RowCallbackHandler) rs -> {}, rawId);
     }
 
     private void recordAuthorityBinding(UUID rawId, UUID entryId) {
-        jdbc.update("insert into catalog_source_match_evidence(source_record_id,catalog_entry_id,evidence_kind) values (?,?,'MANUAL_REVIEW')",
-                rawId, entryId);
+        jdbc.queryForObject("select affirm_catalog_source_match(?,?,'MANUAL_REVIEW')", Integer.class, rawId, entryId);
     }
 
     private UUID authorityProjection(UUID video, String type, int season) {
         UUID work = UUID.randomUUID();
         jdbc.update("""
-                insert into catalog_works(id,media_type,tmdb_id,title,title_key)
-                values (?,?,42,'Test','test')
-                """, work, type);
+                insert into catalog_works(id,media_type,tmdb_id,title,title_key,last_verified_at,identity_status)
+                values (?,?,?,'Test','test',now(),'VERIFIED')
+                """, work, type, Math.abs(UUID.randomUUID().getMostSignificantBits() % 2_000_000_000L) + 1);
         if ("tv".equals(type)) {
             jdbc.update("""
                     insert into catalog_seasons(work_id,season_number,tmdb_season_id,verified_at)
-                    values (?,?,100,now())
-                    """, work, season);
+                    values (?,?,?,now())
+                    """, work, season, Math.abs(UUID.randomUUID().getMostSignificantBits() % 2_000_000_000L) + 1);
         }
-        jdbc.update("""
-                insert into catalog_authority_publications(work_id,media_type,season_number,catalog_entry_id) values (?,?,?,?)
-                """, work, type, season, video);
-        jdbc.update("update catalog_entries set season=nullif(?,-1) where id=?", season, video);
+        UUID seasonId = "tv".equals(type) ? jdbc.queryForObject(
+                "select id from catalog_seasons where work_id=? and season_number=?", UUID.class, work, season) : null;
+        jdbc.update("update catalog_entries set work_id=?,season_id=?,season=nullif(?,-1) where id=?", work, seasonId, season, video);
         return work;
     }
 
     private List<String> detailEpisodeNames(UUID video) {
+        return detailEpisodes(video).stream().map(PortalMovieDetailResponse.Episode::title).toList();
+    }
+
+    private List<PortalMovieDetailResponse.Episode> detailEpisodes(UUID video) {
         return repository.findMovieDetail(publicPrincipal, video).orElseThrow().sources().stream()
-                .flatMap(source -> source.episodes().stream()).map(PortalMovieDetailResponse.Episode::title).toList();
+                .flatMap(source -> source.episodes().stream()).toList();
     }
 
     private void resource(UUID catalogEntryId, int season, int episode) {
@@ -571,48 +590,4 @@ class JdbcPortalRankingIntegrationTest {
                 Set.of(IrcsPermissions.ALL), Set.of(IrcsPermissions.ALL));
     }
 
-    private void createSchema() throws Exception {
-        jdbc.execute("""
-                create table catalog_entries(id uuid primary key, title text, alias_title text, season integer, subtitle text,
-                    score numeric, year text, description text, total_episodes text, duration text, remarks text,
-                    last_trend_at timestamp, published_at date, updated_at timestamp default now(),
-                    category_code text, media_image_source_id uuid, area_codes jsonb default '[]', genre_codes jsonb default '[]',
-                    language_codes jsonb default '[]', actor_names jsonb default '[]', director_names jsonb default '[]',
-                    douban_id text, tmdb_id text, imdb_id text,
-                    content_visibility text default 'PUBLIC', adult_restricted boolean default false, adult_assessment jsonb)
-                """);
-        jdbc.execute("create table catalog_categories(id uuid primary key, name text, slug text)");
-        jdbc.execute("create table media_image_sources(id uuid primary key, storage_type text, original_url text, storage_path text, source_origin_id uuid)");
-        jdbc.execute("create table source_origins(id uuid primary key, domain_value text)");
-        jdbc.execute("create table catalog_genres(id uuid primary key, name text, code text)");
-        jdbc.execute("create table catalog_entry_tags(catalog_entry_id uuid, tag text)");
-        jdbc.execute("create table collection_sources(id uuid primary key, name text, adult_restricted boolean default false)");
-        jdbc.execute("create table source_records(id uuid primary key, season integer, collection_source_id uuid)");
-        jdbc.execute("create table catalog_source_bindings(source_record_id uuid, catalog_entry_id uuid, primary key(source_record_id, catalog_entry_id))");
-        jdbc.execute("create table source_playlists(id uuid primary key, video_id uuid, name text)");
-        jdbc.execute("create table source_playback_items(id uuid primary key, playlist_id uuid, name text, url text, source_origin_id uuid)");
-        jdbc.execute("""
-                create table catalog_magnet_links(catalog_entry_id uuid, status text, id uuid, title text, magnet_uri text,
-                    size_label text, published_at timestamp, quality text, resolution text, seeders integer,
-                    provider_code text, tags jsonb)
-                """);
-        for (String category : List.of("movie", "series", "adult", "sports")) {
-            jdbc.update("insert into catalog_categories values (?, ?, ?)", UUID.randomUUID(), category, category);
-        }
-        jdbc.execute(Files.readString(migrationPath("16-02-global-rankings-and-discovery.sql")));
-        jdbc.execute(Files.readString(migrationPath("22-01-catalog-target-resources.sql")));
-        jdbc.execute(Files.readString(migrationPath("23-01-authority-first-catalog.sql")));
-        jdbc.execute(Files.readString(migrationPath("23-03-authority-playback-episodes.sql")));
-        jdbc.execute(Files.readString(migrationPath("23-04-authority-binding-integrity.sql")));
-        jdbc.execute(Files.readString(migrationPath("23-07-authority-playback-binding-proof.sql")));
-    }
-
-    private static Path migrationPath(String filename) {
-        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11", filename);
-        for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
-            if (Files.isRegularFile(root.resolve(relative))) return root.resolve(relative);
-            if (Files.isRegularFile(root.resolve("backend").resolve(relative))) return root.resolve("backend").resolve(relative);
-        }
-        throw new IllegalStateException("Cannot locate ranking migration");
-    }
 }

@@ -231,9 +231,9 @@ class AggregationBucketRecallIntegrationTest {
                 create table catalog_source_bindings(source_record_id uuid, catalog_entry_id uuid,
                     primary key(source_record_id, catalog_entry_id));
                 create table member_catalog_favorites(catalog_entry_id uuid);
-                create table member_playback_progress(catalog_entry_id uuid, last_video_id uuid, last_episode_id uuid);
+                create table member_playback_progress(catalog_entry_id uuid, last_source_record_id uuid, last_source_playback_item_id uuid);
                 create table catalog_magnet_links(catalog_entry_id uuid);
-                create table source_playlists(id uuid primary key, video_id uuid);
+                create table source_playlists(id uuid primary key, source_record_id uuid);
                 create table source_playback_items(id uuid primary key, playlist_id uuid);
                 """);
         UUID source = insert("Old mixed work", null, "2026", null, null, 0);
