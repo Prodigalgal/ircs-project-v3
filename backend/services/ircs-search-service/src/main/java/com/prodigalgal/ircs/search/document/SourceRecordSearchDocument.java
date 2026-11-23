@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.search.document;
 
+import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -18,7 +19,7 @@ import org.springframework.data.elasticsearch.annotations.Setting;
 @Setting(settingPath = "elasticsearch/es-settings.json")
 public class SourceRecordSearchDocument {
 
-    public static final String INDEX_NAME = "ircs_raw_video";
+    public static final String INDEX_NAME = SearchEntityType.SOURCE_RECORD_INDEX;
 
     @Id
     @Field(type = FieldType.Keyword)

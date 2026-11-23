@@ -1,6 +1,7 @@
 package com.prodigalgal.ircs.search.document;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -20,7 +21,7 @@ import org.springframework.data.elasticsearch.core.suggest.Completion;
 @Setting(settingPath = "elasticsearch/es-settings.json")
 public class CatalogEntrySearchDocument {
 
-    public static final String INDEX_NAME = "ircs_unified_video";
+    public static final String INDEX_NAME = SearchEntityType.CATALOG_ENTRY_INDEX;
 
     @Id
     @Field(type = FieldType.Keyword)
