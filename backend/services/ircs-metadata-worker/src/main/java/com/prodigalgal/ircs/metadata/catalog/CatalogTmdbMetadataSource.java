@@ -16,10 +16,14 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -43,6 +47,40 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
     public CatalogMetadataEvidence fetch(CatalogMetadataTarget target) {
         String expected = AuthoritativeIds.normalizeTmdb(target.tmdbId());
         if (expected == null) throw new CatalogMetadataUnavailableException("NO_VERIFIABLE_PROVIDER");
+        return withCredential(credential -> fetchWithCredential(target, expected, credential));
+    }
+
+    AuthorityCatalogEvidence fetchAuthority(String mediaType, long tmdbId, int requestedSeason) {
+        return withCredential(credential -> {
+            String expected = Long.toString(tmdbId);
+            JsonNode work = readWork(credential, mediaType, expected);
+            boolean movie = "movie".equals(mediaType);
+            LocalDate released = date(work.path(movie ? "release_date" : "first_air_date"));
+            String category = categoryCode(work, movie);
+            if (movie) {
+                return new AuthorityCatalogEvidence(mediaType, tmdbId, -1, released, category,
+                        metadata(work, work, expected, true), List.of(), List.of());
+            }
+            List<AuthorityCatalogEvidence.Season> seasons = seasonList(work);
+            AuthorityCatalogEvidence.Season season = seasons.stream()
+                    .filter(candidate -> requestedSeason == -1 ? candidate.number() > 0 : candidate.number() == requestedSeason)
+                    .min(Comparator.comparingInt(AuthorityCatalogEvidence.Season::number))
+                    .orElseThrow(() -> new CatalogMetadataUnavailableException("CATALOG_SEASON_UNVERIFIED"));
+            JsonNode scoped = readSeason(credential, expected, season.number(), Long.toString(season.tmdbId()));
+            return new AuthorityCatalogEvidence(mediaType, tmdbId, season.number(), released, category,
+                    metadata(work, scoped, expected, false), seasons, episodeList(scoped, season.number()));
+        });
+    }
+
+    JsonNode changes(String mediaType, LocalDate day, int page) {
+        if (!Set.of("movie", "tv").contains(mediaType) || page < 1) throw new IllegalArgumentException("INVALID_CHANGE_SCOPE");
+        return withCredential(credential -> {
+            URI uri = TmdbChangePage.uri(properties.getBaseUrl(), credential.apiKey(), mediaType, day, page);
+            return readJson(credential, uri);
+        });
+    }
+
+    private <T> T withCredential(Function<TmdbCredential, T> load) {
         List<TmdbCredential> enabled = enabledCredentials();
         if (enabled.isEmpty()) throw new CatalogMetadataUnavailableException("CREDENTIAL_UNAVAILABLE");
         int start = Math.floorMod(cursor.getAndIncrement(), enabled.size());
@@ -50,7 +88,7 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
         for (int index = 0; index < Math.min(2, enabled.size()); index++) {
             TmdbCredential credential = enabled.get((start + index) % enabled.size());
             try {
-                return fetchWithCredential(target, expected, credential);
+                return load.apply(credential);
             } catch (MetadataProviderRetryableException | MetadataProviderTerminalException ex) {
                 lastFailure = ex;
             }
@@ -61,6 +99,18 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
 
     private CatalogMetadataEvidence fetchWithCredential(CatalogMetadataTarget target, String expected, TmdbCredential credential) {
         String type = target.mediaType();
+        boolean movie = "movie".equals(type);
+        JsonNode root = readWork(credential, type, expected);
+        JsonNode scoped = root;
+        if (!movie && target.season() > 0) {
+            var season = seasonList(root).stream().filter(candidate -> candidate.number() == target.season())
+                    .findFirst().orElseThrow(() -> new CatalogMetadataUnavailableException("CATALOG_SEASON_UNVERIFIED"));
+            scoped = readSeason(credential, expected, season.number(), Long.toString(season.tmdbId()));
+        }
+        return new CatalogMetadataEvidence(expected, type, target.season(), metadata(root, scoped, expected, movie));
+    }
+
+    private JsonNode readWork(TmdbCredential credential, String type, String expected) {
         if (!Set.of("movie", "tv").contains(type)) throw new CatalogMetadataUnavailableException("INVALID_MEDIA_TYPE");
         JsonNode root = read(credential, "/" + type + "/" + expected, "credits,external_ids");
         String actualId = AuthoritativeIds.normalizeTmdb(root.path("id").asText(null));
@@ -72,28 +122,63 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
             throw new CatalogMetadataUnavailableException("CATALOG_IDENTITY_MISMATCH");
         }
         if (root.path("adult").asBoolean(false)) throw new CatalogMetadataUnavailableException("ADULT_SOURCE_RECORD");
-        JsonNode scoped = root;
-        if (!movie && target.season() > 0) {
-            String seasonId = null;
-            for (JsonNode season : root.path("seasons")) {
-                if (season.path("season_number").asInt(-1) == target.season()) {
-                    seasonId = AuthoritativeIds.normalizeTmdb(season.path("id").asText(null));
-                    break;
-                }
-            }
-            if (seasonId == null) throw new CatalogMetadataUnavailableException("CATALOG_SEASON_UNVERIFIED");
-            scoped = read(credential, "/tv/" + actualId + "/season/" + target.season(), "credits");
-            if (!seasonId.equals(AuthoritativeIds.normalizeTmdb(scoped.path("id").asText(null)))
-                    || scoped.path("season_number").asInt(-1) != target.season()) {
+        return root;
+    }
+
+    private JsonNode readSeason(TmdbCredential credential, String tmdbId, int number, String seasonId) {
+        JsonNode scoped = read(credential, "/tv/" + tmdbId + "/season/" + number, "credits");
+        if (!seasonId.equals(AuthoritativeIds.normalizeTmdb(scoped.path("id").asText(null)))
+                || scoped.path("season_number").asInt(-1) != number) {
+            throw new CatalogMetadataUnavailableException("CATALOG_SEASON_MISMATCH");
+        }
+        for (JsonNode episode : scoped.path("episodes")) {
+            if (episode.hasNonNull("show_id") && !tmdbId.equals(episode.path("show_id").asText())) {
                 throw new CatalogMetadataUnavailableException("CATALOG_SEASON_MISMATCH");
             }
-            for (JsonNode episode : scoped.path("episodes")) {
-                if (episode.hasNonNull("show_id") && !actualId.equals(episode.path("show_id").asText())) {
-                    throw new CatalogMetadataUnavailableException("CATALOG_SEASON_MISMATCH");
-                }
-            }
         }
-        return new CatalogMetadataEvidence(actualId, type, target.season(), metadata(root, scoped, actualId, movie));
+        return scoped;
+    }
+
+    private List<AuthorityCatalogEvidence.Season> seasonList(JsonNode root) {
+        var seasons = new ArrayList<AuthorityCatalogEvidence.Season>();
+        Set<Integer> numbers = new HashSet<>();
+        Set<Long> ids = new HashSet<>();
+        for (JsonNode node : root.path("seasons")) {
+            int number = node.path("season_number").asInt(-1);
+            long id = node.path("id").asLong(0);
+            if (number < 0 || number > 1000 || id <= 0 || !numbers.add(number) || !ids.add(id)) {
+                throw new CatalogMetadataUnavailableException("CATALOG_SEASON_MISMATCH");
+            }
+            seasons.add(new AuthorityCatalogEvidence.Season(number, id, text(node.path("name")), date(node.path("air_date"))));
+        }
+        return List.copyOf(seasons);
+    }
+
+    private List<AuthorityCatalogEvidence.Episode> episodeList(JsonNode season, int number) {
+        JsonNode episodes = season.path("episodes");
+        if (!episodes.isArray()) throw new CatalogMetadataUnavailableException("CATALOG_EPISODES_UNVERIFIED");
+        var results = new ArrayList<AuthorityCatalogEvidence.Episode>();
+        Set<Integer> numbers = new HashSet<>();
+        Set<Long> ids = new HashSet<>();
+        for (JsonNode node : episodes) {
+            int episode = node.path("episode_number").asInt(0);
+            long id = node.path("id").asLong(0);
+            if (episode <= 0 || node.path("season_number").asInt(-1) != number
+                    || id <= 0 || !numbers.add(episode) || !ids.add(id)) {
+                throw new CatalogMetadataUnavailableException("CATALOG_EPISODE_MISMATCH");
+            }
+            results.add(new AuthorityCatalogEvidence.Episode(episode, id, text(node.path("name")), date(node.path("air_date"))));
+        }
+        return List.copyOf(results);
+    }
+
+    private String categoryCode(JsonNode root, boolean movie) {
+        Set<Integer> genres = new HashSet<>();
+        for (JsonNode genre : root.path("genres")) genres.add(genre.path("id").asInt());
+        if (genres.contains(99)) return "documentary";
+        if (movie) return "movie";
+        if (genres.contains(16)) return "anime";
+        return genres.contains(10764) || genres.contains(10767) ? "variety" : "series";
     }
 
     private EnrichedMetadataDTO metadata(JsonNode root, JsonNode scoped, String actualId, boolean movie) {
@@ -149,10 +234,14 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
     }
 
     private JsonNode read(TmdbCredential credential, String path, String append) {
-        rateLimiter.acquire(credential);
         URI uri = UriComponentsBuilder.fromUriString(properties.getBaseUrl() + path)
                 .queryParam("api_key", credential.apiKey()).queryParam("language", properties.getLanguage())
                 .queryParam("append_to_response", append).build().encode().toUri();
+        return readJson(credential, uri);
+    }
+
+    private JsonNode readJson(TmdbCredential credential, URI uri) {
+        rateLimiter.acquire(credential);
         String body = http.getJson(uri).orElseThrow(() -> new CatalogMetadataUnavailableException("SOURCE_NOT_FOUND"));
         if (body.length() > 2_000_000) throw new CatalogMetadataUnavailableException("SOURCE_RESPONSE_TOO_LARGE");
         try {

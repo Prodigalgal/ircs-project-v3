@@ -14,6 +14,7 @@ import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduledTask;
 import com.prodigalgal.ircs.task.domain.CollectionTaskDefaults;
 import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
+import java.util.Locale;
 import java.util.Map;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -58,6 +59,9 @@ public class TrendDiscoveryTaskService {
     @Value("${app.task.trend-discovery.max-data-sources:0}")
     private int maxDataSources;
 
+    @Value("${app.task.trend-discovery.keyword-disabled-data-sources:}")
+    private String keywordDisabledDataSources;
+
     public TrendDiscoveryScheduleResponse schedule(TrendDiscoveryScheduleRequest request, String correlationId) {
         return schedule(request, correlationId, true, null);
     }
@@ -87,6 +91,7 @@ public class TrendDiscoveryTaskService {
             ownershipCheck.run();
             List<DataSourceSeedCandidate> sources = taskRepository.findCatalogDiscoveryDataSources(
                     candidate.requestKey(), sourceLimit);
+            sources = filterKeywordDisabledDataSources(sources);
             response.set(scheduleWithSources(new TrendDiscoveryScheduleRequest(keywords, 1, 1, 0, false, sourceLimit),
                     keywords, true, metadata, sources, ownershipCheck));
         });
@@ -123,7 +128,7 @@ public class TrendDiscoveryTaskService {
             boolean autoStart,
             Map<String, Object> taskMetadata) {
         List<DataSourceSeedCandidate> dataSources = limitDataSources(
-                taskRepository.findDefaultTaskSeedDataSources(),
+                filterKeywordDisabledDataSources(taskRepository.findDefaultTaskSeedDataSources()),
                 request == null ? null : request.maxDataSources());
         return scheduleWithSources(request, keywords, autoStart, taskMetadata, dataSources,
                 ClusterLeaseGuard::checkCurrentOwnership);
@@ -282,6 +287,25 @@ public class TrendDiscoveryTaskService {
             }
         }
         return List.copyOf(result);
+    }
+
+    private List<DataSourceSeedCandidate> filterKeywordDisabledDataSources(
+            List<DataSourceSeedCandidate> dataSources) {
+        if (dataSources == null || dataSources.isEmpty() || !StringUtils.hasText(keywordDisabledDataSources)) {
+            return dataSources == null ? List.of() : List.copyOf(dataSources);
+        }
+        List<String> disabledNames = java.util.Arrays.stream(keywordDisabledDataSources.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .toList();
+        if (disabledNames.isEmpty()) {
+            return List.copyOf(dataSources);
+        }
+        return dataSources.stream()
+                .filter(source -> source.name() == null
+                        || !disabledNames.contains(source.name().trim().toLowerCase(Locale.ROOT)))
+                .toList();
     }
 
     private List<DataSourceSeedCandidate> limitDataSources(

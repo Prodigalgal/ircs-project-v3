@@ -43,6 +43,9 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:${VALKEY_PORT:6379}}
 
 app:
+  catalog:
+    authority-first:
+      enabled: ${APP_CATALOG_AUTHORITY_FIRST_ENABLED:false}
   worker:
     audit:
       enabled: ${APP_WORKER_AUDIT_ENABLED:true}

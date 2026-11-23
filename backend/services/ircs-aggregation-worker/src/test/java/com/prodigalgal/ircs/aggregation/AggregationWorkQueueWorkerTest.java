@@ -280,7 +280,7 @@ class AggregationWorkQueueWorkerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"WAITING_DEPENDENCIES", "SOURCE_CHANGED"})
+    @ValueSource(strings = {"WAITING_DEPENDENCIES", "SOURCE_CHANGED", "WAITING_AUTHORITY"})
     void waitingResultsRetainDurableQueueWorkAndUseReasonSpecificDelay(String status) throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         UUID id = UUID.randomUUID();
@@ -293,7 +293,7 @@ class AggregationWorkQueueWorkerTest {
 
         worker.runOnce();
 
-        long seconds = "SOURCE_CHANGED".equals(status) ? 2 : 30;
+        long seconds = "SOURCE_CHANGED".equals(status) ? 2 : "WAITING_AUTHORITY".equals(status) ? 3600 : 30;
         verify(deferrer).defer(claimed, Duration.ofSeconds(seconds), status);
         assertThat(queue.completed).isEmpty();
         assertThat(queue.failures).isEmpty();
@@ -434,6 +434,7 @@ class AggregationWorkQueueWorkerTest {
         set(worker, "maxRetries", 5);
         set(worker, "maxBackoffSeconds", 300L);
         set(worker, "dependencyDelaySeconds", 30L);
+        set(worker, "authorityDelaySeconds", 3600L);
         set(worker, "contentionDelaySeconds", 2L);
         set(worker, "waitWarningSeconds", 3600L);
         set(worker, "workerId", "test-worker");

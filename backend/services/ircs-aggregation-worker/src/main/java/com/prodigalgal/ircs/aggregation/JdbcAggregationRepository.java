@@ -177,6 +177,61 @@ public class JdbcAggregationRepository {
         }
     }
 
+    public List<AuthorityCatalogProjection> findAuthorityCatalogProjections(
+            String mediaType, Set<String> titleKeys, Long tmdbId, String imdbId) {
+        if (!StringUtils.hasText(mediaType)
+                || (titleKeys == null || titleKeys.isEmpty()) && tmdbId == null && !StringUtils.hasText(imdbId)) {
+            return List.of();
+        }
+        List<String> safeTitleKeys = titleKeys == null || titleKeys.isEmpty()
+                ? List.of("__no_authority_title_key__") : List.copyOf(titleKeys);
+        return jdbcTemplate.query("""
+                select work.id as work_id,
+                       work.media_type,
+                       work.tmdb_id,
+                       work.imdb_id,
+                       work.title_key,
+                       work.original_title_key,
+                       work.release_year,
+                       work.released_on as work_released_on,
+                       work.regular_season_count,
+                       projection.season_number,
+                       season.released_on,
+                       projection.unified_video_id
+                  from authority_catalog_works work
+                  join authority_catalog_projections projection on projection.work_id=work.id
+                  join unified_videos unified on unified.id=projection.unified_video_id
+                  left join authority_catalog_seasons season
+                    on season.work_id=projection.work_id and season.season_number=projection.season_number
+                 where work.media_type=:mediaType
+                   and ((work.title_key in (:titleKeys) or work.original_title_key in (:titleKeys))
+                        or (:tmdbId is not null and work.tmdb_id=:tmdbId)
+                        or (:imdbId is not null and lower(work.imdb_id)=lower(:imdbId)))
+                   and unified.content_visibility='PUBLIC'
+                   and not coalesce(unified.adult_restricted, false)
+                 for share of work, projection, unified
+                """, new MapSqlParameterSource().addValue("mediaType", mediaType).addValue("titleKeys", safeTitleKeys)
+                        .addValue("tmdbId", tmdbId).addValue("imdbId", StringUtils.hasText(imdbId) ? imdbId.trim() : null),
+                (rs, row) -> new AuthorityCatalogProjection(
+                        rs.getObject("work_id", UUID.class),
+                        rs.getString("media_type"),
+                        (Long) rs.getObject("tmdb_id"),
+                        rs.getString("imdb_id"),
+                        rs.getString("title_key"),
+                        rs.getString("original_title_key"),
+                        integerValue(rs, "release_year"),
+                        rs.getDate("work_released_on") == null ? null : rs.getDate("work_released_on").toLocalDate(),
+                        (Integer) rs.getObject("regular_season_count"),
+                        rs.getInt("season_number"),
+                        rs.getDate("released_on") == null ? null : rs.getDate("released_on").toLocalDate(),
+                        rs.getObject("unified_video_id", UUID.class)));
+    }
+
+    private Integer integerValue(ResultSet rs, String column) throws SQLException {
+        Object value = rs.getObject(column);
+        return value == null ? null : ((Number) value).intValue();
+    }
+
     public void lockRawVideos(Collection<UUID> rawVideoIds) {
         if (rawVideoIds == null || rawVideoIds.isEmpty()) { return; }
         jdbcTemplate.query("select id from raw_videos where id in (:ids) order by id for update",
@@ -531,6 +586,35 @@ public class JdbcAggregationRepository {
                 new MapSqlParameterSource()
                         .addValue("rawVideoId", rawVideoId)
                         .addValue("unifiedVideoId", unifiedVideoId));
+    }
+
+    public int recordAuthorityBinding(UUID rawVideoId, UUID unifiedVideoId, String evidenceKind) {
+        return jdbcTemplate.update("""
+                insert into authority_resource_bindings(raw_video_id, unified_video_id, evidence_kind)
+                values (:rawVideoId, :unifiedVideoId, :evidenceKind)
+                on conflict (raw_video_id) do update
+                   set evidence_kind=excluded.evidence_kind, bound_at=now()
+                 where authority_resource_bindings.unified_video_id=excluded.unified_video_id
+                """, new MapSqlParameterSource()
+                .addValue("rawVideoId", rawVideoId)
+                .addValue("unifiedVideoId", unifiedVideoId)
+                .addValue("evidenceKind", evidenceKind));
+    }
+
+    public int enqueueAuthorityCatalogImport(String mediaType, long tmdbId, int seasonNumber) {
+        return jdbcTemplate.update("""
+                insert into authority_catalog_imports(media_type, tmdb_id, season_number, priority)
+                select :mediaType, :tmdbId, :seasonNumber, 30
+                 where not exists (
+                     select 1 from authority_catalog_imports rejected
+                      where rejected.media_type=:mediaType and rejected.tmdb_id=:tmdbId
+                        and rejected.last_error='ADULT_SOURCE_RECORD'
+                 )
+                on conflict (media_type, tmdb_id, season_number) do nothing
+                """, new MapSqlParameterSource()
+                .addValue("mediaType", mediaType)
+                .addValue("tmdbId", tmdbId)
+                .addValue("seasonNumber", seasonNumber));
     }
 
     public void rebuildUnifiedPipelineRelations(UUID unifiedVideoId) {

@@ -6,6 +6,7 @@ import com.prodigalgal.ircs.content.video.domain.VideoAdminText;
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import java.math.BigDecimal;
 import java.sql.Date;
+import java.sql.Types;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,6 +21,83 @@ public class TrendCatalogRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
     private final VideoAdminCoverImageRepository covers;
+
+    public Optional<AuthorityProjection> findAuthorityProjection(TrendCatalogCandidate candidate) {
+        String imdb = "IMDb".equals(candidate.provider()) ? candidate.externalId() : null;
+        Long tmdb = tmdbId(candidate);
+        if (tmdb == null && imdb == null) return Optional.empty();
+        MapSqlParameterSource p = new MapSqlParameterSource("type", candidate.mediaType())
+                .addValue("tmdb", tmdb, Types.BIGINT).addValue("imdb", imdb, Types.VARCHAR)
+                .addValue("requestedSeason", authoritySeason(candidate)).addValue("episode", candidate.episode());
+        return jdbc.query("""
+                with matches as (
+                    select id,title from authority_catalog_works
+                    where media_type=:type and (tmdb_id=:tmdb or imdb_id=:imdb) limit 2
+                )
+                select p.unified_video_id,p.season_number,w.title
+                from matches w join authority_catalog_projections p on p.work_id=w.id
+                join unified_videos uv on uv.id=p.unified_video_id
+                where (select count(*) from matches)=1
+                  and (p.season_number=:requestedSeason or :requestedSeason=-1 and p.season_number<>0)
+                  and (:episode=0 or exists(select 1 from authority_catalog_episodes ep
+                     where ep.work_id=p.work_id and ep.season_number=p.season_number and ep.episode_number=:episode))
+                  and uv.content_visibility='PUBLIC' and not coalesce(uv.adult_restricted,false)
+                order by p.season_number limit 1
+                """, p, (rs, row) -> new AuthorityProjection(rs.getObject(1, UUID.class), rs.getInt(2), rs.getString(3)))
+                .stream().findFirst();
+    }
+
+    public void requestAuthorityImport(TrendCatalogCandidate candidate) {
+        Long tmdb = tmdbId(candidate);
+        if (tmdb == null) return;
+        Integer position = candidate.item().signal() == null ? null : candidate.item().signal().position();
+        int priority = candidate.episode() > 0 ? 2000 : 1000 - Math.min(900, position == null ? 100 : position);
+        jdbc.update("""
+                insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
+                select :type,:tmdb,:season,:priority
+                 where not exists(select 1 from authority_catalog_imports
+                      where media_type=:type and tmdb_id=:tmdb and last_error='ADULT_SOURCE_RECORD')
+                on conflict (media_type,tmdb_id,season_number) do update
+                    set priority=greatest(authority_catalog_imports.priority,excluded.priority),
+                        status=case when authority_catalog_imports.status in ('SUCCESS','UNAVAILABLE')
+                                    and authority_catalog_imports.next_attempt_at<=now()
+                                    and (authority_catalog_imports.last_success_at is null
+                                         or authority_catalog_imports.last_success_at<now()-interval '12 hours')
+                               then 'PENDING' else authority_catalog_imports.status end,
+                        updated_at=now()
+                    where authority_catalog_imports.priority<excluded.priority
+                       or authority_catalog_imports.status in ('SUCCESS','UNAVAILABLE')
+                          and authority_catalog_imports.next_attempt_at<=now()
+                          and (authority_catalog_imports.last_success_at is null
+                               or authority_catalog_imports.last_success_at<now()-interval '12 hours')
+                """, new MapSqlParameterSource("type", candidate.mediaType()).addValue("tmdb", tmdb)
+                .addValue("season", authoritySeason(candidate)).addValue("priority", priority));
+    }
+
+    public void requestAuthorityResources(TrendCatalogCandidate candidate, AuthorityProjection projection) {
+        // A true season zero is distinct from the legacy discovery query's unspecified season.
+        if (projection.seasonNumber() == 0) return;
+        MapSqlParameterSource p = new MapSqlParameterSource("id", projection.id())
+                .addValue("season", Math.max(0, projection.seasonNumber())).addValue("episode", candidate.episode())
+                .addValue("title", VideoAdminText.trimToLength(projection.title(), 255))
+                .addValue("priority", discoveryPriority(candidate).add(BigDecimal.TEN));
+        requestMissingResources(p);
+    }
+
+    private Integer authoritySeason(TrendCatalogCandidate candidate) {
+        var signal = candidate.item().signal();
+        return "movie".equals(candidate.mediaType()) || signal == null || signal.season() == null
+                ? -1 : signal.season();
+    }
+
+    private Long tmdbId(TrendCatalogCandidate candidate) {
+        if (!"TMDB".equals(candidate.provider())) return null;
+        try {
+            return Long.valueOf(candidate.externalId());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
 
     public void lockIdentity(TrendCatalogCandidate candidate) {
         // Serialize cross-provider exact-title candidates as well as repeated source IDs.
@@ -136,6 +214,10 @@ public class TrendCatalogRepository {
     public boolean requestMissingResources(TrendCatalogCandidate candidate, UUID id) {
         MapSqlParameterSource p = params(candidate).addValue("id", id).addValue("episode", candidate.episode())
                 .addValue("priority", discoveryPriority(candidate));
+        return requestMissingResources(p);
+    }
+
+    private boolean requestMissingResources(MapSqlParameterSource p) {
         // A binding alone is not playable. Episode targets require an exact parsed episode match.
         return jdbc.update("""
                 insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword, priority)
@@ -176,4 +258,5 @@ public class TrendCatalogRepository {
     }
 
     private record ExistingTitle(UUID id, String title, String aliasTitle) { }
+    public record AuthorityProjection(UUID id, int seasonNumber, String title) { }
 }

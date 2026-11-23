@@ -197,3 +197,13 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 3.12.1
+  - include:
+      file: db/changelog/2026/11/23-01-authority-first-catalog.sql
+  - include:
+      file: db/changelog/2026/11/23-02-tmdb-authority-inventory.sql
+  - changeSet:
+      id: 1795380000003-tag-4.0.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 4.0.0

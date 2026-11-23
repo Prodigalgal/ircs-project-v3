@@ -158,6 +158,65 @@ public class CatalogMetadataRepository {
                 Map.of("id", pending.id(), "generation", pending.generation()));
     }
 
+    UUID createAuthorityProjection(AuthorityCatalogEvidence evidence) {
+        EnrichedMetadataDTO facts = evidence.metadata();
+        UUID id = IrcsUuidGenerators.nextId();
+        Map<String, Set<String>> codes = resolveCodes(facts);
+        UUID cover = registerCover(facts.getPosterUrl());
+        List<String> locks = new ArrayList<>(List.of(
+                "title", "aliasTitle", "year", "category", "externalIds", "season", "totalEpisodes",
+                "description", "score", "publishedAt"));
+        if (cover != null) locks.add("cover");
+        if (!facts.getActorNames().isEmpty()) locks.add("actors");
+        if (!facts.getDirectorNames().isEmpty()) locks.add("directors");
+        if (!codes.get("AREA").isEmpty()) locks.add("areas");
+        if (!codes.get("LANGUAGE").isEmpty()) locks.add("languages");
+        if (!codes.get("GENRE").isEmpty()) locks.add("genres");
+        MapSqlParameterSource p = new MapSqlParameterSource("id", id)
+                .addValue("title", facts.getTitle()).addValue("alias", facts.getOriginalTitle())
+                .addValue("description", facts.getDescription()).addValue("year", facts.getYear())
+                .addValue("score", facts.getScore()).addValue("published", facts.getPublishedAt())
+                .addValue("cover", cover).addValue("locks", json(locks))
+                .addValue("tmdb", Long.toString(evidence.tmdbId())).addValue("imdb", facts.getImdbId())
+                .addValue("season", evidence.seasonNumber() < 0 ? null : evidence.seasonNumber())
+                .addValue("episodes", evidence.episodes().isEmpty() ? null : Integer.toString(evidence.episodes().size()))
+                .addValue("category", evidence.categoryCode())
+                .addValue("actors", json(facts.getActorNames())).addValue("directors", json(facts.getDirectorNames()))
+                .addValue("areas", json(codes.get("AREA"))).addValue("languages", json(codes.get("LANGUAGE")))
+                .addValue("genres", json(codes.get("GENRE")));
+        jdbc.update("""
+                insert into unified_videos(id, created_at, updated_at, version, title, alias_title,
+                    description, year, score, published_at, cover_image_id, tmdb_id, imdb_id, season,
+                    total_episodes, category_code, content_visibility, metadata_status, locked_fields,
+                    actor_names, director_names, area_codes, language_codes, genre_codes)
+                values (:id, now(), now(), 0, left(:title,255), left(:alias,255),
+                    left(:description,5000), :year, :score, :published, :cover, :tmdb, :imdb, :season,
+                    :episodes, :category, 'PUBLIC', 'SYNCED',
+                    cast(:locks as jsonb),
+                    cast(:actors as jsonb), cast(:directors as jsonb), cast(:areas as jsonb),
+                    cast(:languages as jsonb), cast(:genres as jsonb))
+                """, p);
+        return id;
+    }
+
+    void refreshAuthorityProjection(UUID id, AuthorityCatalogEvidence evidence, String previousTitle, String previousAlias) {
+        var facts = evidence.metadata();
+        // Refresh observed fields and keep an explicit title override made by moderation.
+        jdbc.update("""
+                update unified_videos set
+                    title=case when title=left(:previousTitle,255) then left(:title,255) else title end,
+                    alias_title=case when alias_title is not distinct from left(:previousAlias,255)
+                                    then left(:alias,255) else alias_title end,
+                    score=coalesce(:score,score), imdb_id=coalesce(:imdb,imdb_id),
+                    total_episodes=coalesce(:episodes,total_episodes), version=coalesce(version,0)+1
+                 where id=:id and content_visibility='PUBLIC' and not coalesce(adult_restricted,false)
+                """, new MapSqlParameterSource("id", id).addValue("previousTitle", previousTitle)
+                .addValue("previousAlias", previousAlias).addValue("title", facts.getTitle())
+                .addValue("alias", facts.getOriginalTitle()).addValue("score", facts.getScore())
+                .addValue("imdb", facts.getImdbId())
+                .addValue("episodes", evidence.episodes().isEmpty() ? null : Integer.toString(evidence.episodes().size())));
+    }
+
     private Map<String, Set<String>> resolveCodes(EnrichedMetadataDTO facts) {
         MapSqlParameterSource p = new MapSqlParameterSource("area", json(facts.getArea() == null ? Set.of() : Set.of(facts.getArea())))
                 .addValue("language", json(facts.getLanguage() == null ? Set.of() : Set.of(facts.getLanguage())))

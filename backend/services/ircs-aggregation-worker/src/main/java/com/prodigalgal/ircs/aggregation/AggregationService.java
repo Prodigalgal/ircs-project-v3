@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -38,12 +39,19 @@ public class AggregationService {
     private final PlatformTransactionManager transactionManager;
     private final AggregationMatchingStrategy matchingStrategy;
     private final AggregationSafetyPolicy safetyPolicy;
+    private static final AuthorityCatalogBindingPolicy AUTHORITY_CATALOG_BINDING_POLICY =
+            new AuthorityCatalogBindingPolicy();
+
+    @Value("${app.catalog.authority-first.enabled:false}")
+    private boolean authorityFirstEnabled;
 
     public AggregationResult aggregateOne(UUID rawVideoId) {
         return withDeferredAdultAssessments(() -> {
-            repository.lockAggregationShared();
-            repository.lockRawVideos(List.of(rawVideoId));
-            return aggregateOneInternal(rawVideoId);
+            return inTransaction(() -> {
+                repository.lockAggregationShared();
+                repository.lockRawVideos(List.of(rawVideoId));
+                return aggregateOneInternal(rawVideoId);
+            });
         }, false);
     }
 
@@ -75,11 +83,19 @@ public class AggregationService {
         List<RawVideoAggregationRecord> eligible = rawVideos.stream()
                 .filter(RawVideoAggregationRecord::isAggregationEligible).toList();
         List<RawVideoAggregationCluster> clusters = new ArrayList<>();
-        if (eligible.size() > 1) {
-            List<UnifiedVideoAggregationCandidate> context = repository.findContextUnifiedCandidates(eligible);
-            clusters.addAll(rawVideoGraphClusterer.cluster(eligible, context));
+        List<RawVideoAggregationRecord> sourceFirstEligible = eligible;
+        if (authorityFirstEnabled) {
+            List<RawVideoAggregationRecord> authorityEligible = eligible.stream()
+                    .filter(this::requiresAuthorityProjection)
+                    .toList();
+            authorityEligible.forEach(raw -> clusters.add(new RawVideoAggregationCluster(raw, List.of(raw))));
+            sourceFirstEligible = eligible.stream().filter(raw -> !requiresAuthorityProjection(raw)).toList();
+        }
+        if (sourceFirstEligible.size() > 1) {
+            List<UnifiedVideoAggregationCandidate> context = repository.findContextUnifiedCandidates(sourceFirstEligible);
+            clusters.addAll(rawVideoGraphClusterer.cluster(sourceFirstEligible, context));
         } else {
-            eligible.forEach(raw -> clusters.add(new RawVideoAggregationCluster(raw, List.of(raw))));
+            sourceFirstEligible.forEach(raw -> clusters.add(new RawVideoAggregationCluster(raw, List.of(raw))));
         }
         for (RawVideoAggregationRecord raw : rawVideos) {
             if (!raw.isAggregationEligible()) {
@@ -490,6 +506,9 @@ public class AggregationService {
         try (AggregationMatchKeyLock.MatchLockScope ignored = lockScope.orElseThrow()) {
             ClusterLeaseGuard.checkCurrentOwnership();
             Optional<UUID> existingBinding = repository.findExistingBinding(rawVideo.id());
+            if (authorityFirstEnabled && requiresAuthorityProjection(rawVideo)) {
+                return bindToAuthorityProjection(rawVideo, existingBinding);
+            }
             AggregationMatchPlan matchPlan = existingBinding
                     .map(AggregationMatchPlan::rootOnly)
                     .orElseGet(() -> repository.findMatchPlan(rawVideo));
@@ -550,6 +569,97 @@ public class AggregationService {
                     matchPlan.victimUnifiedVideoIds());
             return AggregationResult.bound(rawVideo.id(), unifiedVideoId, matchPlan.victimUnifiedVideoIds());
         }
+    }
+
+    private AggregationResult bindToAuthorityProjection(
+            RawVideoAggregationRecord rawVideo, Optional<UUID> existingBinding) {
+        AggregationCategoryProfile profile = AggregationCategoryProfile.from(
+                AggregationCategoryProfile.category(rawVideo));
+        List<String> mediaTypes = authorityMediaTypes(profile, rawVideo);
+        if (mediaTypes.isEmpty()) {
+            repository.markPending(rawVideo.id());
+            return AggregationResult.skipped(rawVideo.id(), "WAITING_AUTHORITY");
+        }
+        java.util.OptionalLong rawTmdbId = AuthorityCatalogBindingPolicy.importTmdbId(rawVideo);
+        Long tmdbId = rawTmdbId.isPresent() ? rawTmdbId.getAsLong() : null;
+        List<AuthorityCatalogProjection> projections = mediaTypes.stream()
+                .flatMap(mediaType -> repository.findAuthorityCatalogProjections(
+                        mediaType, AuthorityCatalogBindingPolicy.rawTitleKeys(rawVideo), tmdbId, rawVideo.imdbId()).stream())
+                .toList();
+        AuthorityCatalogBindingDecision decision = AUTHORITY_CATALOG_BINDING_POLICY.decide(
+                rawVideo, Set.copyOf(mediaTypes), projections);
+        if (!"BOUND".equals(decision.status())) {
+            if (existingBinding.isPresent()) {
+                return AggregationResult.skipped(rawVideo.id(), "IDENTITY_CONFLICT");
+            }
+            if ("WAITING_AUTHORITY".equals(decision.status())) {
+                if (mediaTypes.size() == 1) {
+                    enqueueAuthorityImportWhenEligible(rawVideo, mediaTypes.getFirst());
+                }
+                repository.markPending(rawVideo.id());
+            }
+            return AggregationResult.skipped(rawVideo.id(), decision.status());
+        }
+        UUID unifiedVideoId = decision.unifiedVideoId();
+        if (existingBinding.isPresent() && !existingBinding.orElseThrow().equals(unifiedVideoId)) {
+            return AggregationResult.skipped(rawVideo.id(), "IDENTITY_CONFLICT");
+        }
+        if (repository.recordAuthorityBinding(rawVideo.id(), unifiedVideoId, decision.evidenceKind()) == 0) {
+            return AggregationResult.skipped(rawVideo.id(), "IDENTITY_CONFLICT");
+        }
+        if (existingBinding.isEmpty()) {
+            if (repository.bindRawToUnified(rawVideo.id(), unifiedVideoId) == 0) {
+                throw new IllegalStateException("Authority evidence recorded without a raw-to-unified binding");
+            }
+        }
+        ClusterLeaseGuard.checkCurrentOwnership();
+        AggregationPipelineExecution execution = aggregationPipelineRuntime.run(unifiedVideoId);
+        if (!execution.successful()) {
+            repository.markUnifiedDirty(unifiedVideoId);
+            repository.markPending(rawVideo.id());
+            log.warn("Authority projection aggregation pipeline failed; rawVideoId={}, unifiedVideoId={}, failures={}",
+                    rawVideo.id(), unifiedVideoId, execution.failures());
+            return AggregationResult.pipelineFailed(rawVideo.id(), unifiedVideoId, List.of());
+        }
+        ClusterLeaseGuard.checkCurrentOwnership();
+        execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
+        repository.markBound(rawVideo.id());
+        return AggregationResult.bound(rawVideo.id(), unifiedVideoId);
+    }
+
+    private void enqueueAuthorityImportWhenEligible(RawVideoAggregationRecord rawVideo, String mediaType) {
+        if (!AuthorityCatalogBindingPolicy.hasImportRequestEvidence(rawVideo)) {
+            return;
+        }
+        java.util.OptionalLong tmdbId = AuthorityCatalogBindingPolicy.importTmdbId(rawVideo);
+        if (tmdbId.isEmpty()) {
+            return;
+        }
+        int seasonNumber = "movie".equals(mediaType)
+                ? -1
+                : rawVideo.season() == null ? -1 : rawVideo.season();
+        repository.enqueueAuthorityCatalogImport(mediaType, tmdbId.getAsLong(), seasonNumber);
+    }
+
+    private boolean requiresAuthorityProjection(RawVideoAggregationRecord rawVideo) {
+        AggregationCategoryProfile profile = AggregationCategoryProfile.from(
+                AggregationCategoryProfile.category(rawVideo));
+        return profile != AggregationCategoryProfile.SHORT_DRAMA
+                && profile != AggregationCategoryProfile.SPORTS
+                && profile != AggregationCategoryProfile.NEWS
+                && profile != AggregationCategoryProfile.EDUCATION
+                && profile != AggregationCategoryProfile.MUSIC;
+    }
+
+    private List<String> authorityMediaTypes(
+            AggregationCategoryProfile profile, RawVideoAggregationRecord rawVideo) {
+        return switch (profile) {
+            case MOVIE -> List.of("movie");
+            case SERIES, PROGRAMME -> List.of("tv");
+            case ANIMATION, DOCUMENTARY -> rawVideo.season() == null
+                    ? List.of("movie", "tv") : List.of("tv");
+            default -> List.of();
+        };
     }
 
     private BoundClusterResult bindRawCluster(RawVideoAggregationCluster cluster) {

@@ -1,6 +1,6 @@
 # 保持原样，确认路径无误即可
 FROM node:26.13-alpine AS builder
-ARG APP_VERSION=3.12.1
+ARG APP_VERSION=4.0.0
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

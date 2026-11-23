@@ -76,6 +76,9 @@ class AggregationWorkQueueWorker {
     @Value("${app.aggregation.work-queue.worker.dependency-delay-seconds:30}")
     private long dependencyDelaySeconds;
 
+    @Value("${app.aggregation.work-queue.worker.authority-delay-seconds:3600}")
+    private long authorityDelaySeconds;
+
     @Value("${app.aggregation.work-queue.worker.contention-delay-seconds:2}")
     private long contentionDelaySeconds;
 
@@ -364,6 +367,9 @@ class AggregationWorkQueueWorker {
         }
         if ("WAITING_DEPENDENCIES".equals(result.status()) || "NOT_ELIGIBLE".equals(result.status())) {
             return defer(item, rawVideoId, boundedDelay(dependencyDelaySeconds), result.status());
+        }
+        if ("WAITING_AUTHORITY".equals(result.status())) {
+            return defer(item, rawVideoId, boundedDelay(authorityDelaySeconds), result.status());
         }
         if ("IDENTITY_CONFLICT".equals(result.status()) || "MERGE_AMBIGUOUS".equals(result.status())) {
             // Repeating the same input cannot supply missing identity evidence or approve a merge.

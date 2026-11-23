@@ -118,6 +118,30 @@ class TrendDiscoveryTaskServiceTest {
         assertThat(captor.getValue().dataSourceId()).isEqualTo(firstDataSourceId);
     }
 
+    @Test
+    void skipsKeywordDiscoveryForConfiguredListOnlySources() {
+        UUID unsupportedId = UUID.randomUUID();
+        UUID supportedId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        ReflectionTestUtils.setField(service, "keywordDisabledDataSources", " 旺旺资源,天涯 ");
+        when(taskRepository.findDefaultTaskSeedDataSources()).thenReturn(List.of(
+                new DataSourceSeedCandidate(unsupportedId, "旺旺资源"),
+                new DataSourceSeedCandidate(UUID.randomUUID(), "天涯"),
+                new DataSourceSeedCandidate(supportedId, "Other Source")));
+        when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.empty());
+        when(taskCommandService.create(any())).thenReturn(taskId);
+        when(taskCommandService.startInternal(taskId, false)).thenReturn(true);
+
+        var response = service.schedule(new TrendDiscoveryScheduleRequest(
+                List.of("Codex Trend"), 1, 1, 0, false), "corr-trend");
+
+        assertThat(response.dataSourceCount()).isEqualTo(1);
+        assertThat(response.tasks()).extracting(task -> task.dataSourceId()).containsExactly(supportedId);
+        ArgumentCaptor<TaskCreateRequest> captor = ArgumentCaptor.forClass(TaskCreateRequest.class);
+        verify(taskCommandService).create(captor.capture());
+        assertThat(captor.getValue().dataSourceId()).isEqualTo(supportedId);
+    }
+
     private TrendDiscoveryTaskService service() {
         TrendDiscoveryTaskService result = new TrendDiscoveryTaskService(
                 taskRepository,
@@ -127,6 +151,7 @@ class TrendDiscoveryTaskServiceTest {
         ReflectionTestUtils.setField(result, "enabled", true);
         ReflectionTestUtils.setField(result, "maxKeywords", 50);
         ReflectionTestUtils.setField(result, "maxDataSources", 0);
+        ReflectionTestUtils.setField(result, "keywordDisabledDataSources", "");
         return result;
     }
 

@@ -3,6 +3,8 @@ package com.prodigalgal.ircs.aggregation;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class AggregationServiceTest {
@@ -95,6 +98,103 @@ class AggregationServiceTest {
         order.verify(repository).evaluateAdultAssessments(List.of(snapshot));
         verifyNoInteractions(workPublisher);
         verify(repository, never()).applyAdultAssessment(any(), any());
+    }
+
+    @Test
+    void authorityFirstSinglePathBindsAnExactProjectionWithoutCreatingOrUpdatingAWork() {
+        ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
+        UUID rawId = UUID.randomUUID();
+        UUID projectionId = UUID.randomUUID();
+        RawVideoAggregationRecord raw = authorityRaw(rawId, "Authority Film", "2020", "movie", null);
+        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        when(repository.findExistingBinding(rawId)).thenReturn(Optional.empty());
+        when(repository.findAuthorityCatalogProjections(eq("movie"), anySet(), any(), any())).thenReturn(List.of(
+                authorityProjection(projectionId, "movie", "Authority Film", 2020, 1, -1)));
+        when(repository.recordAuthorityBinding(rawId, projectionId, "TITLE_YEAR_SEASON")).thenReturn(1);
+        when(repository.bindRawToUnified(rawId, projectionId)).thenReturn(1);
+        when(aggregationPipelineRuntime.run(projectionId)).thenReturn(pipelineExecution(projectionId, List.of()));
+
+        AggregationResult result = service.aggregateOne(rawId);
+
+        assertEquals("BOUND", result.status());
+        assertEquals(projectionId, result.unifiedVideoId());
+        verify(repository).bindRawToUnified(rawId, projectionId);
+        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).upsertUnifiedFields(any(), any());
+        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
+    }
+
+    @Test
+    void authorityFirstBatchWaitsWithoutCreatingWorksOrGraphClusteringWhenEvidenceIsMissing() {
+        ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        RawVideoAggregationRecord first = authorityRaw(firstId, "Authority Film", "2020", "movie", null);
+        RawVideoAggregationRecord second = authorityRaw(secondId, "Authority Film", "2020", "movie", null);
+        when(repository.findRawVideos(List.of(firstId, secondId))).thenReturn(List.of(first, second));
+        when(repository.findRawVideo(firstId)).thenReturn(Optional.of(first));
+        when(repository.findRawVideo(secondId)).thenReturn(Optional.of(second));
+        when(repository.findExistingBinding(firstId)).thenReturn(Optional.empty());
+        when(repository.findExistingBinding(secondId)).thenReturn(Optional.empty());
+        when(repository.findAuthorityCatalogProjections(eq("movie"), anySet(), any(), any())).thenReturn(List.of());
+
+        List<AggregationResult> results = service.aggregateRuntimeWorkBatch(List.of(firstId, secondId));
+
+        assertEquals(List.of("WAITING_AUTHORITY", "WAITING_AUTHORITY"),
+                results.stream().map(AggregationResult::status).toList());
+        verify(repository, times(2)).markPending(any());
+        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).upsertUnifiedFields(any(), any());
+        verify(rawVideoGraphClusterer, never()).cluster(any(), any());
+    }
+
+    @Test
+    void unknownCategoryWaitsForAuthorityClassificationInsteadOfFallingBackToSourceFirst() {
+        ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
+        UUID rawId = UUID.randomUUID();
+        RawVideoAggregationRecord raw = authorityRaw(rawId, "Unknown Title", "2020", "unknown", null);
+        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+
+        AggregationResult result = service.aggregateOne(rawId);
+
+        assertEquals("WAITING_AUTHORITY", result.status());
+        verify(repository).markPending(rawId);
+        verify(repository, never()).findAuthorityCatalogProjections(any(), anySet(), any(), any());
+        verify(repository, never()).createUnifiedVideo(any());
+    }
+
+    @Test
+    void unmatchedRawWithCleanTitleYearAndTmdbIdEnqueuesImportWithoutBinding() {
+        ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
+        UUID rawId = UUID.randomUUID();
+        RawVideoAggregationRecord raw = new RawVideoAggregationRecord(rawId, "Authority Film", null, null,
+                "2020", null, null, null, null, null, null, null, "movie", "movie",
+                null, "123", null, null, "READY", "SUCCESS", "PROCESSING");
+        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        when(repository.findExistingBinding(rawId)).thenReturn(Optional.empty());
+        when(repository.findAuthorityCatalogProjections(eq("movie"), anySet(), any(), any())).thenReturn(List.of());
+
+        AggregationResult result = service.aggregateOne(rawId);
+
+        assertEquals("WAITING_AUTHORITY", result.status());
+        verify(repository).enqueueAuthorityCatalogImport("movie", 123L, -1);
+        verify(repository, never()).recordAuthorityBinding(any(), any(), any());
+        verify(repository, never()).bindRawToUnified(any(), any());
+        verify(repository, never()).createUnifiedVideo(any());
+    }
+
+    private RawVideoAggregationRecord authorityRaw(
+            UUID id, String title, String year, String category, Integer season) {
+        return new RawVideoAggregationRecord(id, title, null, null, year, null,
+                null, null, null, null, null, season, category, category,
+                null, null, null, null, "READY", "SUCCESS", "PROCESSING");
+    }
+
+    private AuthorityCatalogProjection authorityProjection(
+            UUID unifiedVideoId, String mediaType, String title, Integer year, Integer seasons, int season) {
+        return new AuthorityCatalogProjection(UUID.randomUUID(), mediaType, null, null,
+                AuthorityCatalogBindingPolicy.normalizeAuthorityTitleKey(title), null,
+                year, null, seasons, season, null, unifiedVideoId);
     }
 
     @Test
