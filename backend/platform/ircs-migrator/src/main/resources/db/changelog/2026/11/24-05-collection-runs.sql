@@ -28,7 +28,7 @@ CREATE TABLE collection_runs (
     FOREIGN KEY (collection_plan_id, resumed_from_run_id)
         REFERENCES collection_runs (collection_plan_id, id),
     CHECK (jsonb_typeof(execution_parameters) = 'object'),
-    CHECK (NOT (execution_parameters ?| ARRAY['headers', 'proxy_username', 'proxy_password'])),
+    CHECK (NOT jsonb_exists_any(execution_parameters, ARRAY['headers', 'proxy_username', 'proxy_password'])),
     CHECK ((status IN ('PAUSED', 'STOPPED', 'COMPLETED', 'FAILED')) = (finished_at IS NOT NULL))
 );
 

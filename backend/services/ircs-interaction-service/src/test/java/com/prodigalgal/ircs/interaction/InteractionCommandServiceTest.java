@@ -75,6 +75,8 @@ class InteractionCommandServiceTest {
         UUID videoId = UUID.randomUUID();
         UUID episodeId = UUID.randomUUID();
         when(repository.catalogEntryExists(catalogEntryId)).thenReturn(true);
+        when(repository.upsertWatchHistory(any(UUID.class), eq(memberId), eq(catalogEntryId), eq(videoId),
+                eq(episodeId), eq("第1集"), eq(0), eq(0), any(Instant.class))).thenReturn(true);
         ProgressReportRequest request =
                 new ProgressReportRequest(catalogEntryId, videoId, episodeId, " 第1集 ", -10, -1);
 

@@ -24,7 +24,7 @@ public final class CatalogTestDatabase implements AutoCloseable {
         this.dataSource = dataSource;
     }
 
-    public static CatalogTestDatabase open() throws LiquibaseException, URISyntaxException {
+    public static CatalogTestDatabase open() throws URISyntaxException {
         String base = System.getenv("IRCS_TEST_POSTGRES_URL");
         String user = System.getenv("IRCS_TEST_POSTGRES_USER");
         String password = System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
@@ -45,7 +45,7 @@ public final class CatalogTestDatabase implements AutoCloseable {
             return database;
         } catch (LiquibaseException | RuntimeException ex) {
             database.close();
-            throw ex;
+            throw new IllegalStateException("Failed to initialize the isolated PostgreSQL catalog", ex);
         }
     }
 

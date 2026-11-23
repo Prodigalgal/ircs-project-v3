@@ -371,6 +371,8 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $body$
 $body$;
 
 --changeset codex:1795470000008-catalog-summary-and-outbox splitStatements:false
+ALTER TABLE catalog_metadata_enrichment_jobs DROP COLUMN index_pending, DROP COLUMN index_generation;
+
 CREATE TABLE catalog_entry_summaries (
     catalog_entry_id uuid PRIMARY KEY REFERENCES catalog_entries(id) ON DELETE CASCADE,
     work_id uuid NOT NULL,

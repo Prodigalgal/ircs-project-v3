@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, Clapperboard, Clock, Loader2, Send, Sparkles } from "lucide-react";
 import { GlowButton } from "@/components/ui/GlowButton";
 import { interactionApi, MediaRequest } from "@/lib/api/interaction";
@@ -30,6 +30,7 @@ export default function MediaRequestPage() {
     const [requests, setRequests] = useState<MediaRequest[]>([]);
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const pendingSubmission = useRef<{ key: string; id: string } | null>(null);
 
     const currentYear = useMemo(() => new Date().getFullYear() + 2, []);
 
@@ -49,15 +50,20 @@ export default function MediaRequestPage() {
             router.push("/login");
             return;
         }
-        if (!title.trim()) return;
+        if (submitting || !title.trim()) return;
         const year = releaseYear.trim() ? Number(releaseYear.trim()) : undefined;
-        if (year && (year < 1888 || year > currentYear)) {
+        if (year !== undefined && (!Number.isInteger(year) || year < 1888 || year > currentYear)) {
             addToast("年份范围无效", "error");
             return;
         }
         setSubmitting(true);
         try {
-            const created = await interactionApi.submitMediaRequest(title, year, extraInfo);
+            const key = JSON.stringify([user.id, title.trim(), year, extraInfo.trim()]);
+            if (pendingSubmission.current?.key !== key) {
+                pendingSubmission.current = { key, id: crypto.randomUUID() };
+            }
+            const created = await interactionApi.submitMediaRequest(title, year, extraInfo, pendingSubmission.current.id);
+            pendingSubmission.current = null;
             setRequests(prev => [created, ...prev.filter(item => item.id !== created.id)]);
             setTitle("");
             setReleaseYear("");

@@ -17,6 +17,7 @@ export interface UserMessage {
 
 export interface MediaRequest {
     id: string;
+    demandId: string;
     title: string;
     releaseYear?: number;
     extraInfo?: string;
@@ -167,7 +168,7 @@ export const interactionApi = {
         if (!res.ok) throw new Error("Failed to delete message");
     },
 
-    async submitMediaRequest(title: string, releaseYear?: number, extraInfo?: string): Promise<MediaRequest> {
+    async submitMediaRequest(title: string, releaseYear?: number, extraInfo?: string, clientRequestId?: string): Promise<MediaRequest> {
         const token = localStorage.getItem("huawai_token");
         const res = await fetch(`${MEDIA_REQUEST_BASE}`, {
             method: "POST",
@@ -175,7 +176,7 @@ export const interactionApi = {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`
             },
-            body: JSON.stringify({ title, releaseYear, extraInfo })
+            body: JSON.stringify({ title, releaseYear, extraInfo, clientRequestId })
         });
         if (!res.ok) {
             const errData = await res.json().catch(() => ({}));

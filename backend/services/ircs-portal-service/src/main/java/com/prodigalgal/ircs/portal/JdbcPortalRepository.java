@@ -493,7 +493,7 @@ public class JdbcPortalRepository {
                 base.imdbId(),
                 base.lastTrendAt(),
                 resolveGenreNames(base.genreCodesJson()),
-                findCast(base.directorNamesJson(), base.actorNamesJson()),
+                findCast(id, base.directorNamesJson(), base.actorNamesJson()),
                 findSources(id),
                 findMagnets(id),
                 findTags(id),
@@ -692,15 +692,34 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query(sql, Map.of("id", id), (rs, rowNum) -> rs.getString(1));
     }
 
-    private List<PortalMovieDetailResponse.CastMember> findCast(String directorNamesJson, String actorNamesJson) {
-        List<PortalMovieDetailResponse.CastMember> cast = new ArrayList<>();
-        for (String name : JsonStringArrays.readSet(objectMapper, directorNamesJson)) {
-            cast.add(new PortalMovieDetailResponse.CastMember(name, name, "导演"));
-        }
-        for (String name : JsonStringArrays.readSet(objectMapper, actorNamesJson)) {
-            cast.add(new PortalMovieDetailResponse.CastMember(name, name, "演员"));
-        }
+    private List<PortalMovieDetailResponse.CastMember> findCast(UUID entryId, String directorNamesJson, String actorNamesJson) {
+        List<PortalMovieDetailResponse.CastMember> cast = new ArrayList<>(jdbcTemplate.query("""
+                with credits as (
+                    select credit.person_id, credit.credited_name, credit.billing_order, credit.source_order,
+                           credit.season_id, case when credit.credit_kind='CAST' then '演员' else '导演' end as role
+                    from catalog_entries entry
+                    join catalog_person_credits credit on credit.work_id=entry.work_id
+                    where entry.id=:entryId and credit.episode_id is null
+                      and (credit.season_id is null or credit.season_id=entry.season_id)
+                      and (credit.credit_kind='CAST' or (credit.credit_kind='CREW' and lower(credit.job)='director'))
+                ), selected as (
+                    select distinct on (person_id,role) * from credits
+                    order by person_id,role,season_id nulls last,billing_order nulls last,source_order,credited_name
+                )
+                select person_id,credited_name,role from selected
+                order by role,billing_order nulls last,source_order,person_id limit 60
+                """, Map.of("entryId",entryId), (rs,row) -> new PortalMovieDetailResponse.CastMember(
+                rs.getString("person_id"),rs.getString("credited_name"),rs.getString("role"))));
+        addUnverifiedCredits(cast, directorNamesJson, "导演");
+        addUnverifiedCredits(cast, actorNamesJson, "演员");
         return cast;
+    }
+
+    private void addUnverifiedCredits(List<PortalMovieDetailResponse.CastMember> cast, String namesJson, String role) {
+        if (cast.stream().anyMatch(member -> role.equals(member.role()))) return;
+        for (String name : JsonStringArrays.readSet(objectMapper, namesJson)) {
+            cast.add(new PortalMovieDetailResponse.CastMember(name, name, role));
+        }
     }
 
     private List<PortalMovieDetailResponse.VideoSource> findSources(UUID id) {
@@ -718,6 +737,7 @@ public class JdbcPortalRepository {
                   FROM catalog_list_playable_episodes(:id) playback
                   LEFT JOIN source_origins sd ON playback.episode_domain_id = sd.id
                  ORDER BY source_name ASC, playback.source_id ASC, playback.playlist_name ASC,
+                          playback.season_number ASC NULLS FIRST, playback.episode_number ASC NULLS LAST,
                           playback.episode_name ASC, playback.episode_id ASC
                 """,
                 Map.of("id", id),

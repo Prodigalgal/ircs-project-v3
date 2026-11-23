@@ -234,7 +234,7 @@ public class SourceRecordIngestionRepository {
             return null;
         }
         CoverImageReference reference = resolveCoverImageReference(coverImageUrl);
-        UUID sourceDomainId = upsertSourceDomain(reference.domainValue(), dataSourceId, "ingestion-cover");
+        UUID sourceDomainId = upsertSourceDomain(reference.domainValue(), "ingestion-cover");
         linkDataSourceDomain(dataSourceId, sourceDomainId);
         UUID imageId = jdbcTemplate.queryForObject(
                 """
@@ -292,7 +292,7 @@ public class SourceRecordIngestionRepository {
         return new CoverImageReference("EXTERNAL_COVER", trimmed);
     }
 
-    private UUID upsertSourceDomain(String domainValue, UUID dataSourceId, String remark) {
+    private UUID upsertSourceDomain(String domainValue, String remark) {
         return jdbcTemplate.queryForObject(
                 """
                 insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark)
@@ -306,8 +306,7 @@ public class SourceRecordIngestionRepository {
                         .addValue("id", IrcsUuidGenerators.nextId())
                         .addValue("domainHash", sha256(domainValue))
                         .addValue("domainValue", trimToLength(domainValue, 255))
-                        .addValue("remark", remark)
-                        .addValue("dataSourceId", dataSourceId),
+                        .addValue("remark", remark),
                 UUID.class);
     }
 
@@ -392,7 +391,7 @@ public class SourceRecordIngestionRepository {
         }
         // Acquire any shared domain rows in the same order across concurrent consumers.
         var domainIds = new HashMap<String, UUID>();
-        for (String domain : domains) domainIds.put(domain, upsertSourceDomain(domain, sourceRecordId));
+        for (String domain : domains) domainIds.put(domain, upsertSourceDomain(domain, "ingestion-worker"));
 
         for (int offset = 0; offset < playlistRows.size(); offset += PLAYLIST_WRITE_BATCH_SIZE) {
             int end = Math.min(playlistRows.size(), offset + PLAYLIST_WRITE_BATCH_SIZE);
@@ -480,24 +479,6 @@ public class SourceRecordIngestionRepository {
         } catch (IllegalArgumentException ignored) {
             return new EpisodeLocation(episode.url().trim(), null, null);
         }
-    }
-
-    private UUID upsertSourceDomain(String domainValue, UUID sourceRecordId) {
-        return jdbcTemplate.queryForObject(
-                """
-                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark)
-                values (:id, now(), now(), 0, :domainHash, :domainValue, 'ingestion-worker')
-                on conflict (domain_hash) do update set
-                    domain_value = excluded.domain_value,
-                    updated_at = now()
-                returning id
-                """,
-                new MapSqlParameterSource()
-                        .addValue("id", IrcsUuidGenerators.nextId())
-                        .addValue("domainHash", sha256(domainValue))
-                        .addValue("domainValue", trimToLength(domainValue, 255))
-                        .addValue("sourceRecordId", sourceRecordId),
-                UUID.class);
     }
 
     private String defaultEpisodeName(IngestionEpisodeDTO episode) {

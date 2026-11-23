@@ -196,8 +196,8 @@ class TrendDiscoveryTaskServiceTest {
                 .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
         when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.of(taskId));
         when(taskRepository.findRuntimeState(taskId))
-                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", true, 1, 1)))
-                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", false, 1, 1)));
+                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", true, 1, 1, UUID.randomUUID())))
+                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", false, 1, 1, UUID.randomUUID())));
 
         assertThat(service.scheduleCatalog(candidate, 1, () -> {}).tasks().getFirst().status()).isEqualTo("ACTIVE");
         assertThat(service.scheduleCatalog(candidate, 1, () -> {}).tasks().getFirst().status())
