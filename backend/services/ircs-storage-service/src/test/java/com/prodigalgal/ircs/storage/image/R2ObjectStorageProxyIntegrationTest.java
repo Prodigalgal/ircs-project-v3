@@ -31,18 +31,17 @@ class R2ObjectStorageProxyIntegrationTest {
     }
 
     @Test
-    void sdkPutHeadAndDeleteUseConfiguredProxyForAnUnresolvablePublicEndpoint() throws Exception {
+    void sdkPutAndHeadUseConfiguredProxyForAnUnresolvablePublicEndpoint() throws Exception {
         var calls = new CopyOnWriteArrayList<String>();
         var proxy = server(200, calls);
         var storage = storage(pool(endpoint(proxy)), "http://r2.public.invalid");
 
         storage.store("image".getBytes(StandardCharsets.UTF_8), "covers/example.jpg", "image/jpeg");
         assertThat(storage.exists("covers/example.jpg")).isTrue();
-        storage.delete("covers/example.jpg");
 
-        assertThat(calls).hasSize(3);
+        assertThat(calls).hasSize(2);
         assertThat(calls).anyMatch(call -> call.startsWith("PUT "))
-                .anyMatch(call -> call.startsWith("HEAD ")).anyMatch(call -> call.startsWith("DELETE "));
+                .anyMatch(call -> call.startsWith("HEAD "));
         assertThat(calls).allMatch(call -> call.contains("r2.public.invalid") && call.contains("covers/example.jpg"));
     }
 

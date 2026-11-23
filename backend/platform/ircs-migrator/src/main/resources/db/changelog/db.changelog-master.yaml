@@ -241,3 +241,9 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 4.1.0
+  - changeSet:
+      id: 1795380100005-tag-4.1.1
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 4.1.1

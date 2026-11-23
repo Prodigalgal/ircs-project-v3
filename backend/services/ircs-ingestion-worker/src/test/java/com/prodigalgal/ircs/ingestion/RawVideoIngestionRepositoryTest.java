@@ -113,27 +113,22 @@ class RawVideoIngestionRepositoryTest {
     void playlistSyncLinksItsDataSourceToEachObservedDomainIdempotently() {
         UUID videoId = UUID.fromString("00000000-0000-0000-0000-000000000301");
         UUID sourceDomainId = UUID.fromString("00000000-0000-0000-0000-000000000302");
+        UUID preassignedDomainId = UUID.fromString("00000000-0000-0000-0000-000000000303");
         when(jdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.any(SqlParameterSource.class), eq(UUID.class)))
                 .thenReturn(sourceDomainId);
 
-        repository.replacePlaylists(new PlaylistSyncMessage(videoId, "source-hash", "data-hash", List.of(new IngestionPlaylistDTO(
-                        "Main", List.of(new IngestionEpisodeDTO("EP1", "https://cdn.example.invalid/1", null))))));
+        repository.replacePlaylists(new PlaylistSyncMessage(videoId, "source-hash", "data-hash",
+                List.of(new IngestionPlaylistDTO("Main", List.of(
+                        new IngestionEpisodeDTO("EP1", "https://cdn.example.invalid/1", null),
+                        new IngestionEpisodeDTO("EP2", "/2.m3u8", preassignedDomainId))))));
 
-        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<SqlParameterSource> paramsCaptor = ArgumentCaptor.forClass(SqlParameterSource.class);
-        verify(jdbcTemplate, org.mockito.Mockito.atLeastOnce())
-                .update(sqlCaptor.capture(), paramsCaptor.capture());
-        int membershipIndex = -1;
-        for (int index = 0; index < sqlCaptor.getAllValues().size(); index++) {
-            if (sqlCaptor.getAllValues().get(index).contains("insert into data_source_domains")) {
-                membershipIndex = index;
-                break;
-            }
-        }
-        assertThat(membershipIndex).isGreaterThanOrEqualTo(0);
-        assertThat(sqlCaptor.getAllValues().get(membershipIndex)).contains("select data_source_id from raw_videos");
-        MapSqlParameterSource params = (MapSqlParameterSource) paramsCaptor.getAllValues().get(membershipIndex);
-        assertThat(params.getValue("sourceDomainId")).isEqualTo(sourceDomainId);
+        verify(jdbcTemplate).update(
+                org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("insert into data_source_domains")
+                        && sql.contains("on conflict (data_source_id, source_domain_id) do nothing")),
+                paramsCaptor.capture());
+        SqlParameterSource params = paramsCaptor.getValue();
+        assertThat(params.getValue("domainIds")).isEqualTo(List.of(sourceDomainId, preassignedDomainId));
         assertThat(params.getValue("videoId")).isEqualTo(videoId);
     }
 

@@ -312,6 +312,7 @@ public class RawVideoIngestionRepository {
             int end = Math.min(playlistRows.size(), offset + PLAYLIST_WRITE_BATCH_SIZE);
             jdbcTemplate.batchUpdate(INSERT_PLAYLIST, playlistRows.subList(offset, end).toArray(MapSqlParameterSource[]::new));
         }
+        var observedDomainIds = new TreeSet<UUID>();
         for (int offset = 0; offset < episodes.size(); offset += PLAYLIST_WRITE_BATCH_SIZE) {
             int end = Math.min(episodes.size(), offset + PLAYLIST_WRITE_BATCH_SIZE);
             var rows = new MapSqlParameterSource[end - offset];
@@ -319,11 +320,23 @@ public class RawVideoIngestionRepository {
                 var episode = episodes.get(index);
                 var location = episode.location();
                 UUID domainId = location.domainValue() == null ? location.sourceDomainId() : domainIds.get(location.domainValue());
+                if (domainId != null) observedDomainIds.add(domainId);
                 rows[index - offset] = new MapSqlParameterSource("id", IrcsUuidGenerators.nextId())
                         .addValue("name", episode.name()).addValue("url", trimToLength(location.url(), 255))
                         .addValue("playlistId", episode.playlistId()).addValue("sourceDomainId", domainId);
             }
             jdbcTemplate.batchUpdate(INSERT_EPISODE, rows);
+        }
+        if (!observedDomainIds.isEmpty()) {
+            jdbcTemplate.update("""
+                    insert into data_source_domains (data_source_id, source_domain_id, first_seen_at)
+                    select video.data_source_id, domain.id, now()
+                      from raw_videos video
+                      cross join source_domains domain
+                     where video.id=:videoId and video.data_source_id is not null and domain.id in (:domainIds)
+                     order by domain.id
+                    on conflict (data_source_id, source_domain_id) do nothing
+                    """, videoParameter.addValue("domainIds", List.copyOf(observedDomainIds)));
         }
         return playlistRows.size();
     }
@@ -356,7 +369,7 @@ public class RawVideoIngestionRepository {
     }
 
     private UUID upsertSourceDomain(String domainValue, PlaylistSyncMessage message) {
-        UUID sourceDomainId = jdbcTemplate.queryForObject(
+        return jdbcTemplate.queryForObject(
                 """
                 insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
                 values (:id, now(), now(), 0, :domainHash, :domainValue, 'ingestion-worker', (
@@ -373,18 +386,6 @@ public class RawVideoIngestionRepository {
                         .addValue("domainValue", trimToLength(domainValue, 255))
                         .addValue("videoId", message.videoId()),
                 UUID.class);
-        jdbcTemplate.update(
-                """
-                insert into data_source_domains (data_source_id, source_domain_id, first_seen_at)
-                select data_source_id, :sourceDomainId, now()
-                  from raw_videos
-                 where id = :videoId and data_source_id is not null
-                on conflict (data_source_id, source_domain_id) do nothing
-                """,
-                new MapSqlParameterSource()
-                        .addValue("sourceDomainId", sourceDomainId)
-                        .addValue("videoId", message.videoId()));
-        return sourceDomainId;
     }
 
     private String defaultEpisodeName(IngestionEpisodeDTO episode) {
