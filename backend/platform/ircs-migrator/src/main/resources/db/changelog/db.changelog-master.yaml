@@ -213,3 +213,13 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 4.0.1
+  - include:
+      file: db/changelog/2026/11/23-03-authority-playback-episodes.sql
+  - include:
+      file: db/changelog/2026/11/23-04-authority-binding-integrity.sql
+  - changeSet:
+      id: 1795380000007-tag-4.0.2
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 4.0.2

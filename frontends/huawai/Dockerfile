@@ -8,7 +8,7 @@ RUN npm ci
 
 # 2. 构建阶段
 FROM node:26.13-alpine AS builder
-ARG APP_VERSION=4.0.1
+ARG APP_VERSION=4.0.2
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

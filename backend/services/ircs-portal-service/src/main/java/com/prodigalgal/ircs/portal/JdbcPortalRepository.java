@@ -707,64 +707,36 @@ public class JdbcPortalRepository {
         Map<UUID, SourceAccumulator> sources = new LinkedHashMap<>();
         jdbcTemplate.query(
                 """
-                SELECT rv.id AS source_id,
-                       coalesce(ds.name, '未知来源') AS source_name
-                  FROM raw_video_unified_video rvu
-                  JOIN raw_videos rv ON rvu.raw_video_id = rv.id
-                  LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
-                 WHERE rvu.unified_video_id = :id
-                 ORDER BY source_name ASC, rv.id ASC
+                SELECT playback.source_id,
+                       coalesce(playback.source_name, '未知来源') AS source_name,
+                       playback.playlist_name,
+                       playback.episode_id,
+                       playback.episode_name,
+                       playback.episode_url,
+                       sd.domain_value AS episode_domain
+                  FROM catalog_list_playable_episodes(:id) playback
+                  LEFT JOIN source_domains sd ON playback.episode_domain_id = sd.id
+                 ORDER BY source_name ASC, playback.source_id ASC, playback.playlist_name ASC,
+                          playback.episode_name ASC, playback.episode_id ASC
                 """,
                 Map.of("id", id),
                 rs -> {
                     UUID sourceId = rs.getObject("source_id", UUID.class);
-                    if (sourceId == null) {
+                    UUID episodeId = rs.getObject("episode_id", UUID.class);
+                    if (sourceId == null || episodeId == null) {
                         return;
                     }
                     String sourceName = fallback(rs.getString("source_name"), "未知来源");
-                    sources.computeIfAbsent(sourceId, ignored -> new SourceAccumulator(sourceId.toString(), sourceName));
-                });
-        appendEpisodes(sources);
-        return sources.values().stream()
-                .filter(source -> !source.episodes().isEmpty())
-                .map(source -> new PortalMovieDetailResponse.VideoSource(
-                        source.id(),
-                        source.name(),
-                        source.episodes()))
-                .toList();
-    }
-
-    private void appendEpisodes(Map<UUID, SourceAccumulator> sources) {
-        if (sources.isEmpty()) {
-            return;
-        }
-        jdbcTemplate.query(
-                """
-                SELECT pl.video_id AS source_id,
-                       pl.name AS playlist_name,
-                       ep.id AS episode_id,
-                       ep.name AS episode_name,
-                       ep.url AS episode_url,
-                       sd.domain_value AS episode_domain
-                  FROM playlists pl
-                  JOIN episodes ep ON ep.playlist_id = pl.id
-                  LEFT JOIN source_domains sd ON ep.source_domain_id = sd.id
-                 WHERE pl.video_id IN (:sourceIds)
-                 ORDER BY pl.video_id ASC, pl.name ASC, ep.name ASC, ep.id ASC
-                """,
-                Map.of("sourceIds", sources.keySet()),
-                rs -> {
-                    UUID sourceId = rs.getObject("source_id", UUID.class);
-                    UUID episodeId = rs.getObject("episode_id", UUID.class);
-                    SourceAccumulator source = sourceId == null ? null : sources.get(sourceId);
-                    if (source == null || episodeId == null) {
-                        return;
-                    }
+                    SourceAccumulator source = sources.computeIfAbsent(sourceId,
+                            ignored -> new SourceAccumulator(sourceId.toString(), sourceName));
                     source.episodes().add(new PortalMovieDetailResponse.Episode(
                             episodeId.toString(),
                             formatEpisodeTitle(rs.getString("playlist_name"), rs.getString("episode_name")),
                             resolveEpisodeUrl(rs.getString("episode_domain"), rs.getString("episode_url"))));
                 });
+        return sources.values().stream()
+                .map(source -> new PortalMovieDetailResponse.VideoSource(source.id(), source.name(), source.episodes()))
+                .toList();
     }
 
     private List<PortalMovieDetailResponse.MagnetLink> findMagnets(UUID id) {

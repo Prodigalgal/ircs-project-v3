@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.aggregation;
 
+import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -139,15 +140,24 @@ final class AuthorityCatalogBindingPolicy {
     }
 
     static OptionalLong importTmdbId(RawVideoAggregationRecord raw) {
-        if (!StringUtils.hasText(raw.tmdbId())) {
-            return OptionalLong.empty();
+        Long normalized = normalizeTmdbId(raw.tmdbId());
+        return normalized == null ? OptionalLong.empty() : OptionalLong.of(normalized);
+    }
+
+    static Long normalizeTmdbId(String value) {
+        String normalized = AuthoritativeIds.normalizeTmdb(value);
+        if (normalized == null) {
+            return null;
         }
         try {
-            long value = Long.parseLong(raw.tmdbId().trim());
-            return value > 0 ? OptionalLong.of(value) : OptionalLong.empty();
+            return Long.valueOf(normalized);
         } catch (NumberFormatException ignored) {
-            return OptionalLong.empty();
+            return null;
         }
+    }
+
+    static String normalizeImdbId(String value) {
+        return AuthoritativeIds.normalizeImdb(value);
     }
 
     static boolean hasImportRequestEvidence(RawVideoAggregationRecord raw) {
@@ -162,25 +172,25 @@ final class AuthorityCatalogBindingPolicy {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private boolean externalIdsContradict(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
-        return differs(numericId(raw.tmdbId()), candidate.tmdbId() == null ? null : candidate.tmdbId().toString())
-                || differs(raw.imdbId(), candidate.imdbId());
+    private Long normalizedTmdbId(RawVideoAggregationRecord raw) {
+        return normalizeTmdbId(raw.tmdbId());
     }
 
-    private String numericId(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        try {
-            return Long.toString(Long.parseLong(value.trim()));
-        } catch (NumberFormatException ignored) {
-            return value.trim();
-        }
+    private String normalizedImdbId(RawVideoAggregationRecord raw) {
+        return normalizeImdbId(raw.imdbId());
+    }
+
+    private boolean externalIdsContradict(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
+        return differs(normalizedTmdbId(raw), candidate.tmdbId())
+                || differs(normalizedImdbId(raw), normalizeImdbId(candidate.imdbId()));
+    }
+
+    private boolean differs(Long rawId, Long authorityId) {
+        return rawId != null && authorityId != null && !rawId.equals(authorityId);
     }
 
     private boolean differs(String rawId, String authorityId) {
-        return StringUtils.hasText(rawId) && StringUtils.hasText(authorityId)
-                && !rawId.trim().toLowerCase(Locale.ROOT).equals(authorityId.trim().toLowerCase(Locale.ROOT));
+        return rawId != null && authorityId != null && !rawId.equals(authorityId);
     }
 
     private boolean hasCorroboratingExternalId(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
@@ -188,21 +198,22 @@ final class AuthorityCatalogBindingPolicy {
     }
 
     private boolean matchesProvidedExternalId(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
-        return StringUtils.hasText(raw.tmdbId()) && candidate.tmdbId() != null
-                        && numericId(raw.tmdbId()).equals(candidate.tmdbId().toString())
-                || StringUtils.hasText(raw.imdbId()) && StringUtils.hasText(candidate.imdbId())
-                        && raw.imdbId().trim().equalsIgnoreCase(candidate.imdbId().trim());
+        Long tmdbId = normalizedTmdbId(raw);
+        String imdbId = normalizedImdbId(raw);
+        return tmdbId != null && candidate.tmdbId() != null && tmdbId.equals(candidate.tmdbId())
+                || imdbId != null && imdbId.equals(normalizeImdbId(candidate.imdbId()));
     }
 
     private String evidenceKind(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
-        if (StringUtils.hasText(raw.tmdbId()) && candidate.tmdbId() != null
-                && numericId(raw.tmdbId()).equals(candidate.tmdbId().toString())) {
+        Long tmdbId = normalizedTmdbId(raw);
+        if (tmdbId != null && tmdbId.equals(candidate.tmdbId())) {
             return "TMDB_TITLE_YEAR_SEASON";
         }
-        if (StringUtils.hasText(raw.imdbId()) && StringUtils.hasText(candidate.imdbId())
-                && raw.imdbId().trim().equalsIgnoreCase(candidate.imdbId().trim())) {
+        String imdbId = normalizedImdbId(raw);
+        if (imdbId != null && imdbId.equals(normalizeImdbId(candidate.imdbId()))) {
             return "IMDB_TITLE_YEAR_SEASON";
         }
         return "TITLE_YEAR_SEASON";
     }
+
 }

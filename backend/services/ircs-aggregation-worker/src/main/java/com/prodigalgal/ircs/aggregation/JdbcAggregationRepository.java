@@ -179,13 +179,27 @@ public class JdbcAggregationRepository {
 
     public List<AuthorityCatalogProjection> findAuthorityCatalogProjections(
             String mediaType, Set<String> titleKeys, Long tmdbId, String imdbId) {
-        if (!StringUtils.hasText(mediaType)
-                || (titleKeys == null || titleKeys.isEmpty()) && tmdbId == null && !StringUtils.hasText(imdbId)) {
+        if (!StringUtils.hasText(mediaType)) {
             return List.of();
         }
-        List<String> safeTitleKeys = titleKeys == null || titleKeys.isEmpty()
-                ? List.of("__no_authority_title_key__") : List.copyOf(titleKeys);
-        return jdbcTemplate.query("""
+        List<String> recallConditions = new ArrayList<>();
+        MapSqlParameterSource parameters = new MapSqlParameterSource("mediaType", mediaType);
+        if (titleKeys != null && !titleKeys.isEmpty()) {
+            recallConditions.add("(work.title_key in (:titleKeys) or work.original_title_key in (:titleKeys))");
+            parameters.addValue("titleKeys", List.copyOf(titleKeys));
+        }
+        if (tmdbId != null) {
+            recallConditions.add("work.tmdb_id=:tmdbId");
+            parameters.addValue("tmdbId", tmdbId);
+        }
+        if (StringUtils.hasText(imdbId)) {
+            recallConditions.add("lower(work.imdb_id)=lower(:imdbId)");
+            parameters.addValue("imdbId", imdbId.trim());
+        }
+        if (recallConditions.isEmpty()) {
+            return List.of();
+        }
+        String sql = """
                 select work.id as work_id,
                        work.media_type,
                        work.tmdb_id,
@@ -204,14 +218,12 @@ public class JdbcAggregationRepository {
                   left join authority_catalog_seasons season
                     on season.work_id=projection.work_id and season.season_number=projection.season_number
                  where work.media_type=:mediaType
-                   and ((work.title_key in (:titleKeys) or work.original_title_key in (:titleKeys))
-                        or (:tmdbId is not null and work.tmdb_id=:tmdbId)
-                        or (:imdbId is not null and lower(work.imdb_id)=lower(:imdbId)))
+                   and (%s)
                    and unified.content_visibility='PUBLIC'
                    and not coalesce(unified.adult_restricted, false)
-                 for share of work, projection, unified
-                """, new MapSqlParameterSource().addValue("mediaType", mediaType).addValue("titleKeys", safeTitleKeys)
-                        .addValue("tmdbId", tmdbId).addValue("imdbId", StringUtils.hasText(imdbId) ? imdbId.trim() : null),
+                 order by work.id, projection.season_number
+                """.formatted(String.join(" or ", recallConditions));
+        return jdbcTemplate.query(sql, parameters,
                 (rs, row) -> new AuthorityCatalogProjection(
                         rs.getObject("work_id", UUID.class),
                         rs.getString("media_type"),
@@ -495,8 +507,13 @@ public class JdbcAggregationRepository {
 
     int moveCorrectionBindings(UUID source, UUID target, List<UUID> rawIds) {
         return jdbcTemplate.update("""
-                update raw_video_unified_video set unified_video_id=:target
-                 where unified_video_id=:source and raw_video_id in (:rawIds)
+                with moved as (
+                    delete from raw_video_unified_video
+                    where unified_video_id=:source and raw_video_id in (:rawIds)
+                    returning raw_video_id
+                )
+                insert into raw_video_unified_video(raw_video_id,unified_video_id)
+                select raw_video_id,:target from moved
                 """, correctionParams(source, target, rawIds));
     }
 

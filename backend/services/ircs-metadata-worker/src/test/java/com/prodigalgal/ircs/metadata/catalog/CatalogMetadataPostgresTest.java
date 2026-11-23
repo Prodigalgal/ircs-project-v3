@@ -61,7 +61,8 @@ class CatalogMetadataPostgresTest {
                 insert into standard_areas values('CN','中国大陆');
                 insert into standard_languages values('zh','中文','Chinese','中文');
                 insert into standard_genre values('action','动作');
-                create table source_domains(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,domain_value text unique);
+                create table source_domains(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
+                    domain_hash varchar(64) not null unique,domain_value varchar(255) not null);
                 create table cover_images(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
                     storage_type text,original_url text,source_domain_id uuid,status text,retry_count integer,next_retry_time timestamptz,
                     unique(original_url,source_domain_id));
@@ -178,6 +179,8 @@ class CatalogMetadataPostgresTest {
         assertThat(jdbc.queryForList("select target_season from catalog_discovery_requests order by target_season", Integer.class))
                 .containsExactly(0, 1);
         assertThat(authority.pendingIndexes()).hasSize(2);
+        assertThat(jdbc.queryForObject("select count(*) from source_domains", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from cover_images", Integer.class)).isEqualTo(1);
         assertThat(transactions.<Boolean>execute(status -> authority.publish(tv,tvEvidence))).isFalse();
     }
 

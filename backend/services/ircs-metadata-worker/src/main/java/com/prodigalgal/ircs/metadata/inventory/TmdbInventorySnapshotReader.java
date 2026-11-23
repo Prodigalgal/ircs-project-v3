@@ -82,7 +82,7 @@ final class TmdbInventorySnapshotReader {
         JsonNode popularity = node.path("popularity");
         JsonNode video = node.get("video");
         if (!id.isIntegralNumber() || !id.canConvertToInt() || id.asInt() <= 0 || !title.isTextual()
-                || !popularity.isNumber() || (video != null && !video.isBoolean())) {
+                || !popularity.isNumber() || (video != null && !video.isNull() && !video.isBoolean())) {
             throw new IOException("SNAPSHOT_INVALID_ROW");
         }
         double score = popularity.asDouble();

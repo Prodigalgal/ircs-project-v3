@@ -5,9 +5,13 @@ import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import com.prodigalgal.ircs.contentmetadata.PersonNames;
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Date;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -244,15 +248,39 @@ public class CatalogMetadataRepository {
         URI uri;
         try { uri = URI.create(poster); } catch (IllegalArgumentException ex) { return null; }
         if (uri.getHost() == null || uri.getUserInfo() != null || !Set.of("https","http").contains(uri.getScheme())) return null;
-        UUID domain = jdbc.queryForObject("""
-                insert into source_domains(id,created_at,updated_at,version,domain_value)
-                values(:id,now(),now(),0,:domain) on conflict(domain_value) do update set domain_value=excluded.domain_value returning id
-                """, Map.of("id", IrcsUuidGenerators.nextId(), "domain", uri.getScheme()+"://"+uri.getHost()), UUID.class);
-        return jdbc.queryForObject("""
+        UUID domain = findOrCreateDomain(uri.getScheme() + "://" + uri.getHost());
+        var p = new MapSqlParameterSource("id", IrcsUuidGenerators.nextId())
+                .addValue("url", poster).addValue("domain", domain);
+        var inserted = jdbc.queryForList("""
                 insert into cover_images(id,created_at,updated_at,version,storage_type,original_url,source_domain_id,status,retry_count,next_retry_time)
                 values(:id,now(),now(),0,'EXTERNAL',:url,:domain,'UNPROCESSED',0,now())
-                on conflict(original_url,source_domain_id) do update set original_url=excluded.original_url returning id
-                """, new MapSqlParameterSource("id", IrcsUuidGenerators.nextId()).addValue("url", poster).addValue("domain", domain), UUID.class);
+                on conflict(original_url,source_domain_id) do nothing returning id
+                """, p, UUID.class);
+        return inserted.isEmpty() ? jdbc.queryForObject("""
+                select id from cover_images where original_url=:url and source_domain_id=:domain
+                """, p, UUID.class) : inserted.getFirst();
+    }
+
+    private UUID findOrCreateDomain(String domain) {
+        var p = new MapSqlParameterSource("hash", domainHash(domain)).addValue("domain", domain);
+        String select = "select id from source_domains where domain_hash=:hash";
+        var existing = jdbc.queryForList(select, p, UUID.class);
+        if (!existing.isEmpty()) return existing.getFirst();
+        var inserted = jdbc.queryForList("""
+                insert into source_domains(id,created_at,updated_at,version,domain_hash,domain_value)
+                values(:id,now(),now(),0,:hash,:domain)
+                on conflict(domain_hash) do nothing returning id
+                """, p.addValue("id", IrcsUuidGenerators.nextId()), UUID.class);
+        return inserted.isEmpty() ? jdbc.queryForObject(select, p, UUID.class) : inserted.getFirst();
+    }
+
+    private String domainHash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     private void scalar(JsonNode current, Map<String,Object> changes, String column, Object value, String... locks) {

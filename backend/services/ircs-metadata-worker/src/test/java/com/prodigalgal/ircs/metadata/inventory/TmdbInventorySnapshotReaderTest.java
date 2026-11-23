@@ -41,6 +41,17 @@ class TmdbInventorySnapshotReaderTest {
     }
 
     @Test
+    void acceptsNullOptionalMovieVideoFlagFromTheOfficialExport() throws IOException {
+        byte[] bytes = compress("""
+                {"adult":false,"id":1763675,"original_title":"电影","popularity":0,"video":null}
+                """);
+        var entries = new ArrayList<Entry>();
+        assertThat(reader.read(new ByteArrayInputStream(bytes), TmdbInventoryMediaType.MOVIE, entries::addAll))
+                .isEqualTo(1);
+        assertThat(entries).containsExactly(new Entry(1763675, "电影", 0, false));
+    }
+
+    @Test
     void rejectsInvalidMovieFlagsAndOutOfRangeIdentifiers() throws IOException {
         byte[] withoutFlag = compress("{\"id\":42,\"original_title\":\"Title\",\"popularity\":3}");
         assertThatThrownBy(() -> reader.read(new ByteArrayInputStream(withoutFlag), TmdbInventoryMediaType.MOVIE, rows -> { }))

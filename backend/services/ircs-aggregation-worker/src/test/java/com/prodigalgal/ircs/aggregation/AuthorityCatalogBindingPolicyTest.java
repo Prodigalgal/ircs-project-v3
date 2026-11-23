@@ -99,6 +99,15 @@ class AuthorityCatalogBindingPolicyTest {
                 .isEqualTo("MERGE_AMBIGUOUS");
     }
 
+    @Test
+    void identifierRecallDoesNotBindWhenNormalizedTitleDoesNotMatch() {
+        RawVideoAggregationRecord raw = raw("Another Film", "2020", "movie", null, "603", null);
+        AuthorityCatalogProjection candidate = projection(UUID.randomUUID(), "movie", "The Matrix",
+                2020, 1, -1, 603L, null);
+
+        assertThat(policy.decide(raw, "movie", List.of(candidate)).status()).isEqualTo("WAITING_AUTHORITY");
+    }
+
     private RawVideoAggregationRecord raw(
             String title, String year, String category, Integer season, String tmdb, String imdb) {
         return new RawVideoAggregationRecord(UUID.randomUUID(), title, null, null, year,

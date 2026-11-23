@@ -580,14 +580,7 @@ public class AggregationService {
             repository.markPending(rawVideo.id());
             return AggregationResult.skipped(rawVideo.id(), "WAITING_AUTHORITY");
         }
-        java.util.OptionalLong rawTmdbId = AuthorityCatalogBindingPolicy.importTmdbId(rawVideo);
-        Long tmdbId = rawTmdbId.isPresent() ? rawTmdbId.getAsLong() : null;
-        List<AuthorityCatalogProjection> projections = mediaTypes.stream()
-                .flatMap(mediaType -> repository.findAuthorityCatalogProjections(
-                        mediaType, AuthorityCatalogBindingPolicy.rawTitleKeys(rawVideo), tmdbId, rawVideo.imdbId()).stream())
-                .toList();
-        AuthorityCatalogBindingDecision decision = AUTHORITY_CATALOG_BINDING_POLICY.decide(
-                rawVideo, Set.copyOf(mediaTypes), projections);
+        AuthorityCatalogBindingDecision decision = authorityDecision(rawVideo, mediaTypes);
         if (!"BOUND".equals(decision.status())) {
             if (existingBinding.isPresent()) {
                 return AggregationResult.skipped(rawVideo.id(), "IDENTITY_CONFLICT");
@@ -603,6 +596,12 @@ public class AggregationService {
         UUID unifiedVideoId = decision.unifiedVideoId();
         if (existingBinding.isPresent() && !existingBinding.orElseThrow().equals(unifiedVideoId)) {
             return AggregationResult.skipped(rawVideo.id(), "IDENTITY_CONFLICT");
+        }
+        // Serialize writes for the selected video and recheck under that lock.
+        // Read-only candidate recall must not take shared locks that later need upgrading.
+        repository.lockUnifiedVideos(List.of(unifiedVideoId));
+        if (!decision.equals(authorityDecision(rawVideo, mediaTypes))) {
+            return AggregationResult.skipped(rawVideo.id(), "SOURCE_CHANGED");
         }
         if (repository.recordAuthorityBinding(rawVideo.id(), unifiedVideoId, decision.evidenceKind()) == 0) {
             return AggregationResult.skipped(rawVideo.id(), "IDENTITY_CONFLICT");
@@ -625,6 +624,16 @@ public class AggregationService {
         execution.coverR2SyncImageIds().forEach(storageCommandPublisher::enqueueCoverR2Sync);
         repository.markBound(rawVideo.id());
         return AggregationResult.bound(rawVideo.id(), unifiedVideoId);
+    }
+
+    private AuthorityCatalogBindingDecision authorityDecision(RawVideoAggregationRecord rawVideo, List<String> mediaTypes) {
+        Long tmdbId = AuthorityCatalogBindingPolicy.normalizeTmdbId(rawVideo.tmdbId());
+        String imdbId = AuthorityCatalogBindingPolicy.normalizeImdbId(rawVideo.imdbId());
+        Set<String> titleKeys = AuthorityCatalogBindingPolicy.rawTitleKeys(rawVideo);
+        List<AuthorityCatalogProjection> projections = mediaTypes.stream()
+                .flatMap(mediaType -> repository.findAuthorityCatalogProjections(mediaType, titleKeys, tmdbId, imdbId).stream())
+                .toList();
+        return AUTHORITY_CATALOG_BINDING_POLICY.decide(rawVideo, Set.copyOf(mediaTypes), projections);
     }
 
     private void enqueueAuthorityImportWhenEligible(RawVideoAggregationRecord rawVideo, String mediaType) {

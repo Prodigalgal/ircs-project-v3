@@ -81,6 +81,7 @@ class JdbcPortalRankingIntegrationTest {
         PortalStandardNameCache names = mock(PortalStandardNameCache.class);
         when(names.resolveGenreNames(any())).thenReturn(List.of());
         when(names.resolveAreaNames(any())).thenReturn(List.of());
+        when(names.resolveLanguageNames(any())).thenReturn(List.of());
         repository = new JdbcPortalRepository(new NamedParameterJdbcTemplate(pool),
                 mock(PortalCoverImageUrlResolver.class), JsonMapper.builder().findAndAddModules().build(), names);
     }
@@ -391,6 +392,62 @@ class JdbcPortalRankingIntegrationTest {
     }
 
     @Test
+    void authorityDetailAndAvailabilityExposeOnlyConfirmedEpisodesOfTheBoundSeason() {
+        UUID video = work("Authoritative season", "series", 7.5);
+        UUID authority = authorityProjection(video, "tv", 2);
+        jdbc.update("""
+                insert into authority_catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
+                values (?,2,1,101), (?,2,2,102)
+                """, authority, authority);
+        UUID correct = raw(video, 2, false);
+        episode(correct, "S02E01", "https://source.example/correct");
+        episode(correct, "S01E02", "https://source.example/wrong-explicit");
+        episode(correct, "第99集", "https://source.example/extra");
+        episode(correct, "资源合集", "https://source.example/ambiguous");
+        episode(correct, "S02E02", "javascript:invalid");
+        episode(raw(video, 1, false), "S02E02", "https://source.example/conflicting-raw");
+        episode(raw(video, null, false), "第2集", "https://source.example/missing-season");
+        episode(raw(video, 2, true), "S02E02", "https://source.example/restricted");
+
+        assertThat(detailEpisodeNames(video)).containsExactly("S02E01");
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 2)", Boolean.class, video)).isFalse();
+        assertThat(jdbc.queryForObject("select available_episode from catalog_resource_inventory(?, 2)", Integer.class, video))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 1, 1)", Boolean.class, video)).isFalse();
+
+        UUID verifiedBinding = raw(video, null, false);
+        jdbc.update("insert into authority_resource_bindings(raw_video_id,unified_video_id,evidence_kind) values (?,?,'TEST')",
+                verifiedBinding, video);
+        episode(verifiedBinding, "第2集", "https://source.example/bound");
+        assertThat(detailEpisodeNames(video)).containsExactlyInAnyOrder("S02E01", "第2集");
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 2)", Boolean.class, video)).isTrue();
+    }
+
+    @Test
+    void specialsRequireSeasonZeroAndWholeMovieAndSourceFirstLabelsRemainSupported() {
+        UUID special = work("Specials", "series", 7.5);
+        UUID authority = authorityProjection(special, "tv", 0);
+        jdbc.update("""
+                insert into authority_catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
+                values (?,0,1,201)
+                """, authority);
+        UUID rawSpecial = raw(special, null, false);
+        episode(rawSpecial, "S00E01", "https://source.example/special");
+        episode(rawSpecial, "S01E01", "https://source.example/regular");
+        assertThat(detailEpisodeNames(special)).containsExactly("S00E01");
+
+        UUID movie = work("Whole film", "movie", 7.5);
+        authorityProjection(movie, "movie", -1);
+        episode(raw(movie, null, false), "正片", "https://source.example/movie");
+        assertThat(detailEpisodeNames(movie)).containsExactly("正片");
+
+        UUID sport = work("Source-first event", "sports", 7.5);
+        episode(raw(sport, null, false), "全场回放", "https://source.example/event");
+        assertThat(detailEpisodeNames(sport)).containsExactly("全场回放");
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, sport)).isTrue();
+    }
+
+    @Test
     void sourceFailuresExposeLastSuccessAndStalenessWithoutErasingUsefulSnapshot() {
         UUID work = work("Last good snapshot", "movie", 8.0);
         observation(work, "TMDB", "trending-day", "day", 1, sampleTime.minus(Duration.ofHours(8)));
@@ -453,8 +510,32 @@ class JdbcPortalRankingIntegrationTest {
 
     private void episode(UUID rawId, String name, String url) {
         UUID playlist = UUID.randomUUID();
-        jdbc.update("insert into playlists values (?, ?)", playlist, rawId);
+        jdbc.update("insert into playlists(id,video_id) values (?, ?)", playlist, rawId);
         jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, ?, ?)", UUID.randomUUID(), playlist, name, url);
+    }
+
+    private UUID authorityProjection(UUID video, String type, int season) {
+        UUID work = UUID.randomUUID();
+        jdbc.update("""
+                insert into authority_catalog_works(id,media_type,tmdb_id,title,title_key)
+                values (?,?,42,'Test','test')
+                """, work, type);
+        if ("tv".equals(type)) {
+            jdbc.update("""
+                    insert into authority_catalog_seasons(work_id,season_number,tmdb_season_id,verified_at)
+                    values (?,?,100,now())
+                    """, work, season);
+        }
+        jdbc.update("""
+                insert into authority_catalog_projections(work_id,media_type,season_number,unified_video_id) values (?,?,?,?)
+                """, work, type, season, video);
+        jdbc.update("update unified_videos set season=nullif(?,-1) where id=?", season, video);
+        return work;
+    }
+
+    private List<String> detailEpisodeNames(UUID video) {
+        return repository.findMovieDetail(publicPrincipal, video).orElseThrow().sources().stream()
+                .flatMap(source -> source.episodes().stream()).map(PortalMovieDetailResponse.Episode::title).toList();
     }
 
     private void resource(UUID unifiedVideoId, int season, int episode) {
@@ -479,6 +560,8 @@ class JdbcPortalRankingIntegrationTest {
                     score numeric, year text, description text, total_episodes text, duration text, remarks text,
                     last_trend_at timestamp, published_at date, updated_at timestamp default now(),
                     category_code text, cover_image_id uuid, area_codes jsonb default '[]', genre_codes jsonb default '[]',
+                    language_codes jsonb default '[]', actor_names jsonb default '[]', director_names jsonb default '[]',
+                    douban_id text, tmdb_id text, imdb_id text,
                     content_visibility text default 'PUBLIC', adult_restricted boolean default false, adult_assessment jsonb)
                 """);
         jdbc.execute("create table standard_category(id uuid primary key, name text, slug text)");
@@ -486,17 +569,23 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.execute("create table source_domains(id uuid primary key, domain_value text)");
         jdbc.execute("create table standard_genre(id uuid primary key, name text, code text)");
         jdbc.execute("create table unified_video_tags(unified_video_id uuid, tag text)");
-        jdbc.execute("create table data_sources(id uuid primary key, adult_restricted boolean default false)");
+        jdbc.execute("create table data_sources(id uuid primary key, name text, adult_restricted boolean default false)");
         jdbc.execute("create table raw_videos(id uuid primary key, season integer, data_source_id uuid)");
         jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid)");
-        jdbc.execute("create table playlists(id uuid primary key, video_id uuid)");
+        jdbc.execute("create table playlists(id uuid primary key, video_id uuid, name text)");
         jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");
-        jdbc.execute("create table magnet_links(unified_video_id uuid, status text)");
+        jdbc.execute("""
+                create table magnet_links(unified_video_id uuid, status text, id uuid, title text, magnet_uri text,
+                    size_label text, published_at timestamp, quality text, resolution text, seeders integer,
+                    provider_code text, tags jsonb)
+                """);
         for (String category : List.of("movie", "series", "adult")) {
             jdbc.update("insert into standard_category values (?, ?, ?)", UUID.randomUUID(), category, category);
         }
         jdbc.execute(Files.readString(migrationPath("16-02-global-rankings-and-discovery.sql")));
         jdbc.execute(Files.readString(migrationPath("22-01-catalog-target-resources.sql")));
+        jdbc.execute(Files.readString(migrationPath("23-01-authority-first-catalog.sql")));
+        jdbc.execute(Files.readString(migrationPath("23-03-authority-playback-episodes.sql")));
     }
 
     private static Path migrationPath(String filename) {
