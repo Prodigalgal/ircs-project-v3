@@ -71,11 +71,11 @@ class AggregationWorkQueueWorkerTest {
     @Test
     void completesBoundAggregationWork() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        UUID rawVideoId = UUID.randomUUID();
-        RuntimeWorkItem item = item(rawVideoId, 1);
+        UUID sourceRecordId = UUID.randomUUID();
+        RuntimeWorkItem item = item(sourceRecordId, 1);
         queue.items.add(item);
-        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoId)))
-                .thenReturn(List.of(AggregationResult.bound(rawVideoId, UUID.randomUUID())));
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(sourceRecordId)))
+                .thenReturn(List.of(AggregationResult.bound(sourceRecordId, UUID.randomUUID())));
         AggregationWorkQueueWorker worker = worker(queue);
 
         int processed = worker.runOnce();
@@ -86,17 +86,17 @@ class AggregationWorkQueueWorkerTest {
         assertThat(queue.heartbeats).isGreaterThan(0);
         assertThat(worker.state().lastRunState()).isEqualTo("PROCESSED");
         assertThat(worker.state().lastProcessed()).isEqualTo(1);
-        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(rawVideoId));
+        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(sourceRecordId));
     }
 
     @Test
     void persistsIneligibleWorkUntilDependenciesAreReadyWithoutSpendingRetryBudget() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        UUID rawVideoId = UUID.randomUUID();
-        RuntimeWorkItem item = item(rawVideoId, 1);
+        UUID sourceRecordId = UUID.randomUUID();
+        RuntimeWorkItem item = item(sourceRecordId, 1);
         queue.items.add(item);
-        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoId)))
-                .thenReturn(List.of(AggregationResult.skipped(rawVideoId, "NOT_ELIGIBLE")));
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(sourceRecordId)))
+                .thenReturn(List.of(AggregationResult.skipped(sourceRecordId, "NOT_ELIGIBLE")));
         AggregationWorkDeferrer deferrer = deferrer();
         AggregationWorkQueueWorker worker = worker(queue, deferrer);
 
@@ -114,11 +114,11 @@ class AggregationWorkQueueWorkerTest {
     @Test
     void defersContendedMatchLockWorkWithoutSpendingRetryBudget() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        UUID rawVideoId = UUID.randomUUID();
-        RuntimeWorkItem item = item(rawVideoId, 1);
+        UUID sourceRecordId = UUID.randomUUID();
+        RuntimeWorkItem item = item(sourceRecordId, 1);
         queue.items.add(item);
-        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoId)))
-                .thenReturn(List.of(AggregationResult.skipped(rawVideoId, "MATCH_LOCK_BUSY")));
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(sourceRecordId)))
+                .thenReturn(List.of(AggregationResult.skipped(sourceRecordId, "MATCH_LOCK_BUSY")));
         AggregationWorkDeferrer deferrer = deferrer();
         AggregationWorkQueueWorker worker = worker(queue, deferrer);
 
@@ -133,16 +133,16 @@ class AggregationWorkQueueWorkerTest {
     @Test
     void processesClaimedItemsInSmallChunks() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        List<UUID> rawVideoIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
-        for (UUID rawVideoId : rawVideoIds) {
-            queue.items.add(item(rawVideoId, 1));
+        List<UUID> sourceRecordIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        for (UUID sourceRecordId : sourceRecordIds) {
+            queue.items.add(item(sourceRecordId, 1));
         }
-        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(0), rawVideoIds.get(1))))
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(sourceRecordIds.get(0), sourceRecordIds.get(1))))
                 .thenReturn(List.of(
-                        AggregationResult.bound(rawVideoIds.get(0), UUID.randomUUID()),
-                        AggregationResult.bound(rawVideoIds.get(1), UUID.randomUUID())));
-        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(2))))
-                .thenReturn(List.of(AggregationResult.bound(rawVideoIds.get(2), UUID.randomUUID())));
+                        AggregationResult.bound(sourceRecordIds.get(0), UUID.randomUUID()),
+                        AggregationResult.bound(sourceRecordIds.get(1), UUID.randomUUID())));
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(sourceRecordIds.get(2))))
+                .thenReturn(List.of(AggregationResult.bound(sourceRecordIds.get(2), UUID.randomUUID())));
         AggregationWorkQueueWorker worker = worker(queue);
         set(worker, "processingChunkSize", 2);
 
@@ -150,31 +150,31 @@ class AggregationWorkQueueWorkerTest {
 
         assertThat(processed).isEqualTo(3);
         assertThat(queue.completed).hasSize(3);
-        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(0), rawVideoIds.get(1)));
-        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(rawVideoIds.get(2)));
+        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(sourceRecordIds.get(0), sourceRecordIds.get(1)));
+        verify(aggregationService).aggregateRuntimeWorkBatch(List.of(sourceRecordIds.get(2)));
     }
 
     @Test
     void exposesCurrentStageWhileAggregationBatchIsRunning() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        UUID rawVideoId = UUID.randomUUID();
-        RuntimeWorkItem item = item(rawVideoId, 1);
+        UUID sourceRecordId = UUID.randomUUID();
+        RuntimeWorkItem item = item(sourceRecordId, 1);
         queue.items.add(item);
         AggregationWorkQueueWorker worker = worker(queue);
-        when(aggregationService.aggregateRuntimeWorkBatch(List.of(rawVideoId))).thenAnswer(invocation -> {
+        when(aggregationService.aggregateRuntimeWorkBatch(List.of(sourceRecordId))).thenAnswer(invocation -> {
             AggregationWorkQueueState state = worker.state();
             assertThat(state.currentStage()).isEqualTo("AGGREGATE_BATCH");
-            assertThat(state.currentRawVideoId()).isEqualTo(rawVideoId.toString());
+            assertThat(state.currentSourceRecordId()).isEqualTo(sourceRecordId.toString());
             assertThat(state.currentTaskId()).isEqualTo(item.taskId());
             assertThat(state.currentBatchSize()).isEqualTo(1);
             assertThat(state.currentStageStartedAt()).isNotNull();
-            return List.of(AggregationResult.bound(rawVideoId, UUID.randomUUID()));
+            return List.of(AggregationResult.bound(sourceRecordId, UUID.randomUUID()));
         });
 
         worker.runOnce();
 
         assertThat(worker.state().currentStage()).isNull();
-        verify(aggregationService, times(1)).aggregateRuntimeWorkBatch(List.of(rawVideoId));
+        verify(aggregationService, times(1)).aggregateRuntimeWorkBatch(List.of(sourceRecordId));
     }
 
     @Test
@@ -328,7 +328,7 @@ class AggregationWorkQueueWorkerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"BOUND", "MISSING_RAW_VIDEO", "PROVIDER_ERROR", "WAITING_DEPENDENCIES", "QUOTA_WAIT",
+    @ValueSource(strings = {"BOUND", "MISSING_SOURCE_RECORD", "PROVIDER_ERROR", "WAITING_DEPENDENCIES", "QUOTA_WAIT",
             "IDENTITY_CONFLICT", "MERGE_AMBIGUOUS"})
     void rejectedTerminalCasIsObservableAndNeverRecordsSuccess(String status) throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
@@ -442,17 +442,17 @@ class AggregationWorkQueueWorkerTest {
         return worker;
     }
 
-    private RuntimeWorkItem item(UUID rawVideoId, int attempt) throws Exception {
+    private RuntimeWorkItem item(UUID sourceRecordId, int attempt) throws Exception {
         AggregationWorkPayload payload = new AggregationWorkPayload(
-                rawVideoId,
+                sourceRecordId,
                 "hash-v1",
                 "test",
                 "unit-test");
         return new RuntimeWorkItem(
-                AggregationWorkTypes.RAW_VIDEO,
-                AggregationWorkTypes.taskId(rawVideoId),
+                AggregationWorkTypes.SOURCE_RECORD,
+                AggregationWorkTypes.taskId(sourceRecordId),
                 UUID.randomUUID().toString(),
-                rawVideoId.toString(),
+                sourceRecordId.toString(),
                 "hash-v1",
                 objectMapper.writeValueAsString(payload),
                 "PROCESSING",
@@ -501,7 +501,7 @@ class AggregationWorkQueueWorkerTest {
 
         @Override
         public List<RuntimeWorkItem> claim(String taskType, String ownerId, int limit, Duration visibilityTimeout) {
-            return AggregationWorkTypes.RAW_VIDEO.equals(taskType) ? List.copyOf(items) : List.of();
+            return AggregationWorkTypes.SOURCE_RECORD.equals(taskType) ? List.copyOf(items) : List.of();
         }
 
         @Override

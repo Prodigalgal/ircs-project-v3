@@ -20,7 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 @RequiredArgsConstructor
 class AggregationBindingCorrectionService {
-    static final int MAX_RAW_VIDEOS = 20;
+    static final int MAX_SOURCE_RECORDS = 20;
     private static final String READY = "READY";
 
     private final JdbcAggregationRepository repository;
@@ -40,8 +40,8 @@ class AggregationBindingCorrectionService {
         List<UUID> rawIds = validateIds(source, target, requestedIds);
         repository.configureAggregationTransaction();
         repository.lockAggregationShared();
-        repository.lockRawVideos(rawIds);
-        repository.lockUnifiedVideos(List.of(source, target));
+        repository.lockSourceRecords(rawIds);
+        repository.lockCatalogEntries(List.of(source, target));
         repository.lockSelectedCorrectionBindings(rawIds);
         CorrectionPlan plan = inspect(source, target, rawIds);
         if (!READY.equals(plan.status()) || !fingerprint.equals(plan.snapshot().fingerprint())) {
@@ -72,7 +72,7 @@ class AggregationBindingCorrectionService {
     }
 
     private CorrectionPlan inspect(UUID source, UUID target, List<UUID> rawIds) {
-        List<RawVideoAggregationRecord> rows = repository.findRawVideos(rawIds);
+        List<SourceRecordAggregationRecord> rows = repository.findSourceRecords(rawIds);
         if (rows.size() != rawIds.size() || rows.stream().anyMatch(raw -> !isReadyForCorrection(raw))) {
             return new CorrectionPlan("SOURCE_INPUT_NOT_READY", source, target, rawIds, List.of(), null);
         }
@@ -99,7 +99,7 @@ class AggregationBindingCorrectionService {
         return new CorrectionPlan(status, source, destination, rawIds, evidence, snapshot);
     }
 
-    private boolean isReadyForCorrection(RawVideoAggregationRecord raw) {
+    private boolean isReadyForCorrection(SourceRecordAggregationRecord raw) {
         // Older refreshes may have parked an existing association in PENDING. Its exact
         // membership and version are still checked by the same preview and commit guards.
         return "BOUND".equals(raw.aggregationStatus()) && "READY".equals(raw.normalizationStatus())
@@ -107,7 +107,7 @@ class AggregationBindingCorrectionService {
                 || "PENDING".equals(raw.aggregationStatus()) && raw.isAggregationEligible();
     }
 
-    private String reviewStatus(List<RawVideoAggregationRecord> rows, UnifiedVideoAggregationCandidate target,
+    private String reviewStatus(List<SourceRecordAggregationRecord> rows, CatalogEntryAggregationCandidate target,
             JdbcAggregationRepository.BindingCorrectionSnapshot snapshot) {
         if (snapshot.expectedBindings() != rows.size()) { return "SOURCE_BINDINGS_CHANGED"; }
         if (snapshot.sourceMembers() <= rows.size()) { return "SOURCE_WOULD_BE_EMPTY"; }
@@ -120,18 +120,18 @@ class AggregationBindingCorrectionService {
         return conflict == null ? READY : "TARGET_CLUSTER:" + conflict;
     }
 
-    private UUID discoverDestination(UUID source, List<RawVideoAggregationRecord> rows) {
+    private UUID discoverDestination(UUID source, List<SourceRecordAggregationRecord> rows) {
         List<AggregationMatchPlan> matches = rows.stream().map(raw -> repository.findCorrectionMatch(raw, source)).toList();
         if (matches.stream().anyMatch(plan -> !plan.hasRoot() || plan.hasVictims())) {
             return null;
         }
-        List<UUID> targets = matches.stream().map(AggregationMatchPlan::rootUnifiedVideoId).distinct().toList();
+        List<UUID> targets = matches.stream().map(AggregationMatchPlan::rootCatalogEntryId).distinct().toList();
         return targets.size() == 1 ? targets.getFirst() : null;
     }
 
     private List<UUID> validateIds(UUID source, UUID target, List<UUID> ids) {
         if (source == null || source.equals(target) || ids == null || ids.isEmpty()
-                || ids.size() > MAX_RAW_VIDEOS || ids.stream().anyMatch(Objects::isNull)) {
+                || ids.size() > MAX_SOURCE_RECORDS || ids.stream().anyMatch(Objects::isNull)) {
             throw new ResponseStatusException(BAD_REQUEST, "One source, a distinct target, and 1 to 20 raw IDs are required");
         }
         List<UUID> ordered = ids.stream().distinct().sorted().toList();
@@ -141,9 +141,9 @@ class AggregationBindingCorrectionService {
         return ordered;
     }
 
-    record CorrectionEvidence(UUID rawVideoId, String sourceConflict) { }
+    record CorrectionEvidence(UUID sourceRecordId, String sourceConflict) { }
 
-    record CorrectionPlan(String status, UUID sourceUnifiedVideoId, UUID targetUnifiedVideoId,
-            List<UUID> rawVideoIds, List<CorrectionEvidence> evidence,
+    record CorrectionPlan(String status, UUID sourceCatalogEntryId, UUID targetCatalogEntryId,
+            List<UUID> sourceRecordIds, List<CorrectionEvidence> evidence,
             JdbcAggregationRepository.BindingCorrectionSnapshot snapshot) { }
 }

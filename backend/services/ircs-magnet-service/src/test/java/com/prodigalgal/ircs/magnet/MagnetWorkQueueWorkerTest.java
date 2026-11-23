@@ -35,8 +35,8 @@ class MagnetWorkQueueWorkerTest {
     private final MagnetWorkLeaseStore leaseStore = org.mockito.Mockito.mock(MagnetWorkLeaseStore.class);
     private final MagnetQueryService queryService = org.mockito.Mockito.mock(MagnetQueryService.class);
     private final UUID jobId = UUID.randomUUID();
-    private final UUID unifiedVideoId = UUID.randomUUID();
-    private final RuntimeWorkItem item = item(jobId, unifiedVideoId);
+    private final UUID catalogEntryId = UUID.randomUUID();
+    private final RuntimeWorkItem item = item(jobId, catalogEntryId);
     private final MagnetWorkQueueWorker worker = new MagnetWorkQueueWorker(
             queue, new ObjectMapper(), queryService, leaseStore, emptyRuntimeConfigProvider());
 
@@ -66,7 +66,7 @@ class MagnetWorkQueueWorkerTest {
         int processed = worker.runOnce();
 
         assertEquals(1, processed);
-        verify(queryService).executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true);
+        verify(queryService).executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true);
         verify(queue).complete(item);
         verify(queue, never()).fail(any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), anyString());
     }
@@ -93,7 +93,7 @@ class MagnetWorkQueueWorkerTest {
 
         assertEquals(1, worker.runOnce());
 
-        verify(queryService, never()).executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true);
+        verify(queryService, never()).executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true);
         verify(queryService).executeQueuedSearch(secondJob, secondVideo, "AUTO_SCHEDULED", true);
         verify(queue).complete(second);
         verify(queue, never()).complete(item);
@@ -117,7 +117,7 @@ class MagnetWorkQueueWorkerTest {
         CountDownLatch secondStarted = new CountDownLatch(1);
         CountDownLatch allowFirst = new CountDownLatch(1);
         CountDownLatch allowSecond = new CountDownLatch(1);
-        when(queryService.executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true))
+        when(queryService.executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true))
                 .thenAnswer(call -> {
                     assertTrue(Thread.currentThread().isVirtual());
                     firstStarted.countDown();
@@ -157,7 +157,7 @@ class MagnetWorkQueueWorkerTest {
 
     @Test
     void unexpectedFailureRetriesOnlyWhileConfiguredAttemptsRemain() {
-        when(queryService.executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true))
+        when(queryService.executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true))
                 .thenThrow(new IllegalStateException("transient"));
 
         assertEquals(0, worker.runOnce());
@@ -168,7 +168,7 @@ class MagnetWorkQueueWorkerTest {
 
     @Test
     void jobBusyDefersQueueWorkWithoutConsumingFailureAttempt() {
-        when(queryService.executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true))
+        when(queryService.executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true))
                 .thenThrow(new MagnetSearchJobCoordinator.MagnetJobBusyException(
                         "MAGNET_SEARCH_JOB_ALREADY_RUNNING"));
         when(leaseStore.defer(item, Duration.ofSeconds(30), "MAGNET_SEARCH_JOB_ALREADY_RUNNING"))
@@ -183,7 +183,7 @@ class MagnetWorkQueueWorkerTest {
 
     @Test
     void lostBusinessLeaseDefersQueueWorkWithoutRepeatedlyFailingJob() {
-        when(queryService.executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true))
+        when(queryService.executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true))
                 .thenThrow(new MagnetSearchJobCoordinator.MagnetLeaseLostException("MAGNET_SEARCH_JOB_LEASE_LOST"));
         when(leaseStore.defer(item, Duration.ofSeconds(30), "MAGNET_SEARCH_JOB_LEASE_LOST"))
                 .thenReturn(true);
@@ -195,9 +195,9 @@ class MagnetWorkQueueWorkerTest {
         verify(queue, never()).complete(item);
     }
 
-    private RuntimeWorkItem item(UUID jobId, UUID unifiedVideoId) {
+    private RuntimeWorkItem item(UUID jobId, UUID catalogEntryId) {
         Instant now = Instant.now();
-        MagnetSearchWorkPayload payload = new MagnetSearchWorkPayload(jobId, unifiedVideoId, "AUTO_SCHEDULED");
+        MagnetSearchWorkPayload payload = new MagnetSearchWorkPayload(jobId, catalogEntryId, "AUTO_SCHEDULED");
         String serialized;
         try {
             serialized = new ObjectMapper().writeValueAsString(payload);
@@ -208,7 +208,7 @@ class MagnetWorkQueueWorkerTest {
                 MagnetWorkTypes.SEARCH,
                 MagnetWorkTypes.searchTaskId(jobId),
                 UUID.randomUUID().toString(),
-                unifiedVideoId.toString(),
+                catalogEntryId.toString(),
                 null,
                 serialized,
                 "PROCESSING",

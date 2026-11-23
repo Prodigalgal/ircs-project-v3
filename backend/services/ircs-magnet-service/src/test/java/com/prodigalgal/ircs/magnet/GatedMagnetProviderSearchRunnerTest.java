@@ -13,7 +13,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 class GatedMagnetProviderSearchRunnerTest {
 
-    private final UUID unifiedVideoId = UUID.randomUUID();
+    private final UUID catalogEntryId = UUID.randomUUID();
     private final MagnetExternalIdQuery imdbQuery = new MagnetExternalIdQuery("IMDB", "tt1234567");
 
     @Test
@@ -33,7 +33,7 @@ class GatedMagnetProviderSearchRunnerTest {
 
         MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
                 MagnetProviderRunnerException.class,
-                () -> runner.search(ytsProvider(), imdbQuery, unifiedVideoId));
+                () -> runner.search(ytsProvider(), imdbQuery, catalogEntryId));
 
         assertEquals("MAGNET_PROVIDER_DISABLED", exception.failureType());
         org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
@@ -70,7 +70,7 @@ class GatedMagnetProviderSearchRunnerTest {
                 environment(false),
                 false);
 
-        MagnetProviderSearchResult result = runner.search(ytsProvider(), imdbQuery, unifiedVideoId);
+        MagnetProviderSearchResult result = runner.search(ytsProvider(), imdbQuery, catalogEntryId);
 
         org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
                 org.mockito.ArgumentMatchers.any(),
@@ -107,7 +107,7 @@ class GatedMagnetProviderSearchRunnerTest {
                 environment(false),
                 false);
 
-        MagnetProviderSearchResult result = runner.search(genericProvider(), imdbQuery, unifiedVideoId);
+        MagnetProviderSearchResult result = runner.search(genericProvider(), imdbQuery, catalogEntryId);
 
         org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
                 org.mockito.ArgumentMatchers.any(),
@@ -141,7 +141,7 @@ class GatedMagnetProviderSearchRunnerTest {
 
         MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
                 MagnetProviderRunnerException.class,
-                () -> runner.search(ytsProvider(), imdbQuery, unifiedVideoId));
+                () -> runner.search(ytsProvider(), imdbQuery, catalogEntryId));
 
         assertEquals("MAGNET_PROVIDER_UNSUPPORTED", exception.failureType());
         org.mockito.Mockito.verify(fixtureRunner, org.mockito.Mockito.never()).search(
@@ -176,7 +176,7 @@ class GatedMagnetProviderSearchRunnerTest {
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(result("fixture"));
 
-        MagnetProviderSearchResult result = runner.search(fixtureProvider(), imdbQuery, unifiedVideoId);
+        MagnetProviderSearchResult result = runner.search(fixtureProvider(), imdbQuery, catalogEntryId);
 
         org.mockito.Mockito.verify(fixtureRunner).search(
                 org.mockito.ArgumentMatchers.any(),
@@ -199,7 +199,7 @@ class GatedMagnetProviderSearchRunnerTest {
 
         MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
                 MagnetProviderRunnerException.class,
-                () -> runner.search(fixtureProvider(), imdbQuery, unifiedVideoId));
+                () -> runner.search(fixtureProvider(), imdbQuery, catalogEntryId));
 
         assertEquals("MAGNET_FIXTURE_DISABLED", exception.failureType());
     }
@@ -218,7 +218,7 @@ class GatedMagnetProviderSearchRunnerTest {
 
         MagnetProviderRunnerException exception = org.junit.jupiter.api.Assertions.assertThrows(
                 MagnetProviderRunnerException.class,
-                () -> runner.search(unknownProvider(), imdbQuery, unifiedVideoId));
+                () -> runner.search(unknownProvider(), imdbQuery, catalogEntryId));
 
         assertEquals("MAGNET_PROVIDER_UNSUPPORTED", exception.failureType());
     }

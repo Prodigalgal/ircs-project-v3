@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 class AggregationProductionRegressionTest {
 
     private final AggregationMatchingStrategy strategy = AggregationTestFixtures.matchingStrategy();
-    private final RawVideoGraphClusterer clusterer = new RawVideoGraphClusterer(strategy);
+    private final SourceRecordGraphClusterer clusterer = new SourceRecordGraphClusterer(strategy);
 
     /** Curated date/league title examples retained from the original investigation. */
     private static final List<String> SPORTS_TITLES = List.of(
@@ -41,56 +41,56 @@ class AggregationProductionRegressionTest {
 
     @Test
     void sportsClusterSplitsIntoDistinctFixtures() {
-        List<RawVideoAggregationRecord> raws = SPORTS_TITLES.stream()
-                .map(title -> rawVideo(title, "sports", "2026", null, null, null))
+        List<SourceRecordAggregationRecord> raws = SPORTS_TITLES.stream()
+                .map(title -> sourceRecord(title, "sports", "2026", null, null, null))
                 .toList();
 
-        List<RawVideoAggregationCluster> clusters = clusterer.cluster(raws);
+        List<SourceRecordAggregationCluster> clusters = clusterer.cluster(raws);
 
         // The same fixture from different sources must still collapse (6-13 中乙 appears once here,
         // 7-5 中乙 once), but different dates and different leagues must not.
         assertThat(clusters).hasSize(SPORTS_TITLES.size());
-        assertThat(clusters).allMatch(cluster -> cluster.rawVideoIds().size() == 1);
+        assertThat(clusters).allMatch(cluster -> cluster.sourceRecordIds().size() == 1);
     }
 
     @Test
     void repeatedSameFixtureStillMerges() {
         // Same league, same date, from two sources: this is the merge the aggregation exists for.
-        List<RawVideoAggregationRecord> raws = List.of(
-                rawVideo("7月4日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null),
-                rawVideo("7月4日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null));
+        List<SourceRecordAggregationRecord> raws = List.of(
+                sourceRecord("7月4日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null),
+                sourceRecord("7月4日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null));
 
-        List<RawVideoAggregationCluster> clusters = clusterer.cluster(raws);
+        List<SourceRecordAggregationCluster> clusters = clusterer.cluster(raws);
 
         assertThat(clusters).hasSize(1);
-        assertThat(clusters.getFirst().rawVideoIds()).hasSize(2);
+        assertThat(clusters.getFirst().sourceRecordIds()).hasSize(2);
     }
 
     @Test
     void placeholderDoubanIdNoLongerCollapsesUnrelatedWorks() {
         // Pre-fix, every one of these scored 1.0 against the others via the same-id shortcut and the
         // whole set collapsed into the single 全民诡异 row.
-        List<RawVideoAggregationRecord> raws = DIRTY_ID_TITLES.stream()
-                .map(title -> rawVideo(title, "anime", "2026", "123", null, null))
+        List<SourceRecordAggregationRecord> raws = DIRTY_ID_TITLES.stream()
+                .map(title -> sourceRecord(title, "anime", "2026", "123", null, null))
                 .toList();
 
-        List<RawVideoAggregationCluster> clusters = clusterer.cluster(raws);
+        List<SourceRecordAggregationCluster> clusters = clusterer.cluster(raws);
 
         assertThat(clusters).hasSize(DIRTY_ID_TITLES.size());
-        assertThat(clusters).allMatch(cluster -> cluster.rawVideoIds().size() == 1);
+        assertThat(clusters).allMatch(cluster -> cluster.sourceRecordIds().size() == 1);
     }
 
     @Test
     void genuineCrossSourceDuplicateStillMergesWithSharedId() {
-        List<RawVideoAggregationRecord> raws = List.of(
-                rawVideo("罗浮剑主", "anime", "2026", "35000001", null, null),
-                rawVideo("罗浮剑主", "anime", "2026", "35000001", null, null),
-                rawVideo("罗浮剑主", "anime", "2026", "35000001", null, null));
+        List<SourceRecordAggregationRecord> raws = List.of(
+                sourceRecord("罗浮剑主", "anime", "2026", "35000001", null, null),
+                sourceRecord("罗浮剑主", "anime", "2026", "35000001", null, null),
+                sourceRecord("罗浮剑主", "anime", "2026", "35000001", null, null));
 
-        List<RawVideoAggregationCluster> clusters = clusterer.cluster(raws);
+        List<SourceRecordAggregationCluster> clusters = clusterer.cluster(raws);
 
         assertThat(clusters).hasSize(1);
-        assertThat(clusters.getFirst().rawVideoIds()).hasSize(3);
+        assertThat(clusters.getFirst().sourceRecordIds()).hasSize(3);
     }
 
     @Test
@@ -107,9 +107,9 @@ class AggregationProductionRegressionTest {
     @Test
     void genericSubtitleWithSeasonOrQualityDoesNotBridgeDifferentPrimaryTitles() {
         for (String subtitle : List.of("动态漫画 第1季", "完整版1080P", "正片 国语")) {
-            List<RawVideoAggregationRecord> raws = List.of(
-                    rawVideoWithSubtitle("天宫试炼", "anime", "2026", null, null, null, subtitle),
-                    rawVideoWithSubtitle("沙漠猎人", "anime", "2026", null, null, null, subtitle));
+            List<SourceRecordAggregationRecord> raws = List.of(
+                    sourceRecordWithSubtitle("天宫试炼", "anime", "2026", null, null, null, subtitle),
+                    sourceRecordWithSubtitle("沙漠猎人", "anime", "2026", null, null, null, subtitle));
 
             assertThat(clusterer.cluster(raws)).as(subtitle).hasSize(2);
         }
@@ -117,29 +117,29 @@ class AggregationProductionRegressionTest {
 
     @Test
     void sameDateAndLeagueCannotEraseParticipantOrProvinceDifferences() {
-        List<RawVideoAggregationRecord> raws = List.of(
-                rawVideo("6月13日25-26赛季广东省城市足球超级联赛", "sports", "2026", null, null, null),
-                rawVideo("6月13日25-26赛季福建省城市足球超级联赛", "sports", "2026", null, null, null),
-                rawVideo("6月13日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null),
-                rawVideo("6月13日25-26赛季中乙联赛丙队VS丁队", "sports", "2026", null, null, null));
+        List<SourceRecordAggregationRecord> raws = List.of(
+                sourceRecord("6月13日25-26赛季广东省城市足球超级联赛", "sports", "2026", null, null, null),
+                sourceRecord("6月13日25-26赛季福建省城市足球超级联赛", "sports", "2026", null, null, null),
+                sourceRecord("6月13日25-26赛季中乙联赛甲队VS乙队", "sports", "2026", null, null, null),
+                sourceRecord("6月13日25-26赛季中乙联赛丙队VS丁队", "sports", "2026", null, null, null));
 
         assertThat(clusterer.cluster(raws)).hasSize(4);
     }
 
-    private RawVideoAggregationRecord rawVideo(
+    private SourceRecordAggregationRecord sourceRecord(
             String title,
             String categoryName,
             String year,
             String doubanId,
             String tmdbId,
             Integer season) {
-        return rawVideoWithSubtitle(title, categoryName, year, doubanId, tmdbId, season, null);
+        return sourceRecordWithSubtitle(title, categoryName, year, doubanId, tmdbId, season, null);
     }
 
-    private RawVideoAggregationRecord rawVideoWithSubtitle(
+    private SourceRecordAggregationRecord sourceRecordWithSubtitle(
             String title, String categoryName, String year, String doubanId, String tmdbId,
             Integer season, String subtitle) {
-        return new RawVideoAggregationRecord(
+        return new SourceRecordAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 null,

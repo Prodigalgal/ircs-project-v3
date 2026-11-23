@@ -15,7 +15,7 @@ class DashboardStatsSnapshotRepositorySqlPolicyTest {
                 "services/ircs-ops-service/src/main/java/com/prodigalgal/ircs/ops/dashboard/infrastructure/DashboardStatsSnapshotRepository.java",
                 "src/main/java/com/prodigalgal/ircs/ops/dashboard/infrastructure/DashboardStatsSnapshotRepository.java"));
 
-        assertThat(source).contains("ops_dashboard_stats_snapshots");
+        assertThat(source).contains("operations_pipeline_metric_snapshots");
         assertThat(source).contains("stale_until > now()");
         assertThat(source).contains("ON CONFLICT (snapshot_key) DO UPDATE");
         assertThat(source).contains("app.ops.dashboard.snapshot.fresh-ttl");
@@ -31,7 +31,7 @@ class DashboardStatsSnapshotRepositorySqlPolicyTest {
                 "platform/ircs-migrator/src/main/resources/db/changelog/db.changelog-master.yaml",
                 "../platform/ircs-migrator/src/main/resources/db/changelog/db.changelog-master.yaml"));
 
-        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS ops_dashboard_stats_snapshots");
+        assertThat(changelog).contains("CREATE TABLE IF NOT EXISTS operations_pipeline_metric_snapshots");
         assertThat(changelog).contains("raw_count_db BIGINT");
         assertThat(changelog).contains("raw_count_es BIGINT");
         assertThat(changelog).contains("generated_at TIMESTAMPTZ");

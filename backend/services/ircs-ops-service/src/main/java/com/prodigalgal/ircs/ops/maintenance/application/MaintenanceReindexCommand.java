@@ -24,39 +24,39 @@ public class MaintenanceReindexCommand {
     static final int MAX_BATCH_SIZE = OpsConfigValues.MAX_REINDEX_BATCH_SIZE;
     private static final String SELECT_RAW_IDS = """
             select id
-              from raw_videos
+              from source_records
              order by updated_at desc nulls last, id
              limit :limit
             """;
     private static final String SELECT_RAW_IDS_FIRST_BATCH = """
             select id
-              from raw_videos
+              from source_records
              order by id asc
              limit :limit
             """;
     private static final String SELECT_RAW_IDS_NEXT_BATCH = """
             select id
-              from raw_videos
+              from source_records
              where id > :afterId
              order by id asc
              limit :limit
             """;
     private static final String SELECT_UNIFIED_IDS_FIRST_BATCH = """
             select id
-              from unified_videos
+              from catalog_entries
              order by id asc
              limit :limit
             """;
     private static final String SELECT_UNIFIED_IDS_NEXT_BATCH = """
             select id
-              from unified_videos
+              from catalog_entries
              where id > :afterId
              order by id asc
              limit :limit
             """;
     private static final String SELECT_UNIFIED_IDS = """
             select id
-              from unified_videos
+              from catalog_entries
              order by updated_at desc nulls last, id
              limit :limit
             """;
@@ -79,7 +79,7 @@ public class MaintenanceReindexCommand {
     }
 
     public MaintenanceRunResult enqueueUnifiedIndex(String correlationId) {
-        return enqueueIndex(TASK_UNIFIED_REINDEX, SELECT_UNIFIED_IDS, SearchEntityType.UNIFIED_VIDEO, correlationId);
+        return enqueueIndex(TASK_UNIFIED_REINDEX, SELECT_UNIFIED_IDS, SearchEntityType.CATALOG_ENTRY, correlationId);
     }
 
     public MaintenanceRunResult enqueueRawIndex() {
@@ -87,7 +87,7 @@ public class MaintenanceReindexCommand {
     }
 
     public MaintenanceRunResult enqueueRawIndex(String correlationId) {
-        return enqueueIndex(TASK_RAW_REINDEX, SELECT_RAW_IDS, SearchEntityType.RAW_VIDEO, correlationId);
+        return enqueueIndex(TASK_RAW_REINDEX, SELECT_RAW_IDS, SearchEntityType.SOURCE_RECORD, correlationId);
     }
 
     public MaintenanceRunResult enqueueAllUnifiedIndex(String correlationId) {
@@ -95,7 +95,7 @@ public class MaintenanceReindexCommand {
                 TASK_UNIFIED_REINDEX_ALL,
                 SELECT_UNIFIED_IDS_FIRST_BATCH,
                 SELECT_UNIFIED_IDS_NEXT_BATCH,
-                SearchEntityType.UNIFIED_VIDEO,
+                SearchEntityType.CATALOG_ENTRY,
                 correlationId);
     }
 
@@ -104,12 +104,12 @@ public class MaintenanceReindexCommand {
                 TASK_RAW_REINDEX_ALL,
                 SELECT_RAW_IDS_FIRST_BATCH,
                 SELECT_RAW_IDS_NEXT_BATCH,
-                SearchEntityType.RAW_VIDEO,
+                SearchEntityType.SOURCE_RECORD,
                 correlationId);
     }
 
     public MaintenanceRunResult hardResetUnifiedIndex(String correlationId) {
-        int changed = searchSyncClient.hardResetIndex(SearchEntityType.UNIFIED_VIDEO, correlationId);
+        int changed = searchSyncClient.hardResetIndex(SearchEntityType.CATALOG_ENTRY, correlationId);
         return new MaintenanceRunResult("aggregation-reset.search-hard-reset", 1, changed, List.of());
     }
 

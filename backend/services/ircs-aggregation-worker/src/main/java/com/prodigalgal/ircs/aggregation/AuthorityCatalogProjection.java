@@ -15,5 +15,5 @@ record AuthorityCatalogProjection(
         Integer regularSeasonCount,
         int seasonNumber,
         LocalDate seasonReleasedOn,
-        UUID unifiedVideoId) {
+        UUID catalogEntryId) {
 }

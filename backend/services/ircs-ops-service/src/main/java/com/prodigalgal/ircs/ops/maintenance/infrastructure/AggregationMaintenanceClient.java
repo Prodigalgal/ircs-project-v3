@@ -103,9 +103,9 @@ class AggregationMaintenanceClient implements MaintenanceAggregationClient {
             AggregationResetStepResponse body = objectMapper.readValue(response.body(), AggregationResetStepResponse.class);
             return new MaintenanceRunResult(
                     taskName,
-                    safeInt(body.rawVideoCount()),
+                    safeInt(body.sourceRecordCount()),
                     safeInt(body.changedRows()),
-                    ids(body.sampleRawVideoIds()));
+                    ids(body.sampleSourceRecordIds()));
         } catch (OutboundCircuitOpenException ex) {
             throw new IllegalStateException("aggregation-worker maintenance failed: outbound circuit open", ex);
         } catch (IOException | IllegalArgumentException ex) {

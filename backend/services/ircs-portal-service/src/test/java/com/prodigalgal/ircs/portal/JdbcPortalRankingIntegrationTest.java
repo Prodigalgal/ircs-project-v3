@@ -95,7 +95,7 @@ class JdbcPortalRankingIntegrationTest {
     @Test
     void legacyHighRatingAndRecentlyTouchedRowsAreNotGlobalTrendingEvidence() {
         UUID legacy = work("Old perfect score", "movie", 10.0);
-        jdbc.update("update unified_videos set published_at = current_date - 1000, last_trend_at = now(), "
+        jdbc.update("update catalog_entries set published_at = current_date - 1000, last_trend_at = now(), "
                 + "updated_at = now() where id = ?", legacy);
         UUID current = work("Currently trending", "movie", 6.0);
         observation(current, "TMDB", "trending-day", "day", 3, sampleTime);
@@ -165,8 +165,8 @@ class JdbcPortalRankingIntegrationTest {
         event(future, today.plusDays(1), 2, 13);
         resource(yesterday, 2, 11);
         resource(current, 2, 12);
-        jdbc.update("update unified_videos set updated_at = now() - interval '30 days' where id = ?", current);
-        jdbc.update("update unified_videos set updated_at = now(), published_at = current_date where id in (?, ?)",
+        jdbc.update("update catalog_entries set updated_at = now() - interval '30 days' where id = ?", current);
+        jdbc.update("update catalog_entries set updated_at = now(), published_at = current_date where id in (?, ?)",
                 yesterday, merelyTouched);
 
         List<PortalMovieCard> cards = repository.findRecentlyUpdated(publicPrincipal, 20);
@@ -201,9 +201,9 @@ class JdbcPortalRankingIntegrationTest {
         UUID yesterday = work("Retained broadcast", "series", 8.0);
         event(yesterday, today.minusDays(1), 2, 12);
         resource(yesterday, 2, 12);
-        jdbc.update("update external_catalog_events set observed_at = now() - interval '1 day'");
+        jdbc.update("update catalog_release_events set observed_at = now() - interval '1 day'");
         observation(yesterday, "TMDB", "airing-today", "event", 1, sampleTime.minus(Duration.ofDays(1)));
-        jdbc.update("delete from external_trend_observations");
+        jdbc.update("delete from provider_ranking_observations");
 
         List<PortalMovieCard> cards = repository.findRecentlyUpdated(publicPrincipal, 20);
 
@@ -248,9 +248,9 @@ class JdbcPortalRankingIntegrationTest {
         UUID assessed = work("Assessed adult", "movie", 8.0);
         UUID privateWork = work("Private", "movie", 8.0);
         UUID adultCategory = work("Adult category", "adult", 8.0);
-        jdbc.update("update unified_videos set adult_restricted = true where id = ?", restricted);
-        jdbc.update("update unified_videos set adult_assessment = '{\"level\":\"ADULT\"}'::jsonb where id = ?", assessed);
-        jdbc.update("update unified_videos set content_visibility = 'HIDDEN' where id = ?", privateWork);
+        jdbc.update("update catalog_entries set adult_restricted = true where id = ?", restricted);
+        jdbc.update("update catalog_entries set adult_assessment = '{\"level\":\"ADULT\"}'::jsonb where id = ?", assessed);
+        jdbc.update("update catalog_entries set content_visibility = 'HIDDEN' where id = ?", privateWork);
         for (UUID id : List.of(safe, restricted, assessed, privateWork, adultCategory)) {
             observation(id, "TMDB", "trending-day", "day", 1, sampleTime);
             event(id, today, 0, 0);
@@ -270,10 +270,10 @@ class JdbcPortalRankingIntegrationTest {
         UUID missingTag = work("Missing tag", "movie", 8.0);
         UUID wrongCategory = work("Series", "series", 8.0);
         for (UUID id : List.of(allowed, missingTag, wrongCategory)) {
-            jdbc.update("update unified_videos set genre_codes = '[\"action\"]'::jsonb where id = ?", id);
+            jdbc.update("update catalog_entries set genre_codes = '[\"action\"]'::jsonb where id = ?", id);
         }
         for (UUID id : List.of(allowed, wrongGenre, wrongCategory)) {
-            jdbc.update("insert into unified_video_tags values (?, 'featured')", id);
+            jdbc.update("insert into catalog_entry_tags values (?, 'featured')", id);
         }
         for (UUID id : List.of(allowed, wrongGenre, missingTag, wrongCategory)) {
             observation(id, "TMDB", "trending-day", "day", 1, sampleTime);
@@ -282,7 +282,7 @@ class JdbcPortalRankingIntegrationTest {
                 Set.of(), Set.of(), Set.of("movie"), Set.of("action"), Set.of("featured"), Set.of("PUBLIC"));
 
         assertThat(repository.findTrending(scoped, 20)).extracting(PortalMovieCard::id).containsExactly(allowed);
-        jdbc.update("update unified_videos set updated_at = now() - interval '1 day' where id = ?", allowed);
+        jdbc.update("update catalog_entries set updated_at = now() - interval '1 day' where id = ?", allowed);
 
         var sections = repository.findCategorySections(scoped, List.of("movie", "series"), 1);
 
@@ -297,12 +297,12 @@ class JdbcPortalRankingIntegrationTest {
         UUID privateMovie = work("Private movie", "movie", 8.0);
         UUID restrictedSeries = work("Restricted series", "series", 8.0);
         UUID currentSeries = work("Current series", "series", 8.0);
-        jdbc.update("update unified_videos set published_at = current_date - 1 where id in (?, ?)",
+        jdbc.update("update catalog_entries set published_at = current_date - 1 where id in (?, ?)",
                 currentMovie, currentSeries);
-        jdbc.update("update unified_videos set published_at = current_date - 2 where id = ?", olderMovie);
-        jdbc.update("update unified_videos set published_at = current_date, content_visibility = 'HIDDEN' where id = ?",
+        jdbc.update("update catalog_entries set published_at = current_date - 2 where id = ?", olderMovie);
+        jdbc.update("update catalog_entries set published_at = current_date, content_visibility = 'HIDDEN' where id = ?",
                 privateMovie);
-        jdbc.update("update unified_videos set published_at = current_date, adult_restricted = true where id = ?",
+        jdbc.update("update catalog_entries set published_at = current_date, adult_restricted = true where id = ?",
                 restrictedSeries);
 
         var sections = repository.findCategorySections(publicPrincipal, List.of("series", "movie"), 1);
@@ -316,18 +316,18 @@ class JdbcPortalRankingIntegrationTest {
     void cardsReleaseTheQueryConnectionBeforeReadingColdDictionaries() {
         UUID populated = work("Present codes", "movie", 8.0);
         UUID empty = work("Empty codes", "movie", 7.0);
-        jdbc.execute("create table standard_areas(code text primary key, name text)");
-        jdbc.update("insert into standard_areas values ('cn', '中国大陆'), ('us', '美国')");
-        jdbc.update("insert into standard_genre values (?, '剧情', 'drama'), (?, '动作', 'action'), (?, '恐怖', 'horror')",
+        jdbc.execute("create table catalog_regions(code text primary key, name text)");
+        jdbc.update("insert into catalog_regions values ('cn', '中国大陆'), ('us', '美国')");
+        jdbc.update("insert into catalog_genres values (?, '剧情', 'drama'), (?, '动作', 'action'), (?, '恐怖', 'horror')",
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         jdbc.update("""
-                update unified_videos
+                update catalog_entries
                    set published_at = current_date,
                        area_codes = '["cn","zz"," cn ","us"," "]'::jsonb,
                        genre_codes = '["drama","x-sci","action"," drama ","horror",""]'::jsonb
                  where id = ?
                 """, populated);
-        jdbc.update("update unified_videos set area_codes = null, genre_codes = null where id = ?", empty);
+        jdbc.update("update catalog_entries set area_codes = null, genre_codes = null where id = ?", empty);
 
         List<PortalMovieCard> cards = repositoryWithColdLookups().findCategorySection(publicPrincipal, "movie", 2);
 
@@ -342,10 +342,10 @@ class JdbcPortalRankingIntegrationTest {
     void categoryCardsReleaseTheQueryConnectionBeforeReadingColdCoverConfiguration() {
         UUID movie = work("Managed cover", "movie", 8.0);
         UUID cover = UUID.randomUUID();
-        jdbc.execute("create table system_configs(config_key text primary key, config_value text)");
-        jdbc.update("insert into system_configs values ('app.storage.public-path', '/configured-media')");
-        jdbc.update("insert into cover_images(id, storage_type, storage_path) values (?, 'LOCAL', 'posters/movie.webp')", cover);
-        jdbc.update("update unified_videos set cover_image_id = ? where id = ?", cover, movie);
+        jdbc.execute("create table application_settings(config_key text primary key, config_value text)");
+        jdbc.update("insert into application_settings values ('app.storage.public-path', '/configured-media')");
+        jdbc.update("insert into media_image_sources(id, storage_type, storage_path) values (?, 'LOCAL', 'posters/movie.webp')", cover);
+        jdbc.update("update catalog_entries set media_image_source_id = ? where id = ?", cover, movie);
 
         var sections = repositoryWithColdLookups().findCategorySections(publicPrincipal, List.of("movie"), 1);
 
@@ -396,7 +396,7 @@ class JdbcPortalRankingIntegrationTest {
         UUID video = work("Authoritative season", "series", 7.5);
         UUID authority = authorityProjection(video, "tv", 2);
         jdbc.update("""
-                insert into authority_catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
+                insert into catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
                 values (?,2,1,101), (?,2,2,102)
                 """, authority, authority);
         UUID correct = raw(video, 2, false);
@@ -430,7 +430,7 @@ class JdbcPortalRankingIntegrationTest {
         UUID special = work("Specials", "series", 7.5);
         UUID authority = authorityProjection(special, "tv", 0);
         jdbc.update("""
-                insert into authority_catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
+                insert into catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id)
                 values (?,0,1,201)
                 """, authority);
         UUID rawSpecial = raw(special, null, false);
@@ -446,9 +446,9 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(detailEpisodeNames(movie)).isEmpty();
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isFalse();
         assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?, 0)", Boolean.class, movie)).isFalse();
-        jdbc.update("insert into magnet_links(unified_video_id,id,status) values (?,?,'APPROVED')", movie, UUID.randomUUID());
+        jdbc.update("insert into catalog_magnet_links(catalog_entry_id,id,status) values (?,?,'APPROVED')", movie, UUID.randomUUID());
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
-        jdbc.update("delete from magnet_links where unified_video_id=?", movie);
+        jdbc.update("delete from catalog_magnet_links where catalog_entry_id=?", movie);
         recordAuthorityBinding(movieSource, movie);
         assertThat(detailEpisodeNames(movie)).containsExactly("正片");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
@@ -463,9 +463,9 @@ class JdbcPortalRankingIntegrationTest {
     void sourceFailuresExposeLastSuccessAndStalenessWithoutErasingUsefulSnapshot() {
         UUID work = work("Last good snapshot", "movie", 8.0);
         observation(work, "TMDB", "trending-day", "day", 1, sampleTime.minus(Duration.ofHours(8)));
-        jdbc.update("insert into external_trend_boards values ('TMDB', 'trending-day', 'movie', 'day', "
+        jdbc.update("insert into provider_ranking_boards values ('TMDB', 'trending-day', 'movie', 'day', "
                 + "now(), now() - interval '8 hours', 'FAILED', 'PROVIDER_UNAVAILABLE', 20)");
-        jdbc.update("insert into external_trend_boards values ('IMDb', 'popular', 'movie', 'popular', "
+        jdbc.update("insert into provider_ranking_boards values ('IMDb', 'popular', 'movie', 'popular', "
                 + "now(), null, 'UNAVAILABLE', 'ACCESS_NOT_CONFIGURED', 0)");
 
         List<PortalTrendSourceState> sources = repository.findTrendSourceStates();
@@ -490,22 +490,22 @@ class JdbcPortalRankingIntegrationTest {
 
     private UUID work(String title, String category, double rating) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into unified_videos(id, title, category_code, score, season) values (?, ?, ?, ?, ?)",
+        jdbc.update("insert into catalog_entries(id, title, category_code, score, season) values (?, ?, ?, ?, ?)",
                 id, title, category, BigDecimal.valueOf(rating), "series".equals(category) ? 2 : null);
         return id;
     }
 
     private void observation(UUID id, String provider, String board, String window, int position, Instant observedAt) {
         jdbc.update("""
-                insert into external_trend_observations(provider, board, media_type, source_window, external_id,
-                    unified_video_id, position, observed_at)
+                insert into provider_ranking_observations(provider, board, media_type, source_window, external_id,
+                    catalog_entry_id, position, observed_at)
                 values (?, ?, 'movie', ?, ?, ?, ?, ?)
                 """, provider, board, window, id.toString(), id, position, Timestamp.from(observedAt));
     }
 
     private void event(UUID id, LocalDate date, int season, int episode) {
         jdbc.update("""
-                insert into external_catalog_events(unified_video_id, provider, external_id, season, episode,
+                insert into catalog_release_events(catalog_entry_id, provider, external_id, season, episode,
                     event_date, event_type, observed_at)
                 values (?, 'TMDB', ?, ?, ?, ?, 'EPISODE_AIR', ?)
                 """, id, id.toString(), season, episode, Date.valueOf(date), Timestamp.from(sampleTime));
@@ -514,39 +514,39 @@ class JdbcPortalRankingIntegrationTest {
     private UUID raw(UUID id, Integer season, boolean adult) {
         UUID rawId = UUID.randomUUID();
         UUID source = UUID.randomUUID();
-        jdbc.update("insert into data_sources(id,adult_restricted) values(?,?)", source, adult);
-        jdbc.update("insert into raw_videos(id, season, data_source_id) values (?, ?, ?)", rawId, season, source);
-        jdbc.update("insert into raw_video_unified_video values (?, ?)", rawId, id);
+        jdbc.update("insert into collection_sources(id,adult_restricted) values(?,?)", source, adult);
+        jdbc.update("insert into source_records(id, season, collection_source_id) values (?, ?, ?)", rawId, season, source);
+        jdbc.update("insert into catalog_source_bindings values (?, ?)", rawId, id);
         return rawId;
     }
 
     private void episode(UUID rawId, String name, String url) {
         UUID playlist = UUID.randomUUID();
-        jdbc.update("insert into playlists(id,video_id) values (?, ?)", playlist, rawId);
-        jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, ?, ?)", UUID.randomUUID(), playlist, name, url);
+        jdbc.update("insert into source_playlists(id,video_id) values (?, ?)", playlist, rawId);
+        jdbc.update("insert into source_playback_items(id, playlist_id, name, url) values (?, ?, ?, ?)", UUID.randomUUID(), playlist, name, url);
     }
 
     private void recordAuthorityBinding(UUID rawId, UUID entryId) {
-        jdbc.update("insert into authority_resource_bindings(raw_video_id,unified_video_id,evidence_kind) values (?,?,'MANUAL_REVIEW')",
+        jdbc.update("insert into catalog_source_match_evidence(source_record_id,catalog_entry_id,evidence_kind) values (?,?,'MANUAL_REVIEW')",
                 rawId, entryId);
     }
 
     private UUID authorityProjection(UUID video, String type, int season) {
         UUID work = UUID.randomUUID();
         jdbc.update("""
-                insert into authority_catalog_works(id,media_type,tmdb_id,title,title_key)
+                insert into catalog_works(id,media_type,tmdb_id,title,title_key)
                 values (?,?,42,'Test','test')
                 """, work, type);
         if ("tv".equals(type)) {
             jdbc.update("""
-                    insert into authority_catalog_seasons(work_id,season_number,tmdb_season_id,verified_at)
+                    insert into catalog_seasons(work_id,season_number,tmdb_season_id,verified_at)
                     values (?,?,100,now())
                     """, work, season);
         }
         jdbc.update("""
-                insert into authority_catalog_projections(work_id,media_type,season_number,unified_video_id) values (?,?,?,?)
+                insert into catalog_authority_publications(work_id,media_type,season_number,catalog_entry_id) values (?,?,?,?)
                 """, work, type, season, video);
-        jdbc.update("update unified_videos set season=nullif(?,-1) where id=?", season, video);
+        jdbc.update("update catalog_entries set season=nullif(?,-1) where id=?", season, video);
         return work;
     }
 
@@ -555,8 +555,8 @@ class JdbcPortalRankingIntegrationTest {
                 .flatMap(source -> source.episodes().stream()).map(PortalMovieDetailResponse.Episode::title).toList();
     }
 
-    private void resource(UUID unifiedVideoId, int season, int episode) {
-        UUID rawId = raw(unifiedVideoId, season == 0 ? null : season, false);
+    private void resource(UUID catalogEntryId, int season, int episode) {
+        UUID rawId = raw(catalogEntryId, season == 0 ? null : season, false);
         episode(rawId, episode == 0 ? "正片" : "第" + episode + "集",
                 "https://source.example/resource" + UUID.randomUUID() + ".m3u8");
     }
@@ -573,31 +573,31 @@ class JdbcPortalRankingIntegrationTest {
 
     private void createSchema() throws Exception {
         jdbc.execute("""
-                create table unified_videos(id uuid primary key, title text, alias_title text, season integer, subtitle text,
+                create table catalog_entries(id uuid primary key, title text, alias_title text, season integer, subtitle text,
                     score numeric, year text, description text, total_episodes text, duration text, remarks text,
                     last_trend_at timestamp, published_at date, updated_at timestamp default now(),
-                    category_code text, cover_image_id uuid, area_codes jsonb default '[]', genre_codes jsonb default '[]',
+                    category_code text, media_image_source_id uuid, area_codes jsonb default '[]', genre_codes jsonb default '[]',
                     language_codes jsonb default '[]', actor_names jsonb default '[]', director_names jsonb default '[]',
                     douban_id text, tmdb_id text, imdb_id text,
                     content_visibility text default 'PUBLIC', adult_restricted boolean default false, adult_assessment jsonb)
                 """);
-        jdbc.execute("create table standard_category(id uuid primary key, name text, slug text)");
-        jdbc.execute("create table cover_images(id uuid primary key, storage_type text, original_url text, storage_path text, source_domain_id uuid)");
-        jdbc.execute("create table source_domains(id uuid primary key, domain_value text)");
-        jdbc.execute("create table standard_genre(id uuid primary key, name text, code text)");
-        jdbc.execute("create table unified_video_tags(unified_video_id uuid, tag text)");
-        jdbc.execute("create table data_sources(id uuid primary key, name text, adult_restricted boolean default false)");
-        jdbc.execute("create table raw_videos(id uuid primary key, season integer, data_source_id uuid)");
-        jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid, primary key(raw_video_id, unified_video_id))");
-        jdbc.execute("create table playlists(id uuid primary key, video_id uuid, name text)");
-        jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");
+        jdbc.execute("create table catalog_categories(id uuid primary key, name text, slug text)");
+        jdbc.execute("create table media_image_sources(id uuid primary key, storage_type text, original_url text, storage_path text, source_origin_id uuid)");
+        jdbc.execute("create table source_origins(id uuid primary key, domain_value text)");
+        jdbc.execute("create table catalog_genres(id uuid primary key, name text, code text)");
+        jdbc.execute("create table catalog_entry_tags(catalog_entry_id uuid, tag text)");
+        jdbc.execute("create table collection_sources(id uuid primary key, name text, adult_restricted boolean default false)");
+        jdbc.execute("create table source_records(id uuid primary key, season integer, collection_source_id uuid)");
+        jdbc.execute("create table catalog_source_bindings(source_record_id uuid, catalog_entry_id uuid, primary key(source_record_id, catalog_entry_id))");
+        jdbc.execute("create table source_playlists(id uuid primary key, video_id uuid, name text)");
+        jdbc.execute("create table source_playback_items(id uuid primary key, playlist_id uuid, name text, url text, source_origin_id uuid)");
         jdbc.execute("""
-                create table magnet_links(unified_video_id uuid, status text, id uuid, title text, magnet_uri text,
+                create table catalog_magnet_links(catalog_entry_id uuid, status text, id uuid, title text, magnet_uri text,
                     size_label text, published_at timestamp, quality text, resolution text, seeders integer,
                     provider_code text, tags jsonb)
                 """);
         for (String category : List.of("movie", "series", "adult", "sports")) {
-            jdbc.update("insert into standard_category values (?, ?, ?)", UUID.randomUUID(), category, category);
+            jdbc.update("insert into catalog_categories values (?, ?, ?)", UUID.randomUUID(), category, category);
         }
         jdbc.execute(Files.readString(migrationPath("16-02-global-rankings-and-discovery.sql")));
         jdbc.execute(Files.readString(migrationPath("22-01-catalog-target-resources.sql")));

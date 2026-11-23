@@ -69,13 +69,13 @@ class InternalContentClientsTest {
                 .thenReturn(baseUrl(firstServer))
                 .thenReturn(baseUrl(secondServer));
         InternalContentClients clients = InternalContentClients.forTest(configValues);
-        UUID rawVideoId = UUID.randomUUID();
+        UUID sourceRecordId = UUID.randomUUID();
 
-        clients.refetchRawVideo(rawVideoId);
-        clients.refetchRawVideo(rawVideoId);
+        clients.refetchSourceRecord(sourceRecordId);
+        clients.refetchSourceRecord(sourceRecordId);
 
-        assertEquals("/internal/v1/scraper/raw-videos/" + rawVideoId + "/refetch", firstPath.get());
-        assertEquals("/internal/v1/scraper/raw-videos/" + rawVideoId + "/refetch", secondPath.get());
+        assertEquals("/internal/v1/scraper/raw-videos/" + sourceRecordId + "/refetch", firstPath.get());
+        assertEquals("/internal/v1/scraper/raw-videos/" + sourceRecordId + "/refetch", secondPath.get());
     }
 
     @Test
@@ -89,20 +89,20 @@ class InternalContentClientsTest {
                     throw new AssertionError("INTERNAL_SERVICE must not perform public DNS SSRF resolution");
         }), transport),
                 Duration.ofMillis(100));
-        UUID rawVideoId = UUID.randomUUID();
+        UUID sourceRecordId = UUID.randomUUID();
         transport.responses.add(new OutboundHttpResponse(503, Map.of(), "slow".getBytes(StandardCharsets.UTF_8)));
         transport.responses.add(new OutboundHttpResponse(503, Map.of(), "still slow".getBytes(StandardCharsets.UTF_8)));
 
-        ContentApiException first = assertThrows(ContentApiException.class, () -> clients.refetchRawVideo(rawVideoId));
+        ContentApiException first = assertThrows(ContentApiException.class, () -> clients.refetchSourceRecord(sourceRecordId));
         assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, first.status());
         assertEquals("Failed to dispatch raw video refetch: upstream status 503", first.getMessage());
 
-        ContentApiException second = assertThrows(ContentApiException.class, () -> clients.refetchRawVideo(rawVideoId));
+        ContentApiException second = assertThrows(ContentApiException.class, () -> clients.refetchSourceRecord(sourceRecordId));
         assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, second.status());
         assertEquals("Failed to dispatch raw video refetch: outbound circuit open", second.getMessage());
         assertEquals(2, transport.requests.size());
         assertEquals("POST", transport.requests.getFirst().method());
-        assertEquals("/internal/v1/scraper/raw-videos/" + rawVideoId + "/refetch",
+        assertEquals("/internal/v1/scraper/raw-videos/" + sourceRecordId + "/refetch",
                 transport.requests.getFirst().uri().getPath());
         assertEquals("content-refetch-scraper:scraper-service:8080",
                 transport.requests.getFirst().policy().circuitBreakerKey()

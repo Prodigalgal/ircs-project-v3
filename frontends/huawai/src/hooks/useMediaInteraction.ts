@@ -14,7 +14,7 @@ interface UseMediaInteractionResult {
     checkFavoriteStatus: () => Promise<void>;
 }
 
-export function useMediaInteraction(unifiedVideoId: string): UseMediaInteractionResult {
+export function useMediaInteraction(catalogEntryId: string): UseMediaInteractionResult {
     const { user } = useAuth();
     const { addToast } = useToast();
     const router = useRouter();
@@ -25,22 +25,22 @@ export function useMediaInteraction(unifiedVideoId: string): UseMediaInteraction
 
     // Check status on mount if user exists
     const checkFavoriteStatus = useCallback(async () => {
-        if (!user || !unifiedVideoId) return;
+        if (!user || !catalogEntryId) return;
         try {
-            const status = await interactionApi.checkFavorite(unifiedVideoId);
+            const status = await interactionApi.checkFavorite(catalogEntryId);
             setIsFavorite(status);
             setHasChecked(true);
         } catch (error) {
             console.error("Failed to check favorite status", error);
             setHasChecked(true);
         }
-    }, [user, unifiedVideoId]);
+    }, [user, catalogEntryId]);
 
     useEffect(() => {
-        if (user && unifiedVideoId && !hasChecked) {
+        if (user && catalogEntryId && !hasChecked) {
             checkFavoriteStatus();
         }
-    }, [user, unifiedVideoId, hasChecked, checkFavoriteStatus]);
+    }, [user, catalogEntryId, hasChecked, checkFavoriteStatus]);
 
     const toggleFavorite = async (e?: React.MouseEvent) => {
         if (e) {
@@ -58,7 +58,7 @@ export function useMediaInteraction(unifiedVideoId: string): UseMediaInteraction
 
         setIsLoading(true);
         try {
-            const newState = await interactionApi.toggleFavorite(unifiedVideoId);
+            const newState = await interactionApi.toggleFavorite(catalogEntryId);
             setIsFavorite(newState);
             addToast(newState ? "已加入收藏" : "已取消收藏", newState ? "success" : "info");
         } catch (err) {

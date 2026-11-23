@@ -1,0 +1,76 @@
+package com.prodigalgal.ircs.content.video.application;
+
+
+
+
+import com.prodigalgal.ircs.content.video.messaging.ContentCommandPublisher;
+import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository;
+import com.prodigalgal.ircs.content.video.api.ContentApiException;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.when;
+
+import com.prodigalgal.ircs.content.maintenance.application.ContentMaintenanceGate;
+import com.prodigalgal.ircs.contracts.search.SyncOperation;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class CatalogEntryAdminServiceTest {
+
+    @Mock
+    private JdbcVideoAdminRepository repository;
+
+    @Mock
+    private ContentCommandPublisher publisher;
+
+    @Mock
+    private ContentMaintenanceGate maintenanceGate;
+
+    @InjectMocks
+    private CatalogEntryAdminService service;
+
+    @Test
+    void batchDeleteDeletesUnifiedIndexAndReindexesUnboundSourceRecords() {
+        UUID unifiedId = UUID.randomUUID();
+        UUID rawId = UUID.randomUUID();
+        UUID secondUnifiedId = UUID.randomUUID();
+        List<UUID> ids = List.of(unifiedId, secondUnifiedId);
+        when(repository.findRawIdsForCatalogEntries(ids)).thenReturn(List.of(rawId));
+
+        service.batchDelete(ids);
+
+        verify(maintenanceGate).assertCatalogEntryWrite(unifiedId);
+        verify(maintenanceGate).assertCatalogEntryWrite(secondUnifiedId);
+        verify(repository).findRawIdsForCatalogEntries(ids);
+        verify(repository, never()).findRawIdsForUnified(unifiedId);
+        verify(repository, never()).findRawIdsForUnified(secondUnifiedId);
+        verify(repository).deleteCatalogEntries(ids);
+        verify(publisher).publishUnifiedSearch(unifiedId, SyncOperation.DELETE);
+        verify(publisher).publishUnifiedSearch(secondUnifiedId, SyncOperation.DELETE);
+        verify(publisher).publishRawSearch(rawId, SyncOperation.INDEX);
+    }
+
+    @Test
+    void recalculateCallsAggregationAndPublishesUnifiedIndex() {
+        UUID unifiedId = UUID.randomUUID();
+        UUID rawId = UUID.randomUUID();
+
+        when(repository.recalculateUnifiedFromSources(unifiedId)).thenReturn(List.of(rawId));
+        try {
+            service.recalculateMetadata(unifiedId);
+        } catch (ContentApiException ignored) {
+            // Detail lookup is separately covered by repository smoke; this assertion focuses on dispatch side effects.
+        }
+
+        verify(maintenanceGate).assertCatalogEntryWrite(unifiedId);
+        verify(repository).recalculateUnifiedFromSources(unifiedId);
+        verify(publisher).publishRawSearch(rawId, SyncOperation.INDEX);
+        verify(publisher).publishUnifiedSearch(unifiedId, SyncOperation.INDEX);
+    }
+}

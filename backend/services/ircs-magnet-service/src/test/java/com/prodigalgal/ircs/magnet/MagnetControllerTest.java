@@ -92,11 +92,11 @@ class MagnetControllerTest {
     }
 
     @Test
-    void returnsApprovedLinksForUnifiedVideo() {
-        UUID unifiedVideoId = UUID.randomUUID();
+    void returnsApprovedLinksForCatalogEntry() {
+        UUID catalogEntryId = UUID.randomUUID();
         MagnetLinkSummary link = new MagnetLinkSummary(
                 UUID.randomUUID(),
-                unifiedVideoId,
+                catalogEntryId,
                 "yts_bz",
                 "abcdef123456",
                 "magnet:?xt=urn:btih:abcdef123456",
@@ -116,20 +116,20 @@ class MagnetControllerTest {
                 List.of("1080p"),
                 Instant.parse("2026-06-04T00:00:00Z"),
                 Instant.parse("2026-06-04T00:00:00Z"));
-        when(magnetQueryService.findApprovedLinks(unifiedVideoId)).thenReturn(List.of(link));
+        when(magnetQueryService.findApprovedLinks(catalogEntryId)).thenReturn(List.of(link));
 
-        assertEquals(List.of(link), controller.getUnifiedMagnets(unifiedVideoId).getBody());
-        verify(magnetQueryService).findApprovedLinks(unifiedVideoId);
+        assertEquals(List.of(link), controller.getUnifiedMagnets(catalogEntryId).getBody());
+        verify(magnetQueryService).findApprovedLinks(catalogEntryId);
     }
 
     @Test
     void routesUnifiedSearchContract() throws Exception {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID jobId = UUID.randomUUID();
         UUID linkId = UUID.randomUUID();
         MagnetLinkSummary link = new MagnetLinkSummary(
                 linkId,
-                unifiedVideoId,
+                catalogEntryId,
                 "yts_bz",
                 "abcdef1234567890abcdef1234567890abcdef12",
                 "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
@@ -151,7 +151,7 @@ class MagnetControllerTest {
                 Instant.parse("2026-06-07T00:00:01Z"));
         MagnetSearchJobSummary job = new MagnetSearchJobSummary(
                 jobId,
-                unifiedVideoId,
+                catalogEntryId,
                 "ADMIN_MANUAL",
                 "PENDING",
                 List.of(),
@@ -166,17 +166,17 @@ class MagnetControllerTest {
                 List.of(),
                 Instant.parse("2026-06-07T00:00:00Z"),
                 Instant.parse("2026-06-07T00:00:01Z"));
-        when(magnetQueryService.enqueueUnifiedSearch(unifiedVideoId)).thenReturn(job);
+        when(magnetQueryService.enqueueUnifiedSearch(catalogEntryId)).thenReturn(job);
 
-        mockMvc.perform(post("/api/v1/magnets/search/unified/{id}", unifiedVideoId))
+        mockMvc.perform(post("/api/v1/magnets/search/unified/{id}", catalogEntryId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(jobId.toString()))
-                .andExpect(jsonPath("$.unifiedVideoId").value(unifiedVideoId.toString()))
+                .andExpect(jsonPath("$.catalogEntryId").value(catalogEntryId.toString()))
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.totalCandidates").value(0))
                 .andExpect(jsonPath("$.acceptedCount").value(0));
 
-        verify(magnetQueryService).enqueueUnifiedSearch(unifiedVideoId);
+        verify(magnetQueryService).enqueueUnifiedSearch(catalogEntryId);
     }
 
     private MagnetProviderSummary provider(UUID providerId, String code) {

@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public record MagnetLinkSummary(
         UUID id,
-        UUID unifiedVideoId,
+        UUID catalogEntryId,
         String providerCode,
         String infoHash,
         String magnetUri,

@@ -28,7 +28,7 @@ class SearchSyncWorkPublisherTest {
 
         int accepted = publisher.enqueueBatch(
                 List.of(id, id),
-                SearchEntityType.RAW_VIDEO,
+                SearchEntityType.SOURCE_RECORD,
                 SyncOperation.INDEX,
                 "content-service",
                 "trace-1");
@@ -41,7 +41,7 @@ class SearchSyncWorkPublisherTest {
         assertThat(request.version()).isEqualTo("INDEX");
         SearchSyncWorkPayload payload = new ObjectMapper().readValue(request.payload(), SearchSyncWorkPayload.class);
         assertThat(payload.entityId()).isEqualTo(id);
-        assertThat(payload.entityType()).isEqualTo(SearchEntityType.RAW_VIDEO);
+        assertThat(payload.entityType()).isEqualTo(SearchEntityType.SOURCE_RECORD);
         assertThat(payload.operation()).isEqualTo(SyncOperation.INDEX);
         assertThat(payload.sourceService()).isEqualTo("content-service");
         assertThat(payload.correlationId()).isEqualTo("trace-1");

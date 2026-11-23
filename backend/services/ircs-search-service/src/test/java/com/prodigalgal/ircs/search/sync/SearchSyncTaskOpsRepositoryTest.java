@@ -29,8 +29,8 @@ class SearchSyncTaskOpsRepositoryTest {
         assertThat(stats.processing()).isEqualTo(1);
         assertThat(stats.failed()).isEqualTo(1);
         assertThat(stats.duePending()).isEqualTo(5);
-        assertThat(stats.rawVideo()).isEqualTo(3);
-        assertThat(stats.unifiedVideo()).isEqualTo(4);
+        assertThat(stats.sourceRecord()).isEqualTo(3);
+        assertThat(stats.catalogEntry()).isEqualTo(4);
         assertThat(stats.rawQueue().pending()).isEqualTo(2);
         assertThat(stats.rawQueue().processing()).isEqualTo(1);
         assertThat(stats.unifiedQueue().failed()).isEqualTo(1);

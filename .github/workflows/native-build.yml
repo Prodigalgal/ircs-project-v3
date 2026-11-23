@@ -9,6 +9,10 @@ on:
         description: auto, all, or comma-separated images to add to pending changes
         default: auto
         required: false
+      verify_only:
+        description: Run affected regressions without creating a release candidate
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -132,7 +136,7 @@ jobs:
           PY
           python3 backend/scripts/ci/native-matrix.py --plan "$RUNNER_TEMP/affected-plan.json" --baseline "$RUNNER_TEMP/release-state.json"
       - id: release
-        if: steps.matrix.outputs.has_selected == 'true'
+        if: steps.matrix.outputs.has_selected == 'true' && !inputs.verify_only
         name: Verify reserved immutable application candidate
         run: python3 .github/scripts/release-info.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -215,7 +219,7 @@ jobs:
   native-images:
     name: Native ${{ matrix.image }} / ${{ matrix.arch }}
     needs: [prepare, java-tests]
-    if: needs.prepare.outputs.images != '[]'
+    if: needs.prepare.outputs.images != '[]' && !inputs.verify_only
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -281,7 +285,7 @@ jobs:
   python-images:
     name: Python image / ${{ matrix.arch }}
     needs: [prepare, python-tests]
-    if: needs.prepare.outputs.python_changed == 'true'
+    if: needs.prepare.outputs.python_changed == 'true' && !inputs.verify_only
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
@@ -383,7 +387,7 @@ jobs:
   frontend-images:
     name: Frontend ${{ matrix.frontend }} / ${{ matrix.arch }}
     needs: [prepare, frontend-tests]
-    if: needs.prepare.outputs.frontends != '[]'
+    if: needs.prepare.outputs.frontends != '[]' && !inputs.verify_only
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -434,7 +438,7 @@ jobs:
   native-consumer-smoke:
     name: Native service runtime / ${{ matrix.arch }}
     needs: [prepare, native-images]
-    if: needs.prepare.outputs.images != '[]'
+    if: needs.prepare.outputs.images != '[]' && !inputs.verify_only
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -467,7 +471,7 @@ jobs:
   manifests:
     needs: [prepare, native-images, native-consumer-smoke, python-images, frontend-images]
     if: >-
-      ${{ always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.has_selected == 'true'
+      ${{ always() && !cancelled() && !inputs.verify_only && needs.prepare.result == 'success' && needs.prepare.outputs.has_selected == 'true'
           && (needs.prepare.outputs.images == '[]' || (needs.native-images.result == 'success' && needs.native-consumer-smoke.result == 'success'))
           && (needs.prepare.outputs.python_changed != 'true' || needs.python-images.result == 'success')
           && (needs.prepare.outputs.frontends == '[]' || needs.frontend-images.result == 'success') }}

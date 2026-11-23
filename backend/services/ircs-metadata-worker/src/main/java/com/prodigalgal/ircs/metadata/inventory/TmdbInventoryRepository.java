@@ -26,7 +26,7 @@ class TmdbInventoryRepository {
             """;
     private static final String RENEW = """
             WITH lease AS (
-                UPDATE authority_tmdb_inventory_state
+                UPDATE provider_catalog_snapshot_states
                    SET lease_until = now() + interval '5 minutes'
                  WHERE %s
                 RETURNING media_type
@@ -38,7 +38,7 @@ class TmdbInventoryRepository {
     public Optional<Claim> claim(TmdbInventoryMediaType mediaType, LocalDate date) {
         UUID token = UUID.randomUUID();
         return jdbc.query("""
-                UPDATE authority_tmdb_inventory_state
+                UPDATE provider_catalog_snapshot_states
                    SET lease_token = :token, lease_until = now() + interval '5 minutes',
                        attempt_date = :snapshotDate, last_attempt_at = now()
                  WHERE media_type = :mediaType
@@ -54,12 +54,12 @@ class TmdbInventoryRepository {
         int removed = jdbc.queryForObject(RENEW + """
                 , obsolete AS MATERIALIZED (
                     SELECT e.ctid
-                      FROM authority_tmdb_inventory_entries e JOIN lease l USING (media_type)
+                      FROM provider_catalog_snapshot_items e JOIN lease l USING (media_type)
                      WHERE e.slot = :slot
                      ORDER BY e.tmdb_id
                      LIMIT :batchSize
                 ), removed AS (
-                    DELETE FROM authority_tmdb_inventory_entries
+                    DELETE FROM provider_catalog_snapshot_items
                      WHERE ctid = ANY (ARRAY(SELECT ctid FROM obsolete))
                     RETURNING 1
                 )
@@ -79,7 +79,7 @@ class TmdbInventoryRepository {
                 .addValue("popularity", new SqlArrayValue("float8", entries.stream().map(Entry::popularity).toArray()))
                 .addValue("video", new SqlArrayValue("bool", entries.stream().map(Entry::video).toArray()));
         int written = jdbc.update(RENEW + """
-                INSERT INTO authority_tmdb_inventory_entries (media_type, slot, tmdb_id, title, popularity, video)
+                INSERT INTO provider_catalog_snapshot_items (media_type, slot, tmdb_id, title, popularity, video)
                 SELECT lease.media_type, :slot, incoming.tmdb_id, incoming.title, incoming.popularity, incoming.video
                   FROM lease
                   CROSS JOIN unnest(cast(:ids as bigint[]), cast(:titles as text[]),
@@ -93,7 +93,7 @@ class TmdbInventoryRepository {
 
     public boolean publish(Claim claim, int rowCount) {
         return jdbc.update("""
-                UPDATE authority_tmdb_inventory_state
+                UPDATE provider_catalog_snapshot_states
                    SET active_slot = :slot, snapshot_date = :snapshotDate, row_count = :rowCount,
                        last_success_at = now(), lease_token = NULL, lease_until = NULL,
                        last_error_code = NULL, retry_at = '-infinity'
@@ -106,7 +106,7 @@ class TmdbInventoryRepository {
 
     public void fail(Claim claim, String reasonCode) {
         jdbc.update("""
-                UPDATE authority_tmdb_inventory_state
+                UPDATE provider_catalog_snapshot_states
                    SET lease_token = NULL, lease_until = NULL, last_error_code = :reasonCode,
                        retry_at = now() + cast(:retrySeconds as integer) * interval '1 second'
                  WHERE

@@ -16,9 +16,9 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void differentParticipantsCannotMergeThroughSharedSportsHeadingOrAnExistingBinding() {
-        RawVideoAggregationRecord left = raw(SPORTS_HEADING, "巴州队VS和田队");
-        RawVideoAggregationRecord otherFixture = raw(SPORTS_HEADING, "伊犁队VS喀什队");
-        UnifiedVideoAggregationCandidate unified = unified(otherFixture);
+        SourceRecordAggregationRecord left = raw(SPORTS_HEADING, "巴州队VS和田队");
+        SourceRecordAggregationRecord otherFixture = raw(SPORTS_HEADING, "伊犁队VS喀什队");
+        CatalogEntryAggregationCandidate unified = unified(otherFixture);
 
         assertEquals(0.0, strategy.calculateSimilarity(left, otherFixture));
         assertEquals(0.0, strategy.calculateSimilarity(left, unified));
@@ -26,18 +26,18 @@ class AggregationIdentityEvidenceTest {
         assertFalse(strategy.isCompatibleBinding(left, unified));
         assertEquals("EVENT_CONFLICT", strategy.bindingConflictReason(left, unified));
 
-        RawVideoAggregationRecord dirtyIdLeft = raw(SPORTS_HEADING, "巴州队VS和田队", null,
+        SourceRecordAggregationRecord dirtyIdLeft = raw(SPORTS_HEADING, "巴州队VS和田队", null,
                 Set.of(), Set.of(), "111111");
-        RawVideoAggregationRecord dirtyIdRight = raw(SPORTS_HEADING, "伊犁队VS喀什队", null,
+        SourceRecordAggregationRecord dirtyIdRight = raw(SPORTS_HEADING, "伊犁队VS喀什队", null,
                 Set.of(), Set.of(), "111111");
         assertEquals(0.0, strategy.calculateSimilarity(dirtyIdLeft, unified(dirtyIdRight)));
     }
 
     @Test
     void matchingDateLeagueAndParticipantsCanMatchAcrossStructuredAndCompleteTitles() {
-        RawVideoAggregationRecord structured = raw(SPORTS_HEADING, "巴州队VS和田队");
-        RawVideoAggregationRecord complete = raw(SPORTS_HEADING + " 巴州队 VS 和田队", null);
-        UnifiedVideoAggregationCandidate unified = unified(complete);
+        SourceRecordAggregationRecord structured = raw(SPORTS_HEADING, "巴州队VS和田队");
+        SourceRecordAggregationRecord complete = raw(SPORTS_HEADING + " 巴州队 VS 和田队", null);
+        CatalogEntryAggregationCandidate unified = unified(complete);
 
         assertTrue(strategy.calculateSimilarity(structured, complete) >= 0.80);
         assertEquals(unified.id(), strategy.findBestMatch(structured, List.of(unified)).orElseThrow());
@@ -46,8 +46,8 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void differentDistinctiveShortDramaSubtitlesCannotWinOnTheirSharedHeadingAlone() {
-        RawVideoAggregationRecord left = raw("被家族抛弃", "我觉醒九亿属性点");
-        RawVideoAggregationRecord right = raw("被家族抛弃", "她远赴海外寻找真爱");
+        SourceRecordAggregationRecord left = raw("被家族抛弃", "我觉醒九亿属性点");
+        SourceRecordAggregationRecord right = raw("被家族抛弃", "她远赴海外寻找真爱");
 
         assertTrue(strategy.calculateSimilarity(left, right) < 0.80);
         assertTrue(strategy.calculateSimilarity(left, unified(right)) < 0.80);
@@ -56,8 +56,8 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void identicalCompleteDramaIdentityMatchesWhenOneSourceSplitsItsCommaTitle() {
-        RawVideoAggregationRecord structured = raw("被家族抛弃", "我觉醒九亿属性点");
-        RawVideoAggregationRecord complete = raw("被家族抛弃，我觉醒九亿属性点", null);
+        SourceRecordAggregationRecord structured = raw("被家族抛弃", "我觉醒九亿属性点");
+        SourceRecordAggregationRecord complete = raw("被家族抛弃，我觉醒九亿属性点", null);
 
         assertTrue(strategy.calculateSimilarity(structured, complete) >= 0.80);
         assertTrue(strategy.calculateSimilarity(structured, unified(complete)) >= 0.80);
@@ -66,12 +66,12 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void sharedExternalIdCannotUseAnActorDirectorRoleSwapToCorroborateUnrelatedTitles() {
-        RawVideoAggregationRecord left = raw("霸王别姬", null, null,
+        SourceRecordAggregationRecord left = raw("霸王别姬", null, null,
                 Set.of("演员甲"), Set.of("导演乙"), "111111");
-        RawVideoAggregationRecord right = raw("Titanic", null, null,
+        SourceRecordAggregationRecord right = raw("Titanic", null, null,
                 Set.of("导演乙"), Set.of("演员甲"), "111111");
-        UnifiedVideoAggregationCandidate leftUnified = unified(left);
-        UnifiedVideoAggregationCandidate rightUnified = unified(right);
+        CatalogEntryAggregationCandidate leftUnified = unified(left);
+        CatalogEntryAggregationCandidate rightUnified = unified(right);
 
         assertEquals(0.0, strategy.calculateSimilarity(left, right));
         assertEquals(0.0, strategy.calculateSimilarity(left, rightUnified));
@@ -81,9 +81,9 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void sameRolePeopleCanCorroborateSharedIdDespiteDifferentLanguageTitles() {
-        RawVideoAggregationRecord chinese = raw("霸王别姬", null, null,
+        SourceRecordAggregationRecord chinese = raw("霸王别姬", null, null,
                 Set.of("演员甲"), Set.of(), "111111");
-        RawVideoAggregationRecord translated = raw("Farewell My Concubine", null, null,
+        SourceRecordAggregationRecord translated = raw("Farewell My Concubine", null, null,
                 Set.of("演员甲"), Set.of(), "111111");
 
         assertTrue(strategy.calculateSimilarity(chinese, translated) >= 0.80);
@@ -92,13 +92,13 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void actorAndDirectorAgreementAreMeasuredSeparatelyRatherThanAsOneUnion() {
-        RawVideoAggregationRecord reference = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord reference = raw("独立作品名称", null, null,
                 Set.of("演员甲"), Set.of("导演乙"), null);
-        RawVideoAggregationRecord actorAgrees = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord actorAgrees = raw("独立作品名称", null, null,
                 Set.of("演员甲"), Set.of("导演丙"), null);
-        RawVideoAggregationRecord directorAgrees = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord directorAgrees = raw("独立作品名称", null, null,
                 Set.of("演员丁"), Set.of("导演乙"), null);
-        RawVideoAggregationRecord roleSwap = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord roleSwap = raw("独立作品名称", null, null,
                 Set.of("导演乙"), Set.of("演员甲"), null);
 
         assertTrue(strategy.calculateSimilarity(reference, directorAgrees)
@@ -110,15 +110,15 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void missingPeopleFieldsRemainAbsentEvidenceAndDoNotBecomeHardConflicts() {
-        RawVideoAggregationRecord reference = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord reference = raw("独立作品名称", null, null,
                 Set.of("演员甲"), Set.of("导演乙"), null);
-        RawVideoAggregationRecord actorOnly = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord actorOnly = raw("独立作品名称", null, null,
                 Set.of("演员甲"), Set.of(), null);
-        RawVideoAggregationRecord directorOnly = raw("独立作品名称", null, null,
+        SourceRecordAggregationRecord directorOnly = raw("独立作品名称", null, null,
                 Set.of(), Set.of("导演乙"), null);
-        RawVideoAggregationRecord noPeople = raw("独立作品名称", null);
+        SourceRecordAggregationRecord noPeople = raw("独立作品名称", null);
 
-        for (RawVideoAggregationRecord incomplete : List.of(actorOnly, directorOnly, noPeople)) {
+        for (SourceRecordAggregationRecord incomplete : List.of(actorOnly, directorOnly, noPeople)) {
             assertTrue(strategy.calculateSimilarity(reference, incomplete) >= 0.80);
             assertTrue(strategy.calculateSimilarity(reference, unified(incomplete)) >= 0.80);
             assertTrue(strategy.isCompatibleBinding(reference, unified(incomplete)));
@@ -127,7 +127,7 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void recallPrioritizesCompleteIdentityAndKeepsAliasFanoutBounded() {
-        RawVideoAggregationRecord raw = raw("被家族抛弃", "我觉醒九亿属性点",
+        SourceRecordAggregationRecord raw = raw("被家族抛弃", "我觉醒九亿属性点",
                 "黎明之城/远山来信/海边归途/冬日恋歌/雨夜追踪/长街往事/明日之约/夏日旅程",
                 Set.of(), Set.of(), null);
         List<String> keys = AggregationRecallKeys.titles(raw);
@@ -141,7 +141,7 @@ class AggregationIdentityEvidenceTest {
 
     @Test
     void genericSubtitleAndAliasesCannotCreateIdentityRecallKeys() {
-        RawVideoAggregationRecord raw = raw("真实作品名称", "正片", "正片/特别篇/完整版/预告片",
+        SourceRecordAggregationRecord raw = raw("真实作品名称", "正片", "正片/特别篇/完整版/预告片",
                 Set.of(), Set.of(), null);
 
         assertEquals("真实作品名称", AggregationRecallKeys.completeTitle(raw.title(), raw.subtitle()));
@@ -160,20 +160,20 @@ class AggregationIdentityEvidenceTest {
         assertTrue(AggregationRecallKeys.people(null).isEmpty());
     }
 
-    private RawVideoAggregationRecord raw(String title, String subtitle) {
+    private SourceRecordAggregationRecord raw(String title, String subtitle) {
         return raw(title, subtitle, null, Set.of(), Set.of(), null);
     }
 
-    private RawVideoAggregationRecord raw(String title, String subtitle, String aliases,
+    private SourceRecordAggregationRecord raw(String title, String subtitle, String aliases,
             Set<String> actors, Set<String> directors, String doubanId) {
-        return new RawVideoAggregationRecord(UUID.randomUUID(), title, aliases, null, "2026",
+        return new SourceRecordAggregationRecord(UUID.randomUUID(), title, aliases, null, "2026",
                 null, null, null, null, null, subtitle, null, null, null,
                 actors, directors, Set.of(), doubanId, null, null, null,
                 "READY", "SUCCESS", "PENDING");
     }
 
-    private UnifiedVideoAggregationCandidate unified(RawVideoAggregationRecord raw) {
-        return new UnifiedVideoAggregationCandidate(UUID.randomUUID(), raw.title(), raw.aliasTitle(),
+    private CatalogEntryAggregationCandidate unified(SourceRecordAggregationRecord raw) {
+        return new CatalogEntryAggregationCandidate(UUID.randomUUID(), raw.title(), raw.aliasTitle(),
                 raw.subtitle(), raw.year(), raw.totalEpisodes(), raw.duration(), raw.remarks(),
                 raw.categoryName(), raw.actorNames(), raw.directorNames(), raw.areaNames(),
                 raw.doubanId(), raw.tmdbId(), raw.imdbId(), raw.rottenTomatoesId(), raw.season());

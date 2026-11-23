@@ -37,7 +37,7 @@ class TrendSyncServiceTest {
         assertThat(captured.getValue().items()).isEmpty();
         assertThat(captured.getValue().boards()).containsExactly(board);
         assertThat(result.fetchedItems()).isEqualTo(1);
-        assertThat(result.applyResult().createdUnifiedVideoIds()).containsExactly(id);
+        assertThat(result.applyResult().createdCatalogEntryIds()).containsExactly(id);
         assertThat(result.discoveryResult().queuedTasks()).isZero();
     }
 
@@ -101,8 +101,8 @@ class TrendSyncServiceTest {
         assertThat(captured.getAllValues()).extracting(TrendSyncApplyRequest::boards)
                 .containsExactly(List.of(slow), List.of(day), List.of(week));
         assertThat(result.providerErrors()).containsExactly("Douban/chart: CONTENT_APPLY_FAILED");
-        assertThat(result.applyResult().createdUnifiedVideoIds()).containsExactly(id);
-        assertThat(result.applyResult().updatedUnifiedVideoIds()).isEmpty();
+        assertThat(result.applyResult().createdCatalogEntryIds()).containsExactly(id);
+        assertThat(result.applyResult().updatedCatalogEntryIds()).isEmpty();
     }
 
     @Test

@@ -47,7 +47,7 @@ public class DashboardReadModelSnapshotRepository {
                            expires_at,
                            stale_until,
                            source
-                      FROM ops_dashboard_read_model_snapshots
+                      FROM operations_dashboard_display_snapshots
                      WHERE snapshot_key = :snapshotKey
                        AND stale_until > now()
                     """,
@@ -69,7 +69,7 @@ public class DashboardReadModelSnapshotRepository {
         try {
             jdbcTemplate.update(
                     """
-                    INSERT INTO ops_dashboard_read_model_snapshots (
+                    INSERT INTO operations_dashboard_display_snapshots (
                         snapshot_key,
                         payload,
                         generated_at,
@@ -107,7 +107,7 @@ public class DashboardReadModelSnapshotRepository {
         try {
             jdbcTemplate.update(
                     """
-                    UPDATE ops_dashboard_read_model_snapshots
+                    UPDATE operations_dashboard_display_snapshots
                        SET expires_at = LEAST(expires_at, now()),
                            stale_until = LEAST(stale_until, now()),
                            updated_at = now()

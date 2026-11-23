@@ -87,7 +87,6 @@ public class CollectionTaskController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTask(@PathVariable UUID id) {
         taskCommandService.delete(id);
-        taskLogService.clearLogs(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -121,6 +120,8 @@ public class CollectionTaskController {
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "50") int limit
     ) {
-        return ResponseEntity.ok(taskLogService.getLogs(id, offset, limit));
+        return ResponseEntity.ok(taskQueryService.findCurrentRunId(id)
+                .map(runId -> taskLogService.getLogs(runId, offset, limit))
+                .orElseGet(java.util.List::of));
     }
 }

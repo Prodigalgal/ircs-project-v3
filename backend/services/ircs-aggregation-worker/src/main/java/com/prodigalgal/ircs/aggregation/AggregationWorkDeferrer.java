@@ -13,9 +13,9 @@ interface AggregationWorkDeferrer {
 
     default int failureAttempt(RuntimeWorkItem item) { return item.attempt(); }
 
-    Optional<ReviewedWork> findReviewedWork(UUID rawVideoId);
+    Optional<ReviewedWork> findReviewedWork(UUID sourceRecordId);
 
     boolean requeueReviewedWork(ReviewedWork work);
 
-    record ReviewedWork(UUID rawVideoId, String submissionId, String updatedAt, String reason) { }
+    record ReviewedWork(UUID sourceRecordId, String submissionId, String updatedAt, String reason) { }
 }

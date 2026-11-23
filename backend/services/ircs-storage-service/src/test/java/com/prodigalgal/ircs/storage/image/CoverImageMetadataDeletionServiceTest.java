@@ -37,19 +37,19 @@ class CoverImageMetadataDeletionServiceTest {
         consumer = new ImageDeletionConsumer(
                 new StorageUuidMessageParser(), new CoverImageMetadataDeletionService(repository));
         jdbc.execute("""
-                create table cover_images (
+                create table media_image_sources (
                     id uuid primary key, storage_type varchar(20), storage_path varchar(100)
                 )
                 """);
-        jdbc.execute("create table raw_videos (cover_image_id uuid references cover_images(id))");
-        jdbc.execute("create table unified_videos (cover_image_id uuid references cover_images(id))");
+        jdbc.execute("create table source_records (media_image_source_id uuid references media_image_sources(id))");
+        jdbc.execute("create table catalog_entries (media_image_source_id uuid references media_image_sources(id))");
     }
 
     @Test
     void repeatedUnlinkPreservesTheSharedLocalCopyAndOtherCover() {
         UUID remoteCover = insertCover("R2");
         UUID localCover = insertCover("LOCAL");
-        jdbc.update("insert into raw_videos (cover_image_id) values (?)", localCover);
+        jdbc.update("insert into source_records (media_image_source_id) values (?)", localCover);
         var localStorage = new LocalObjectStorage(storageRoot.toString());
         localStorage.store(new byte[] {1}, SHARED_KEY, "image/webp");
 
@@ -57,26 +57,26 @@ class CoverImageMetadataDeletionServiceTest {
         consumer.onMessage(unlink);
         consumer.onMessage(unlink);
 
-        assertThat(jdbc.queryForList("select id from cover_images", UUID.class)).containsExactly(localCover);
+        assertThat(jdbc.queryForList("select id from media_image_sources", UUID.class)).containsExactly(localCover);
         assertThat(localStorage.exists(SHARED_KEY)).isTrue();
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"raw_videos", "unified_videos"})
+    @ValueSource(strings = {"source_records", "catalog_entries"})
     void liveReferenceBlocksMetadataDeletion(String referencedFrom) {
         UUID cover = insertCover("LOCAL");
-        jdbc.update("insert into " + referencedFrom + " (cover_image_id) values (?)", cover);
+        jdbc.update("insert into " + referencedFrom + " (media_image_source_id) values (?)", cover);
 
         Message unlink = unlinkedEvent(cover);
 
         assertThatThrownBy(() -> consumer.onMessage(unlink)).isInstanceOf(DataIntegrityViolationException.class);
-        assertThat(jdbc.queryForList("select id from cover_images", UUID.class)).containsExactly(cover);
+        assertThat(jdbc.queryForList("select id from media_image_sources", UUID.class)).containsExactly(cover);
     }
 
     private UUID insertCover(String storageType) {
         UUID id = UUID.randomUUID();
         jdbc.update(
-                "insert into cover_images (id, storage_type, storage_path) values (?, ?, ?)",
+                "insert into media_image_sources (id, storage_type, storage_path) values (?, ?, ?)",
                 id, storageType, SHARED_KEY);
         return id;
     }

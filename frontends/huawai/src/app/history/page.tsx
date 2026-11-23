@@ -73,7 +73,7 @@ export default function HistoryPage() {
         setPlayingId(record.id);
 
         try {
-            const movie: MovieDetail | null = await contentApi.getMovieDetail(record.unifiedVideoId);
+            const movie: MovieDetail | null = await contentApi.getMovieDetail(record.catalogEntryId);
 
             if (!movie) throw new Error("影片信息未找到");
             if (!movie.sources || movie.sources.length === 0) {
@@ -92,7 +92,20 @@ export default function HistoryPage() {
                 }
             }
 
-            if (!foundEpisode && record.episodeName) {
+            if (!foundEpisode && record.catalogEpisodeId) {
+                const preferred = foundSource ? [foundSource, ...movie.sources.filter(source => source !== foundSource)] : movie.sources;
+                for (const source of preferred) {
+                    const episode = source.episodes.find(item => item.catalogEpisodeId === record.catalogEpisodeId);
+                    if (episode) {
+                        foundSource = source;
+                        foundEpisode = episode;
+                        matchType = "CANONICAL_EPISODE";
+                        break;
+                    }
+                }
+            }
+
+            if (!foundEpisode && !record.catalogEpisodeId && record.episodeName) {
                 if (foundSource) {
                     foundEpisode = findEpisodeByName(foundSource, record.episodeName);
                     if (foundEpisode) matchType = "SAME_SOURCE_SEMANTIC";
@@ -148,7 +161,7 @@ export default function HistoryPage() {
 
         } catch (e: unknown) {
             addToast(getErrorMessage(e) || "无法跳转播放", "error");
-            router.push(`/movie/${record.unifiedVideoId}`);
+            router.push(`/movie/${record.catalogEntryId}`);
         } finally {
             setTimeout(() => setPlayingId(null), 2000);
         }

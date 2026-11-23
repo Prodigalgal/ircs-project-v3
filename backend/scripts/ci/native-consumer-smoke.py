@@ -280,7 +280,7 @@ def runtime_queue_buffer_probe():
 def gateway_config_cache_probe():
     cache_key = 'ircs:system-config:v1:security.jwt.iat-floor'
     docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-v', 'ON_ERROR_STOP=1', '-c',
-           "INSERT INTO system_configs(id,created_at,updated_at,version,config_key,config_value) "
+           "INSERT INTO application_settings(id,created_at,updated_at,version,config_key,config_value) "
            "VALUES(gen_random_uuid(),now(),now(),1,'security.jwt.iat-floor','0') "
            "ON CONFLICT(config_key) DO UPDATE SET config_value='0'")
 
@@ -344,21 +344,21 @@ def ingestion_round_trip():
         return docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc', statement)
 
     def persisted():
-        return database("select count(*) from raw_videos where source_hash='native-smoke-source'") == '1'
+        return database("select count(*) from source_records where source_hash='native-smoke-source'") == '1'
 
     def expected_playlist():
         record = json.loads(database("""
             select json_build_object('playlists',count(distinct p.id),'episodes',count(e.id),
-                'domains',count(distinct e.source_domain_id),
+                'domains',count(distinct e.source_origin_id),
                 'mainEpisodes',count(*) filter (where p.name='Native fixture'),
                 'lastEpisode',count(*) filter (where p.name='Native fixture' and e.name='EP513'
                     and e.url='/episode/513.m3u8?quality=hd'),
                 'bonusEpisode',count(*) filter (where p.name='Native fixture (2)' and e.name='Bonus'
                     and e.url='/episode/bonus.m3u8?quality=hd'))
-              from raw_videos rv
-              join playlists p on p.video_id=rv.id
-              join episodes e on e.playlist_id=p.id
-              join source_domains sd on sd.id=e.source_domain_id
+              from source_records rv
+              join source_playlists p on p.video_id=rv.id
+              join source_playback_items e on e.playlist_id=p.id
+              join source_origins sd on sd.id=e.source_origin_id
              where rv.source_hash='native-smoke-source' and sd.domain_value='https://media.example'
             """))
         return record == {'playlists': 2, 'episodes': episode_count + 1, 'domains': 1,
@@ -381,7 +381,7 @@ def ingestion_round_trip():
     wait_for('deduplicated playback resources', expected_playlist)
     playlist_queue = 'q.process.playlist_sync'
     playlist_ack = queue(playlist_queue).get('message_stats', {}).get('ack', 0)
-    video_id = database("select id from raw_videos where source_hash='native-smoke-source'")
+    video_id = database("select id from source_records where source_hash='native-smoke-source'")
     publish(playlist_queue, {'videoId': video_id, 'sourceHash': 'native-smoke-source',
                              'dataHash': 'obsolete-fixture-version', 'playlists': []})
     wait_for('stale playlist acknowledgement', lambda: queue(playlist_queue).get('message_stats', {}).get('ack', 0) > playlist_ack)
@@ -401,7 +401,7 @@ def normalization_round_trip():
     source_hash = 'native-normalization-' + raw_id
     metadata = json.dumps({'title': '國王的演講', 'description': '音楽與繁體國語', 'year': '2010'}, ensure_ascii=False)
     docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-v', 'ON_ERROR_STOP=1', '-c',
-           "INSERT INTO raw_videos(id,created_at,updated_at,version,source_vid,source_hash,data_hash,title,description,"
+           "INSERT INTO source_records(id,created_at,updated_at,version,source_vid,source_hash,data_hash,title,description,"
            "raw_metadata,normalization_status,enrichment_status,aggregation_status) VALUES('" + raw_id + "',now(),now(),0,"
            "'native-normalization','" + source_hash + "','" + version + "','國王的演講','音楽與繁體國語','"
            + metadata.replace("'", "''") + "'::jsonb,'PENDING','PENDING','PENDING')")
@@ -426,7 +426,7 @@ def normalization_round_trip():
     wait_for('Native normalization consumed actual Chinese/Japanese text', consumed)
     row = json.loads(docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc',
                             "select json_build_object('status',normalization_status,'title',title,'description',description) "
-                            "from raw_videos where id='" + raw_id + "'"))
+                            "from source_records where id='" + raw_id + "'"))
     assert row['status'] == 'READY', 'Native normalization did not persist READY'
     assert row['title'] == '国王的演讲', 'Native title conversion did not use the expected dictionaries'
     assert '音乐' in row['description'], 'Native Japanese variant conversion failed'
@@ -443,9 +443,9 @@ def aggregation_evaluation_probe():
     def table_counts():
         result = docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs',
                         '-v', 'ON_ERROR_STOP=1', '-Atc',
-                        'select (select count(*) from unified_videos), '
-                        '(select count(*) from raw_videos), '
-                        '(select count(*) from raw_video_unified_video)')
+                        'select (select count(*) from catalog_entries), '
+                        '(select count(*) from source_records), '
+                        '(select count(*) from catalog_source_bindings)')
         counts = tuple(int(value) for value in result.split('|'))
         assert len(counts) == 3, 'Aggregation fixture count query must return three counts'
         return counts
@@ -456,7 +456,7 @@ def aggregation_evaluation_probe():
             headers.update({'X-IRCS-SERVICE-ID': 'native-aggregation-smoke',
                             'X-IRCS-SERVICE-TOKEN': password,
                             'X-IRCS-SERVICE-SCOPES': 'aggregation:maintenance'})
-        payload = json.dumps({'rawVideoIds': raw_ids}).encode()
+        payload = json.dumps({'sourceRecordIds': raw_ids}).encode()
         try:
             with urlopen(Request(f'http://127.0.0.1:{current_port}/internal/v1/aggregation/evaluate',
                                  data=payload, headers=headers, method='POST'), timeout=10) as response:
@@ -478,7 +478,7 @@ def aggregation_evaluation_probe():
             assert result.get('autoUnifiedMergeEnabled') is False, 'Automatic unified merge must default to disabled'
             decisions = result.get('decisions', [])
             assert len(decisions) == 1, 'Evaluation must deduplicate raw UUIDs'
-            assert decisions[0].get('rawVideoId') == raw_id, 'Evaluation must preserve the requested raw UUID'
+            assert decisions[0].get('sourceRecordId') == raw_id, 'Evaluation must preserve the requested raw UUID'
             assert decisions[0].get('decision') == 'MISSING', 'Disposable random raw UUID must remain missing'
         status, _ = evaluate([], True)
         assert status == 400, 'Native request validation must reject an empty raw UUID list'
@@ -500,7 +500,7 @@ def magnet_search_round_trip():
     submission_id = 'native-magnet-' + job_id
     now = str(int(time.time() * 1000))
     visible_at = str(int(now) + 3600000)
-    payload = json.dumps({'jobId': job_id, 'unifiedVideoId': unified_id, 'triggerType': 'ADMIN_MANUAL'})
+    payload = json.dumps({'jobId': job_id, 'catalogEntryId': unified_id, 'triggerType': 'ADMIN_MANUAL'})
 
     def sql(statement, output=False):
         return docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs',
@@ -519,17 +519,17 @@ def magnet_search_round_trip():
 
     # This database and Valkey are the workflow's disposable containers. Disable every
     # seeded network provider before any work can resolve the enabled-provider cache.
-    sql("UPDATE magnet_providers SET enabled=false; "
-        "UPDATE system_configs SET config_value='false' WHERE config_key IN "
+    sql("UPDATE magnet_discovery_providers SET enabled=false; "
+        "UPDATE application_settings SET config_value='false' WHERE config_key IN "
         "('app.magnet.auto-search.enabled','app.magnet.real-provider.enabled'); "
-        "INSERT INTO unified_videos(id,created_at,updated_at,version,title,\"year\",season,category_code,"
+        "INSERT INTO catalog_entries(id,created_at,updated_at,version,title,\"year\",season,category_code,"
         "imdb_id,metadata_status) VALUES('" + unified_id + "',now(),now(),0,"
         "'IRCS dev-safe fixture','2024',1,'series','tt1234567','SYNCED'); "
-        "INSERT INTO magnet_providers(id,code,name,provider_type,base_url,enabled,priority,"
+        "INSERT INTO magnet_discovery_providers(id,code,name,provider_type,base_url,enabled,priority,"
         "supported_external_ids,min_delay_ms,max_delay_ms,auto_approve_allowed) VALUES('" + provider_id + "','"
         + provider_code + "','Native smoke fixture','FIXTURE','https://native-smoke.invalid',true,0,"
         "'[\"IMDB\",\"TITLE_YEAR\"]'::jsonb,0,0,true); "
-        "INSERT INTO magnet_search_jobs(id,version,unified_video_id,trigger_type,status) VALUES('"
+        "INSERT INTO magnet_discovery_jobs(id,version,catalog_entry_id,trigger_type,status) VALUES('"
         + job_id + "',0,'" + unified_id + "','ADMIN_MANUAL','PENDING')")
     try:
         # Keep one synthetic claim far from expiry while the real API republishes
@@ -566,10 +566,10 @@ def magnet_search_round_trip():
             'Native magnet worker must preserve the submission and complete on its first real claim'
         assert membership == ('', '', ''), 'Completed Native magnet task must leave every queue lane'
         result = json.loads(sql(
-            "select json_build_object('job',(select row_to_json(j) from magnet_search_jobs j where id='" + job_id + "'),"
-            "'jobCount',(select count(*) from magnet_search_jobs where unified_video_id='" + unified_id + "'),"
-            "'runs',(select coalesce(json_agg(r), '[]'::json) from magnet_provider_runs r where job_id='" + job_id + "'),"
-            "'links',(select coalesce(json_agg(l), '[]'::json) from magnet_links l where unified_video_id='" + unified_id + "'))",
+            "select json_build_object('job',(select row_to_json(j) from magnet_discovery_jobs j where id='" + job_id + "'),"
+            "'jobCount',(select count(*) from magnet_discovery_jobs where catalog_entry_id='" + unified_id + "'),"
+            "'runs',(select coalesce(json_agg(r), '[]'::json) from magnet_discovery_provider_runs r where job_id='" + job_id + "'),"
+            "'links',(select coalesce(json_agg(l), '[]'::json) from catalog_magnet_links l where catalog_entry_id='" + unified_id + "'))",
             output=True))
         job, runs, links = result['job'], result['runs'], result['links']
         assert result['jobCount'] == 1, 'Native magnet duplicate submission must preserve one durable job'
@@ -608,8 +608,8 @@ def magnet_search_round_trip():
         for lane in ('pending', 'inflight', 'dlq'):
             redis('ZREM', prefix + ':' + lane, task_id)
         redis('DEL', task_key)
-        sql("DELETE FROM unified_videos WHERE id='" + unified_id + "'; "
-            "DELETE FROM magnet_providers WHERE id='" + provider_id + "'")
+        sql("DELETE FROM catalog_entries WHERE id='" + unified_id + "'; "
+            "DELETE FROM magnet_discovery_providers WHERE id='" + provider_id + "'")
 
 
 def main():

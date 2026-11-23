@@ -24,7 +24,7 @@ public class JdbcAdminMessageRepository {
             Optional<String> status,
             Optional<Boolean> publicMessage) {
         QueryParts query = buildWhere(keyword, status, publicMessage);
-        long total = count("select count(*) from user_messages um join members m on m.id = um.member_id" + query.where(),
+        long total = count("select count(*) from member_feedback_posts um join member_accounts m on m.id = um.member_id" + query.where(),
                 query.params());
         List<Object> params = new ArrayList<>(query.params());
         params.add(bounds.size());
@@ -37,13 +37,17 @@ public class JdbcAdminMessageRepository {
                        m.email as member_email,
                        m.avatar_url as member_avatar_url,
                        um.content,
-                       um.reply,
+                       reply.content as reply,
                        um.status,
                        um.is_public,
                        um.created_at,
                        um.updated_at
-                from user_messages um
-                join members m on m.id = um.member_id
+                from member_feedback_posts um
+                join member_accounts m on m.id = um.member_id
+                left join lateral (
+                    select content from member_feedback_replies where feedback_post_id = um.id
+                    order by created_at desc, id desc limit 1
+                ) reply on true
                 """ + query.where() + """
 
                 order by um.created_at desc, um.id asc
@@ -58,13 +62,16 @@ public class JdbcAdminMessageRepository {
         return queryOptional(
                 """
                 with updated as (
-                    update user_messages
-                    set reply = ?,
-                        status = 'REPLIED',
+                    update member_feedback_posts
+                    set status = 'REPLIED',
                         updated_at = ?,
                         version = coalesce(version, 0) + 1
-                    where id = ?
-                    returning id, member_id, content, reply, status, is_public, created_at, updated_at
+                    where id = ? and deleted_at is null
+                    returning id, member_id, content, status, is_public, created_at, updated_at
+                ), inserted_reply as (
+                    insert into member_feedback_replies (feedback_post_id, content, created_at)
+                    select id, ?, clock_timestamp() from updated
+                    returning feedback_post_id, content
                 )
                 select updated.id,
                        updated.member_id,
@@ -72,29 +79,30 @@ public class JdbcAdminMessageRepository {
                        m.email as member_email,
                        m.avatar_url as member_avatar_url,
                        updated.content,
-                       updated.reply,
+                       inserted_reply.content as reply,
                        updated.status,
                        updated.is_public,
                        updated.created_at,
                        updated.updated_at
                 from updated
-                join members m on m.id = updated.member_id
+                join member_accounts m on m.id = updated.member_id
+                join inserted_reply on inserted_reply.feedback_post_id = updated.id
                 """,
-                reply,
                 Timestamp.from(now),
-                messageId);
+                messageId,
+                reply);
     }
 
     public Optional<UserMessageResponse> toggleVisibility(UUID messageId, boolean isPublic, Instant now) {
         return queryOptional(
                 """
                 with updated as (
-                    update user_messages
+                    update member_feedback_posts
                     set is_public = ?,
                         updated_at = ?,
                         version = coalesce(version, 0) + 1
-                    where id = ?
-                    returning id, member_id, content, reply, status, is_public, created_at, updated_at
+                    where id = ? and deleted_at is null
+                    returning id, member_id, content, status, is_public, created_at, updated_at
                 )
                 select updated.id,
                        updated.member_id,
@@ -102,13 +110,17 @@ public class JdbcAdminMessageRepository {
                        m.email as member_email,
                        m.avatar_url as member_avatar_url,
                        updated.content,
-                       updated.reply,
+                       reply.content as reply,
                        updated.status,
                        updated.is_public,
                        updated.created_at,
                        updated.updated_at
                 from updated
-                join members m on m.id = updated.member_id
+                join member_accounts m on m.id = updated.member_id
+                left join lateral (
+                    select content from member_feedback_replies where feedback_post_id = updated.id
+                    order by created_at desc, id desc limit 1
+                ) reply on true
                 """,
                 isPublic,
                 Timestamp.from(now),
@@ -116,11 +128,15 @@ public class JdbcAdminMessageRepository {
     }
 
     public int delete(UUID messageId) {
-        return jdbcTemplate.update("delete from user_messages where id = ?", messageId);
+        return jdbcTemplate.update(
+                "update member_feedback_posts set deleted_at = now(), updated_at = now(), version = coalesce(version, 0) + 1 "
+                        + "where id = ? and deleted_at is null",
+                messageId);
     }
 
     private QueryParts buildWhere(Optional<String> keyword, Optional<String> status, Optional<Boolean> publicMessage) {
         List<String> conditions = new ArrayList<>();
+        conditions.add("um.deleted_at is null");
         List<Object> params = new ArrayList<>();
         keyword.ifPresent(value -> {
             String pattern = "%" + value.toLowerCase() + "%";
@@ -143,9 +159,6 @@ public class JdbcAdminMessageRepository {
             conditions.add("um.is_public = ?");
             params.add(value);
         });
-        if (conditions.isEmpty()) {
-            return new QueryParts("", params);
-        }
         return new QueryParts(" where " + String.join(" and ", conditions), params);
     }
 

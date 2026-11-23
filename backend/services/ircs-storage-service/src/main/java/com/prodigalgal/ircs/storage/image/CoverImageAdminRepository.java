@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -47,6 +48,23 @@ public class CoverImageAdminRepository {
             "fileSize", "ci.file_size");
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
+
+    @Value("${app.storage.r2.bucket-name:ircs}")
+    private String remoteBucket;
+
+    NormalizedFile reserveLocal(NormalizedFile file) {
+        String path = jdbcTemplate.queryForObject("""
+                select reserve_cover_asset(:hash,:size,:mime,:path)
+                """, new MapSqlParameterSource("hash", file.hash()).addValue("size", file.size())
+                .addValue("mime", file.mimeType()).addValue("path", file.storageKey()), String.class);
+        return new NormalizedFile(file.data(), file.hash(), file.mimeType(), file.extension(), file.size(), path);
+    }
+
+    void reserveRemote(UUID imageId, String path) {
+        jdbcTemplate.query("select reserve_remote_cover_location(:id,:bucket,:path)",
+                new MapSqlParameterSource("id", imageId).addValue("bucket", remoteBucket).addValue("path", path),
+                (rs, row) -> null);
+    }
     private final CoverImageUrlResolver urlResolver;
 
     public Page<CoverImageResponse> findAll(
@@ -63,7 +81,7 @@ public class CoverImageAdminRepository {
                 .addValue("offset", safe.getOffset());
         String where = where(params, status, storageType, url, sourceDomain, minFileSize, maxFileSize);
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from cover_images ci left join source_domains sd on ci.source_domain_id = sd.id " + where,
+                "select count(*) from media_image_sources ci left join source_origins sd on ci.source_origin_id = sd.id " + where,
                 params,
                 Long.class);
         List<CoverImageResponse> content = jdbcTemplate.query(
@@ -81,7 +99,7 @@ public class CoverImageAdminRepository {
         return jdbcTemplate.queryForList(
                 """
                 select id
-                from cover_images
+                from media_image_sources
                 where storage_type = 'EXTERNAL'
                   and status in ('UNPROCESSED', 'FAILED')
                   and (next_retry_time is null or next_retry_time <= now())
@@ -112,17 +130,17 @@ public class CoverImageAdminRepository {
         UUID sourceDomainId = getLocalSentinelId();
         UUID imageId = jdbcTemplate.queryForObject(
                 """
-                insert into cover_images (
+                insert into media_image_sources (
                     id, created_at, updated_at, version, storage_type, original_url, storage_path,
-                    file_hash, file_size, mime_type, source_domain_id, status, retry_count,
+                    file_hash, file_size, mime_type, source_origin_id, status, retry_count,
                     next_retry_time, last_error
                 ) values (
                     :id, now(), now(), 0, 'LOCAL', :originalUrl, :storagePath,
                     :fileHash, :fileSize, :mimeType, :sourceDomainId, 'LOCAL_STORED', 0,
                     null, null
                 )
-                on conflict (original_url, source_domain_id) do update
-                set updated_at = cover_images.updated_at
+                on conflict (original_url, source_origin_id) do update
+                set updated_at = media_image_sources.updated_at
                 returning id
                 """,
                 new MapSqlParameterSource()
@@ -141,17 +159,17 @@ public class CoverImageAdminRepository {
         ExtractedSourceDomain extracted = extractSourceDomain(url);
         UUID imageId = jdbcTemplate.queryForObject(
                 """
-                insert into cover_images (
+                insert into media_image_sources (
                     id, created_at, updated_at, version, storage_type, original_url, storage_path,
-                    file_hash, file_size, mime_type, source_domain_id, status, retry_count,
+                    file_hash, file_size, mime_type, source_origin_id, status, retry_count,
                     next_retry_time, last_error
                 ) values (
                     :id, now(), now(), 0, 'EXTERNAL', :originalUrl, null,
                     null, null, null, :sourceDomainId, 'UNPROCESSED', 0,
                     now(), null
                 )
-                on conflict (original_url, source_domain_id) do update
-                set updated_at = cover_images.updated_at
+                on conflict (original_url, source_origin_id) do update
+                set updated_at = media_image_sources.updated_at
                 returning id
                 """,
                 new MapSqlParameterSource()
@@ -161,7 +179,7 @@ public class CoverImageAdminRepository {
                 UUID.class);
         jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set status = 'UNPROCESSED',
                     retry_count = 0,
                     next_retry_time = now(),
@@ -177,7 +195,7 @@ public class CoverImageAdminRepository {
     public boolean markPendingDelete(UUID id) {
         int updated = jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set status = 'PENDING_DELETE',
                     next_retry_time = now(),
                     updated_at = now()
@@ -191,7 +209,7 @@ public class CoverImageAdminRepository {
     public void resetForDownload(UUID id) {
         int updated = jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set status = 'UNPROCESSED',
                     storage_type = 'EXTERNAL',
                     retry_count = 0,
@@ -210,7 +228,7 @@ public class CoverImageAdminRepository {
     public boolean markFetching(UUID id) {
         int updated = jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set status = 'FETCHING',
                     updated_at = now()
                 where id = :id
@@ -224,7 +242,7 @@ public class CoverImageAdminRepository {
     public void finalizeDownload(UUID id, NormalizedFile file) {
         jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set storage_type = 'LOCAL',
                     storage_path = :storagePath,
                     file_hash = :fileHash,
@@ -235,7 +253,7 @@ public class CoverImageAdminRepository {
                     next_retry_time = null,
                     last_error = null,
                     updated_at = now()
-                where id = :id
+                where id = :id and status = 'FETCHING'
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", id)
@@ -248,7 +266,7 @@ public class CoverImageAdminRepository {
     public boolean markUploading(UUID id) {
         return jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set status = 'UPLOADING',
                     updated_at = now()
                 where id = :id
@@ -261,7 +279,7 @@ public class CoverImageAdminRepository {
     public boolean finalizeUpload(UUID id, String storagePath) {
         return jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set storage_type = 'R2',
                     storage_path = :storagePath,
                     status = case when status = 'PENDING_DELETE' then 'PENDING_DELETE' else 'REMOTE_STORED' end,
@@ -291,7 +309,7 @@ public class CoverImageAdminRepository {
                 : Timestamp.from(Instant.now().plusSeconds((long) Math.pow(2, retryCount) * 30));
         jdbcTemplate.update(
                 """
-                update cover_images
+                update media_image_sources
                 set status = :status,
                     retry_count = :retryCount,
                     next_retry_time = :nextRetryTime,
@@ -368,12 +386,12 @@ public class CoverImageAdminRepository {
     private String selectSql(String where) {
         return """
                 select ci.id, ci.storage_type, ci.status, ci.original_url, ci.storage_path,
-                       ci.file_size, ci.mime_type, ci.file_hash, ci.source_domain_id,
+                       ci.file_size, ci.mime_type, ci.file_hash, ci.source_origin_id,
                        sd.domain_value as source_domain_value,
                        ci.retry_count, ci.last_error, ci.next_retry_time,
                        ci.created_at, ci.updated_at
-                from cover_images ci
-                left join source_domains sd on ci.source_domain_id = sd.id
+                from media_image_sources ci
+                left join source_origins sd on ci.source_origin_id = sd.id
                 """ + where + " ";
     }
 
@@ -407,7 +425,7 @@ public class CoverImageAdminRepository {
                 (Long) rs.getObject("file_size"),
                 rs.getString("mime_type"),
                 rs.getString("file_hash"),
-                rs.getObject("source_domain_id", UUID.class),
+                rs.getObject("source_origin_id", UUID.class),
                 rs.getString("source_domain_value"),
                 (Integer) rs.getObject("retry_count"),
                 rs.getString("last_error"),
@@ -452,10 +470,10 @@ public class CoverImageAdminRepository {
     private UUID getLocalSentinelId() {
         return jdbcTemplate.queryForObject(
                 """
-                insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
                 values (:id, now(), now(), 0, :hash, 'LOCAL_STORAGE', 'System Sentinel', null)
                 on conflict (domain_hash) do update
-                set updated_at = source_domains.updated_at
+                set updated_at = source_origins.updated_at
                 returning id
                 """,
                 new MapSqlParameterSource()
@@ -467,10 +485,10 @@ public class CoverImageAdminRepository {
     private UUID getOrCreateSourceDomain(String domain, String remark) {
         return jdbcTemplate.queryForObject(
                 """
-                insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
                 values (:id, now(), now(), 0, :hash, :domain, :remark, null)
                 on conflict (domain_hash) do update
-                set updated_at = source_domains.updated_at
+                set updated_at = source_origins.updated_at
                 returning id
                 """,
                 new MapSqlParameterSource()

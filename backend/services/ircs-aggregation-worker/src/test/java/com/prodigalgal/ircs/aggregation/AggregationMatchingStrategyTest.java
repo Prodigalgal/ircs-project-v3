@@ -18,8 +18,8 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void matchesTitleYearCandidateWhenExternalIdsAreAbsent() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Aggregation S1 1080p",
                 null,
                 "2026",
@@ -29,8 +29,8 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
-                unifiedVideoId,
+        CatalogEntryAggregationCandidate candidate = candidate(
+                catalogEntryId,
                 "Codex Aggregation S1",
                 null,
                 "2026",
@@ -42,13 +42,13 @@ class AggregationMatchingStrategyTest {
                 null);
 
         assertEquals(
-                unifiedVideoId,
-                strategy.findBestMatch(rawVideo, List.of(candidate)).orElseThrow());
+                catalogEntryId,
+                strategy.findBestMatch(sourceRecord, List.of(candidate)).orElseThrow());
     }
 
     @Test
     void externalIdConflictBlocksOtherwiseSimilarCandidate() {
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Aggregation",
                 null,
                 "2026",
@@ -58,7 +58,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(),
                 "Codex Aggregation",
                 null,
@@ -70,12 +70,12 @@ class AggregationMatchingStrategyTest {
                 null,
                 null);
 
-        assertTrue(strategy.findBestMatch(rawVideo, List.of(candidate)).isEmpty());
+        assertTrue(strategy.findBestMatch(sourceRecord, List.of(candidate)).isEmpty());
     }
 
     @Test
     void seasonSensitiveCandidateDoesNotMergeIncorrectly() {
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Chronicles S2",
                 null,
                 "2026",
@@ -85,7 +85,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(),
                 "Codex Chronicles S1",
                 null,
@@ -97,12 +97,12 @@ class AggregationMatchingStrategyTest {
                 null,
                 null);
 
-        assertTrue(strategy.findBestMatch(rawVideo, List.of(candidate)).isEmpty());
+        assertTrue(strategy.findBestMatch(sourceRecord, List.of(candidate)).isEmpty());
     }
 
     @Test
     void versionSensitiveCandidateDoesNotMergeIncorrectly() {
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Legend 真人版",
                 null,
                 "2026",
@@ -112,7 +112,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 "真人版");
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(),
                 "Codex Legend 动画版",
                 null,
@@ -124,13 +124,13 @@ class AggregationMatchingStrategyTest {
                 null,
                 "动画版");
 
-        assertTrue(strategy.findBestMatch(rawVideo, List.of(candidate)).isEmpty());
+        assertTrue(strategy.findBestMatch(sourceRecord, List.of(candidate)).isEmpty());
     }
 
     @Test
     void similarTitleBindsToExistingUnifiedCandidate() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Signal",
                 null,
                 "2026",
@@ -140,8 +140,8 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
-                unifiedVideoId,
+        CatalogEntryAggregationCandidate candidate = candidate(
+                catalogEntryId,
                 "Codex Signal: The Movie",
                 "Codex Signal",
                 "2026",
@@ -153,8 +153,8 @@ class AggregationMatchingStrategyTest {
                 null);
 
         assertEquals(
-                unifiedVideoId,
-                strategy.findBestMatch(rawVideo, List.of(candidate)).orElseThrow());
+                catalogEntryId,
+                strategy.findBestMatch(sourceRecord, List.of(candidate)).orElseThrow());
     }
 
     @Test
@@ -164,7 +164,7 @@ class AggregationMatchingStrategyTest {
         // merging them migrates favourites/watch history before deleting the victim row.
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID otherId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Signal",
                 null,
                 "2026",
@@ -174,7 +174,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate root = candidate(
+        CatalogEntryAggregationCandidate root = candidate(
                 rootId,
                 "Codex Signal",
                 null,
@@ -185,7 +185,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate other = candidate(
+        CatalogEntryAggregationCandidate other = candidate(
                 otherId,
                 "Codex Signal: The Movie",
                 "Codex Signal",
@@ -197,18 +197,18 @@ class AggregationMatchingStrategyTest {
                 null,
                 null);
 
-        AggregationMatchPlan plan = strategy.findMatchPlan(rawVideo, List.of(other, root));
+        AggregationMatchPlan plan = strategy.findMatchPlan(sourceRecord, List.of(other, root));
 
         assertFalse(plan.hasRoot());
         assertTrue(plan.isAmbiguous());
-        assertEquals(List.of(), plan.victimUnifiedVideoIds());
+        assertEquals(List.of(), plan.victimCatalogEntryIds());
     }
 
     @Test
     void matchPlanMergesCandidatesOnlyWithSharedUsableIdAndTitleCorroboration() {
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID victimId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Signal",
                 null,
                 "2026",
@@ -218,7 +218,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate root = candidate(
+        CatalogEntryAggregationCandidate root = candidate(
                 rootId,
                 "Codex Signal",
                 null,
@@ -229,7 +229,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate victim = candidate(
+        CatalogEntryAggregationCandidate victim = candidate(
                 victimId,
                 "Codex Signal 全集",
                 null,
@@ -241,15 +241,15 @@ class AggregationMatchingStrategyTest {
                 null,
                 null);
 
-        AggregationMatchPlan plan = strategy.findMatchPlan(rawVideo, List.of(victim, root));
+        AggregationMatchPlan plan = strategy.findMatchPlan(sourceRecord, List.of(victim, root));
 
-        assertEquals(rootId, plan.rootUnifiedVideoId());
-        assertEquals(List.of(victimId), plan.victimUnifiedVideoIds());
+        assertEquals(rootId, plan.rootCatalogEntryId());
+        assertEquals(List.of(victimId), plan.victimCatalogEntryIds());
     }
 
     @Test
     void equivalentAuthorityBackedCandidatesResolveWithoutMergingAnUncorroboratedTitleMatch() {
-        RawVideoAggregationRecord raw = rawVideo("Codex Signal", null, "2026",
+        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", null, "2026",
                 null, "9001", null, null, null, null);
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID alternativeId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -260,8 +260,8 @@ class AggregationMatchingStrategyTest {
 
         var plan = strategy.findMatchPlan(raw, List.of(alternative, titleMatch, root));
 
-        assertEquals(rootId, plan.rootUnifiedVideoId());
-        assertEquals(List.of(), plan.victimUnifiedVideoIds());
+        assertEquals(rootId, plan.rootCatalogEntryId());
+        assertEquals(List.of(), plan.victimCatalogEntryIds());
 
         var conflictingAlternative = candidate(alternativeId, "Codex Signal", null, "2026",
                 null, "9001", "tt0234215", null, null, null);
@@ -272,22 +272,22 @@ class AggregationMatchingStrategyTest {
     void exactReleaseAndTwoSharedCastMembersCanDisambiguateWithoutAnExternalId() {
         String title = "Codex Signal";
         Set<String> cast = Set.of("Alice Winters", "Noah Stone");
-        var raw = rawVideoWithMetadata(title, "2026", "12", cast, Set.of(), Set.of());
+        var raw = sourceRecordWithMetadata(title, "2026", "12", cast, Set.of(), Set.of());
         var corroborated = candidateWithMetadata(UUID.randomUUID(), title, "2026", "12", cast, Set.of(), Set.of());
         var sparse = candidateWithMetadata(UUID.randomUUID(), title, "2026", "12", Set.of(), Set.of(), Set.of());
         var previousYear = candidateWithMetadata(UUID.randomUUID(), title, "2025", "12", cast, Set.of(), Set.of());
 
         var plan = strategy.findMatchPlan(raw, List.of(sparse, previousYear, corroborated));
 
-        assertEquals(corroborated.id(), plan.rootUnifiedVideoId());
-        assertEquals(List.of(), plan.victimUnifiedVideoIds());
+        assertEquals(corroborated.id(), plan.rootCatalogEntryId());
+        assertEquals(List.of(), plan.victimCatalogEntryIds());
         var sameEvidence = candidateWithMetadata(UUID.randomUUID(), title, "2026", "12", cast, Set.of(), Set.of());
         assertTrue(strategy.findMatchPlan(raw, List.of(corroborated, sameEvidence)).isAmbiguous());
     }
 
     @Test
     void exactTitleFallsBackToTitleConfidenceWhenMetadataIsEmptyLikeV1() {
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Signal",
                 null,
                 "2026",
@@ -297,7 +297,7 @@ class AggregationMatchingStrategyTest {
                 null,
                 null,
                 null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(),
                 "Codex Signal",
                 null,
@@ -309,19 +309,19 @@ class AggregationMatchingStrategyTest {
                 null,
                 null);
 
-        assertEquals(0.95, strategy.calculateSimilarity(rawVideo, candidate), 0.0001);
+        assertEquals(0.95, strategy.calculateSimilarity(sourceRecord, candidate), 0.0001);
     }
 
     @Test
     void metadataMismatchUsesV1WeightedFormulaAndCanBlockGraphEdges() {
-        RawVideoAggregationRecord rawVideo = rawVideoWithMetadata(
+        SourceRecordAggregationRecord sourceRecord = sourceRecordWithMetadata(
                 "Codex Signal",
                 "2026",
                 "12",
                 Set.of("Actor A"),
                 Set.of("Director A"),
                 Set.of());
-        UnifiedVideoAggregationCandidate candidate = candidateWithMetadata(
+        CatalogEntryAggregationCandidate candidate = candidateWithMetadata(
                 UUID.randomUUID(),
                 "Codex Signal",
                 "2026",
@@ -330,23 +330,23 @@ class AggregationMatchingStrategyTest {
                 Set.of("Director B"),
                 Set.of());
 
-        double score = strategy.calculateSimilarity(rawVideo, candidate);
+        double score = strategy.calculateSimilarity(sourceRecord, candidate);
 
         assertEquals(0.70, score, 0.0001);
         assertTrue(score < 0.85);
-        assertTrue(strategy.findBestMatch(rawVideo, List.of(candidate)).isEmpty());
+        assertTrue(strategy.findBestMatch(sourceRecord, List.of(candidate)).isEmpty());
     }
 
     @Test
     void sharedDirectorAndPartialCastContributeSeparateRoleEvidence() {
-        RawVideoAggregationRecord rawVideo = rawVideoWithMetadata(
+        SourceRecordAggregationRecord sourceRecord = sourceRecordWithMetadata(
                 "Codex Signal",
                 "2026",
                 "12",
                 Set.of("Actor A", "Actor B"),
                 Set.of("Director A"),
                 Set.of());
-        UnifiedVideoAggregationCandidate candidate = candidateWithMetadata(
+        CatalogEntryAggregationCandidate candidate = candidateWithMetadata(
                 UUID.randomUUID(),
                 "Codex Signal",
                 "2026",
@@ -355,7 +355,7 @@ class AggregationMatchingStrategyTest {
                 Set.of("Director A"),
                 Set.of());
 
-        double score = strategy.calculateSimilarity(rawVideo, candidate);
+        double score = strategy.calculateSimilarity(sourceRecord, candidate);
 
         assertEquals(0.91, score, 0.0001);
         assertTrue(score >= 0.85);
@@ -363,14 +363,14 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void episodePenaltyCanDropTitleOnlyScoreBelowGraphEdgeThreshold() {
-        RawVideoAggregationRecord rawVideo = rawVideoWithMetadata(
+        SourceRecordAggregationRecord sourceRecord = sourceRecordWithMetadata(
                 "Codex Signal",
                 "2026",
                 "1",
                 Set.of(),
                 Set.of(),
                 Set.of());
-        UnifiedVideoAggregationCandidate candidate = candidateWithMetadata(
+        CatalogEntryAggregationCandidate candidate = candidateWithMetadata(
                 UUID.randomUUID(),
                 "Codex Signal",
                 "2026",
@@ -379,7 +379,7 @@ class AggregationMatchingStrategyTest {
                 Set.of(),
                 Set.of());
 
-        double score = strategy.calculateSimilarity(rawVideo, candidate);
+        double score = strategy.calculateSimilarity(sourceRecord, candidate);
 
         assertEquals(0.80, score, 0.0001);
         assertTrue(score < 0.85);
@@ -387,14 +387,14 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void areaPenaltyAppliesOnlyWhenBothSidesHaveNonMatchingAreas() {
-        RawVideoAggregationRecord rawVideo = rawVideoWithMetadata(
+        SourceRecordAggregationRecord sourceRecord = sourceRecordWithMetadata(
                 "Codex Signal",
                 "2026",
                 "12",
                 Set.of(),
                 Set.of(),
                 Set.of("日本"));
-        UnifiedVideoAggregationCandidate differentArea = candidateWithMetadata(
+        CatalogEntryAggregationCandidate differentArea = candidateWithMetadata(
                 UUID.randomUUID(),
                 "Codex Signal",
                 "2026",
@@ -402,7 +402,7 @@ class AggregationMatchingStrategyTest {
                 Set.of(),
                 Set.of(),
                 Set.of("美国"));
-        UnifiedVideoAggregationCandidate compatibleArea = candidateWithMetadata(
+        CatalogEntryAggregationCandidate compatibleArea = candidateWithMetadata(
                 UUID.randomUUID(),
                 "Codex Signal",
                 "2026",
@@ -411,88 +411,88 @@ class AggregationMatchingStrategyTest {
                 Set.of(),
                 Set.of("日本地区"));
 
-        assertEquals(0.85, strategy.calculateSimilarity(rawVideo, differentArea), 0.0001);
-        assertEquals(0.95, strategy.calculateSimilarity(rawVideo, compatibleArea), 0.0001);
+        assertEquals(0.85, strategy.calculateSimilarity(sourceRecord, differentArea), 0.0001);
+        assertEquals(0.95, strategy.calculateSimilarity(sourceRecord, compatibleArea), 0.0001);
     }
 
     @Test
     void sharedPlaceholderExternalIdDoesNotMergeUnrelatedTitles() {
         // Production carried douban_id=123 on 317 raws across 305 different titles; the same-id
         // shortcut used to return 1.0 without ever looking at the title.
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "全民转职", null, "2025", "123", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(), "寅娜知音", null, "2025", "123", null, null, null, null, null);
 
-        assertEquals(0.0, strategy.calculateSimilarity(rawVideo, candidate), 0.0001);
-        assertTrue(strategy.findBestMatch(rawVideo, List.of(candidate)).isEmpty());
+        assertEquals(0.0, strategy.calculateSimilarity(sourceRecord, candidate), 0.0001);
+        assertTrue(strategy.findBestMatch(sourceRecord, List.of(candidate)).isEmpty());
     }
 
     @Test
     void sharedExternalIdStillMergesWhenTitlesAgree() {
         // A usable shared ID and matching title remain positive cross-source evidence.
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Signal", null, "2026", "4200", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
-                unifiedVideoId, "Codex Signal 全集", null, "2026", "4200", null, null, null, null, null);
+        CatalogEntryAggregationCandidate candidate = candidate(
+                catalogEntryId, "Codex Signal 全集", null, "2026", "4200", null, null, null, null, null);
 
-        assertEquals(1.0, strategy.calculateSimilarity(rawVideo, candidate), 0.0001);
+        assertEquals(1.0, strategy.calculateSimilarity(sourceRecord, candidate), 0.0001);
     }
 
     @Test
     void differentFixturesOnTheSameDateDoNotMergeDespiteNearIdenticalTitles() {
         // 25-26赛季 sport titles share a long suffix that inflates Jaro-Winkler; measured pairs such
         // as 中乙联赛 vs 中甲联赛 scored 0.89 and collapsed 1,870 raws into one unified row.
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "6月13日25-26赛季中乙联赛", null, "2026", null, null, null, null, null, "正片");
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(), "6月14日25-26赛季中甲联赛", null, "2026", null, null, null, null, null, "正片");
 
-        assertEquals(0.0, strategy.calculateSimilarity(rawVideo, candidate), 0.0001);
-        assertTrue(strategy.findBestMatch(rawVideo, List.of(candidate)).isEmpty());
+        assertEquals(0.0, strategy.calculateSimilarity(sourceRecord, candidate), 0.0001);
+        assertTrue(strategy.findBestMatch(sourceRecord, List.of(candidate)).isEmpty());
     }
 
     @Test
     void sameFixtureFromDifferentSourcesStillMerges() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "7月4日25-26赛季中乙联赛", null, "2026", null, null, null, null, null, "正片");
-        UnifiedVideoAggregationCandidate candidate = candidate(
-                unifiedVideoId, "7月4日25-26赛季中乙联赛", null, "2026", null, null, null, null, null, "正片");
+        CatalogEntryAggregationCandidate candidate = candidate(
+                catalogEntryId, "7月4日25-26赛季中乙联赛", null, "2026", null, null, null, null, null, "正片");
 
-        assertTrue(strategy.findMatchPlan(rawVideo, List.of(candidate)).hasRoot());
+        assertTrue(strategy.findMatchPlan(sourceRecord, List.of(candidate)).hasRoot());
     }
 
     @Test
     void leagueKeywordDifferenceAloneBlocksMerge() {
         // Same date, different competition: the league token is the discriminator.
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "7月4日25-26赛季中超联赛", null, "2026", null, null, null, null, null, "正片");
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(), "7月4日25-26赛季内蒙古足球超级联赛", null, "2026", null, null, null, null, null, "正片");
 
-        assertEquals(0.0, strategy.calculateSimilarity(rawVideo, candidate), 0.0001);
+        assertEquals(0.0, strategy.calculateSimilarity(sourceRecord, candidate), 0.0001);
     }
 
     @Test
     void nonEventTitlesAreUnaffectedByEventIdentityGuard() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = rawVideo(
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = sourceRecord(
                 "Codex Signal", null, "2026", null, null, null, null, null, null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
-                unifiedVideoId, "Codex Signal", null, "2026", null, null, null, null, null, null);
+        CatalogEntryAggregationCandidate candidate = candidate(
+                catalogEntryId, "Codex Signal", null, "2026", null, null, null, null, null, null);
 
-        assertEquals(0.95, strategy.calculateSimilarity(rawVideo, candidate), 0.0001);
+        assertEquals(0.95, strategy.calculateSimilarity(sourceRecord, candidate), 0.0001);
     }
 
     @Test
     void danglingMembersDoNotJoinStarClusterBelowMergeThreshold() {
         // A chained pair (leader-candidate >= 0.90) used to be enough because the membership test was
         // `> 0.0`. Members must independently clear the merge bar against the new candidate.
-        AggregationGraphCandidate leader = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate leader = AggregationGraphCandidate.raw(sourceRecord(
                 "Codex Signal", null, "2026", null, null, null, null, null, null));
-        AggregationGraphCandidate unrelated = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate unrelated = AggregationGraphCandidate.raw(sourceRecord(
                 "Another Codex", null, "2026", null, null, null, null, null, null));
 
         assertFalse(strategy.isMergeable(leader, unrelated));
@@ -500,9 +500,9 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void identicalMembersRemainMergeable() {
-        AggregationGraphCandidate left = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate left = AggregationGraphCandidate.raw(sourceRecord(
                 "Codex Signal", null, "2026", null, null, null, null, null, null));
-        AggregationGraphCandidate right = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate right = AggregationGraphCandidate.raw(sourceRecord(
                 "Codex Signal", null, "2026", null, null, null, null, null, null));
 
         assertTrue(strategy.isMergeable(left, right));
@@ -510,14 +510,14 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void unknownSeasonDoesNotImplyFirstSeason() {
-        RawVideoAggregationRecord unknown = rawVideo(
+        SourceRecordAggregationRecord unknown = sourceRecord(
                 "Codex Chronicles", null, "2026", "9001", null, null, null, null, null, "剧集");
-        UnifiedVideoAggregationCandidate firstSeason = candidate(
+        CatalogEntryAggregationCandidate firstSeason = candidate(
                 UUID.randomUUID(), "Codex Chronicles S1", null, "2026", "9001", null, null, null, 1, null, "剧集");
 
         assertEquals(0.0, strategy.calculateSimilarity(unknown, firstSeason));
         assertTrue(strategy.isCompatibleBinding(unknown, firstSeason));
-        RawVideoAggregationRecord secondSeason = rawVideo(
+        SourceRecordAggregationRecord secondSeason = sourceRecord(
                 "Codex Chronicles S2", null, "2026", "9001", null, null, null, 2, null, "剧集");
         assertFalse(strategy.isCompatibleBinding(secondSeason, firstSeason));
         assertEquals("SEASON_CONFLICT", strategy.bindingConflictReason(secondSeason, firstSeason));
@@ -525,10 +525,10 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void crossLanguageTitlesCanUseSharedIdAndIndependentNameCorroboration() {
-        RawVideoAggregationRecord raw = rawVideo(
+        SourceRecordAggregationRecord raw = sourceRecord(
                 "流浪地球", null, "2026", "9001", null, null, null, null, null)
                 .withMetadata(Set.of("Actor A"), Set.of("Director A"), Set.of());
-        UnifiedVideoAggregationCandidate translated = candidate(
+        CatalogEntryAggregationCandidate translated = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", null, null, null, null, null)
                 .withMetadata(Set.of("Actor A"), Set.of("Director A"), Set.of());
 
@@ -537,13 +537,13 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void sharedProviderIdsNeedCorroborationForCrossLanguageTitles() {
-        RawVideoAggregationRecord raw = rawVideo(
+        SourceRecordAggregationRecord raw = sourceRecord(
                 "流浪地球", null, "2026", "9001", "70001", null, null, null, null);
-        UnifiedVideoAggregationCandidate twoProviders = candidate(
+        CatalogEntryAggregationCandidate twoProviders = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", "70001", null, null, null, null);
-        UnifiedVideoAggregationCandidate onlyOne = candidate(
+        CatalogEntryAggregationCandidate onlyOne = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate translatedAlias = candidate(
+        CatalogEntryAggregationCandidate translatedAlias = candidate(
                 UUID.randomUUID(), "The Wandering Earth", "流浪地球", "2026", "9001", "70001", null, null, null, null);
 
         assertEquals(0.0, strategy.calculateSimilarity(raw, twoProviders));
@@ -555,9 +555,9 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void rejectedIdDoesNotVetoIndependentUsableMatchingProvider() {
-        RawVideoAggregationRecord raw = rawVideo(
+        SourceRecordAggregationRecord raw = sourceRecord(
                 "Codex Signal", null, "2026", "123", "70001", null, null, null, null);
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(), "Codex Signal", null, "2026", "9001", "70001", null, null, null, null);
 
         assertEquals(1.0, strategy.calculateSimilarity(raw, candidate));
@@ -565,11 +565,11 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void bindingRefreshAllowsTitleChangesButRejectsKnownIdentityConflict() {
-        RawVideoAggregationRecord renamed = rawVideo(
+        SourceRecordAggregationRecord renamed = sourceRecord(
                 "流浪地球", null, "2026", "9001", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate previous = candidate(
+        CatalogEntryAggregationCandidate previous = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate conflict = candidate(
+        CatalogEntryAggregationCandidate conflict = candidate(
                 UUID.randomUUID(), "流浪地球", null, "2026", "9002", null, null, null, null, null);
 
         assertTrue(strategy.isCompatibleBinding(renamed, previous));
@@ -578,10 +578,10 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void placeholderPeopleNamesDoNotCorroborateCrossLanguageIdentity() {
-        RawVideoAggregationRecord raw = rawVideo(
+        SourceRecordAggregationRecord raw = sourceRecord(
                 "流浪地球", null, "2026", "9001", null, null, null, null, null)
                 .withMetadata(Set.of("未知"), Set.of("unknown"), Set.of());
-        UnifiedVideoAggregationCandidate candidate = candidate(
+        CatalogEntryAggregationCandidate candidate = candidate(
                 UUID.randomUUID(), "The Wandering Earth", null, "2026", "9001", null, null, null, null, null)
                 .withMetadata(Set.of("未知"), Set.of("unknown"), Set.of());
 
@@ -590,15 +590,15 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void releaseYearCompatibilityIsSharedByRawAndUnifiedMatching() {
-        RawVideoAggregationRecord first = rawVideo(
+        SourceRecordAggregationRecord first = sourceRecord(
                 "Codex Signal", null, "2025", "9001", null, null, null, null, null);
-        RawVideoAggregationRecord nextYear = rawVideo(
+        SourceRecordAggregationRecord nextYear = sourceRecord(
                 "Codex Signal", null, "2026", "9001", null, null, null, null, null);
-        RawVideoAggregationRecord distantYear = rawVideo(
+        SourceRecordAggregationRecord distantYear = sourceRecord(
                 "Codex Signal", null, "2027", "9001", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate nextUnified = candidate(
+        CatalogEntryAggregationCandidate nextUnified = candidate(
                 UUID.randomUUID(), "Codex Signal", null, "2026", "9001", null, null, null, null, null);
-        UnifiedVideoAggregationCandidate distantUnified = candidate(
+        CatalogEntryAggregationCandidate distantUnified = candidate(
                 UUID.randomUUID(), "Codex Signal", null, "2027", "9001", null, null, null, null, null);
 
         assertEquals(1.0, strategy.calculateSimilarity(first, nextYear));
@@ -612,11 +612,11 @@ class AggregationMatchingStrategyTest {
 
     @Test
     void preparedSimilaritySessionIsBoundedAndPreservesAllScoringAndHardGates() {
-        AggregationGraphCandidate left = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate left = AggregationGraphCandidate.raw(sourceRecord(
                 "Codex Signal 1080p", "Codex Alias", "2026", "9001", null, null, null, null, null));
         AggregationGraphCandidate right = AggregationGraphCandidate.unified(candidate(
                 UUID.randomUUID(), "Codex Signal", null, "2026", "9001", null, null, null, null, null));
-        AggregationGraphCandidate conflicting = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate conflicting = AggregationGraphCandidate.raw(sourceRecord(
                 "Codex Signal", null, "2026", "9002", null, null, null, null, null));
         var session = strategy.prepareSimilaritySession(List.of(left, right, conflicting, left));
 
@@ -626,13 +626,13 @@ class AggregationMatchingStrategyTest {
             assertEquals(strategy.calculateSimilarity(right, left), session.calculateSimilarity(right, left));
             assertEquals(0.0, session.calculateSimilarity(left, conflicting));
         }
-        AggregationGraphCandidate outside = AggregationGraphCandidate.raw(rawVideo(
+        AggregationGraphCandidate outside = AggregationGraphCandidate.raw(sourceRecord(
                 "Another work", null, "2026", null, null, null, null, null, null));
         assertThrows(IllegalArgumentException.class, () -> session.calculateSimilarity(left, outside));
         assertEquals(3, session.preparedCandidateCount());
     }
 
-    private RawVideoAggregationRecord rawVideo(
+    private SourceRecordAggregationRecord sourceRecord(
             String title,
             String aliasTitle,
             String year,
@@ -642,13 +642,13 @@ class AggregationMatchingStrategyTest {
             String rottenTomatoesId,
             Integer season,
             String remarks) {
-        return rawVideo(title, aliasTitle, year, doubanId, tmdbId, imdbId, rottenTomatoesId, season, remarks, "电影");
+        return sourceRecord(title, aliasTitle, year, doubanId, tmdbId, imdbId, rottenTomatoesId, season, remarks, "电影");
     }
 
-    private RawVideoAggregationRecord rawVideo(
+    private SourceRecordAggregationRecord sourceRecord(
             String title, String aliasTitle, String year, String doubanId, String tmdbId,
             String imdbId, String rottenTomatoesId, Integer season, String remarks, String category) {
-        return new RawVideoAggregationRecord(
+        return new SourceRecordAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 aliasTitle,
@@ -671,7 +671,7 @@ class AggregationMatchingStrategyTest {
                 "PROCESSING");
     }
 
-    private UnifiedVideoAggregationCandidate candidate(
+    private CatalogEntryAggregationCandidate candidate(
             UUID id,
             String title,
             String aliasTitle,
@@ -686,10 +686,10 @@ class AggregationMatchingStrategyTest {
                 season, remarks, "电影");
     }
 
-    private UnifiedVideoAggregationCandidate candidate(
+    private CatalogEntryAggregationCandidate candidate(
             UUID id, String title, String aliasTitle, String year, String doubanId, String tmdbId,
             String imdbId, String rottenTomatoesId, Integer season, String remarks, String category) {
-        return new UnifiedVideoAggregationCandidate(
+        return new CatalogEntryAggregationCandidate(
                 id,
                 title,
                 aliasTitle,
@@ -706,14 +706,14 @@ class AggregationMatchingStrategyTest {
                 season);
     }
 
-    private RawVideoAggregationRecord rawVideoWithMetadata(
+    private SourceRecordAggregationRecord sourceRecordWithMetadata(
             String title,
             String year,
             String totalEpisodes,
             Set<String> actorNames,
             Set<String> directorNames,
             Set<String> areaNames) {
-        return new RawVideoAggregationRecord(
+        return new SourceRecordAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 null,
@@ -739,7 +739,7 @@ class AggregationMatchingStrategyTest {
                 "PROCESSING");
     }
 
-    private UnifiedVideoAggregationCandidate candidateWithMetadata(
+    private CatalogEntryAggregationCandidate candidateWithMetadata(
             UUID id,
             String title,
             String year,
@@ -747,7 +747,7 @@ class AggregationMatchingStrategyTest {
             Set<String> actorNames,
             Set<String> directorNames,
             Set<String> areaNames) {
-        return new UnifiedVideoAggregationCandidate(
+        return new CatalogEntryAggregationCandidate(
                 id,
                 title,
                 null,

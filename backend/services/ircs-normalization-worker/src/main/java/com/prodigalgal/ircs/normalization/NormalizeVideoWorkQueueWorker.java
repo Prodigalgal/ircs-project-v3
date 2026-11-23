@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
 public class NormalizeVideoWorkQueueWorker {
 
     private final RuntimeWorkQueue workQueue;
-    private final RawVideoNormalizationService normalizationService;
+    private final SourceRecordNormalizationService normalizationService;
     private final NormalizationConfigValues configValues;
     private final WorkerJobAuditWriter auditWriter;
     private final String workerId;
@@ -41,7 +41,7 @@ public class NormalizeVideoWorkQueueWorker {
 
     NormalizeVideoWorkQueueWorker(
             RuntimeWorkQueue workQueue,
-            RawVideoNormalizationService normalizationService,
+            SourceRecordNormalizationService normalizationService,
             NormalizationConfigValues configValues,
             WorkerJobAuditWriter auditWriter,
             @Value("${spring.application.name:ircs-normalization-worker}") String applicationName,
@@ -129,40 +129,40 @@ public class NormalizeVideoWorkQueueWorker {
 
     private void process(RuntimeWorkItem task) {
         Instant startedAt = Instant.now();
-        UUID rawVideoId = null;
+        UUID sourceRecordId = null;
         String pipelineVersion = task.version();
         try {
-            rawVideoId = rawVideoId(task);
+            sourceRecordId = sourceRecordId(task);
             log.info(
-                    "Processing runtime normalization task: rawVideoId={}, pipelineVersion={}, attempt={}",
-                    rawVideoId,
+                    "Processing runtime normalization task: sourceRecordId={}, pipelineVersion={}, attempt={}",
+                    sourceRecordId,
                     pipelineVersion,
                     task.attempt());
-            RawVideoNormalizationService.NormalizationResult result =
-                    normalizationService.normalize(rawVideoId, pipelineVersion);
+            SourceRecordNormalizationService.NormalizationResult result =
+                    normalizationService.normalize(sourceRecordId, pipelineVersion);
             if ("MISSING".equals(result.status())) {
                 workQueue.fail(task, false, Duration.ZERO, result.reason());
-                recordFailed(startedAt, rawVideoId, new IllegalStateException(result.reason()));
+                recordFailed(startedAt, sourceRecordId, new IllegalStateException(result.reason()));
                 return;
             }
             if ("FAILED".equals(result.status())) {
                 workQueue.fail(task, true, retryDelay(task.attempt()), result.reason());
-                recordFailed(startedAt, rawVideoId, new IllegalStateException(result.reason()));
+                recordFailed(startedAt, sourceRecordId, new IllegalStateException(result.reason()));
                 return;
             }
             if ("PERMANENT_FAILURE".equals(result.status())) {
                 workQueue.fail(task, false, Duration.ZERO, result.reason());
-                recordFailed(startedAt, rawVideoId, new IllegalStateException(result.reason()));
+                recordFailed(startedAt, sourceRecordId, new IllegalStateException(result.reason()));
                 return;
             }
             workQueue.complete(task);
-            recordSucceeded(startedAt, rawVideoId);
+            recordSucceeded(startedAt, sourceRecordId);
         } catch (IllegalArgumentException ex) {
             workQueue.fail(task, false, Duration.ZERO, ex.getMessage());
-            recordFailed(startedAt, rawVideoId, ex);
+            recordFailed(startedAt, sourceRecordId, ex);
         } catch (RuntimeException ex) {
             workQueue.fail(task, true, retryDelay(task.attempt()), ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            recordFailed(startedAt, rawVideoId, ex);
+            recordFailed(startedAt, sourceRecordId, ex);
         }
     }
 
@@ -171,19 +171,19 @@ public class NormalizeVideoWorkQueueWorker {
         return Duration.ofSeconds(Math.max(1L, configValues.backoffBaseSeconds()) * multiplier);
     }
 
-    private void recordSucceeded(Instant startedAt, UUID rawVideoId) {
+    private void recordSucceeded(Instant startedAt, UUID sourceRecordId) {
         recordAudit(WorkerJobAuditEvent.succeeded(
                 "runtime-work-queue",
                 "normalization.raw-video",
-                correlationId(rawVideoId),
+                correlationId(sourceRecordId),
                 elapsedSince(startedAt)));
     }
 
-    private void recordFailed(Instant startedAt, UUID rawVideoId, RuntimeException error) {
+    private void recordFailed(Instant startedAt, UUID sourceRecordId, RuntimeException error) {
         recordAudit(WorkerJobAuditEvent.failed(
                 "runtime-work-queue",
                 "normalization.raw-video",
-                correlationId(rawVideoId),
+                correlationId(sourceRecordId),
                 elapsedSince(startedAt),
                 error));
     }
@@ -196,15 +196,15 @@ public class NormalizeVideoWorkQueueWorker {
         }
     }
 
-    private static UUID rawVideoId(RuntimeWorkItem task) {
+    private static UUID sourceRecordId(RuntimeWorkItem task) {
         if (task == null || task.aggregateId() == null || task.aggregateId().isBlank()) {
             throw new IllegalArgumentException("Normalization runtime task requires aggregateId");
         }
         return UUID.fromString(task.aggregateId());
     }
 
-    private static String correlationId(UUID rawVideoId) {
-        return rawVideoId == null ? null : rawVideoId.toString();
+    private static String correlationId(UUID sourceRecordId) {
+        return sourceRecordId == null ? null : sourceRecordId.toString();
     }
 
     private static Duration elapsedSince(Instant startedAt) {

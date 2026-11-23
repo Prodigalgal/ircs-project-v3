@@ -1,13 +1,7 @@
 package com.prodigalgal.ircs.metadata.catalog;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
-import com.prodigalgal.ircs.common.metadata.MetadataNameCache;
-import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
-import com.prodigalgal.ircs.common.metadata.MetadataNameRelation;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
-import com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher;
-import com.prodigalgal.ircs.contracts.search.SearchEntityType;
-import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import jakarta.annotation.PreDestroy;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -29,8 +23,6 @@ class AuthorityCatalogImportWorker {
     private final AuthorityCatalogImportRepository repository;
     private final CatalogTmdbMetadataSource source;
     private final RuntimeConfigService config;
-    private final SearchSyncWorkPublisher search;
-    private final MetadataNameCache nameCache;
     private final ExecutorService executor = ScheduledTriggers.virtualThreadExecutor("authority-catalog-vt-");
     private final AtomicBoolean importing = new AtomicBoolean();
     private final AtomicBoolean syncing = new AtomicBoolean();
@@ -66,7 +58,6 @@ class AuthorityCatalogImportWorker {
             var job = repository.claim();
             if (job.isEmpty() || !runImport(job.get())) break;
         }
-        publishSearchWork();
     }
 
     private boolean runImport(AuthorityCatalogImportRepository.Import job) {
@@ -99,17 +90,6 @@ class AuthorityCatalogImportWorker {
                 log.warn("Authority change page deferred, type={}, day={}, page={}, errorType={}",
                         type, cursor.day(), cursor.page(), ex.getClass().getSimpleName());
             }
-        }
-    }
-
-    private void publishSearchWork() {
-        for (var pending : repository.pendingIndexes()) {
-            for (MetadataNameRelation relation : MetadataNameRelation.values()) {
-                nameCache.evictNames(MetadataNameOwnerType.UNIFIED, relation, List.of(pending.id()));
-            }
-            search.enqueue(pending.id(), SearchEntityType.UNIFIED_VIDEO,
-                    pending.delete() ? SyncOperation.DELETE : SyncOperation.INDEX);
-            repository.indexed(pending);
         }
     }
 

@@ -34,7 +34,7 @@ class AuditEsReplicationRepositoryTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-19T01:02:03Z");
         jdbcTemplate.update("""
-                insert into request_audit_logs
+                insert into http_request_audit_events
                     (id, created_at, updated_at, audit_class, username, method, path, query_string,
                      status_code, success, duration_ms, client_ip, user_agent, trace_id, error_message)
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -64,7 +64,7 @@ class AuditEsReplicationRepositoryTest {
         UUID id = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-19T02:03:04Z");
         jdbcTemplate.update("""
-                insert into worker_job_audit_events
+                insert into background_job_audit_events
                     (id, created_at, updated_at, audit_class, job_source, job_type, job_name,
                      correlation_id, status, duration_ms, error_class, error_message)
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -94,7 +94,7 @@ class AuditEsReplicationRepositoryTest {
         UUID credentialId = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-19T03:04:05Z");
         jdbcTemplate.update("""
-                insert into notification_mail_send_history
+                insert into mail_delivery_attempts
                     (id, created_at, updated_at, audit_class, correlation_id, recipient, subject,
                      template_code, delivery_mode, status, credential_id, failure_code, failure_message)
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -124,7 +124,7 @@ class AuditEsReplicationRepositoryTest {
 
     private void createTables() {
         jdbcTemplate.execute("""
-                create table request_audit_logs (
+                create table http_request_audit_events (
                     id uuid primary key,
                     created_at timestamp,
                     updated_at timestamp,
@@ -143,7 +143,7 @@ class AuditEsReplicationRepositoryTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table worker_job_audit_events (
+                create table background_job_audit_events (
                     id uuid primary key,
                     created_at timestamp,
                     updated_at timestamp,
@@ -159,7 +159,7 @@ class AuditEsReplicationRepositoryTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table notification_mail_send_history (
+                create table mail_delivery_attempts (
                     id uuid primary key,
                     created_at timestamp,
                     updated_at timestamp,

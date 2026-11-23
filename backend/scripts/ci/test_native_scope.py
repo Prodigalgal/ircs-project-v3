@@ -215,12 +215,12 @@ class NativeRuntimeScopeTest(unittest.TestCase):
 
         self.assertEqual(2, len([call for call in api_calls if call[1] == {} and call[2]]))
         seed = sql_calls[0]
-        self.assertIn('UPDATE magnet_providers SET enabled=false', seed)
+        self.assertIn('UPDATE magnet_discovery_providers SET enabled=false', seed)
         self.assertIn("'2024',1,'series','tt1234567','SYNCED'", seed)
         self.assertIn("'FIXTURE'", seed)
         self.assertIn('["IMDB","TITLE_YEAR"]', seed)
         self.assertIn('pg_stat_activity', sql_calls[-2])
-        self.assertIn('DELETE FROM unified_videos', sql_calls[-1])
+        self.assertIn('DELETE FROM catalog_entries', sql_calls[-1])
         self.assertTrue(any(call.args[-2:] == ('DEL', prefix + ':task:' + task_id) for call in docker.call_args_list))
         self.assertEqual('SUCCESS', state['status'])
 
@@ -237,7 +237,7 @@ class NativeRuntimeScopeTest(unittest.TestCase):
                 patch.object(self.smoke, 'request', side_effect=resetting_api):
             with self.assertRaisesRegex(AssertionError, 'reset the protected queue claim'):
                 self.smoke.magnet_search_round_trip()
-        self.assertIn('DELETE FROM unified_videos', sql_calls[-1])
+        self.assertIn('DELETE FROM catalog_entries', sql_calls[-1])
 
     def test_magnet_probe_rejects_queue_success_without_durable_job_success(self):
         fixture_ids, runtime, api, *_ = self.magnet_runtime(durable_status='FAILED')
@@ -366,10 +366,10 @@ class NativeRuntimeScopeTest(unittest.TestCase):
                 raise self.smoke.HTTPError(request.full_url, 401, 'Unauthorized', {}, io.BytesIO())
             self.assertEqual(self.smoke.password, headers['x-ircs-service-token'])
             self.assertEqual('aggregation:maintenance', headers['x-ircs-service-scopes'])
-            if not payload['rawVideoIds']:
+            if not payload['sourceRecordIds']:
                 raise self.smoke.HTTPError(request.full_url, 400, 'Bad Request', {}, io.BytesIO())
             response = io.BytesIO(json.dumps({'scope': 'SNAPSHOT_ONLY', 'autoUnifiedMergeEnabled': False,
-                                             'decisions': [{'rawVideoId': payload['rawVideoIds'][0],
+                                             'decisions': [{'sourceRecordId': payload['sourceRecordIds'][0],
                                                             'decision': 'MISSING'}]}).encode())
             response.status = 200
             return response
@@ -382,16 +382,16 @@ class NativeRuntimeScopeTest(unittest.TestCase):
             self.smoke.aggregation_evaluation_probe()
 
         self.assertEqual(4, len(requests))
-        single = requests[1][1]['rawVideoIds']
-        self.assertEqual(single * 2, requests[2][1]['rawVideoIds'])
-        self.assertEqual([], requests[3][1]['rawVideoIds'])
+        single = requests[1][1]['sourceRecordIds']
+        self.assertEqual(single * 2, requests[2][1]['sourceRecordIds'])
+        self.assertEqual([], requests[3][1]['sourceRecordIds'])
         self.assertEqual(2, database.call_count)
         for invocation in database.call_args_list:
             sql = invocation.args[-1]
             self.assertTrue(sql.lower().startswith('select '))
-            self.assertIn('count(*) from unified_videos', sql)
-            self.assertIn('count(*) from raw_videos', sql)
-            self.assertIn('count(*) from raw_video_unified_video', sql)
+            self.assertIn('count(*) from catalog_entries', sql)
+            self.assertIn('count(*) from source_records', sql)
+            self.assertIn('count(*) from catalog_source_bindings', sql)
 
     def test_aggregation_http_probe_rejects_any_core_row_count_change(self):
         requests = []

@@ -51,7 +51,7 @@ public class DashboardStatsSnapshotRepository {
                            expires_at,
                            stale_until,
                            source
-                      FROM ops_dashboard_stats_snapshots
+                      FROM operations_pipeline_metric_snapshots
                      WHERE snapshot_key = :snapshotKey
                        AND stale_until > now()
                     """,
@@ -73,7 +73,7 @@ public class DashboardStatsSnapshotRepository {
         try {
             jdbcTemplate.update(
                     """
-                    INSERT INTO ops_dashboard_stats_snapshots (
+                    INSERT INTO operations_pipeline_metric_snapshots (
                         snapshot_key,
                         raw_count_db,
                         raw_count_es,
@@ -141,7 +141,7 @@ public class DashboardStatsSnapshotRepository {
         try {
             jdbcTemplate.update(
                     """
-                    UPDATE ops_dashboard_stats_snapshots
+                    UPDATE operations_pipeline_metric_snapshots
                        SET expires_at = LEAST(expires_at, now()),
                            stale_until = LEAST(stale_until, now()),
                            updated_at = now()

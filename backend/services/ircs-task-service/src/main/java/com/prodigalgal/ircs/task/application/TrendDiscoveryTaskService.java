@@ -83,7 +83,7 @@ public class TrendDiscoveryTaskService {
         int sourceLimit = Math.max(1, Math.min(3, maxSources));
         Map<String, Object> metadata = Map.of("httpHeaders", Map.of(), "ircsCatalogDiscovery", Map.of(
                 "requestKey", candidate.requestKey(),
-                "unifiedVideoId", candidate.unifiedVideoId().toString(),
+                "catalogEntryId", candidate.catalogEntryId().toString(),
                 "targetSeason", candidate.targetSeason(),
                 "targetEpisode", candidate.targetEpisode()));
         AtomicReference<TrendDiscoveryScheduleResponse> response = new AtomicReference<>();

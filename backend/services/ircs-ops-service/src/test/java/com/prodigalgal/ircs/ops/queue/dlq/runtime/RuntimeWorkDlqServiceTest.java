@@ -26,23 +26,23 @@ class RuntimeWorkDlqServiceTest {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkDlqService service = service(queue);
 
-        RuntimeWorkDlqActionResponse response = service.requeue(AggregationWorkTypes.RAW_VIDEO, 3, 5);
+        RuntimeWorkDlqActionResponse response = service.requeue(AggregationWorkTypes.SOURCE_RECORD, 3, 5);
 
-        assertThat(response.taskType()).isEqualTo(AggregationWorkTypes.RAW_VIDEO);
+        assertThat(response.taskType()).isEqualTo(AggregationWorkTypes.SOURCE_RECORD);
         assertThat(response.affected()).isEqualTo(3);
-        assertThat(queue.requeueRequests).containsExactly(new RequeueRequest(AggregationWorkTypes.RAW_VIDEO, 3, 5));
+        assertThat(queue.requeueRequests).containsExactly(new RequeueRequest(AggregationWorkTypes.SOURCE_RECORD, 3, 5));
     }
 
     @Test
     void listsKnownRuntimeDlqsWithSamplesAndConsumerCounts() {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        queue.sample = List.of(item(AggregationWorkTypes.RAW_VIDEO, "task-1"));
+        queue.sample = List.of(item(AggregationWorkTypes.SOURCE_RECORD, "task-1"));
         RuntimeWorkDlqService service = service(queue);
 
         List<RuntimeWorkDlqQueueResponse> responses = service.listQueues(5);
 
         RuntimeWorkDlqQueueResponse aggregation = responses.stream()
-                .filter(item -> AggregationWorkTypes.RAW_VIDEO.equals(item.taskType()))
+                .filter(item -> AggregationWorkTypes.SOURCE_RECORD.equals(item.taskType()))
                 .findFirst()
                 .orElseThrow();
         assertThat(aggregation.dlq()).isEqualTo(7);
@@ -53,13 +53,13 @@ class RuntimeWorkDlqServiceTest {
     @Test
     void zeroSampleLimitSkipsDlqSampleReads() {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
-        queue.sample = List.of(item(AggregationWorkTypes.RAW_VIDEO, "task-1"));
+        queue.sample = List.of(item(AggregationWorkTypes.SOURCE_RECORD, "task-1"));
         RuntimeWorkDlqService service = service(queue);
 
         List<RuntimeWorkDlqQueueResponse> responses = service.listQueues(0);
 
         RuntimeWorkDlqQueueResponse aggregation = responses.stream()
-                .filter(item -> AggregationWorkTypes.RAW_VIDEO.equals(item.taskType()))
+                .filter(item -> AggregationWorkTypes.SOURCE_RECORD.equals(item.taskType()))
                 .findFirst()
                 .orElseThrow();
         assertThat(aggregation.samples()).isEmpty();

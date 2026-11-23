@@ -16,8 +16,8 @@ class AggregationCategoryProfileTest {
 
     @Test
     void compactCalendarDatesAndUndatedOpponentsExposeTheWorldCupMixedCluster() {
-        RawVideoAggregationRecord reference = raw("sports", "回放)世界杯小组赛", "乌兹别克斯坦VS哥伦比亚20260618");
-        for (RawVideoAggregationRecord other : List.of(
+        SourceRecordAggregationRecord reference = raw("sports", "回放)世界杯小组赛", "乌兹别克斯坦VS哥伦比亚20260618");
+        for (SourceRecordAggregationRecord other : List.of(
                 raw("sports", "世界杯小组赛", "奥地利VS约旦20260617"),
                 raw("sports", "世界杯小组赛", "捷克VS南非20260619"),
                 raw("sports", "回放)世界杯小组赛", "墨西哥VS南非"),
@@ -29,7 +29,7 @@ class AggregationCategoryProfileTest {
 
     @Test
     void sexRoundAndTennisLocationConflictsAreHardConstraintsEvenWithSharedIds() {
-        for (List<RawVideoAggregationRecord> pair : List.of(
+        for (List<SourceRecordAggregationRecord> pair : List.of(
                 List.of(raw("sports", "未来之星高中邀请赛", "女子组决赛 精华女子高等学校vs阳明高中20260628"),
                         raw("sports", "未来之星高中邀请赛", "男子组决赛 Kyungbock高中vs鸟取城北高中20260628")),
                 List.of(raw("sports", "WTA500伦敦站女单第二轮", "约维奇2-0伊埃拉20260610"),
@@ -49,8 +49,8 @@ class AggregationCategoryProfileTest {
 
     @Test
     void sameFixtureMatchesAcrossDateFormatsAndChangingScores() {
-        RawVideoAggregationRecord reference = raw("sports", "WTA250诺丁汉站女单第二轮", "卡 普利斯科娃VS麦克纳莉20260618");
-        for (RawVideoAggregationRecord equivalent : List.of(
+        SourceRecordAggregationRecord reference = raw("sports", "WTA250诺丁汉站女单第二轮", "卡 普利斯科娃VS麦克纳莉20260618");
+        for (SourceRecordAggregationRecord equivalent : List.of(
                 raw("sports", "6月18日WTA250诺丁汉站女单第二轮", "卡普利斯科娃2-0麦克纳莉"),
                 raw("sports", "2026-06-18 WTA250诺丁汉站女单第二轮", "卡普利斯科娃 暂0-0麦克纳莉"),
                 raw("sports", "2026-06-18 WTA250诺丁汉站女单第二轮", "卡普利斯科娃(2-0)麦克纳莉"),
@@ -60,8 +60,8 @@ class AggregationCategoryProfileTest {
         }
         assertSameEvent(raw("sports", "7月4日25-26赛季浙BA", "桐庐76VS74临安"),
                 raw("sports", "7月4日25-26赛季浙BA 桐庐VS临安", null));
-        RawVideoAggregationRecord hornetsTitle = raw("sports", "NBA常规赛:黄蜂VS太阳20261113", null);
-        RawVideoAggregationRecord sourceSeasonNoise = raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
+        SourceRecordAggregationRecord hornetsTitle = raw("sports", "NBA常规赛:黄蜂VS太阳20261113", null);
+        SourceRecordAggregationRecord sourceSeasonNoise = raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
         assertSameEvent(hornetsTitle, sourceSeasonNoise);
         assertDistinct(sourceSeasonNoise, raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null));
         assertDistinct(hornetsTitle, raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS国王", null));
@@ -69,13 +69,13 @@ class AggregationCategoryProfileTest {
 
     @Test
     void competitionSeasonOnlyAnchorsWhenBothSourcesAgreeAndNoYearIsAvailable() {
-        RawVideoAggregationRecord first = withEvidence(raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null),
+        SourceRecordAggregationRecord first = withEvidence(raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null),
                 null, null, Set.of(), Set.of(), null);
-        RawVideoAggregationRecord sameSeason = withEvidence(raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null),
+        SourceRecordAggregationRecord sameSeason = withEvidence(raw("sports", "11月13日25-26赛季NBA常规赛黄蜂VS太阳", null),
                 null, null, Set.of(), Set.of(), null);
-        RawVideoAggregationRecord expandedSeason = withEvidence(raw("sports", "11月13日2025 - 2026 赛季NBA常规赛黄蜂VS太阳", null),
+        SourceRecordAggregationRecord expandedSeason = withEvidence(raw("sports", "11月13日2025 - 2026 赛季NBA常规赛黄蜂VS太阳", null),
                 null, null, Set.of(), Set.of(), null);
-        RawVideoAggregationRecord otherSeason = withEvidence(raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null),
+        SourceRecordAggregationRecord otherSeason = withEvidence(raw("sports", "11月13日26-27赛季NBA常规赛黄蜂VS太阳", null),
                 null, null, Set.of(), Set.of(), null);
         assertSameEvent(first, sameSeason);
         assertSameEvent(first, expandedSeason);
@@ -84,13 +84,13 @@ class AggregationCategoryProfileTest {
 
     @Test
     void monthDaySourcesDoNotRequireAnInventedYearAndSportSeasonsAreNotScreenSeasons() {
-        RawVideoAggregationRecord first = withEvidence(raw("体育", "6月18日25-26赛季中乙联赛", "甲队VS乙队"),
+        SourceRecordAggregationRecord first = withEvidence(raw("体育", "6月18日25-26赛季中乙联赛", "甲队VS乙队"),
                 null, 25, Set.of(), Set.of(), null);
-        RawVideoAggregationRecord second = withEvidence(raw("体育", "6月18日25-26赛季中乙联赛 甲队VS乙队", null),
+        SourceRecordAggregationRecord second = withEvidence(raw("体育", "6月18日25-26赛季中乙联赛 甲队VS乙队", null),
                 null, 26, Set.of(), Set.of(), null);
         assertSameEvent(first, second);
         assertSameEvent(first, raw("体育", "2026年6月18日25-26赛季中乙联赛 甲队VS乙队", null));
-        RawVideoAggregationRecord noYearOrSeason = withEvidence(raw("sports", "6月18日中乙联赛", "甲队VS乙队"),
+        SourceRecordAggregationRecord noYearOrSeason = withEvidence(raw("sports", "6月18日中乙联赛", "甲队VS乙队"),
                 null, null, Set.of(), Set.of(), null);
         assertDistinct(noYearOrSeason, withEvidence(raw("sports", "6月18日中乙联赛甲队VS乙队", null),
                 null, null, Set.of(), Set.of(), null));
@@ -100,7 +100,7 @@ class AggregationCategoryProfileTest {
 
     @Test
     void annualReplaysAndSameDayDifferentOpponentsCannotShareAnIdentity() {
-        RawVideoAggregationRecord first = raw("sports", "世界杯小组赛", "甲队VS乙队20260618");
+        SourceRecordAggregationRecord first = raw("sports", "世界杯小组赛", "甲队VS乙队20260618");
         assertDistinct(first, raw("sports", "世界杯小组赛", "甲队VS乙队20250618"));
         assertEquals("YEAR_CONFLICT", strategy.bindingConflictReason(first,
                 unified(raw("sports", "世界杯小组赛", "甲队VS乙队20250618"))));
@@ -110,9 +110,9 @@ class AggregationCategoryProfileTest {
 
     @Test
     void missingFixtureDateCannotCreateAMatchButDoesNotBreakAnExistingCompatibleBinding() {
-        RawVideoAggregationRecord first = raw("sports", "世界杯小组赛", "甲队VS乙队");
-        RawVideoAggregationRecord sameUndated = raw("sports", "回放)世界杯小组赛 甲队VS乙队", null);
-        RawVideoAggregationRecord dated = raw("sports", "世界杯小组赛", "甲队VS乙队20260618");
+        SourceRecordAggregationRecord first = raw("sports", "世界杯小组赛", "甲队VS乙队");
+        SourceRecordAggregationRecord sameUndated = raw("sports", "回放)世界杯小组赛 甲队VS乙队", null);
+        SourceRecordAggregationRecord dated = raw("sports", "世界杯小组赛", "甲队VS乙队20260618");
         assertDistinct(first, sameUndated);
         assertDistinct(first, dated);
         assertTrue(strategy.isCompatibleBinding(first, unified(sameUndated)));
@@ -122,11 +122,11 @@ class AggregationCategoryProfileTest {
 
     @Test
     void missingRoundAndSameLeagueHeadingAreAbsentEvidenceDuringBindingRefresh() {
-        RawVideoAggregationRecord detailed = raw("sports", "6月18日WTA250诺丁汉站女单第二轮", "郑钦文VS高芙");
-        RawVideoAggregationRecord missingRound = raw("sports", "6月18日WTA250诺丁汉站女单", "郑钦文VS高芙");
+        SourceRecordAggregationRecord detailed = raw("sports", "6月18日WTA250诺丁汉站女单第二轮", "郑钦文VS高芙");
+        SourceRecordAggregationRecord missingRound = raw("sports", "6月18日WTA250诺丁汉站女单", "郑钦文VS高芙");
         assertDistinct(detailed, missingRound);
         assertTrue(strategy.isCompatibleBinding(missingRound, unified(detailed)));
-        RawVideoAggregationRecord heading = raw("sports", "6月18日世界杯小组赛", null);
+        SourceRecordAggregationRecord heading = raw("sports", "6月18日世界杯小组赛", null);
         assertDistinct(heading, raw("sports", "6月18日世界杯小组赛", null));
         assertTrue(strategy.isCompatibleBinding(heading,
                 unified(raw("sports", "6月18日世界杯小组赛", "甲队VS乙队"))));
@@ -143,8 +143,8 @@ class AggregationCategoryProfileTest {
 
     @Test
     void fullShortDramaTitleIsRequiredEvenWhenSubtitlesAreAlmostIdenticalOrIdsAndPeopleAgree() {
-        RawVideoAggregationRecord first = raw("短剧", "重生后我成为豪门掌权人", "她带着三个萌宝归来");
-        RawVideoAggregationRecord different = raw("短剧", "重生后我成为豪门掌权人", "她带着四个萌宝归来");
+        SourceRecordAggregationRecord first = raw("短剧", "重生后我成为豪门掌权人", "她带着三个萌宝归来");
+        SourceRecordAggregationRecord different = raw("短剧", "重生后我成为豪门掌权人", "她带着四个萌宝归来");
         assertDistinct(first, different);
         assertDistinct(withEvidence(first, "2026", null, Set.of("演员甲"), Set.of(), "35000001"),
                 withEvidence(different, "2026", null, Set.of("演员甲"), Set.of(), "35000001"));
@@ -156,14 +156,14 @@ class AggregationCategoryProfileTest {
 
     @Test
     void splitChineseCastProvidesSameRoleEvidenceWithoutPromotingPlaceholdersOrRoleSwaps() {
-        RawVideoAggregationRecord combined = withEvidence(raw("短剧", "搬空祖产", "穿书大小姐遇上冷面煞君"),
+        SourceRecordAggregationRecord combined = withEvidence(raw("短剧", "搬空祖产", "穿书大小姐遇上冷面煞君"),
                 "2026", null, Set.of("演员甲＆演员乙"), Set.of(), null);
-        RawVideoAggregationRecord split = withEvidence(raw("短剧", combined.title(), combined.subtitle()),
+        SourceRecordAggregationRecord split = withEvidence(raw("短剧", combined.title(), combined.subtitle()),
                 "2026", null, Set.of("演员甲", "演员乙"), Set.of(), null);
         assertTrue(strategy.calculateSimilarity(combined, split) >= 0.99);
-        RawVideoAggregationRecord chinese = withEvidence(raw("movie", "霸王别姬", null),
+        SourceRecordAggregationRecord chinese = withEvidence(raw("movie", "霸王别姬", null),
                 "2026", null, Set.of("内详", "未知"), Set.of(), "35000001");
-        RawVideoAggregationRecord unrelated = withEvidence(raw("movie", "Titanic", null),
+        SourceRecordAggregationRecord unrelated = withEvidence(raw("movie", "Titanic", null),
                 "2026", null, Set.of("内详", "未知"), Set.of(), "35000001");
         assertDistinct(chinese, unrelated);
         assertDistinct(withEvidence(chinese, "2026", null, Set.of("演员甲"), Set.of("导演乙"), "35000001"),
@@ -189,44 +189,44 @@ class AggregationCategoryProfileTest {
 
     @Test
     void graphKeepsDifferentFixturesSeparateAndScoreVariantsShareAMatchLock() {
-        RawVideoAggregationRecord first = raw("sports", "7月4日25-26赛季浙BA", "桐庐76VS74临安");
-        RawVideoAggregationRecord scoreless = raw("sports", "7月4日25-26赛季浙BA 桐庐VS临安", null);
-        RawVideoAggregationRecord second = raw("sports", "7月4日25-26赛季浙BA", "庆元56VS61景宁");
-        assertEquals(2, new RawVideoGraphClusterer(strategy).cluster(List.of(first, scoreless, second)).size());
-        Set<String> locks = new java.util.HashSet<>(AggregationMatchKeys.forRawVideo(first));
-        locks.retainAll(AggregationMatchKeys.forRawVideo(scoreless));
+        SourceRecordAggregationRecord first = raw("sports", "7月4日25-26赛季浙BA", "桐庐76VS74临安");
+        SourceRecordAggregationRecord scoreless = raw("sports", "7月4日25-26赛季浙BA 桐庐VS临安", null);
+        SourceRecordAggregationRecord second = raw("sports", "7月4日25-26赛季浙BA", "庆元56VS61景宁");
+        assertEquals(2, new SourceRecordGraphClusterer(strategy).cluster(List.of(first, scoreless, second)).size());
+        Set<String> locks = new java.util.HashSet<>(AggregationMatchKeys.forSourceRecord(first));
+        locks.retainAll(AggregationMatchKeys.forSourceRecord(scoreless));
         assertTrue(locks.stream().anyMatch(key -> key.startsWith("event:")));
     }
 
-    private void assertDistinct(RawVideoAggregationRecord left, RawVideoAggregationRecord right) {
+    private void assertDistinct(SourceRecordAggregationRecord left, SourceRecordAggregationRecord right) {
         assertTrue(strategy.calculateSimilarity(left, right) < 0.80);
         assertTrue(strategy.calculateSimilarity(left, unified(right)) < 0.80);
         assertTrue(strategy.findBestMatch(left, List.of(unified(right))).isEmpty());
     }
 
-    private void assertSameEvent(RawVideoAggregationRecord left, RawVideoAggregationRecord right) {
+    private void assertSameEvent(SourceRecordAggregationRecord left, SourceRecordAggregationRecord right) {
         assertTrue(strategy.calculateSimilarity(left, right) >= 0.90);
-        UnifiedVideoAggregationCandidate candidate = unified(right);
+        CatalogEntryAggregationCandidate candidate = unified(right);
         assertTrue(strategy.calculateSimilarity(left, candidate) >= 0.90);
         assertEquals(candidate.id(), strategy.findBestMatch(left, List.of(candidate)).orElseThrow());
         assertTrue(strategy.isCompatibleBinding(left, candidate));
     }
 
-    private RawVideoAggregationRecord raw(String category, String title, String subtitle) {
-        return new RawVideoAggregationRecord(UUID.randomUUID(), title, null, null, "2026", null, null,
+    private SourceRecordAggregationRecord raw(String category, String title, String subtitle) {
+        return new SourceRecordAggregationRecord(UUID.randomUUID(), title, null, null, "2026", null, null,
                 null, null, null, subtitle, null, category, category, Set.of(), Set.of(), Set.of(),
                 null, null, null, null, "READY", "SUCCESS", "PENDING");
     }
 
-    private RawVideoAggregationRecord withEvidence(RawVideoAggregationRecord raw, String year, Integer season,
+    private SourceRecordAggregationRecord withEvidence(SourceRecordAggregationRecord raw, String year, Integer season,
             Set<String> actors, Set<String> directors, String douban) {
-        return new RawVideoAggregationRecord(raw.id(), raw.title(), raw.aliasTitle(), null, year, null, null,
+        return new SourceRecordAggregationRecord(raw.id(), raw.title(), raw.aliasTitle(), null, year, null, null,
                 null, null, null, raw.subtitle(), season, raw.categoryName(), raw.categoryCode(), actors, directors,
                 Set.of(), douban, null, null, null, "READY", "SUCCESS", "PENDING");
     }
 
-    private UnifiedVideoAggregationCandidate unified(RawVideoAggregationRecord raw) {
-        return new UnifiedVideoAggregationCandidate(UUID.randomUUID(), raw.title(), raw.aliasTitle(), raw.subtitle(),
+    private CatalogEntryAggregationCandidate unified(SourceRecordAggregationRecord raw) {
+        return new CatalogEntryAggregationCandidate(UUID.randomUUID(), raw.title(), raw.aliasTitle(), raw.subtitle(),
                 raw.year(), raw.totalEpisodes(), raw.duration(), raw.remarks(), raw.categoryName(), raw.actorNames(),
                 raw.directorNames(), raw.areaNames(), raw.doubanId(), raw.tmdbId(), raw.imdbId(), raw.rottenTomatoesId(), raw.season());
     }

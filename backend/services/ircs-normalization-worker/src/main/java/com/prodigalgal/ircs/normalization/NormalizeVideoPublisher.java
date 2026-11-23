@@ -13,19 +13,19 @@ public class NormalizeVideoPublisher {
 
     private final RuntimeWorkQueue workQueue;
 
-    public void publish(UUID rawVideoId, String pipelineVersion) {
-        workQueue.submitAfterCommit(request(rawVideoId, pipelineVersion));
+    public void publish(UUID sourceRecordId, String pipelineVersion) {
+        workQueue.submitAfterCommit(request(sourceRecordId, pipelineVersion));
     }
 
-    public void publishNow(UUID rawVideoId, String pipelineVersion) {
-        workQueue.submit(request(rawVideoId, pipelineVersion));
+    public void publishNow(UUID sourceRecordId, String pipelineVersion) {
+        workQueue.submit(request(sourceRecordId, pipelineVersion));
     }
 
-    private static RuntimeWorkItemRequest request(UUID rawVideoId, String pipelineVersion) {
+    private static RuntimeWorkItemRequest request(UUID sourceRecordId, String pipelineVersion) {
         return new RuntimeWorkItemRequest(
                 PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
-                PipelineRuntimeWorkTypes.normalizeTaskId(rawVideoId, pipelineVersion),
-                rawVideoId.toString(),
+                PipelineRuntimeWorkTypes.normalizeTaskId(sourceRecordId, pipelineVersion),
+                sourceRecordId.toString(),
                 PipelineRuntimeWorkTypes.normalizeVersion(pipelineVersion),
                 "");
     }

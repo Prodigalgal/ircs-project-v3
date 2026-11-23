@@ -23,9 +23,9 @@ class ManualAggregationController {
     private final AggregationService aggregationService;
 
     @PostMapping("/unified-videos/merge")
-    ResponseEntity<ManualUnifiedMergeResponse> mergeUnifiedVideos(
+    ResponseEntity<ManualUnifiedMergeResponse> mergeCatalogEntries(
             @Valid @RequestBody ManualUnifiedMergeRequest request) {
-        return ResponseEntity.accepted().body(aggregationService.mergeUnifiedVideos(request.ids()));
+        return ResponseEntity.accepted().body(aggregationService.mergeCatalogEntries(request.ids()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

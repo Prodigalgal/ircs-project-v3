@@ -26,10 +26,10 @@ class InternalAggregationReviewRecoveryController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String scopes) {
         accessPolicy.assertCorrectionAccess(serviceId, serviceToken, scopes);
-        return recovery.recover(request.rawVideoIds(), Boolean.TRUE.equals(request.execute()));
+        return recovery.recover(request.sourceRecordIds(), Boolean.TRUE.equals(request.execute()));
     }
 
     record RecoveryRequest(
-            @NotNull @Size(min = 1, max = AggregationReviewRecoveryService.MAX_RAW_VIDEOS) List<@NotNull UUID> rawVideoIds,
+            @NotNull @Size(min = 1, max = AggregationReviewRecoveryService.MAX_SOURCE_RECORDS) List<@NotNull UUID> sourceRecordIds,
             Boolean execute) { }
 }

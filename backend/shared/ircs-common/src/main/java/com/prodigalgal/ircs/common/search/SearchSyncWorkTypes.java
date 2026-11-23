@@ -11,6 +11,6 @@ public final class SearchSyncWorkTypes {
     }
 
     public static String taskType(SearchEntityType entityType) {
-        return entityType == SearchEntityType.RAW_VIDEO ? RAW : UNIFIED;
+        return entityType == SearchEntityType.SOURCE_RECORD ? RAW : UNIFIED;
     }
 }

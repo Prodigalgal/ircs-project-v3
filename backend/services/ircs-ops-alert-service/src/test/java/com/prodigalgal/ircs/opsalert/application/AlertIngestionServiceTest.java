@@ -104,7 +104,7 @@ class AlertIngestionServiceTest {
 
     private static void createTables(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.execute("""
-                create table ops_alert_events (
+                create table operations_alert_events (
                     id uuid primary key,
                     created_at timestamp not null,
                     observed_at timestamp not null,
@@ -119,7 +119,7 @@ class AlertIngestionServiceTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table ops_incidents (
+                create table operations_incidents (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -140,7 +140,7 @@ class AlertIngestionServiceTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table ops_healing_actions (
+                create table operations_remediation_actions (
                     id uuid primary key,
                     incident_id uuid not null,
                     created_at timestamp not null,

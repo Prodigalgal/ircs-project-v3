@@ -50,8 +50,8 @@ class TrendSyncContentServiceTest {
         assertThat(result.createdGhosts()).isEqualTo(1);
         assertThat(result.updatedByExternalId()).isEqualTo(1);
         assertThat(result.skippedDuplicates()).isEqualTo(1);
-        assertThat(result.createdUnifiedVideoIds()).containsExactly(created);
-        assertThat(result.updatedUnifiedVideoIds()).containsExactly(existing);
+        assertThat(result.createdCatalogEntryIds()).containsExactly(created);
+        assertThat(result.updatedCatalogEntryIds()).containsExactly(existing);
         assertThat(result.discoveryKeywords()).isEmpty();
         verify(catalog, times(2)).resolve(any());
         verify(snapshots).save(eq(board), argThat(observations -> observations.size() == 2
@@ -68,7 +68,7 @@ class TrendSyncContentServiceTest {
         var result = service.apply(new TrendSyncApplyRequest(List.of(), List.of(day, week)));
 
         assertThat(result.candidates()).isEqualTo(2);
-        assertThat(result.createdUnifiedVideoIds()).containsExactly(canonical);
+        assertThat(result.createdCatalogEntryIds()).containsExactly(canonical);
         verify(catalog).resolve(any());
         verify(snapshots).save(eq(day), argThat(observations -> observations.size() == 1));
         verify(snapshots).save(eq(week), argThat(observations -> observations.size() == 1));

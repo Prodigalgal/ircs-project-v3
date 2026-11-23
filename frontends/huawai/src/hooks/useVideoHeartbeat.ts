@@ -11,7 +11,7 @@ interface PlaybackState {
 }
 
 interface UseVideoHeartbeatProps {
-    unifiedVideoId?: string;
+    catalogEntryId?: string;
     videoId?: string;
     episodeId?: string;
     episodeName?: string;
@@ -27,7 +27,7 @@ interface UseVideoHeartbeatProps {
 }
 
 export function useVideoHeartbeat({
-                                      unifiedVideoId,
+                                      catalogEntryId,
                                       videoId,
                                       episodeId,
                                       episodeName,
@@ -41,7 +41,7 @@ export function useVideoHeartbeat({
         if (!user || isStealthMode) return;
 
         // 2. Validate Metadata
-        if (!unifiedVideoId || !videoId || !episodeName) return;
+        if (!catalogEntryId || !videoId || !episodeName) return;
 
         // 3. Get Realtime State
         const { currentTime, duration, isPlaying } = getPlaybackState();
@@ -54,7 +54,7 @@ export function useVideoHeartbeat({
 
         // 5. API Call
         interactionApi.reportProgress(
-            unifiedVideoId,
+            catalogEntryId,
             videoId,
             episodeId,
             episodeName,
@@ -62,7 +62,7 @@ export function useVideoHeartbeat({
             Math.floor(duration),
             useKeepAlive
         ).catch(console.error);
-    }, [user, isStealthMode, unifiedVideoId, videoId, episodeId, episodeName, getPlaybackState]);
+    }, [user, isStealthMode, catalogEntryId, videoId, episodeId, episodeName, getPlaybackState]);
 
     // Setup Interval
     useEffect(() => {

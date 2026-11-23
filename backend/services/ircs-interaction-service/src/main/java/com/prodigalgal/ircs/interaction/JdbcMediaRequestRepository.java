@@ -15,102 +15,89 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class JdbcMediaRequestRepository {
 
+    private static final String SELECT_SUBMISSION = """
+            select s.id, s.demand_id, s.member_id, s.submitted_title, d.release_year, s.extra_info,
+                   d.status, d.request_count, s.created_at, d.updated_at,
+                   d.last_requested_at, d.scheduled_at, d.completed_at, d.last_error_message,
+                   d.existing_video_id, d.existing_video_source, s.spent_points
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
-    public MediaRequestResponse upsert(UUID id, UUID memberId, String title, String normalizedTitle,
-            Integer releaseYear, String extraInfo, Instant now, int spentPoints) {
-        int storedReleaseYear = releaseYear == null ? 0 : releaseYear;
+    public MediaRequestResponse submit(UUID submissionId, UUID proposedDemandId, UUID memberId, String title,
+            String normalizedTitle, Integer releaseYear, String extraInfo, UUID clientRequestId,
+            Instant now, int spentPoints) {
+        Timestamp submittedAt = Timestamp.from(now);
         return jdbcTemplate.queryForObject(
                 """
-                with upserted as (
-                    insert into portal_media_requests (
-                        id, created_at, updated_at, version, member_id, title, normalized_title, release_year,
-                        extra_info, status, request_count, last_requested_at
-                    ) values (?, ?, ?, 0, ?, ?, ?, ?, ?, 'PENDING', 1, ?)
+                with demand as (
+                    insert into media_request_demands (
+                        id, created_at, updated_at, version, title, normalized_title, release_year,
+                        status, request_count, last_requested_at
+                    ) values (?, ?, ?, 0, ?, ?, ?, 'PENDING', 1, ?)
                     on conflict (normalized_title, release_year) do update
-                       set updated_at = excluded.updated_at,
-                           version = portal_media_requests.version + 1,
-                           title = excluded.title,
-                           extra_info = coalesce(nullif(excluded.extra_info, ''), portal_media_requests.extra_info),
+                       set updated_at = greatest(media_request_demands.updated_at, excluded.updated_at),
+                           version = media_request_demands.version + 1,
                            status = case
-                               when portal_media_requests.status in ('COMPLETED', 'FAILED', 'CANCELLED') then 'PENDING'
-                               else portal_media_requests.status
+                               when media_request_demands.status in ('COMPLETED', 'FAILED', 'CANCELLED') then 'PENDING'
+                               else media_request_demands.status
                            end,
-                           request_count = portal_media_requests.request_count + 1,
-                           last_requested_at = excluded.last_requested_at,
-                           existing_video_id = case
-                               when portal_media_requests.status = 'SKIPPED_EXISTS' then portal_media_requests.existing_video_id
-                               else null
-                           end,
-                           existing_video_source = case
-                               when portal_media_requests.status = 'SKIPPED_EXISTS' then portal_media_requests.existing_video_source
-                               else null
-                           end,
-                           last_error_message = case
-                               when portal_media_requests.status = 'SKIPPED_EXISTS' then portal_media_requests.last_error_message
-                               else null
-                           end
-                    returning id, member_id, title, release_year, extra_info, status, request_count, created_at,
-                              updated_at, last_requested_at, scheduled_at, completed_at, last_error_message,
-                              existing_video_id, existing_video_source
+                           request_count = media_request_demands.request_count + 1,
+                           last_requested_at = greatest(media_request_demands.last_requested_at, excluded.last_requested_at),
+                           scheduled_at = case when media_request_demands.status in ('COMPLETED', 'FAILED', 'CANCELLED')
+                               then null else media_request_demands.scheduled_at end,
+                           completed_at = case when media_request_demands.status in ('COMPLETED', 'FAILED', 'CANCELLED')
+                               then null else media_request_demands.completed_at end,
+                           current_batch_id = case when media_request_demands.status in ('COMPLETED', 'FAILED', 'CANCELLED')
+                               then null else media_request_demands.current_batch_id end,
+                           existing_video_id = case when media_request_demands.status = 'SKIPPED_EXISTS'
+                               then media_request_demands.existing_video_id end,
+                           existing_video_source = case when media_request_demands.status = 'SKIPPED_EXISTS'
+                               then media_request_demands.existing_video_source end,
+                           last_error_message = case when media_request_demands.status = 'SKIPPED_EXISTS'
+                               then media_request_demands.last_error_message end
+                    returning *
+                ), submission as (
+                    insert into media_request_submissions (
+                        id, demand_id, member_id, submitted_title, extra_info, spent_points, client_request_id, created_at
+                    ) select ?, id, ?, ?, ?, ?, ?, ? from demand
+                    returning *
                 )
-                select *, ? as spent_points
-                from upserted
-                """,
+                """ + SELECT_SUBMISSION + " from submission s join demand d on d.id = s.demand_id",
                 mediaRequestMapper(),
-                id,
-                Timestamp.from(now),
-                Timestamp.from(now),
-                memberId,
-                title,
-                normalizedTitle,
-                storedReleaseYear,
-                extraInfo,
-                Timestamp.from(now),
-                spentPoints);
+                proposedDemandId, submittedAt, submittedAt, title, normalizedTitle, releaseYear, submittedAt,
+                submissionId, memberId, title, extraInfo, spentPoints, clientRequestId, submittedAt);
     }
 
     public PageResponse<MediaRequestResponse> findMemberRequests(UUID memberId, PageBounds bounds) {
-        long total = count("select count(*) from portal_media_requests where member_id = ?", memberId);
+        long total = count("select count(*) from media_request_submissions where member_id = ?", memberId);
         List<MediaRequestResponse> content = jdbcTemplate.query(
-                """
-                select id, member_id, title, release_year, extra_info, status, request_count, created_at,
-                       updated_at, last_requested_at, scheduled_at, completed_at, last_error_message,
-                       existing_video_id, existing_video_source,
-                       0 as spent_points
-                  from portal_media_requests
-                 where member_id = ?
-                 order by last_requested_at desc, id asc
-                 limit ? offset ?
+                SELECT_SUBMISSION + """
+                from media_request_submissions s
+                join media_request_demands d on d.id = s.demand_id
+                where s.member_id = ?
+                order by s.created_at desc, s.id desc
+                limit ? offset ?
                 """,
-                mediaRequestMapper(),
-                memberId,
-                bounds.size(),
-                bounds.offset());
+                mediaRequestMapper(), memberId, bounds.size(), bounds.offset());
         return PageResponse.of(content, total, bounds);
     }
 
     public long countMemberRequestsCreatedBetween(UUID memberId, Instant startInclusive, Instant endExclusive) {
-        return count(
-                "select count(*) from portal_media_requests where member_id = ? and last_requested_at >= ? and last_requested_at < ?",
-                memberId,
-                Timestamp.from(startInclusive),
-                Timestamp.from(endExclusive));
+        return count("""
+                select count(*) from media_request_submissions where member_id = ? and created_at >= ? and created_at < ?
+                """, memberId, Timestamp.from(startInclusive), Timestamp.from(endExclusive));
     }
 
-    public Optional<MediaRequestResponse> findById(UUID id) {
+    public Optional<MediaRequestResponse> findMemberSubmission(UUID memberId, UUID clientRequestId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    """
-                    select id, member_id, title, release_year, extra_info, status, request_count, created_at,
-                           updated_at, last_requested_at, scheduled_at, completed_at, last_error_message,
-                           existing_video_id, existing_video_source,
-                           0 as spent_points
-                      from portal_media_requests
-                     where id = ?
+                    SELECT_SUBMISSION + """
+                    from media_request_submissions s
+                    join media_request_demands d on d.id = s.demand_id
+                    where s.member_id = ? and s.client_request_id = ?
                     """,
-                    mediaRequestMapper(),
-                    id));
+                    mediaRequestMapper(), memberId, clientRequestId));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
@@ -124,9 +111,10 @@ public class JdbcMediaRequestRepository {
     private RowMapper<MediaRequestResponse> mediaRequestMapper() {
         return (rs, rowNum) -> new MediaRequestResponse(
                 rs.getObject("id", UUID.class),
+                rs.getObject("demand_id", UUID.class),
                 rs.getObject("member_id", UUID.class),
-                rs.getString("title"),
-                apiReleaseYear(rs.getInt("release_year")),
+                rs.getString("submitted_title"),
+                rs.getObject("release_year", Integer.class),
                 rs.getString("extra_info"),
                 rs.getString("status"),
                 rs.getInt("request_count"),
@@ -143,9 +131,5 @@ public class JdbcMediaRequestRepository {
 
     private Instant instant(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
-    }
-
-    private Integer apiReleaseYear(int releaseYear) {
-        return releaseYear <= 0 ? null : releaseYear;
     }
 }

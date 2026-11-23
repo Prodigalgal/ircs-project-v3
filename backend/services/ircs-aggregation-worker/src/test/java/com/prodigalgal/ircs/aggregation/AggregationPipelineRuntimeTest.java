@@ -38,39 +38,39 @@ class AggregationPipelineRuntimeTest {
 
     @Test
     void runsHandlersInV1OrderAndReturnsCoverR2SyncIds() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
-        when(repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId)).thenReturn(List.of(coverImageId));
+        when(repository.rebuildUnifiedPipelineCoverImage(catalogEntryId)).thenReturn(List.of(coverImageId));
         RecordingTransactionOperations transactions = new RecordingTransactionOperations();
         AggregationPipelineRuntime runtime = AggregationPipelineRuntime.forTest(repository, transactions);
 
-        AggregationPipelineExecution execution = runtime.run(unifiedVideoId);
+        AggregationPipelineExecution execution = runtime.run(catalogEntryId);
 
         assertTrue(execution.successful());
         assertEquals(List.of(coverImageId), execution.coverR2SyncImageIds());
         assertEquals(7, transactions.calls());
         InOrder ordered = inOrder(repository);
-        ordered.verify(repository).rebuildUnifiedPipelineBasicAttributes(unifiedVideoId);
-        ordered.verify(repository).rebuildUnifiedPipelineExternalIds(unifiedVideoId);
-        ordered.verify(repository).rebuildUnifiedPipelineMetadataRelations(unifiedVideoId);
-        ordered.verify(repository).rebuildUnifiedPipelineDynamicFields(unifiedVideoId);
-        ordered.verify(repository).rebuildUnifiedPipelineCategory(unifiedVideoId);
-        ordered.verify(repository).rebuildUnifiedAdultAssessment(unifiedVideoId);
-        ordered.verify(repository).rebuildUnifiedPipelineCoverImage(unifiedVideoId);
+        ordered.verify(repository).rebuildUnifiedPipelineBasicAttributes(catalogEntryId);
+        ordered.verify(repository).rebuildUnifiedPipelineExternalIds(catalogEntryId);
+        ordered.verify(repository).rebuildUnifiedPipelineMetadataRelations(catalogEntryId);
+        ordered.verify(repository).rebuildUnifiedPipelineDynamicFields(catalogEntryId);
+        ordered.verify(repository).rebuildUnifiedPipelineCategory(catalogEntryId);
+        ordered.verify(repository).rebuildUnifiedAdultAssessment(catalogEntryId);
+        ordered.verify(repository).rebuildUnifiedPipelineCoverImage(catalogEntryId);
     }
 
     @Test
     void continuesAfterStageFailureAndRecordsFailedStage() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
         doThrow(new IllegalStateException("metadata failed"))
                 .when(repository)
-                .rebuildUnifiedPipelineMetadataRelations(unifiedVideoId);
-        when(repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId)).thenReturn(List.of(coverImageId));
+                .rebuildUnifiedPipelineMetadataRelations(catalogEntryId);
+        when(repository.rebuildUnifiedPipelineCoverImage(catalogEntryId)).thenReturn(List.of(coverImageId));
         RecordingTransactionOperations transactions = new RecordingTransactionOperations();
         AggregationPipelineRuntime runtime = AggregationPipelineRuntime.forTest(repository, transactions);
 
-        AggregationPipelineExecution execution = runtime.run(unifiedVideoId);
+        AggregationPipelineExecution execution = runtime.run(catalogEntryId);
 
         assertFalse(execution.successful());
         assertEquals(List.of(coverImageId), execution.coverR2SyncImageIds());
@@ -79,22 +79,22 @@ class AggregationPipelineRuntimeTest {
         assertEquals(AggregationPipelineStage.METADATA, execution.failures().getFirst().stage());
         assertEquals("MetadataHandler", execution.failures().getFirst().handlerName());
         assertEquals(30, execution.failures().getFirst().v1Order());
-        verify(repository).rebuildUnifiedPipelineDynamicFields(unifiedVideoId);
-        verify(repository).rebuildUnifiedPipelineCategory(unifiedVideoId);
-        verify(repository).rebuildUnifiedAdultAssessment(unifiedVideoId);
-        verify(repository).rebuildUnifiedPipelineCoverImage(unifiedVideoId);
+        verify(repository).rebuildUnifiedPipelineDynamicFields(catalogEntryId);
+        verify(repository).rebuildUnifiedPipelineCategory(catalogEntryId);
+        verify(repository).rebuildUnifiedAdultAssessment(catalogEntryId);
+        verify(repository).rebuildUnifiedPipelineCoverImage(catalogEntryId);
     }
 
     @Test
     void coverStageFailureDoesNotReturnR2SyncIds() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         doThrow(new IllegalStateException("cover failed"))
                 .when(repository)
-                .rebuildUnifiedPipelineCoverImage(unifiedVideoId);
+                .rebuildUnifiedPipelineCoverImage(catalogEntryId);
         RecordingTransactionOperations transactions = new RecordingTransactionOperations();
         AggregationPipelineRuntime runtime = AggregationPipelineRuntime.forTest(repository, transactions);
 
-        AggregationPipelineExecution execution = runtime.run(unifiedVideoId);
+        AggregationPipelineExecution execution = runtime.run(catalogEntryId);
 
         assertFalse(execution.successful());
         assertTrue(execution.coverR2SyncImageIds().isEmpty());

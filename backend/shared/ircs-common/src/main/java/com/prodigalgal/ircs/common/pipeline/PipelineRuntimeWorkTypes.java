@@ -14,29 +14,29 @@ public final class PipelineRuntimeWorkTypes {
     private PipelineRuntimeWorkTypes() {
     }
 
-    public static String normalizeTaskId(UUID rawVideoId, String pipelineVersion) {
-        return taskId(NORMALIZE_VIDEO, rawVideoId, pipelineVersion);
+    public static String normalizeTaskId(UUID sourceRecordId, String pipelineVersion) {
+        return taskId(NORMALIZE_VIDEO, sourceRecordId, pipelineVersion);
     }
 
-    public static String enrichTaskId(UUID rawVideoId, String pipelineVersion) {
-        return taskId(ENRICH_METADATA, rawVideoId, pipelineVersion);
+    public static String enrichTaskId(UUID sourceRecordId, String pipelineVersion) {
+        return taskId(ENRICH_METADATA, sourceRecordId, pipelineVersion);
     }
 
-    public static String providerTaskId(String providerType, UUID rawVideoId, String pipelineVersion) {
+    public static String providerTaskId(String providerType, UUID sourceRecordId, String pipelineVersion) {
         if (!StringUtils.hasText(providerType)) {
             throw new IllegalArgumentException("providerType is required");
         }
-        if (rawVideoId == null) {
-            throw new IllegalArgumentException("rawVideoId is required");
+        if (sourceRecordId == null) {
+            throw new IllegalArgumentException("sourceRecordId is required");
         }
-        return METADATA_PROVIDER + ":" + providerType.trim() + ":" + rawVideoId + ":" + normalizeVersion(pipelineVersion);
+        return METADATA_PROVIDER + ":" + providerType.trim() + ":" + sourceRecordId + ":" + normalizeVersion(pipelineVersion);
     }
 
-    private static String taskId(String taskType, UUID rawVideoId, String pipelineVersion) {
-        if (rawVideoId == null) {
-            throw new IllegalArgumentException("rawVideoId is required");
+    private static String taskId(String taskType, UUID sourceRecordId, String pipelineVersion) {
+        if (sourceRecordId == null) {
+            throw new IllegalArgumentException("sourceRecordId is required");
         }
-        return taskType + ":" + rawVideoId + ":" + normalizeVersion(pipelineVersion);
+        return taskType + ":" + sourceRecordId + ":" + normalizeVersion(pipelineVersion);
     }
 
     public static String normalizeVersion(String pipelineVersion) {

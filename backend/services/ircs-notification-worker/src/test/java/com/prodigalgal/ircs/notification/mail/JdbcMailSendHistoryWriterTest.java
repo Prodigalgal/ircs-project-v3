@@ -37,7 +37,7 @@ class JdbcMailSendHistoryWriterTest {
              var result = connection.createStatement().executeQuery("""
                      select correlation_id, recipient, subject, template_code, delivery_mode,
                             status, credential_id, failure_code, failure_message
-                     from notification_mail_send_history
+                     from mail_delivery_attempts
                      """)) {
             org.assertj.core.api.Assertions.assertThat(result.next()).isTrue();
             assertEquals("rabbit-message-02810", result.getString("correlation_id"));
@@ -76,7 +76,7 @@ class JdbcMailSendHistoryWriterTest {
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement().executeQuery("""
                      select delivery_mode, status, credential_id, failure_code, failure_message
-                     from notification_mail_send_history
+                     from mail_delivery_attempts
                      """)) {
             org.assertj.core.api.Assertions.assertThat(result.next()).isTrue();
             assertEquals("fake", result.getString("delivery_mode"));

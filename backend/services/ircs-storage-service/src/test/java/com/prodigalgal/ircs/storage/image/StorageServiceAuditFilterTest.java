@@ -55,7 +55,7 @@ class StorageServiceAuditFilterTest {
         var rows = jdbcTemplate.queryForList("""
                 select request_source, username, method, path, query_string, status_code, success,
                        client_ip, user_agent, trace_id, error_message
-                  from request_audit_logs
+                  from http_request_audit_events
                 """);
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst())
@@ -111,7 +111,7 @@ class StorageServiceAuditFilterTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table request_audit_logs (
+                    create table http_request_audit_events (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

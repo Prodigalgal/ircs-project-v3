@@ -51,9 +51,9 @@ class NormalizationMaintenanceClient implements MaintenanceNormalizationClient {
                     objectMapper.readValue(response.body(), NormalizationMaintenanceRunResponse.class);
             return new MaintenanceRunResult(
                     "sanitize",
-                    safeInt(body.rawVideoCount()),
+                    safeInt(body.sourceRecordCount()),
                     safeInt(body.enqueuedRows() > 0 ? body.enqueuedRows() : body.changedRows()),
-                    ids(body.sampleRawVideoIds()));
+                    ids(body.sampleSourceRecordIds()));
         } catch (OutboundCircuitOpenException ex) {
             throw new IllegalStateException("normalization-worker maintenance failed: outbound circuit open", ex);
         } catch (IOException | IllegalArgumentException ex) {

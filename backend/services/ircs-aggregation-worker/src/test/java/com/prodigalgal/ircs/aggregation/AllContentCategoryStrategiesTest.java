@@ -67,24 +67,24 @@ class AllContentCategoryStrategiesTest {
         }
     }
 
-    private void same(RawVideoAggregationRecord left, RawVideoAggregationRecord right) {
+    private void same(SourceRecordAggregationRecord left, SourceRecordAggregationRecord right) {
         assertTrue(strategy.calculateSimilarity(left, right) >= 0.90);
         assertFalse(strategy.findBestMatch(left, java.util.List.of(unified(right))).isEmpty());
     }
 
-    private void distinct(RawVideoAggregationRecord left, RawVideoAggregationRecord right) {
+    private void distinct(SourceRecordAggregationRecord left, SourceRecordAggregationRecord right) {
         assertTrue(strategy.calculateSimilarity(left, right) < 0.80);
         assertTrue(strategy.findBestMatch(left, java.util.List.of(unified(right))).isEmpty());
     }
 
-    private RawVideoAggregationRecord raw(String type, String title, String subtitle, Set<String> people) {
-        return new RawVideoAggregationRecord(UUID.randomUUID(), title, null, null, "2026", null, null,
+    private SourceRecordAggregationRecord raw(String type, String title, String subtitle, Set<String> people) {
+        return new SourceRecordAggregationRecord(UUID.randomUUID(), title, null, null, "2026", null, null,
                 null, null, null, subtitle, null, type, type, people, Set.of(), Set.of(),
                 null, null, null, null, "READY", "SUCCESS", "PENDING");
     }
 
-    private UnifiedVideoAggregationCandidate unified(RawVideoAggregationRecord raw) {
-        return new UnifiedVideoAggregationCandidate(UUID.randomUUID(), raw.title(), null, raw.subtitle(), raw.year(),
+    private CatalogEntryAggregationCandidate unified(SourceRecordAggregationRecord raw) {
+        return new CatalogEntryAggregationCandidate(UUID.randomUUID(), raw.title(), null, raw.subtitle(), raw.year(),
                 null, null, null, raw.categoryName(), raw.actorNames(), raw.directorNames(), raw.areaNames(),
                 null, null, null, null, raw.season());
     }

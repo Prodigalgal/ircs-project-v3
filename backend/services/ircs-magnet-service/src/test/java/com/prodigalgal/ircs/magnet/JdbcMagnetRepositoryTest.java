@@ -33,14 +33,14 @@ class JdbcMagnetRepositoryTest {
 
     @Test
     void writesSearchJobAndProviderRun() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID providerId = UUID.randomUUID();
-        insertUnifiedVideo(unifiedVideoId, "tt1234567");
+        insertCatalogEntry(catalogEntryId, "tt1234567");
         insertProvider(providerId, "codex_provider", true);
 
-        MagnetUnifiedVideoSearchTarget target = repository.findUnifiedVideoSearchTarget(unifiedVideoId).orElseThrow();
+        MagnetCatalogEntrySearchTarget target = repository.findCatalogEntrySearchTarget(catalogEntryId).orElseThrow();
         List<MagnetExternalIdQuery> plan = List.of(new MagnetExternalIdQuery("IMDB", target.imdbId()));
-        MagnetSearchJobSummary runningJob = repository.createRunningSearchJob(unifiedVideoId, plan);
+        MagnetSearchJobSummary runningJob = repository.createRunningSearchJob(catalogEntryId, plan);
         MagnetProviderSummary provider = repository.listEnabledProviders().get(0);
         repository.createProviderRun(
                 runningJob.id(),
@@ -68,21 +68,21 @@ class JdbcMagnetRepositoryTest {
         assertEquals(1, finishedJob.acceptedCount());
         assertEquals(0, finishedJob.rejectedCount());
         assertTrue(finishedJob.externalIdPlan().toString().contains("tt1234567"));
-        assertEquals(1, countRows("magnet_search_jobs"));
-        assertEquals(1, countRows("magnet_provider_runs"));
-        assertEquals(0, countRows("magnet_links"));
+        assertEquals(1, countRows("magnet_discovery_jobs"));
+        assertEquals(1, countRows("magnet_discovery_provider_runs"));
+        assertEquals(0, countRows("catalog_magnet_links"));
     }
 
     @Test
     void marksJobPartialSuccessWhenAtLeastOneProviderRunSucceeds() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID successProviderId = UUID.randomUUID();
         UUID failedProviderId = UUID.randomUUID();
-        insertUnifiedVideo(unifiedVideoId, "tt1234567");
+        insertCatalogEntry(catalogEntryId, "tt1234567");
         insertProvider(successProviderId, "yts_bz", true);
         insertProvider(failedProviderId, "thepiratebay", true);
         List<MagnetExternalIdQuery> plan = List.of(new MagnetExternalIdQuery("IMDB", "tt1234567"));
-        MagnetSearchJobSummary runningJob = repository.createRunningSearchJob(unifiedVideoId, "AUTO_SCHEDULED", plan);
+        MagnetSearchJobSummary runningJob = repository.createRunningSearchJob(catalogEntryId, "AUTO_SCHEDULED", plan);
         List<MagnetProviderSummary> providers = repository.listEnabledProviders();
         MagnetProviderSummary successProvider = providers.stream()
                 .filter(provider -> provider.code().equals("yts_bz"))
@@ -127,25 +127,25 @@ class JdbcMagnetRepositoryTest {
         assertEquals(0, finishedJob.totalCandidates());
         assertEquals(0, finishedJob.acceptedCount());
         assertEquals(0, finishedJob.rejectedCount());
-        assertEquals(2, countRows("magnet_provider_runs"));
+        assertEquals(2, countRows("magnet_discovery_provider_runs"));
     }
 
     @Test
     void createsSkippedJobWithoutProviderRunOrLink() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        insertUnifiedVideo(unifiedVideoId, null);
+        UUID catalogEntryId = UUID.randomUUID();
+        insertCatalogEntry(catalogEntryId, null);
 
         MagnetSearchJobSummary job = repository.createSkippedSearchJob(
-                unifiedVideoId,
+                catalogEntryId,
                 "没有可用于第一阶段搜刮的 IMDb ID",
                 List.of(),
                 List.of());
 
         assertEquals("SKIPPED", job.status());
         assertEquals("没有可用于第一阶段搜刮的 IMDb ID", job.skippedReason());
-        assertEquals(1, countRows("magnet_search_jobs"));
-        assertEquals(0, countRows("magnet_provider_runs"));
-        assertEquals(0, countRows("magnet_links"));
+        assertEquals(1, countRows("magnet_discovery_jobs"));
+        assertEquals(0, countRows("magnet_discovery_provider_runs"));
+        assertEquals(0, countRows("catalog_magnet_links"));
     }
 
     @Test
@@ -156,11 +156,11 @@ class JdbcMagnetRepositoryTest {
         UUID running = UUID.randomUUID();
         UUID empty = UUID.randomUUID();
         UUID providerId = UUID.randomUUID();
-        insertUnifiedVideo(eligible, null, "Eligible Movie");
-        insertUnifiedVideo(approved, null, "Approved Movie");
-        insertUnifiedVideo(recent, null, "Recent Movie");
-        insertUnifiedVideo(running, null, "Running Movie");
-        insertUnifiedVideo(empty, null, null);
+        insertCatalogEntry(eligible, null, "Eligible Movie");
+        insertCatalogEntry(approved, null, "Approved Movie");
+        insertCatalogEntry(recent, null, "Recent Movie");
+        insertCatalogEntry(running, null, "Running Movie");
+        insertCatalogEntry(empty, null, null);
         insertProvider(providerId, "codex_provider", true);
         MagnetProviderSummary provider = repository.listEnabledProviders().getFirst();
         insertApprovedLink(approved, provider.code());
@@ -183,7 +183,7 @@ class JdbcMagnetRepositoryTest {
     private void createSchema() {
         jdbcTemplate.execute("create domain if not exists jsonb as json");
         jdbcTemplate.execute("""
-                create table unified_videos (
+                create table catalog_entries (
                     id uuid primary key,
                     created_at timestamp with time zone not null,
                     updated_at timestamp with time zone not null,
@@ -200,7 +200,7 @@ class JdbcMagnetRepositoryTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table magnet_providers (
+                create table magnet_discovery_providers (
                     id uuid primary key,
                     created_at timestamp with time zone not null,
                     updated_at timestamp with time zone not null,
@@ -225,12 +225,12 @@ class JdbcMagnetRepositoryTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table magnet_search_jobs (
+                create table magnet_discovery_jobs (
                     id uuid primary key,
                     created_at timestamp with time zone not null,
                     updated_at timestamp with time zone not null,
                     version bigint,
-                    unified_video_id uuid not null,
+                    catalog_entry_id uuid not null,
                     trigger_type varchar(30) not null,
                     status varchar(30) not null,
                     provider_codes jsonb not null,
@@ -245,7 +245,7 @@ class JdbcMagnetRepositoryTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table magnet_provider_runs (
+                create table magnet_discovery_provider_runs (
                     id uuid primary key,
                     created_at timestamp with time zone not null,
                     updated_at timestamp with time zone not null,
@@ -265,12 +265,12 @@ class JdbcMagnetRepositoryTest {
                 )
                 """);
         jdbcTemplate.execute("""
-                create table magnet_links (
+                create table catalog_magnet_links (
                     id uuid primary key,
                     created_at timestamp with time zone not null,
                     updated_at timestamp with time zone not null,
                     version bigint,
-                    unified_video_id uuid not null,
+                    catalog_entry_id uuid not null,
                     provider_id uuid,
                     provider_code varchar(64) not null,
                     info_hash varchar(64) not null,
@@ -292,18 +292,18 @@ class JdbcMagnetRepositoryTest {
                     provider_evidence jsonb not null,
                     first_seen_at timestamp with time zone not null,
                     last_seen_at timestamp with time zone not null,
-                    unique (unified_video_id, info_hash)
+                    unique (catalog_entry_id, info_hash)
                 )
                 """);
     }
 
-    private void insertUnifiedVideo(UUID id, String imdbId) {
-        insertUnifiedVideo(id, imdbId, "Codex Fixture");
+    private void insertCatalogEntry(UUID id, String imdbId) {
+        insertCatalogEntry(id, imdbId, "Codex Fixture");
     }
 
-    private void insertUnifiedVideo(UUID id, String imdbId, String title) {
+    private void insertCatalogEntry(UUID id, String imdbId, String title) {
         jdbcTemplate.update(
-                "insert into unified_videos (id, created_at, updated_at, title, \"year\", imdb_id) values (?, ?, ?, ?, ?, ?)",
+                "insert into catalog_entries (id, created_at, updated_at, title, \"year\", imdb_id) values (?, ?, ?, ?, ?, ?)",
                 id,
                 Instant.parse("2026-06-07T00:00:00Z"),
                 Instant.parse("2026-06-07T00:00:00Z"),
@@ -315,7 +315,7 @@ class JdbcMagnetRepositoryTest {
     private void insertProvider(UUID id, String code, boolean autoApproveAllowed) {
         jdbcTemplate.update(
                 """
-                insert into magnet_providers (
+                insert into magnet_discovery_providers (
                     id, created_at, updated_at, version, code, name, provider_type, base_url,
                     enabled, priority, risk_level, supported_external_ids, min_delay_ms,
                     max_delay_ms, timeout_ms, result_limit, auto_approve_allowed, content_policy
@@ -333,15 +333,15 @@ class JdbcMagnetRepositoryTest {
                 "仅用于 dev smoke。");
     }
 
-    private void insertApprovedLink(UUID unifiedVideoId, String providerCode) {
+    private void insertApprovedLink(UUID catalogEntryId, String providerCode) {
         jdbcTemplate.update("""
-                insert into magnet_links (id, created_at, updated_at, unified_video_id, provider_code,
+                insert into catalog_magnet_links (id, created_at, updated_at, catalog_entry_id, provider_code,
                     info_hash, magnet_uri, title, matched_external_id_type, matched_external_id_value,
                     match_score, status, tags, provider_evidence, first_seen_at, last_seen_at)
                 values (?, current_timestamp, current_timestamp, ?, ?, ?, ?, 'Approved Movie',
                     'IMDB', 'tt1234567', 100, 'APPROVED', cast('[]' as jsonb), cast('{}' as jsonb),
                     current_timestamp, current_timestamp)
-                """, UUID.randomUUID(), unifiedVideoId, providerCode,
+                """, UUID.randomUUID(), catalogEntryId, providerCode,
                 "ABCDEF1234567890ABCDEF1234567890ABCDEF12", "magnet:?xt=urn:btih:fixture");
     }
 

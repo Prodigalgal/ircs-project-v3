@@ -78,7 +78,7 @@ public class QueueBlockedReasonResolver {
             String taskType,
             RuntimeWorkMetricRole role,
             Map<String, Object> aggregationOpsStats) {
-        if (!AggregationWorkTypes.RAW_VIDEO.equals(taskType)
+        if (!AggregationWorkTypes.SOURCE_RECORD.equals(taskType)
                 || (role != RuntimeWorkMetricRole.PENDING && role != RuntimeWorkMetricRole.INFLIGHT)
                 || messageCount <= 0L
                 || consumerCount <= 0

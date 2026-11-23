@@ -35,7 +35,7 @@ class MaintenanceGateServiceTest {
         dataSource.setUrl("jdbc:h2:mem:maintenance_gate_service_" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         jdbcTemplate.execute("""
-                create table maintenance_operations (
+                create table operations_maintenance_runs (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,

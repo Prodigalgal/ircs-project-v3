@@ -51,7 +51,7 @@ class QueueBlockedReasonResolverTest {
     @Test
     void runtimeWorkBacklogReportsNoActiveConsumerWhenConsumerImplExists() {
         String reason = resolver.runtimeWorkBlockedReason(
-                AggregationWorkTypes.RAW_VIDEO,
+                AggregationWorkTypes.SOURCE_RECORD,
                 RuntimeWorkMetricRole.PENDING,
                 9,
                 0,
@@ -92,7 +92,7 @@ class QueueBlockedReasonResolverTest {
     @Test
     void aggregationInflightReportsProcessingBeforeStallThreshold() {
         String reason = resolver.runtimeWorkBlockedReason(
-                AggregationWorkTypes.RAW_VIDEO,
+                AggregationWorkTypes.SOURCE_RECORD,
                 RuntimeWorkMetricRole.INFLIGHT,
                 25,
                 1,
@@ -105,7 +105,7 @@ class QueueBlockedReasonResolverTest {
     @Test
     void aggregationInflightReportsProcessingStuckAfterThreshold() {
         String reason = resolver.runtimeWorkBlockedReason(
-                AggregationWorkTypes.RAW_VIDEO,
+                AggregationWorkTypes.SOURCE_RECORD,
                 RuntimeWorkMetricRole.INFLIGHT,
                 25,
                 1,

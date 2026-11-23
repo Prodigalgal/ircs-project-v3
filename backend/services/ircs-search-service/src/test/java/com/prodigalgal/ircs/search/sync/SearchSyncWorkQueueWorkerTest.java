@@ -46,7 +46,7 @@ class SearchSyncWorkQueueWorkerTest {
         assertThat(queue.completed).containsExactly(item);
         verify(syncProcessor).process(org.mockito.ArgumentMatchers.argThat(message ->
                 id.equals(message.getEntityId())
-                        && message.getEntityType() == SearchEntityType.RAW_VIDEO
+                        && message.getEntityType() == SearchEntityType.SOURCE_RECORD
                         && message.getOperation() == SyncOperation.INDEX));
         assertThat(worker.state().lastProcessed()).isEqualTo(1);
         assertThat(worker.state().consecutiveFailures()).isZero();
@@ -79,12 +79,12 @@ class SearchSyncWorkQueueWorkerTest {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkItem raw = item(UUID.randomUUID(), 1, SyncOperation.INDEX);
         RuntimeWorkItem unified = item(SearchSyncWorkTypes.UNIFIED, UUID.randomUUID(), 1,
-                SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+                SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
         queue.rawItems.add(raw);
         queue.unifiedItems.add(unified);
         doAnswer(invocation -> {
             SearchSyncMessage message = invocation.getArgument(0);
-            if (message.getEntityType() == SearchEntityType.RAW_VIDEO) {
+            if (message.getEntityType() == SearchEntityType.SOURCE_RECORD) {
                 throw new RuntimeException("raw es down");
             }
             return null;
@@ -108,7 +108,7 @@ class SearchSyncWorkQueueWorkerTest {
     void transientClaimFailureDoesNotKillWorkerLoop() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkItem unified = item(SearchSyncWorkTypes.UNIFIED, UUID.randomUUID(), 1,
-                SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+                SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
         queue.failRawClaim = true;
         queue.unifiedItems.add(unified);
         SearchSyncWorkQueueWorker worker = worker(queue);
@@ -138,7 +138,7 @@ class SearchSyncWorkQueueWorkerTest {
     void scheduledTriggerSubmitsWorkWithoutRunningOnSchedulerThread() throws Exception {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkItem item = item(SearchSyncWorkTypes.UNIFIED, UUID.randomUUID(), 1,
-                SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+                SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
         queue.unifiedItems.add(item);
         RecordingExecutor executor = new RecordingExecutor();
         SearchSyncWorkQueueWorker worker = worker(queue, executor);
@@ -176,7 +176,7 @@ class SearchSyncWorkQueueWorkerTest {
     }
 
     private RuntimeWorkItem item(UUID id, int attempt, SyncOperation operation) throws Exception {
-        return item(SearchSyncWorkTypes.RAW, id, attempt, SearchEntityType.RAW_VIDEO, operation);
+        return item(SearchSyncWorkTypes.RAW, id, attempt, SearchEntityType.SOURCE_RECORD, operation);
     }
 
     private RuntimeWorkItem item(

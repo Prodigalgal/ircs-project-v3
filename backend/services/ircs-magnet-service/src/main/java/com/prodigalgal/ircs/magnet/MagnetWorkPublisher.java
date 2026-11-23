@@ -31,17 +31,17 @@ class MagnetWorkPublisher {
     }
 
     void enqueue(MagnetSearchJobSummary job) {
-        if (job == null || job.id() == null || job.unifiedVideoId() == null) {
+        if (job == null || job.id() == null || job.catalogEntryId() == null) {
             return;
         }
         MagnetSearchWorkPayload payload = new MagnetSearchWorkPayload(
                 job.id(),
-                job.unifiedVideoId(),
+                job.catalogEntryId(),
                 job.triggerType());
         RuntimeWorkItemRequest request = new RuntimeWorkItemRequest(
                 MagnetWorkTypes.SEARCH,
                 MagnetWorkTypes.searchTaskId(job.id()),
-                job.unifiedVideoId().toString(),
+                job.catalogEntryId().toString(),
                 job.triggerType(),
                 serialize(payload));
         if (TransactionSynchronizationManager.isActualTransactionActive()

@@ -4,15 +4,15 @@ import java.util.UUID;
 
 public final class AggregationWorkTypes {
 
-    public static final String RAW_VIDEO = "aggregation.raw-video";
+    public static final String SOURCE_RECORD = "aggregation.raw-video";
 
     private AggregationWorkTypes() {
     }
 
-    public static String taskId(UUID rawVideoId) {
-        if (rawVideoId == null) {
-            throw new IllegalArgumentException("rawVideoId is required");
+    public static String taskId(UUID sourceRecordId) {
+        if (sourceRecordId == null) {
+            throw new IllegalArgumentException("sourceRecordId is required");
         }
-        return "raw_video:" + rawVideoId;
+        return "raw_video:" + sourceRecordId;
     }
 }

@@ -76,7 +76,7 @@ export function createSystemMonitorViewModel({ metrics, searchOps, aggregationOp
     const laneSummary = (lane) => {
         if (!lane) return null;
         const stage = lane.currentStage || lane.lastRunState || '-';
-        const entity = lane.currentEntityId || lane.currentRawVideoId || lane.currentTaskId || '-';
+        const entity = lane.currentEntityId || lane.currentSourceRecordId || lane.currentTaskId || '-';
         const seconds = lane.runningForSeconds || 0;
         const taskType = lane.taskType || 'aggregation.raw-video';
         const batch = lane.currentBatchSize ? ` · batch ${lane.currentBatchSize}` : '';

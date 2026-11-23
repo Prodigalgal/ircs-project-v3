@@ -21,7 +21,7 @@ const VidstackPlayer = dynamic(
 interface VideoPlayerProps {
     src?: string;       // 实际播放地址
     posterUrl?: string; // 封面图
-    unifiedVideoId?: string; // 聚合 ID
+    catalogEntryId?: string; // 聚合 ID
     videoId?: string;   // 具体的源视频 ID
     episodeId?: string; // 具体的集数 ID
     episodeName?: string; // 集数名称
@@ -32,7 +32,7 @@ interface VideoPlayerProps {
 export function VideoPlayer({
                                 src,
                                 posterUrl,
-                                unifiedVideoId,
+                                catalogEntryId,
                                 videoId,
                                 episodeId,
                                 episodeName,
@@ -61,7 +61,7 @@ export function VideoPlayer({
                 src={src}
                 poster={posterUrl}
                 title={title}
-                unifiedVideoId={unifiedVideoId}
+                catalogEntryId={catalogEntryId}
                 videoId={videoId}
                 episodeId={episodeId}
                 episodeName={episodeName}
@@ -74,7 +74,7 @@ export function VideoPlayer({
         <IframePlayer
             src={src}
             title={title}
-            unifiedVideoId={unifiedVideoId}
+            catalogEntryId={catalogEntryId}
             videoId={videoId}
             episodeId={episodeId}
             episodeName={episodeName}

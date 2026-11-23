@@ -31,11 +31,16 @@ public class IngestionMessageParser {
         if (item == null || item.video() == null) {
             throw new AmqpRejectAndDontRequeueException("Ingestion payload missing video");
         }
-        if (!StringUtils.hasText(item.video().sourceVid())) {
-            throw new AmqpRejectAndDontRequeueException("Ingestion payload missing sourceVid");
+        String sourceVid = item.video().sourceVid();
+        if (!StringUtils.hasText(sourceVid) || sourceVid.codePointCount(0, sourceVid.length()) > 255) {
+            throw new AmqpRejectAndDontRequeueException("Ingestion payload has an invalid upstream record key");
         }
         if (!StringUtils.hasText(item.video().sourceHash())) {
             throw new AmqpRejectAndDontRequeueException("Ingestion payload missing sourceHash");
+        }
+        String dataHash = item.video().dataHash();
+        if (!StringUtils.hasText(dataHash) || dataHash.length() > 64) {
+            throw new AmqpRejectAndDontRequeueException("Ingestion payload has an invalid dataHash");
         }
         if (!StringUtils.hasText(item.video().title())) {
             throw new AmqpRejectAndDontRequeueException("Ingestion payload missing title");

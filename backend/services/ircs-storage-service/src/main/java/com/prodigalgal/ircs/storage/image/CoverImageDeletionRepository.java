@@ -13,6 +13,6 @@ public class CoverImageDeletionRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
     public int deleteById(UUID id) {
-        return jdbcTemplate.update("delete from cover_images where id = :id", Map.of("id", id));
+        return jdbcTemplate.update("delete from media_image_sources where id = :id", Map.of("id", id));
     }
 }

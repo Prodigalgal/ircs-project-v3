@@ -41,7 +41,7 @@ class AggregationServiceTest {
     private AggregationStorageCommandPublisher storageCommandPublisher;
 
     @Mock
-    private RawVideoGraphClusterer rawVideoGraphClusterer;
+    private SourceRecordGraphClusterer sourceRecordGraphClusterer;
 
     @Mock
     private AggregationPipelineRuntime aggregationPipelineRuntime;
@@ -69,7 +69,7 @@ class AggregationServiceTest {
             Collection<UUID> ids = invocation.getArgument(0);
             return ids.stream().map(id -> unifiedCandidate(id, "Codex Aggregation", "2026")).toList();
         });
-        service = new AggregationService(repository, publisher, storageCommandPublisher, rawVideoGraphClusterer,
+        service = new AggregationService(repository, publisher, storageCommandPublisher, sourceRecordGraphClusterer,
                 aggregationPipelineRuntime, matchKeyLock, workPublisher, transactionManager, matchingStrategy, safetyPolicy);
     }
 
@@ -77,7 +77,7 @@ class AggregationServiceTest {
     void runtimePendingEscapesAfterCommittedAggregationForOriginalClaimRetry() {
         UUID raw = UUID.randomUUID();
         UUID unified = UUID.randomUUID();
-        when(repository.findRawVideo(raw)).thenReturn(Optional.of(readyRawVideo(raw)));
+        when(repository.findSourceRecord(raw)).thenReturn(Optional.of(readySourceRecord(raw)));
         when(repository.findExistingBinding(raw)).thenReturn(Optional.of(unified));
         when(aggregationPipelineRuntime.run(unified)).thenAnswer(ignored -> {
             DeferredAdultAssessments.register(unified);
@@ -105,8 +105,8 @@ class AggregationServiceTest {
         ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
         UUID rawId = UUID.randomUUID();
         UUID projectionId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = authorityRaw(rawId, "Authority Film", "2020", "movie", null);
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = authorityRaw(rawId, "Authority Film", "2020", "movie", null);
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findExistingBinding(rawId)).thenReturn(Optional.empty());
         when(repository.findAuthorityCatalogProjections(eq("movie"), anySet(), any(), any())).thenReturn(List.of(
                 authorityProjection(projectionId, "movie", "Authority Film", 2020, 1, -1)));
@@ -117,11 +117,11 @@ class AggregationServiceTest {
         AggregationResult result = service.aggregateOne(rawId);
 
         assertEquals("BOUND", result.status());
-        assertEquals(projectionId, result.unifiedVideoId());
+        assertEquals(projectionId, result.catalogEntryId());
         verify(repository).bindRawToUnified(rawId, projectionId);
-        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).createCatalogEntry(any());
         verify(repository, never()).upsertUnifiedFields(any(), any());
-        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
+        verify(repository, never()).mergeDuplicateCatalogEntries(any(), any());
     }
 
     @Test
@@ -129,11 +129,11 @@ class AggregationServiceTest {
         ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
         UUID firstId = UUID.randomUUID();
         UUID secondId = UUID.randomUUID();
-        RawVideoAggregationRecord first = authorityRaw(firstId, "Authority Film", "2020", "movie", null);
-        RawVideoAggregationRecord second = authorityRaw(secondId, "Authority Film", "2020", "movie", null);
-        when(repository.findRawVideos(List.of(firstId, secondId))).thenReturn(List.of(first, second));
-        when(repository.findRawVideo(firstId)).thenReturn(Optional.of(first));
-        when(repository.findRawVideo(secondId)).thenReturn(Optional.of(second));
+        SourceRecordAggregationRecord first = authorityRaw(firstId, "Authority Film", "2020", "movie", null);
+        SourceRecordAggregationRecord second = authorityRaw(secondId, "Authority Film", "2020", "movie", null);
+        when(repository.findSourceRecords(List.of(firstId, secondId))).thenReturn(List.of(first, second));
+        when(repository.findSourceRecord(firstId)).thenReturn(Optional.of(first));
+        when(repository.findSourceRecord(secondId)).thenReturn(Optional.of(second));
         when(repository.findExistingBinding(firstId)).thenReturn(Optional.empty());
         when(repository.findExistingBinding(secondId)).thenReturn(Optional.empty());
         when(repository.findAuthorityCatalogProjections(eq("movie"), anySet(), any(), any())).thenReturn(List.of());
@@ -143,34 +143,34 @@ class AggregationServiceTest {
         assertEquals(List.of("WAITING_AUTHORITY", "WAITING_AUTHORITY"),
                 results.stream().map(AggregationResult::status).toList());
         verify(repository, times(2)).markPending(any());
-        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).createCatalogEntry(any());
         verify(repository, never()).upsertUnifiedFields(any(), any());
-        verify(rawVideoGraphClusterer, never()).cluster(any(), any());
+        verify(sourceRecordGraphClusterer, never()).cluster(any(), any());
     }
 
     @Test
     void unknownCategoryWaitsForAuthorityClassificationInsteadOfFallingBackToSourceFirst() {
         ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
         UUID rawId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = authorityRaw(rawId, "Unknown Title", "2020", "unknown", null);
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = authorityRaw(rawId, "Unknown Title", "2020", "unknown", null);
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
 
         AggregationResult result = service.aggregateOne(rawId);
 
         assertEquals("WAITING_AUTHORITY", result.status());
         verify(repository).markPending(rawId);
         verify(repository, never()).findAuthorityCatalogProjections(any(), anySet(), any(), any());
-        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).createCatalogEntry(any());
     }
 
     @Test
     void unmatchedRawWithCleanTitleYearAndTmdbIdEnqueuesImportWithoutBinding() {
         ReflectionTestUtils.setField(service, "authorityFirstEnabled", true);
         UUID rawId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = new RawVideoAggregationRecord(rawId, "Authority Film", null, null,
+        SourceRecordAggregationRecord raw = new SourceRecordAggregationRecord(rawId, "Authority Film", null, null,
                 "2020", null, null, null, null, null, null, null, "movie", "movie",
                 null, "123", null, null, "READY", "SUCCESS", "PROCESSING");
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findExistingBinding(rawId)).thenReturn(Optional.empty());
         when(repository.findAuthorityCatalogProjections(eq("movie"), anySet(), any(), any())).thenReturn(List.of());
 
@@ -180,28 +180,28 @@ class AggregationServiceTest {
         verify(repository).enqueueAuthorityCatalogImport("movie", 123L, -1);
         verify(repository, never()).recordAuthorityBinding(any(), any(), any());
         verify(repository, never()).bindRawToUnified(any(), any());
-        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).createCatalogEntry(any());
     }
 
-    private RawVideoAggregationRecord authorityRaw(
+    private SourceRecordAggregationRecord authorityRaw(
             UUID id, String title, String year, String category, Integer season) {
-        return new RawVideoAggregationRecord(id, title, null, null, year, null,
+        return new SourceRecordAggregationRecord(id, title, null, null, year, null,
                 null, null, null, null, null, season, category, category,
                 null, null, null, null, "READY", "SUCCESS", "PROCESSING");
     }
 
     private AuthorityCatalogProjection authorityProjection(
-            UUID unifiedVideoId, String mediaType, String title, Integer year, Integer seasons, int season) {
+            UUID catalogEntryId, String mediaType, String title, Integer year, Integer seasons, int season) {
         return new AuthorityCatalogProjection(UUID.randomUUID(), mediaType, null, null,
                 AuthorityCatalogBindingPolicy.normalizeAuthorityTitleKey(title), null,
-                year, null, seasons, season, null, unifiedVideoId);
+                year, null, seasons, season, null, catalogEntryId);
     }
 
     @Test
     void runtimeSnapshotChangeRetainsOriginalClaimForRetry() {
         UUID raw = UUID.randomUUID();
         UUID unified = UUID.randomUUID();
-        when(repository.findRawVideo(raw)).thenReturn(Optional.of(readyRawVideo(raw)));
+        when(repository.findSourceRecord(raw)).thenReturn(Optional.of(readySourceRecord(raw)));
         when(repository.findExistingBinding(raw)).thenReturn(Optional.of(unified));
         when(aggregationPipelineRuntime.run(unified)).thenAnswer(ignored -> {
             DeferredAdultAssessments.register(unified);
@@ -221,64 +221,64 @@ class AggregationServiceTest {
     }
 
     @Test
-    void createsUnifiedVideoBindsRawVideoAndPublishesSearchSync() {
-        UUID rawVideoId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = readyRawVideo(rawVideoId);
+    void createsCatalogEntryBindsSourceRecordAndPublishesSearchSync() {
+        UUID sourceRecordId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = readySourceRecord(sourceRecordId);
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
-        when(repository.findExistingBinding(rawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(rawVideo)).thenReturn(AggregationMatchPlan.none());
-        when(repository.createUnifiedVideo(rawVideo)).thenReturn(unifiedVideoId);
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
+        when(repository.findExistingBinding(sourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(sourceRecord)).thenReturn(AggregationMatchPlan.none());
+        when(repository.createCatalogEntry(sourceRecord)).thenReturn(catalogEntryId);
         UUID coverImageId = UUID.randomUUID();
-        when(aggregationPipelineRuntime.run(unifiedVideoId))
-                .thenReturn(pipelineExecution(unifiedVideoId, List.of(coverImageId)));
+        when(aggregationPipelineRuntime.run(catalogEntryId))
+                .thenReturn(pipelineExecution(catalogEntryId, List.of(coverImageId)));
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("BOUND", result.status());
-        verify(repository).upsertUnifiedFields(unifiedVideoId, rawVideo);
-        verify(repository).bindRawToUnified(rawVideoId, unifiedVideoId);
-        verify(aggregationPipelineRuntime).run(unifiedVideoId);
+        verify(repository).upsertUnifiedFields(catalogEntryId, sourceRecord);
+        verify(repository).bindRawToUnified(sourceRecordId, catalogEntryId);
+        verify(aggregationPipelineRuntime).run(catalogEntryId);
         verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
-        verify(repository).markBound(rawVideoId);
-        verify(publisher).publishUnifiedIndex(unifiedVideoId);
-        verify(publisher).publishRawIndex(rawVideoId);
+        verify(repository).markBound(sourceRecordId);
+        verify(publisher).publishUnifiedIndex(catalogEntryId);
+        verify(publisher).publishRawIndex(sourceRecordId);
     }
 
     @Test
-    void reusesExistingUnifiedVideoWhenExternalIdMatches() {
-        UUID rawVideoId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = readyRawVideo(rawVideoId);
+    void reusesExistingCatalogEntryWhenExternalIdMatches() {
+        UUID sourceRecordId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = readySourceRecord(sourceRecordId);
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
-        when(repository.findExistingBinding(rawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(rawVideo)).thenReturn(AggregationMatchPlan.rootOnly(unifiedVideoId));
-        when(repository.findBoundMemberIdentities(java.util.Set.of(unifiedVideoId))).thenReturn(
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
+        when(repository.findExistingBinding(sourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(sourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(catalogEntryId));
+        when(repository.findBoundMemberIdentities(java.util.Set.of(catalogEntryId))).thenReturn(
                 java.util.stream.IntStream.range(0, 25)
                         .mapToObj(index -> memberWithTmdb("210001")).toList());
-        when(aggregationPipelineRuntime.run(unifiedVideoId))
-                .thenReturn(pipelineExecution(unifiedVideoId, List.of()));
+        when(aggregationPipelineRuntime.run(catalogEntryId))
+                .thenReturn(pipelineExecution(catalogEntryId, List.of()));
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("BOUND", result.status());
-        verify(repository, never()).createUnifiedVideo(rawVideo);
-        verify(repository).upsertUnifiedFields(unifiedVideoId, rawVideo);
-        verify(repository).bindRawToUnified(rawVideoId, unifiedVideoId);
-        verify(aggregationPipelineRuntime).run(unifiedVideoId);
-        verify(repository).markBound(rawVideoId);
-        verify(publisher).publishUnifiedIndex(unifiedVideoId);
-        verify(publisher).publishRawIndex(rawVideoId);
+        verify(repository, never()).createCatalogEntry(sourceRecord);
+        verify(repository).upsertUnifiedFields(catalogEntryId, sourceRecord);
+        verify(repository).bindRawToUnified(sourceRecordId, catalogEntryId);
+        verify(aggregationPipelineRuntime).run(catalogEntryId);
+        verify(repository).markBound(sourceRecordId);
+        verify(publisher).publishUnifiedIndex(catalogEntryId);
+        verify(publisher).publishRawIndex(sourceRecordId);
     }
 
     @Test
     void checksConflictsBetweenPreviouslyBoundMembersBeforeAppendingToSparseRoot() {
         UUID rawId = UUID.randomUUID();
         UUID rootId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = readyRawVideo(rawId);
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = readySourceRecord(rawId);
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findMatchPlan(raw)).thenReturn(AggregationMatchPlan.rootOnly(rootId));
         when(repository.findBoundMemberIdentities(java.util.Set.of(rootId)))
                 .thenReturn(List.of(memberWithTmdb("210001"), memberWithTmdb("210002")));
@@ -287,7 +287,7 @@ class AggregationServiceTest {
 
         assertEquals("IDENTITY_CONFLICT", result.status());
         InOrder order = inOrder(repository);
-        order.verify(repository).lockUnifiedVideos(java.util.Set.of(rootId));
+        order.verify(repository).lockCatalogEntries(java.util.Set.of(rootId));
         order.verify(repository).findBoundMemberIdentities(java.util.Set.of(rootId));
         verify(repository, never()).upsertUnifiedFields(any(), any());
         verify(repository, never()).bindRawToUnified(any(), any());
@@ -298,8 +298,8 @@ class AggregationServiceTest {
     void unverifiedLargeClusterGoesToReviewWithoutChangingItsExistingBinding() {
         UUID rawId = UUID.randomUUID();
         UUID rootId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = readyRawVideo(rawId);
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = readySourceRecord(rawId);
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findExistingBinding(rawId)).thenReturn(Optional.of(rootId));
         when(repository.findBoundMemberIdentities(java.util.Set.of(rootId))).thenReturn(
                 java.util.stream.IntStream.rangeClosed(0, AggregationMemberIdentity.REVIEW_MEMBER_LIMIT)
@@ -308,7 +308,7 @@ class AggregationServiceTest {
         AggregationResult result = service.aggregateRuntimeWork(rawId);
 
         assertEquals("MERGE_AMBIGUOUS", result.status());
-        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
+        verify(repository, never()).mergeDuplicateCatalogEntries(any(), any());
         verify(repository, never()).upsertUnifiedFields(any(), any());
         verify(repository, never()).bindRawToUnified(any(), any());
         verifyNoInteractions(aggregationPipelineRuntime, publisher);
@@ -320,212 +320,212 @@ class AggregationServiceTest {
     }
 
     @Test
-    void clustersMultipleRawVideosIntoOneUnifiedAndPublishesPerRawSearchSync() {
-        UUID firstRawVideoId = UUID.randomUUID();
-        UUID secondRawVideoId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
+    void clustersMultipleSourceRecordsIntoOneUnifiedAndPublishesPerRawSearchSync() {
+        UUID firstSourceRecordId = UUID.randomUUID();
+        UUID secondSourceRecordId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
-        RawVideoAggregationRecord firstRawVideo = readyRawVideo(firstRawVideoId, null);
-        RawVideoAggregationRecord secondRawVideo = readyRawVideo(
-                secondRawVideoId,
+        SourceRecordAggregationRecord firstSourceRecord = readySourceRecord(firstSourceRecordId, null);
+        SourceRecordAggregationRecord secondSourceRecord = readySourceRecord(
+                secondSourceRecordId,
                 "Codex Aggregation 1080p",
                 "Codex Alias",
                 null);
-        RawVideoAggregationCluster cluster =
-                new RawVideoAggregationCluster(firstRawVideo, List.of(firstRawVideo, secondRawVideo));
+        SourceRecordAggregationCluster cluster =
+                new SourceRecordAggregationCluster(firstSourceRecord, List.of(firstSourceRecord, secondSourceRecord));
 
-        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
-                .thenReturn(List.of(firstRawVideo, secondRawVideo));
-        when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of());
-        when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of())).thenReturn(List.of(cluster));
-        when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.empty());
-        when(repository.findExistingBinding(secondRawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(firstRawVideo)).thenReturn(AggregationMatchPlan.none());
-        when(repository.findMatchPlan(secondRawVideo)).thenReturn(AggregationMatchPlan.none());
-        when(repository.createUnifiedVideo(firstRawVideo)).thenReturn(unifiedVideoId);
-        when(aggregationPipelineRuntime.run(unifiedVideoId))
-                .thenReturn(pipelineExecution(unifiedVideoId, List.of(coverImageId)));
+        when(repository.findSourceRecords(List.of(firstSourceRecordId, secondSourceRecordId)))
+                .thenReturn(List.of(firstSourceRecord, secondSourceRecord));
+        when(repository.findContextUnifiedCandidates(List.of(firstSourceRecord, secondSourceRecord))).thenReturn(List.of());
+        when(sourceRecordGraphClusterer.cluster(List.of(firstSourceRecord, secondSourceRecord), List.of())).thenReturn(List.of(cluster));
+        when(repository.findExistingBinding(firstSourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findExistingBinding(secondSourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(firstSourceRecord)).thenReturn(AggregationMatchPlan.none());
+        when(repository.findMatchPlan(secondSourceRecord)).thenReturn(AggregationMatchPlan.none());
+        when(repository.createCatalogEntry(firstSourceRecord)).thenReturn(catalogEntryId);
+        when(aggregationPipelineRuntime.run(catalogEntryId))
+                .thenReturn(pipelineExecution(catalogEntryId, List.of(coverImageId)));
 
         List<AggregationResult> results =
-                service.aggregateRuntimeWorkBatch(List.of(firstRawVideoId, secondRawVideoId));
+                service.aggregateRuntimeWorkBatch(List.of(firstSourceRecordId, secondSourceRecordId));
 
         assertEquals(List.of("BOUND", "BOUND"), results.stream().map(AggregationResult::status).toList());
-        verify(repository).createUnifiedVideo(firstRawVideo);
-        verify(repository).upsertUnifiedFields(unifiedVideoId, firstRawVideo);
-        verify(repository).upsertUnifiedFields(unifiedVideoId, secondRawVideo);
-        verify(repository).bindRawToUnified(firstRawVideoId, unifiedVideoId);
-        verify(repository).bindRawToUnified(secondRawVideoId, unifiedVideoId);
-        verify(aggregationPipelineRuntime).run(unifiedVideoId);
+        verify(repository).createCatalogEntry(firstSourceRecord);
+        verify(repository).upsertUnifiedFields(catalogEntryId, firstSourceRecord);
+        verify(repository).upsertUnifiedFields(catalogEntryId, secondSourceRecord);
+        verify(repository).bindRawToUnified(firstSourceRecordId, catalogEntryId);
+        verify(repository).bindRawToUnified(secondSourceRecordId, catalogEntryId);
+        verify(aggregationPipelineRuntime).run(catalogEntryId);
         verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
-        verify(repository).markBound(firstRawVideoId);
-        verify(repository).markBound(secondRawVideoId);
-        verify(publisher).publishUnifiedIndex(unifiedVideoId);
-        verify(publisher).publishRawIndex(firstRawVideoId);
-        verify(publisher).publishRawIndex(secondRawVideoId);
+        verify(repository).markBound(firstSourceRecordId);
+        verify(repository).markBound(secondSourceRecordId);
+        verify(publisher).publishUnifiedIndex(catalogEntryId);
+        verify(publisher).publishRawIndex(firstSourceRecordId);
+        verify(publisher).publishRawIndex(secondSourceRecordId);
     }
 
     @Test
-    void clusteredRawVideosMergeExistingUnifiedVictimsThroughExistingPath() {
-        UUID firstRawVideoId = UUID.randomUUID();
-        UUID secondRawVideoId = UUID.randomUUID();
-        UUID rootUnifiedVideoId = UUID.randomUUID();
-        UUID victimUnifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord firstRawVideo = readyRawVideo(firstRawVideoId, null);
-        RawVideoAggregationRecord secondRawVideo = readyRawVideo(
-                secondRawVideoId,
+    void clusteredSourceRecordsMergeExistingUnifiedVictimsThroughExistingPath() {
+        UUID firstSourceRecordId = UUID.randomUUID();
+        UUID secondSourceRecordId = UUID.randomUUID();
+        UUID rootCatalogEntryId = UUID.randomUUID();
+        UUID victimCatalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord firstSourceRecord = readySourceRecord(firstSourceRecordId, null);
+        SourceRecordAggregationRecord secondSourceRecord = readySourceRecord(
+                secondSourceRecordId,
                 "Codex Aggregation 1080p",
                 "Codex Alias",
                 null);
-        RawVideoAggregationCluster cluster =
-                new RawVideoAggregationCluster(firstRawVideo, List.of(firstRawVideo, secondRawVideo));
+        SourceRecordAggregationCluster cluster =
+                new SourceRecordAggregationCluster(firstSourceRecord, List.of(firstSourceRecord, secondSourceRecord));
 
-        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
-                .thenReturn(List.of(firstRawVideo, secondRawVideo));
-        when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of());
-        when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of())).thenReturn(List.of(cluster));
-        when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.of(rootUnifiedVideoId));
-        when(repository.findExistingBinding(secondRawVideoId)).thenReturn(Optional.of(victimUnifiedVideoId));
-        when(repository.findMatchPlan(firstRawVideo)).thenReturn(AggregationMatchPlan.rootOnly(rootUnifiedVideoId));
-        when(repository.findMatchPlan(secondRawVideo)).thenReturn(AggregationMatchPlan.rootOnly(victimUnifiedVideoId));
-        when(aggregationPipelineRuntime.run(rootUnifiedVideoId))
-                .thenReturn(pipelineExecution(rootUnifiedVideoId, List.of()));
+        when(repository.findSourceRecords(List.of(firstSourceRecordId, secondSourceRecordId)))
+                .thenReturn(List.of(firstSourceRecord, secondSourceRecord));
+        when(repository.findContextUnifiedCandidates(List.of(firstSourceRecord, secondSourceRecord))).thenReturn(List.of());
+        when(sourceRecordGraphClusterer.cluster(List.of(firstSourceRecord, secondSourceRecord), List.of())).thenReturn(List.of(cluster));
+        when(repository.findExistingBinding(firstSourceRecordId)).thenReturn(Optional.of(rootCatalogEntryId));
+        when(repository.findExistingBinding(secondSourceRecordId)).thenReturn(Optional.of(victimCatalogEntryId));
+        when(repository.findMatchPlan(firstSourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(rootCatalogEntryId));
+        when(repository.findMatchPlan(secondSourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(victimCatalogEntryId));
+        when(aggregationPipelineRuntime.run(rootCatalogEntryId))
+                .thenReturn(pipelineExecution(rootCatalogEntryId, List.of()));
 
         List<AggregationResult> results =
-                service.aggregateRuntimeWorkBatch(List.of(firstRawVideoId, secondRawVideoId));
+                service.aggregateRuntimeWorkBatch(List.of(firstSourceRecordId, secondSourceRecordId));
 
         assertEquals(List.of("BOUND", "BOUND"), results.stream().map(AggregationResult::status).toList());
-        verify(repository).mergeDuplicateUnifiedVideos(rootUnifiedVideoId, List.of(victimUnifiedVideoId));
-        verify(repository, never()).createUnifiedVideo(firstRawVideo);
-        verify(repository).bindRawToUnified(firstRawVideoId, rootUnifiedVideoId);
-        verify(repository).bindRawToUnified(secondRawVideoId, rootUnifiedVideoId);
-        verify(publisher).publishUnifiedIndex(rootUnifiedVideoId);
-        verify(publisher).publishRawIndex(firstRawVideoId);
-        verify(publisher).publishRawIndex(secondRawVideoId);
-        verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
+        verify(repository).mergeDuplicateCatalogEntries(rootCatalogEntryId, List.of(victimCatalogEntryId));
+        verify(repository, never()).createCatalogEntry(firstSourceRecord);
+        verify(repository).bindRawToUnified(firstSourceRecordId, rootCatalogEntryId);
+        verify(repository).bindRawToUnified(secondSourceRecordId, rootCatalogEntryId);
+        verify(publisher).publishUnifiedIndex(rootCatalogEntryId);
+        verify(publisher).publishRawIndex(firstSourceRecordId);
+        verify(publisher).publishRawIndex(secondSourceRecordId);
+        verify(publisher).publishUnifiedDelete(victimCatalogEntryId);
     }
 
     @Test
     void mixedGraphClusterReusesContextUnifiedWithoutCreatingNewUnified() {
-        UUID firstRawVideoId = UUID.randomUUID();
-        UUID secondRawVideoId = UUID.randomUUID();
-        UUID contextUnifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord firstRawVideo = readyRawVideo(firstRawVideoId, null);
-        RawVideoAggregationRecord secondRawVideo = readyRawVideo(
-                secondRawVideoId,
+        UUID firstSourceRecordId = UUID.randomUUID();
+        UUID secondSourceRecordId = UUID.randomUUID();
+        UUID contextCatalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord firstSourceRecord = readySourceRecord(firstSourceRecordId, null);
+        SourceRecordAggregationRecord secondSourceRecord = readySourceRecord(
+                secondSourceRecordId,
                 "Codex Aggregation 1080p",
                 "Codex Alias",
                 null);
-        UnifiedVideoAggregationCandidate context = unifiedCandidate(contextUnifiedVideoId, "Codex Aggregation", "2026");
-        RawVideoAggregationCluster cluster = new RawVideoAggregationCluster(
-                firstRawVideo,
-                List.of(firstRawVideo, secondRawVideo),
-                List.of(contextUnifiedVideoId));
+        CatalogEntryAggregationCandidate context = unifiedCandidate(contextCatalogEntryId, "Codex Aggregation", "2026");
+        SourceRecordAggregationCluster cluster = new SourceRecordAggregationCluster(
+                firstSourceRecord,
+                List.of(firstSourceRecord, secondSourceRecord),
+                List.of(contextCatalogEntryId));
 
-        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
-                .thenReturn(List.of(firstRawVideo, secondRawVideo));
-        when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of(context));
-        when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of(context))).thenReturn(List.of(cluster));
-        when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.empty());
-        when(repository.findExistingBinding(secondRawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(firstRawVideo)).thenReturn(AggregationMatchPlan.rootOnly(contextUnifiedVideoId));
-        when(repository.findMatchPlan(secondRawVideo)).thenReturn(AggregationMatchPlan.rootOnly(contextUnifiedVideoId));
-        when(aggregationPipelineRuntime.run(contextUnifiedVideoId))
-                .thenReturn(pipelineExecution(contextUnifiedVideoId, List.of()));
+        when(repository.findSourceRecords(List.of(firstSourceRecordId, secondSourceRecordId)))
+                .thenReturn(List.of(firstSourceRecord, secondSourceRecord));
+        when(repository.findContextUnifiedCandidates(List.of(firstSourceRecord, secondSourceRecord))).thenReturn(List.of(context));
+        when(sourceRecordGraphClusterer.cluster(List.of(firstSourceRecord, secondSourceRecord), List.of(context))).thenReturn(List.of(cluster));
+        when(repository.findExistingBinding(firstSourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findExistingBinding(secondSourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(firstSourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(contextCatalogEntryId));
+        when(repository.findMatchPlan(secondSourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(contextCatalogEntryId));
+        when(aggregationPipelineRuntime.run(contextCatalogEntryId))
+                .thenReturn(pipelineExecution(contextCatalogEntryId, List.of()));
 
         List<AggregationResult> results =
-                service.aggregateRuntimeWorkBatch(List.of(firstRawVideoId, secondRawVideoId));
+                service.aggregateRuntimeWorkBatch(List.of(firstSourceRecordId, secondSourceRecordId));
 
         assertEquals(List.of("BOUND", "BOUND"), results.stream().map(AggregationResult::status).toList());
-        verify(repository, never()).createUnifiedVideo(firstRawVideo);
-        verify(repository).bindRawToUnified(firstRawVideoId, contextUnifiedVideoId);
-        verify(repository).bindRawToUnified(secondRawVideoId, contextUnifiedVideoId);
-        verify(aggregationPipelineRuntime).run(contextUnifiedVideoId);
-        verify(publisher).publishUnifiedIndex(contextUnifiedVideoId);
-        verify(publisher).publishRawIndex(firstRawVideoId);
-        verify(publisher).publishRawIndex(secondRawVideoId);
+        verify(repository, never()).createCatalogEntry(firstSourceRecord);
+        verify(repository).bindRawToUnified(firstSourceRecordId, contextCatalogEntryId);
+        verify(repository).bindRawToUnified(secondSourceRecordId, contextCatalogEntryId);
+        verify(aggregationPipelineRuntime).run(contextCatalogEntryId);
+        verify(publisher).publishUnifiedIndex(contextCatalogEntryId);
+        verify(publisher).publishRawIndex(firstSourceRecordId);
+        verify(publisher).publishRawIndex(secondSourceRecordId);
     }
 
     @Test
     void mixedGraphClusterMergesMultipleContextUnifiedVictims() {
-        UUID firstRawVideoId = UUID.randomUUID();
-        UUID secondRawVideoId = UUID.randomUUID();
-        UUID rootUnifiedVideoId = UUID.randomUUID();
-        UUID victimUnifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord firstRawVideo = readyRawVideo(firstRawVideoId, null);
-        RawVideoAggregationRecord secondRawVideo = readyRawVideo(
-                secondRawVideoId,
+        UUID firstSourceRecordId = UUID.randomUUID();
+        UUID secondSourceRecordId = UUID.randomUUID();
+        UUID rootCatalogEntryId = UUID.randomUUID();
+        UUID victimCatalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord firstSourceRecord = readySourceRecord(firstSourceRecordId, null);
+        SourceRecordAggregationRecord secondSourceRecord = readySourceRecord(
+                secondSourceRecordId,
                 "Codex Aggregation 1080p",
                 "Codex Alias",
                 null);
-        UnifiedVideoAggregationCandidate root = unifiedCandidate(rootUnifiedVideoId, "Codex Aggregation", "2026");
-        UnifiedVideoAggregationCandidate victim = unifiedCandidate(victimUnifiedVideoId, "Codex Aggregation 1080p", "2026");
-        RawVideoAggregationCluster cluster = new RawVideoAggregationCluster(
-                firstRawVideo,
-                List.of(firstRawVideo, secondRawVideo),
-                List.of(rootUnifiedVideoId, victimUnifiedVideoId));
+        CatalogEntryAggregationCandidate root = unifiedCandidate(rootCatalogEntryId, "Codex Aggregation", "2026");
+        CatalogEntryAggregationCandidate victim = unifiedCandidate(victimCatalogEntryId, "Codex Aggregation 1080p", "2026");
+        SourceRecordAggregationCluster cluster = new SourceRecordAggregationCluster(
+                firstSourceRecord,
+                List.of(firstSourceRecord, secondSourceRecord),
+                List.of(rootCatalogEntryId, victimCatalogEntryId));
 
-        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
-                .thenReturn(List.of(firstRawVideo, secondRawVideo));
-        when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of(root, victim));
-        when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of(root, victim))).thenReturn(List.of(cluster));
-        when(repository.findExistingBinding(firstRawVideoId)).thenReturn(Optional.empty());
-        when(repository.findExistingBinding(secondRawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(firstRawVideo)).thenReturn(AggregationMatchPlan.rootOnly(rootUnifiedVideoId));
-        when(repository.findMatchPlan(secondRawVideo)).thenReturn(AggregationMatchPlan.rootOnly(victimUnifiedVideoId));
-        when(aggregationPipelineRuntime.run(rootUnifiedVideoId))
-                .thenReturn(pipelineExecution(rootUnifiedVideoId, List.of()));
+        when(repository.findSourceRecords(List.of(firstSourceRecordId, secondSourceRecordId)))
+                .thenReturn(List.of(firstSourceRecord, secondSourceRecord));
+        when(repository.findContextUnifiedCandidates(List.of(firstSourceRecord, secondSourceRecord))).thenReturn(List.of(root, victim));
+        when(sourceRecordGraphClusterer.cluster(List.of(firstSourceRecord, secondSourceRecord), List.of(root, victim))).thenReturn(List.of(cluster));
+        when(repository.findExistingBinding(firstSourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findExistingBinding(secondSourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(firstSourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(rootCatalogEntryId));
+        when(repository.findMatchPlan(secondSourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(victimCatalogEntryId));
+        when(aggregationPipelineRuntime.run(rootCatalogEntryId))
+                .thenReturn(pipelineExecution(rootCatalogEntryId, List.of()));
 
         List<AggregationResult> results =
-                service.aggregateRuntimeWorkBatch(List.of(firstRawVideoId, secondRawVideoId));
+                service.aggregateRuntimeWorkBatch(List.of(firstSourceRecordId, secondSourceRecordId));
 
         assertEquals(List.of("BOUND", "BOUND"), results.stream().map(AggregationResult::status).toList());
-        verify(repository).mergeDuplicateUnifiedVideos(rootUnifiedVideoId, List.of(victimUnifiedVideoId));
-        verify(repository, never()).createUnifiedVideo(firstRawVideo);
-        verify(repository).bindRawToUnified(firstRawVideoId, rootUnifiedVideoId);
-        verify(repository).bindRawToUnified(secondRawVideoId, rootUnifiedVideoId);
-        verify(publisher).publishUnifiedIndex(rootUnifiedVideoId);
-        verify(publisher).publishRawIndex(firstRawVideoId);
-        verify(publisher).publishRawIndex(secondRawVideoId);
-        verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
+        verify(repository).mergeDuplicateCatalogEntries(rootCatalogEntryId, List.of(victimCatalogEntryId));
+        verify(repository, never()).createCatalogEntry(firstSourceRecord);
+        verify(repository).bindRawToUnified(firstSourceRecordId, rootCatalogEntryId);
+        verify(repository).bindRawToUnified(secondSourceRecordId, rootCatalogEntryId);
+        verify(publisher).publishUnifiedIndex(rootCatalogEntryId);
+        verify(publisher).publishRawIndex(firstSourceRecordId);
+        verify(publisher).publishRawIndex(secondSourceRecordId);
+        verify(publisher).publishUnifiedDelete(victimCatalogEntryId);
     }
 
     @Test
     void mergesDuplicateUnifiedVictimsBeforeBindingAndPublishesVictimDelete() {
-        UUID rawVideoId = UUID.randomUUID();
-        UUID rootUnifiedVideoId = UUID.randomUUID();
-        UUID victimUnifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = readyRawVideo(rawVideoId);
+        UUID sourceRecordId = UUID.randomUUID();
+        UUID rootCatalogEntryId = UUID.randomUUID();
+        UUID victimCatalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = readySourceRecord(sourceRecordId);
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
-        when(repository.findExistingBinding(rawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(rawVideo)).thenReturn(AggregationMatchPlan.rootWithVictims(
-                rootUnifiedVideoId,
-                List.of(victimUnifiedVideoId)));
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
+        when(repository.findExistingBinding(sourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(sourceRecord)).thenReturn(AggregationMatchPlan.rootWithVictims(
+                rootCatalogEntryId,
+                List.of(victimCatalogEntryId)));
         UUID coverImageId = UUID.randomUUID();
-        when(aggregationPipelineRuntime.run(rootUnifiedVideoId))
-                .thenReturn(pipelineExecution(rootUnifiedVideoId, List.of(coverImageId)));
+        when(aggregationPipelineRuntime.run(rootCatalogEntryId))
+                .thenReturn(pipelineExecution(rootCatalogEntryId, List.of(coverImageId)));
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("BOUND", result.status());
         InOrder ordered = inOrder(repository, aggregationPipelineRuntime, storageCommandPublisher, publisher);
-        ordered.verify(repository).mergeDuplicateUnifiedVideos(rootUnifiedVideoId, List.of(victimUnifiedVideoId));
-        ordered.verify(repository).upsertUnifiedFields(rootUnifiedVideoId, rawVideo);
-        ordered.verify(repository).bindRawToUnified(rawVideoId, rootUnifiedVideoId);
-        ordered.verify(aggregationPipelineRuntime).run(rootUnifiedVideoId);
+        ordered.verify(repository).mergeDuplicateCatalogEntries(rootCatalogEntryId, List.of(victimCatalogEntryId));
+        ordered.verify(repository).upsertUnifiedFields(rootCatalogEntryId, sourceRecord);
+        ordered.verify(repository).bindRawToUnified(sourceRecordId, rootCatalogEntryId);
+        ordered.verify(aggregationPipelineRuntime).run(rootCatalogEntryId);
         ordered.verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
-        ordered.verify(repository).markBound(rawVideoId);
-        ordered.verify(publisher).publishUnifiedIndex(rootUnifiedVideoId);
-        ordered.verify(publisher).publishRawIndex(rawVideoId);
-        ordered.verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
-        verify(repository, never()).createUnifiedVideo(rawVideo);
+        ordered.verify(repository).markBound(sourceRecordId);
+        ordered.verify(publisher).publishUnifiedIndex(rootCatalogEntryId);
+        ordered.verify(publisher).publishRawIndex(sourceRecordId);
+        ordered.verify(publisher).publishUnifiedDelete(victimCatalogEntryId);
+        verify(repository, never()).createCatalogEntry(sourceRecord);
     }
 
     @Test
-    void skipsIneligibleRawVideoAndDoesNotPublishSearchSync() {
-        UUID rawVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = new RawVideoAggregationRecord(
-                rawVideoId,
+    void skipsIneligibleSourceRecordAndDoesNotPublishSearchSync() {
+        UUID sourceRecordId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = new SourceRecordAggregationRecord(
+                sourceRecordId,
                 "Codex Aggregation",
                 null,
                 null,
@@ -546,12 +546,12 @@ class AggregationServiceTest {
                 "SUCCESS",
                 "PROCESSING");
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("WAITING_DEPENDENCIES", result.status());
-        verify(repository).markPending(rawVideoId);
+        verify(repository).markPending(sourceRecordId);
         verify(publisher, never()).publishUnifiedIndex(org.mockito.ArgumentMatchers.any());
         verify(publisher, never()).publishRawIndex(org.mockito.ArgumentMatchers.any());
     }
@@ -559,60 +559,60 @@ class AggregationServiceTest {
     @Test
     void pendingDependencyWaitDoesNotStartWriteTransactionsOrRetouchTheRawRow() {
         UUID id = UUID.randomUUID();
-        RawVideoAggregationRecord raw = new RawVideoAggregationRecord(id, "Pending fixture", null, null, "2026",
+        SourceRecordAggregationRecord raw = new SourceRecordAggregationRecord(id, "Pending fixture", null, null, "2026",
                 null, null, null, "电影", null, null, null, null, null, null, null, null,
                 "PENDING", "PENDING", "PENDING");
-        when(repository.findRawVideo(id)).thenReturn(Optional.of(raw));
+        when(repository.findSourceRecord(id)).thenReturn(Optional.of(raw));
 
         AggregationResult result = service.aggregateRuntimeWork(id);
 
         assertEquals("WAITING_DEPENDENCIES", result.status());
         verifyNoInteractions(transactionManager, publisher, storageCommandPublisher, aggregationPipelineRuntime,
-                matchKeyLock, rawVideoGraphClusterer);
+                matchKeyLock, sourceRecordGraphClusterer);
         verify(repository, never()).configureAggregationTransaction();
         verify(repository, never()).lockAggregationShared();
-        verify(repository, never()).lockRawVideos(anyCollection());
+        verify(repository, never()).lockSourceRecords(anyCollection());
         verify(repository, never()).markPending(any());
     }
 
     @Test
     void pipelineFailureKeepsRawPendingDirtyUnifiedAndSuppressesSideEffects() {
-        UUID rawVideoId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = readyRawVideo(rawVideoId);
+        UUID sourceRecordId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = readySourceRecord(sourceRecordId);
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
-        when(repository.findExistingBinding(rawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(rawVideo)).thenReturn(AggregationMatchPlan.rootOnly(unifiedVideoId));
-        when(aggregationPipelineRuntime.run(unifiedVideoId)).thenReturn(pipelineFailure(unifiedVideoId));
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
+        when(repository.findExistingBinding(sourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(sourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(catalogEntryId));
+        when(aggregationPipelineRuntime.run(catalogEntryId)).thenReturn(pipelineFailure(catalogEntryId));
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("PIPELINE_FAILED", result.status());
-        verify(repository).upsertUnifiedFields(unifiedVideoId, rawVideo);
-        verify(repository).bindRawToUnified(rawVideoId, unifiedVideoId);
-        verify(repository).markUnifiedDirty(unifiedVideoId);
-        verify(repository).markPending(rawVideoId);
-        verify(repository, never()).markBound(rawVideoId);
+        verify(repository).upsertUnifiedFields(catalogEntryId, sourceRecord);
+        verify(repository).bindRawToUnified(sourceRecordId, catalogEntryId);
+        verify(repository).markUnifiedDirty(catalogEntryId);
+        verify(repository).markPending(sourceRecordId);
+        verify(repository, never()).markBound(sourceRecordId);
         verifyNoInteractions(storageCommandPublisher);
         verify(publisher, never()).publishUnifiedIndex(org.mockito.ArgumentMatchers.any());
         verify(publisher, never()).publishRawIndex(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void matchLockBusyReturnsRawToPendingWithoutCreatingUnifiedVideo() {
-        UUID rawVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = readyRawVideo(rawVideoId);
+    void matchLockBusyReturnsRawToPendingWithoutCreatingCatalogEntry() {
+        UUID sourceRecordId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = readySourceRecord(sourceRecordId);
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
         when(matchKeyLock.tryAcquire(any())).thenReturn(Optional.empty());
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("MATCH_LOCK_BUSY", result.status());
-        verify(repository).markPending(rawVideoId);
-        verify(repository, never()).findMatchPlan(rawVideo);
-        verify(repository, never()).createUnifiedVideo(rawVideo);
+        verify(repository).markPending(sourceRecordId);
+        verify(repository, never()).findMatchPlan(sourceRecord);
+        verify(repository, never()).createCatalogEntry(sourceRecord);
         verifyNoInteractions(storageCommandPublisher);
         verify(publisher, never()).publishUnifiedIndex(org.mockito.ArgumentMatchers.any());
         verify(publisher, never()).publishRawIndex(org.mockito.ArgumentMatchers.any());
@@ -620,32 +620,32 @@ class AggregationServiceTest {
 
     @Test
     void clusterMatchLockBusyReturnsAllClusterMembersToPending() {
-        UUID firstRawVideoId = UUID.randomUUID();
-        UUID secondRawVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord firstRawVideo = readyRawVideo(firstRawVideoId, null);
-        RawVideoAggregationRecord secondRawVideo = readyRawVideo(
-                secondRawVideoId,
+        UUID firstSourceRecordId = UUID.randomUUID();
+        UUID secondSourceRecordId = UUID.randomUUID();
+        SourceRecordAggregationRecord firstSourceRecord = readySourceRecord(firstSourceRecordId, null);
+        SourceRecordAggregationRecord secondSourceRecord = readySourceRecord(
+                secondSourceRecordId,
                 "Codex Aggregation 1080p",
                 "Codex Alias",
                 null);
-        RawVideoAggregationCluster cluster =
-                new RawVideoAggregationCluster(firstRawVideo, List.of(firstRawVideo, secondRawVideo));
+        SourceRecordAggregationCluster cluster =
+                new SourceRecordAggregationCluster(firstSourceRecord, List.of(firstSourceRecord, secondSourceRecord));
 
-        when(repository.findRawVideos(List.of(firstRawVideoId, secondRawVideoId)))
-                .thenReturn(List.of(firstRawVideo, secondRawVideo));
-        when(repository.findContextUnifiedCandidates(List.of(firstRawVideo, secondRawVideo))).thenReturn(List.of());
-        when(rawVideoGraphClusterer.cluster(List.of(firstRawVideo, secondRawVideo), List.of())).thenReturn(List.of(cluster));
+        when(repository.findSourceRecords(List.of(firstSourceRecordId, secondSourceRecordId)))
+                .thenReturn(List.of(firstSourceRecord, secondSourceRecord));
+        when(repository.findContextUnifiedCandidates(List.of(firstSourceRecord, secondSourceRecord))).thenReturn(List.of());
+        when(sourceRecordGraphClusterer.cluster(List.of(firstSourceRecord, secondSourceRecord), List.of())).thenReturn(List.of(cluster));
         when(matchKeyLock.tryAcquire(any())).thenReturn(Optional.empty());
 
         List<AggregationResult> results =
-                service.aggregateRuntimeWorkBatch(List.of(firstRawVideoId, secondRawVideoId));
+                service.aggregateRuntimeWorkBatch(List.of(firstSourceRecordId, secondSourceRecordId));
 
         assertEquals(
                 List.of("MATCH_LOCK_BUSY", "MATCH_LOCK_BUSY"),
                 results.stream().map(AggregationResult::status).toList());
-        verify(repository).markPending(firstRawVideoId);
-        verify(repository).markPending(secondRawVideoId);
-        verify(repository, never()).createUnifiedVideo(firstRawVideo);
+        verify(repository).markPending(firstSourceRecordId);
+        verify(repository).markPending(secondSourceRecordId);
+        verify(repository, never()).createCatalogEntry(firstSourceRecord);
         verifyNoInteractions(storageCommandPublisher);
         verify(publisher, never()).publishUnifiedIndex(org.mockito.ArgumentMatchers.any());
         verify(publisher, never()).publishRawIndex(org.mockito.ArgumentMatchers.any());
@@ -653,20 +653,20 @@ class AggregationServiceTest {
 
     @Test
     void recalculateKeepsUnifiedDirtyWhenTheSingleUnifiedPipelineFails() {
-        UUID rawVideoId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        when(repository.findRawIdsForUnified(unifiedVideoId)).thenReturn(List.of(rawVideoId));
-        when(aggregationPipelineRuntime.run(unifiedVideoId)).thenReturn(pipelineFailure(unifiedVideoId));
+        UUID sourceRecordId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
+        when(repository.findRawIdsForUnified(catalogEntryId)).thenReturn(List.of(sourceRecordId));
+        when(aggregationPipelineRuntime.run(catalogEntryId)).thenReturn(pipelineFailure(catalogEntryId));
 
-        int processed = service.recalculateUnified(unifiedVideoId);
+        int processed = service.recalculateUnified(catalogEntryId);
 
         assertEquals(0, processed);
-        verify(repository, never()).markPending(rawVideoId);
-        verify(aggregationPipelineRuntime).run(unifiedVideoId);
-        verify(repository).markUnifiedDirty(unifiedVideoId);
-        verify(repository, never()).markUnifiedSynced(unifiedVideoId);
-        verify(publisher, never()).publishUnifiedIndex(unifiedVideoId);
-        verify(publisher, never()).publishRawIndex(rawVideoId);
+        verify(repository, never()).markPending(sourceRecordId);
+        verify(aggregationPipelineRuntime).run(catalogEntryId);
+        verify(repository).markUnifiedDirty(catalogEntryId);
+        verify(repository, never()).markUnifiedSynced(catalogEntryId);
+        verify(publisher, never()).publishUnifiedIndex(catalogEntryId);
+        verify(publisher, never()).publishRawIndex(sourceRecordId);
     }
 
     @Test
@@ -679,7 +679,7 @@ class AggregationServiceTest {
 
         var search = org.mockito.Mockito.mock(com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher.class);
         var actual = new AggregationService(repository, new AggregationSearchSyncPublisher(search),
-                storageCommandPublisher, rawVideoGraphClusterer, aggregationPipelineRuntime,
+                storageCommandPublisher, sourceRecordGraphClusterer, aggregationPipelineRuntime,
                 matchKeyLock, workPublisher, transactionManager, matchingStrategy, safetyPolicy);
         assertEquals(2, actual.recalculateUnified(unifiedId));
 
@@ -687,11 +687,11 @@ class AggregationServiceTest {
         order.verify(transactionManager).getTransaction(any());
         order.verify(aggregationPipelineRuntime).run(unifiedId);
         order.verify(transactionManager).commit(any());
-        order.verify(search).enqueue(first, com.prodigalgal.ircs.contracts.search.SearchEntityType.RAW_VIDEO,
+        order.verify(search).enqueue(first, com.prodigalgal.ircs.contracts.search.SearchEntityType.SOURCE_RECORD,
                 com.prodigalgal.ircs.contracts.search.SyncOperation.INDEX);
-        order.verify(search).enqueue(second, com.prodigalgal.ircs.contracts.search.SearchEntityType.RAW_VIDEO,
+        order.verify(search).enqueue(second, com.prodigalgal.ircs.contracts.search.SearchEntityType.SOURCE_RECORD,
                 com.prodigalgal.ircs.contracts.search.SyncOperation.INDEX);
-        verify(repository, never()).findRawVideo(any());
+        verify(repository, never()).findSourceRecord(any());
         verify(repository, never()).markPending(any());
     }
 
@@ -720,10 +720,10 @@ class AggregationServiceTest {
 
     @Test
     void prepareAggregationResetDeletesOwnedRowsAndReturnsCounts() {
-        UUID rawVideoId = UUID.randomUUID();
-        when(repository.sampleRawVideoIds(3)).thenReturn(List.of(rawVideoId));
-        when(repository.countRawVideos()).thenReturn(11L);
-        when(repository.countUnifiedVideos()).thenReturn(4L);
+        UUID sourceRecordId = UUID.randomUUID();
+        when(repository.sampleSourceRecordIds(3)).thenReturn(List.of(sourceRecordId));
+        when(repository.countSourceRecords()).thenReturn(11L);
+        when(repository.countCatalogEntries()).thenReturn(4L);
         when(repository.countRawUnifiedBindings()).thenReturn(7L);
         when(repository.deleteAllAggregationResetOwnedRows()).thenReturn(19);
 
@@ -731,11 +731,11 @@ class AggregationServiceTest {
 
         assertEquals("aggregation-reset", result.taskName());
         assertEquals("prepare", result.stepName());
-        assertEquals(11L, result.rawVideoCount());
-        assertEquals(4L, result.unifiedVideoCount());
+        assertEquals(11L, result.sourceRecordCount());
+        assertEquals(4L, result.catalogEntryCount());
         assertEquals(7L, result.bindingCount());
         assertEquals(19L, result.changedRows());
-        assertEquals(List.of(rawVideoId), result.sampleRawVideoIds());
+        assertEquals(List.of(sourceRecordId), result.sampleSourceRecordIds());
         InOrder resetOrder = inOrder(repository);
         resetOrder.verify(repository).lockAggregationMaintenance();
         resetOrder.verify(repository).deleteAllAggregationResetOwnedRows();
@@ -743,178 +743,178 @@ class AggregationServiceTest {
 
     @Test
     void markAllRawAggregationPendingReturnsRawCountAndChangedRows() {
-        UUID rawVideoId = UUID.randomUUID();
-        when(repository.sampleRawVideoIds(2)).thenReturn(List.of(rawVideoId));
-        when(repository.countRawVideos()).thenReturn(8L);
+        UUID sourceRecordId = UUID.randomUUID();
+        when(repository.sampleSourceRecordIds(2)).thenReturn(List.of(sourceRecordId));
+        when(repository.countSourceRecords()).thenReturn(8L);
         when(repository.markAllRawAggregationPending()).thenReturn(8);
 
         var result = service.markAllRawAggregationPending(2);
 
         assertEquals("aggregation-reset", result.taskName());
         assertEquals("mark-raw-pending", result.stepName());
-        assertEquals(8L, result.rawVideoCount());
-        assertEquals(0L, result.unifiedVideoCount());
+        assertEquals(8L, result.sourceRecordCount());
+        assertEquals(0L, result.catalogEntryCount());
         assertEquals(0L, result.bindingCount());
         assertEquals(8L, result.changedRows());
-        assertEquals(List.of(rawVideoId), result.sampleRawVideoIds());
+        assertEquals(List.of(sourceRecordId), result.sampleSourceRecordIds());
         InOrder resetOrder = inOrder(repository);
         resetOrder.verify(repository).lockAggregationMaintenance();
         resetOrder.verify(repository).markAllRawAggregationPending();
     }
 
     @Test
-    void enqueuePendingRawWorkPublishesRuntimeWorkForPendingRawVideos() {
-        UUID firstRawVideoId = UUID.randomUUID();
-        UUID secondRawVideoId = UUID.randomUUID();
+    void enqueuePendingRawWorkPublishesRuntimeWorkForPendingSourceRecords() {
+        UUID firstSourceRecordId = UUID.randomUUID();
+        UUID secondSourceRecordId = UUID.randomUUID();
         when(repository.findEligiblePendingRawIds(50))
-                .thenReturn(List.of(firstRawVideoId, secondRawVideoId));
+                .thenReturn(List.of(firstSourceRecordId, secondSourceRecordId));
 
         var result = service.enqueuePendingRawWork(50);
 
         assertEquals("aggregation-pending-backfill", result.taskName());
         assertEquals(2, result.candidates());
         assertEquals(2, result.processed());
-        assertEquals(List.of(firstRawVideoId, secondRawVideoId), result.entityIds());
-        verify(workPublisher).enqueue(firstRawVideoId, null, "aggregation-pending-backfill");
-        verify(workPublisher).enqueue(secondRawVideoId, null, "aggregation-pending-backfill");
+        assertEquals(List.of(firstSourceRecordId, secondSourceRecordId), result.entityIds());
+        verify(workPublisher).enqueue(firstSourceRecordId, null, "aggregation-pending-backfill");
+        verify(workPublisher).enqueue(secondSourceRecordId, null, "aggregation-pending-backfill");
     }
 
     @Test
     void backfillUnifiedCoversUpdatesCoverAndPublishesFollowUpSyncs() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
         when(repository.backfillUnifiedCoverImagesFromRaw(20))
-                .thenReturn(List.of(new UnifiedCoverBackfillResult(unifiedVideoId, coverImageId, "LOCAL", "LOCAL_STORED")));
+                .thenReturn(List.of(new UnifiedCoverBackfillResult(catalogEntryId, coverImageId, "LOCAL", "LOCAL_STORED")));
 
         var result = service.backfillUnifiedCovers(20);
 
         assertEquals("aggregation-cover-backfill", result.taskName());
         assertEquals(1, result.candidates());
         assertEquals(1, result.processed());
-        assertEquals(List.of(unifiedVideoId), result.entityIds());
+        assertEquals(List.of(catalogEntryId), result.entityIds());
         verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
-        verify(publisher).publishUnifiedIndex(unifiedVideoId);
+        verify(publisher).publishUnifiedIndex(catalogEntryId);
     }
 
     @Test
     void backfillUnifiedCoversSkipsR2SyncForExternalCover() {
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
         when(repository.backfillUnifiedCoverImagesFromRaw(20))
-                .thenReturn(List.of(new UnifiedCoverBackfillResult(unifiedVideoId, coverImageId, "EXTERNAL", "UNPROCESSED")));
+                .thenReturn(List.of(new UnifiedCoverBackfillResult(catalogEntryId, coverImageId, "EXTERNAL", "UNPROCESSED")));
 
         var result = service.backfillUnifiedCovers(20);
 
         assertEquals(1, result.processed());
         verify(storageCommandPublisher, never()).enqueueCoverR2Sync(coverImageId);
-        verify(publisher).publishUnifiedIndex(unifiedVideoId);
+        verify(publisher).publishUnifiedIndex(catalogEntryId);
     }
 
     @Test
     void backfillUnifiedAdultAssessmentsRebuildsAssessmentAndPublishesSearchSync() {
-        UUID firstUnifiedVideoId = UUID.randomUUID();
-        UUID secondUnifiedVideoId = UUID.randomUUID();
+        UUID firstCatalogEntryId = UUID.randomUUID();
+        UUID secondCatalogEntryId = UUID.randomUUID();
         when(repository.findAdultAssessmentBackfillIds(20))
-                .thenReturn(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
-        when(repository.rebuildUnifiedAdultAssessments(List.of(firstUnifiedVideoId, secondUnifiedVideoId)))
-                .thenReturn(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
+                .thenReturn(List.of(firstCatalogEntryId, secondCatalogEntryId));
+        when(repository.rebuildUnifiedAdultAssessments(List.of(firstCatalogEntryId, secondCatalogEntryId)))
+                .thenReturn(List.of(firstCatalogEntryId, secondCatalogEntryId));
 
         var result = service.backfillUnifiedAdultAssessments(20);
 
         assertEquals("aggregation-adult-assessment-backfill", result.taskName());
         assertEquals(2, result.candidates());
         assertEquals(2, result.processed());
-        assertEquals(List.of(firstUnifiedVideoId, secondUnifiedVideoId), result.entityIds());
-        verify(repository).rebuildUnifiedAdultAssessments(List.of(firstUnifiedVideoId, secondUnifiedVideoId));
-        verify(publisher).publishUnifiedIndex(firstUnifiedVideoId);
-        verify(publisher).publishUnifiedIndex(secondUnifiedVideoId);
+        assertEquals(List.of(firstCatalogEntryId, secondCatalogEntryId), result.entityIds());
+        verify(repository).rebuildUnifiedAdultAssessments(List.of(firstCatalogEntryId, secondCatalogEntryId));
+        verify(publisher).publishUnifiedIndex(firstCatalogEntryId);
+        verify(publisher).publishUnifiedIndex(secondCatalogEntryId);
     }
 
     @Test
     void backfillUnifiedAdultAssessmentsCanSkipSearchSyncWhenFullReindexWillFollow() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        when(repository.findAdultAssessmentBackfillIds(20)).thenReturn(List.of(unifiedVideoId));
-        when(repository.rebuildUnifiedAdultAssessments(List.of(unifiedVideoId))).thenReturn(List.of(unifiedVideoId));
+        UUID catalogEntryId = UUID.randomUUID();
+        when(repository.findAdultAssessmentBackfillIds(20)).thenReturn(List.of(catalogEntryId));
+        when(repository.rebuildUnifiedAdultAssessments(List.of(catalogEntryId))).thenReturn(List.of(catalogEntryId));
 
         var result = service.backfillUnifiedAdultAssessments(20, false);
 
         assertEquals("aggregation-adult-assessment-backfill", result.taskName());
         assertEquals(1, result.candidates());
         assertEquals(1, result.processed());
-        assertEquals(List.of(unifiedVideoId), result.entityIds());
-        verify(repository).rebuildUnifiedAdultAssessments(List.of(unifiedVideoId));
+        assertEquals(List.of(catalogEntryId), result.entityIds());
+        verify(repository).rebuildUnifiedAdultAssessments(List.of(catalogEntryId));
         verify(publisher, never()).publishUnifiedIndex(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void manuallyMergesUnifiedVideosAndPublishesSearchSync() {
-        UUID rootUnifiedVideoId = UUID.randomUUID();
-        UUID victimUnifiedVideoId = UUID.randomUUID();
-        UUID rawVideoId = UUID.randomUUID();
+    void manuallyMergesCatalogEntriesAndPublishesSearchSync() {
+        UUID rootCatalogEntryId = UUID.randomUUID();
+        UUID victimCatalogEntryId = UUID.randomUUID();
+        UUID sourceRecordId = UUID.randomUUID();
         UUID coverImageId = UUID.randomUUID();
-        when(aggregationPipelineRuntime.run(rootUnifiedVideoId))
-                .thenReturn(pipelineExecution(rootUnifiedVideoId, List.of(coverImageId)));
-        when(repository.findRawIdsForUnified(rootUnifiedVideoId)).thenReturn(List.of(rawVideoId));
+        when(aggregationPipelineRuntime.run(rootCatalogEntryId))
+                .thenReturn(pipelineExecution(rootCatalogEntryId, List.of(coverImageId)));
+        when(repository.findRawIdsForUnified(rootCatalogEntryId)).thenReturn(List.of(sourceRecordId));
 
         ManualUnifiedMergeResponse result =
-                service.mergeUnifiedVideos(List.of(rootUnifiedVideoId, victimUnifiedVideoId));
+                service.mergeCatalogEntries(List.of(rootCatalogEntryId, victimCatalogEntryId));
 
         assertEquals("MERGED", result.status());
-        assertEquals(rootUnifiedVideoId, result.rootUnifiedVideoId());
-        assertEquals(List.of(victimUnifiedVideoId), result.victimUnifiedVideoIds());
-        assertEquals(List.of(rawVideoId), result.rawVideoIds());
+        assertEquals(rootCatalogEntryId, result.rootCatalogEntryId());
+        assertEquals(List.of(victimCatalogEntryId), result.victimCatalogEntryIds());
+        assertEquals(List.of(sourceRecordId), result.sourceRecordIds());
         InOrder ordered = inOrder(repository, aggregationPipelineRuntime, publisher, storageCommandPublisher);
-        ordered.verify(repository).mergeDuplicateUnifiedVideos(rootUnifiedVideoId, List.of(victimUnifiedVideoId));
-        ordered.verify(aggregationPipelineRuntime).run(rootUnifiedVideoId);
-        ordered.verify(repository).findRawIdsForUnified(rootUnifiedVideoId);
-        ordered.verify(repository).markUnifiedSynced(rootUnifiedVideoId);
-        ordered.verify(publisher).publishUnifiedIndex(rootUnifiedVideoId);
-        ordered.verify(publisher).publishRawIndex(rawVideoId);
-        ordered.verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
+        ordered.verify(repository).mergeDuplicateCatalogEntries(rootCatalogEntryId, List.of(victimCatalogEntryId));
+        ordered.verify(aggregationPipelineRuntime).run(rootCatalogEntryId);
+        ordered.verify(repository).findRawIdsForUnified(rootCatalogEntryId);
+        ordered.verify(repository).markUnifiedSynced(rootCatalogEntryId);
+        ordered.verify(publisher).publishUnifiedIndex(rootCatalogEntryId);
+        ordered.verify(publisher).publishRawIndex(sourceRecordId);
+        ordered.verify(publisher).publishUnifiedDelete(victimCatalogEntryId);
         ordered.verify(storageCommandPublisher).enqueueCoverR2Sync(coverImageId);
     }
 
     @Test
     void manualMergeMarksRootDirtyWhenPipelineFails() {
-        UUID rootUnifiedVideoId = UUID.randomUUID();
-        UUID victimUnifiedVideoId = UUID.randomUUID();
-        UUID rawVideoId = UUID.randomUUID();
-        when(aggregationPipelineRuntime.run(rootUnifiedVideoId)).thenReturn(pipelineFailure(rootUnifiedVideoId));
-        when(repository.findRawIdsForUnified(rootUnifiedVideoId)).thenReturn(List.of(rawVideoId));
+        UUID rootCatalogEntryId = UUID.randomUUID();
+        UUID victimCatalogEntryId = UUID.randomUUID();
+        UUID sourceRecordId = UUID.randomUUID();
+        when(aggregationPipelineRuntime.run(rootCatalogEntryId)).thenReturn(pipelineFailure(rootCatalogEntryId));
+        when(repository.findRawIdsForUnified(rootCatalogEntryId)).thenReturn(List.of(sourceRecordId));
 
         ManualUnifiedMergeResponse result =
-                service.mergeUnifiedVideos(List.of(rootUnifiedVideoId, victimUnifiedVideoId));
+                service.mergeCatalogEntries(List.of(rootCatalogEntryId, victimCatalogEntryId));
 
         assertEquals("PIPELINE_FAILED", result.status());
-        verify(repository).markUnifiedDirty(rootUnifiedVideoId);
-        verify(repository, never()).markUnifiedSynced(rootUnifiedVideoId);
-        verify(publisher).publishUnifiedDelete(victimUnifiedVideoId);
-        verify(publisher, never()).publishUnifiedIndex(rootUnifiedVideoId);
-        verify(publisher, never()).publishRawIndex(rawVideoId);
+        verify(repository).markUnifiedDirty(rootCatalogEntryId);
+        verify(repository, never()).markUnifiedSynced(rootCatalogEntryId);
+        verify(publisher).publishUnifiedDelete(victimCatalogEntryId);
+        verify(publisher, never()).publishUnifiedIndex(rootCatalogEntryId);
+        verify(publisher, never()).publishRawIndex(sourceRecordId);
     }
 
     @Test
-    void reusesExistingUnifiedVideoWhenSimilarTitleMatchesWithoutExternalIds() {
-        UUID rawVideoId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        RawVideoAggregationRecord rawVideo = readyRawVideo(rawVideoId, null);
+    void reusesExistingCatalogEntryWhenSimilarTitleMatchesWithoutExternalIds() {
+        UUID sourceRecordId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
+        SourceRecordAggregationRecord sourceRecord = readySourceRecord(sourceRecordId, null);
 
-        when(repository.findRawVideo(rawVideoId)).thenReturn(Optional.of(rawVideo));
-        when(repository.findExistingBinding(rawVideoId)).thenReturn(Optional.empty());
-        when(repository.findMatchPlan(rawVideo)).thenReturn(AggregationMatchPlan.rootOnly(unifiedVideoId));
-        when(aggregationPipelineRuntime.run(unifiedVideoId))
-                .thenReturn(pipelineExecution(unifiedVideoId, List.of()));
+        when(repository.findSourceRecord(sourceRecordId)).thenReturn(Optional.of(sourceRecord));
+        when(repository.findExistingBinding(sourceRecordId)).thenReturn(Optional.empty());
+        when(repository.findMatchPlan(sourceRecord)).thenReturn(AggregationMatchPlan.rootOnly(catalogEntryId));
+        when(aggregationPipelineRuntime.run(catalogEntryId))
+                .thenReturn(pipelineExecution(catalogEntryId, List.of()));
 
-        AggregationResult result = service.aggregateRuntimeWork(rawVideoId);
+        AggregationResult result = service.aggregateRuntimeWork(sourceRecordId);
 
         assertEquals("BOUND", result.status());
-        verify(repository, never()).createUnifiedVideo(rawVideo);
-        verify(repository).upsertUnifiedFields(unifiedVideoId, rawVideo);
-        verify(repository).bindRawToUnified(rawVideoId, unifiedVideoId);
-        verify(aggregationPipelineRuntime).run(unifiedVideoId);
-        verify(repository).markBound(rawVideoId);
-        verify(publisher).publishUnifiedIndex(unifiedVideoId);
-        verify(publisher).publishRawIndex(rawVideoId);
+        verify(repository, never()).createCatalogEntry(sourceRecord);
+        verify(repository).upsertUnifiedFields(catalogEntryId, sourceRecord);
+        verify(repository).bindRawToUnified(sourceRecordId, catalogEntryId);
+        verify(aggregationPipelineRuntime).run(catalogEntryId);
+        verify(repository).markBound(sourceRecordId);
+        verify(publisher).publishUnifiedIndex(catalogEntryId);
+        verify(publisher).publishRawIndex(sourceRecordId);
     }
 
     @Test
@@ -922,17 +922,17 @@ class AggregationServiceTest {
         UUID rawId = UUID.randomUUID();
         UUID rootId = UUID.randomUUID();
         UUID victimId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = readyRawVideo(rawId);
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = readySourceRecord(rawId);
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findMatchPlan(raw)).thenReturn(AggregationMatchPlan.rootWithVictims(rootId, List.of(victimId)));
         var disabledPolicy = new AggregationSafetyPolicy(false, "douban:123");
-        var disabledService = new AggregationService(repository, publisher, storageCommandPublisher, rawVideoGraphClusterer,
+        var disabledService = new AggregationService(repository, publisher, storageCommandPublisher, sourceRecordGraphClusterer,
                 aggregationPipelineRuntime, matchKeyLock, workPublisher, transactionManager, matchingStrategy, disabledPolicy);
 
         AggregationResult result = disabledService.aggregateRuntimeWork(rawId);
 
         assertEquals("MERGE_AMBIGUOUS", result.status());
-        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
+        verify(repository, never()).mergeDuplicateCatalogEntries(any(), any());
         verify(repository, never()).upsertUnifiedFields(any(), any());
         verify(repository, never()).bindRawToUnified(any(), any());
         verifyNoInteractions(aggregationPipelineRuntime);
@@ -944,17 +944,17 @@ class AggregationServiceTest {
         UUID secondId = UUID.randomUUID();
         UUID firstUnified = UUID.randomUUID();
         UUID secondUnified = UUID.randomUUID();
-        RawVideoAggregationRecord first = readyRawVideo(firstId, null);
-        RawVideoAggregationRecord second = readyRawVideo(secondId, null);
-        List<RawVideoAggregationRecord> raws = List.of(first, second);
-        var cluster = new RawVideoAggregationCluster(first, raws);
-        List<UnifiedVideoAggregationCandidate> candidates = List.of(
+        SourceRecordAggregationRecord first = readySourceRecord(firstId, null);
+        SourceRecordAggregationRecord second = readySourceRecord(secondId, null);
+        List<SourceRecordAggregationRecord> raws = List.of(first, second);
+        var cluster = new SourceRecordAggregationCluster(first, raws);
+        List<CatalogEntryAggregationCandidate> candidates = List.of(
                 unifiedCandidateWithId(firstUnified, "9001"), unifiedCandidateWithId(secondUnified, "9002"));
-        when(repository.findRawVideos(List.of(firstId, secondId))).thenReturn(raws);
-        when(repository.findRawVideo(firstId)).thenReturn(Optional.of(first));
-        when(repository.findRawVideo(secondId)).thenReturn(Optional.of(second));
+        when(repository.findSourceRecords(List.of(firstId, secondId))).thenReturn(raws);
+        when(repository.findSourceRecord(firstId)).thenReturn(Optional.of(first));
+        when(repository.findSourceRecord(secondId)).thenReturn(Optional.of(second));
         when(repository.findContextUnifiedCandidates(raws)).thenReturn(List.of());
-        when(rawVideoGraphClusterer.cluster(raws, List.of())).thenReturn(List.of(cluster));
+        when(sourceRecordGraphClusterer.cluster(raws, List.of())).thenReturn(List.of(cluster));
         when(repository.findExistingBinding(firstId)).thenReturn(Optional.of(firstUnified));
         when(repository.findExistingBinding(secondId)).thenReturn(Optional.of(secondUnified));
         when(repository.findMatchPlan(first)).thenReturn(AggregationMatchPlan.rootOnly(firstUnified));
@@ -969,18 +969,18 @@ class AggregationServiceTest {
         List<AggregationResult> results = service.aggregateRuntimeWorkBatch(List.of(firstId, secondId));
 
         assertEquals(List.of("BOUND", "BOUND"), results.stream().map(AggregationResult::status).toList());
-        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
+        verify(repository, never()).mergeDuplicateCatalogEntries(any(), any());
         verify(repository).bindRawToUnified(firstId, firstUnified);
         verify(repository).bindRawToUnified(secondId, secondUnified);
-        verify(repository, times(2)).findRawVideos(List.of(firstId, secondId));
+        verify(repository, times(2)).findSourceRecords(List.of(firstId, secondId));
     }
 
     @Test
     void existingBindingWithChangedIdentityIsNotRefreshed() {
         UUID rawId = UUID.randomUUID();
         UUID unifiedId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = readyRawVideo(rawId, "9002");
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = readySourceRecord(rawId, "9002");
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findExistingBinding(rawId)).thenReturn(Optional.of(unifiedId));
         when(repository.findUnifiedCandidatesByIds(anyCollection()))
                 .thenReturn(List.of(unifiedCandidateWithId(unifiedId, "9001")));
@@ -996,14 +996,14 @@ class AggregationServiceTest {
     @Test
     void changedRawSnapshotIsDeferredBeforeAnyBusinessWrite() {
         UUID rawId = UUID.randomUUID();
-        RawVideoAggregationRecord original = readyRawVideo(rawId);
-        RawVideoAggregationRecord changed = readyRawVideo(rawId, "A corrected title", "Codex Alias", "1234567");
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(original), Optional.of(changed));
+        SourceRecordAggregationRecord original = readySourceRecord(rawId);
+        SourceRecordAggregationRecord changed = readySourceRecord(rawId, "A corrected title", "Codex Alias", "1234567");
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(original), Optional.of(changed));
 
         AggregationResult result = service.aggregateRuntimeWork(rawId);
 
         assertEquals("SOURCE_CHANGED", result.status());
-        verify(repository, times(2)).findRawVideo(rawId);
+        verify(repository, times(2)).findSourceRecord(rawId);
         verify(repository, never()).upsertUnifiedFields(any(), any());
         verify(repository, never()).bindRawToUnified(any(), any());
         verify(repository, never()).markBound(any());
@@ -1014,8 +1014,8 @@ class AggregationServiceTest {
     void alreadyBoundDuplicateCompletesWithoutPipelineOrStatusDemotion() {
         UUID rawId = UUID.randomUUID();
         UUID unifiedId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = withAggregationStatus(readyRawVideo(rawId), "BOUND");
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = withAggregationStatus(readySourceRecord(rawId), "BOUND");
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findExistingBinding(rawId)).thenReturn(Optional.of(unifiedId));
 
         AggregationResult result = service.aggregateRuntimeWork(rawId);
@@ -1029,8 +1029,8 @@ class AggregationServiceTest {
     void boundRawWithPendingAdultAssessmentStillResumesDeferredEvaluation() {
         UUID rawId = UUID.randomUUID();
         UUID unifiedId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = withAggregationStatus(readyRawVideo(rawId), "BOUND");
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = withAggregationStatus(readySourceRecord(rawId), "BOUND");
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findExistingBinding(rawId)).thenReturn(Optional.of(unifiedId));
         when(repository.isAdultAssessmentPending(unifiedId)).thenReturn(true);
         var snapshot = new AdultAssessmentSnapshot(unifiedId, "v1", "sources1", null);
@@ -1051,12 +1051,12 @@ class AggregationServiceTest {
     @Test
     void ambiguousCandidatePlanDoesNotCreateAnotherUnified() {
         UUID rawId = UUID.randomUUID();
-        RawVideoAggregationRecord raw = readyRawVideo(rawId);
-        when(repository.findRawVideo(rawId)).thenReturn(Optional.of(raw));
+        SourceRecordAggregationRecord raw = readySourceRecord(rawId);
+        when(repository.findSourceRecord(rawId)).thenReturn(Optional.of(raw));
         when(repository.findMatchPlan(raw)).thenReturn(AggregationMatchPlan.ambiguous());
 
         assertEquals("MERGE_AMBIGUOUS", service.aggregateRuntimeWork(rawId).status());
-        verify(repository, never()).createUnifiedVideo(any());
+        verify(repository, never()).createCatalogEntry(any());
         verifyNoInteractions(aggregationPipelineRuntime);
     }
 
@@ -1066,17 +1066,17 @@ class AggregationServiceTest {
         UUID secondId = UUID.randomUUID();
         UUID contextId = UUID.randomUUID();
         UUID createdId = UUID.randomUUID();
-        RawVideoAggregationRecord first = readyRawVideo(firstId, null);
-        RawVideoAggregationRecord second = readyRawVideo(secondId, null);
-        List<RawVideoAggregationRecord> raws = List.of(first, second);
-        UnifiedVideoAggregationCandidate context = unifiedCandidate(contextId, "Codex Aggregation", "2026");
-        var cluster = new RawVideoAggregationCluster(first, raws, List.of(contextId));
-        when(repository.findRawVideos(List.of(firstId, secondId))).thenReturn(raws);
+        SourceRecordAggregationRecord first = readySourceRecord(firstId, null);
+        SourceRecordAggregationRecord second = readySourceRecord(secondId, null);
+        List<SourceRecordAggregationRecord> raws = List.of(first, second);
+        CatalogEntryAggregationCandidate context = unifiedCandidate(contextId, "Codex Aggregation", "2026");
+        var cluster = new SourceRecordAggregationCluster(first, raws, List.of(contextId));
+        when(repository.findSourceRecords(List.of(firstId, secondId))).thenReturn(raws);
         when(repository.findContextUnifiedCandidates(raws)).thenReturn(List.of(context));
-        when(rawVideoGraphClusterer.cluster(raws, List.of(context))).thenReturn(List.of(cluster));
+        when(sourceRecordGraphClusterer.cluster(raws, List.of(context))).thenReturn(List.of(cluster));
         when(repository.findMatchPlan(first)).thenReturn(AggregationMatchPlan.none());
         when(repository.findMatchPlan(second)).thenReturn(AggregationMatchPlan.none());
-        when(repository.createUnifiedVideo(first)).thenReturn(createdId);
+        when(repository.createCatalogEntry(first)).thenReturn(createdId);
         when(aggregationPipelineRuntime.run(createdId)).thenReturn(pipelineExecution(createdId, List.of()));
 
         List<AggregationResult> results = service.aggregateRuntimeWorkBatch(List.of(firstId, secondId));
@@ -1084,24 +1084,24 @@ class AggregationServiceTest {
         assertEquals(List.of("BOUND", "BOUND"), results.stream().map(AggregationResult::status).toList());
         verify(repository).bindRawToUnified(firstId, createdId);
         verify(repository).bindRawToUnified(secondId, createdId);
-        verify(repository, never()).mergeDuplicateUnifiedVideos(any(), any());
-        InOrder order = inOrder(repository, rawVideoGraphClusterer, transactionManager);
+        verify(repository, never()).mergeDuplicateCatalogEntries(any(), any());
+        InOrder order = inOrder(repository, sourceRecordGraphClusterer, transactionManager);
         order.verify(repository).findContextUnifiedCandidates(raws);
-        order.verify(rawVideoGraphClusterer).cluster(raws, List.of(context));
+        order.verify(sourceRecordGraphClusterer).cluster(raws, List.of(context));
         order.verify(transactionManager).getTransaction(any());
-        order.verify(repository).lockRawVideos(List.of(firstId, secondId));
+        order.verify(repository).lockSourceRecords(List.of(firstId, secondId));
     }
 
-    private RawVideoAggregationRecord withAggregationStatus(RawVideoAggregationRecord raw, String status) {
-        return new RawVideoAggregationRecord(raw.id(), raw.title(), raw.aliasTitle(), raw.description(), raw.year(),
+    private SourceRecordAggregationRecord withAggregationStatus(SourceRecordAggregationRecord raw, String status) {
+        return new SourceRecordAggregationRecord(raw.id(), raw.title(), raw.aliasTitle(), raw.description(), raw.year(),
                 raw.score(), raw.publishedAt(), raw.totalEpisodes(), raw.duration(), raw.remarks(), raw.subtitle(),
                 raw.season(), raw.categoryName(), raw.categoryCode(), raw.actorNames(), raw.directorNames(), raw.areaNames(),
                 raw.doubanId(), raw.tmdbId(), raw.imdbId(), raw.rottenTomatoesId(), raw.normalizationStatus(),
                 raw.enrichmentStatus(), status);
     }
 
-    private UnifiedVideoAggregationCandidate unifiedCandidateWithId(UUID id, String doubanId) {
-        return new UnifiedVideoAggregationCandidate(id, "Codex Aggregation", null, null, "2026", "12", "45m",
+    private CatalogEntryAggregationCandidate unifiedCandidateWithId(UUID id, String doubanId) {
+        return new CatalogEntryAggregationCandidate(id, "Codex Aggregation", null, null, "2026", "12", "45m",
                 null, "电影", doubanId, null, null, null, null);
     }
 
@@ -1111,15 +1111,15 @@ class AggregationServiceTest {
         UUID secondId = UUID.randomUUID();
         UUID firstUnified = UUID.randomUUID();
         UUID secondUnified = UUID.randomUUID();
-        RawVideoAggregationRecord first = readyRawVideo(firstId);
-        RawVideoAggregationRecord second = readyRawVideo(secondId);
-        when(repository.findRawVideos(List.of(firstId, secondId))).thenReturn(List.of(first, second));
+        SourceRecordAggregationRecord first = readySourceRecord(firstId);
+        SourceRecordAggregationRecord second = readySourceRecord(secondId);
+        when(repository.findSourceRecords(List.of(firstId, secondId))).thenReturn(List.of(first, second));
         when(repository.findContextUnifiedCandidates(List.of(first, second))).thenReturn(List.of());
-        when(rawVideoGraphClusterer.cluster(List.of(first, second), List.of())).thenReturn(List.of(
-                new RawVideoAggregationCluster(first, List.of(first)),
-                new RawVideoAggregationCluster(second, List.of(second))));
-        when(repository.findRawVideo(firstId)).thenReturn(Optional.of(first));
-        when(repository.findRawVideo(secondId)).thenReturn(Optional.of(second));
+        when(sourceRecordGraphClusterer.cluster(List.of(first, second), List.of())).thenReturn(List.of(
+                new SourceRecordAggregationCluster(first, List.of(first)),
+                new SourceRecordAggregationCluster(second, List.of(second))));
+        when(repository.findSourceRecord(firstId)).thenReturn(Optional.of(first));
+        when(repository.findSourceRecord(secondId)).thenReturn(Optional.of(second));
         when(repository.findExistingBinding(firstId)).thenReturn(Optional.of(firstUnified));
         when(repository.findExistingBinding(secondId)).thenReturn(Optional.of(secondUnified));
         when(aggregationPipelineRuntime.run(firstUnified)).thenAnswer(call -> {
@@ -1130,12 +1130,12 @@ class AggregationServiceTest {
         when(aggregationPipelineRuntime.run(secondUnified)).thenThrow(new IllegalStateException("later cluster failed"));
         var search = org.mockito.Mockito.mock(com.prodigalgal.ircs.common.search.SearchSyncWorkPublisher.class);
         var actual = new AggregationService(repository, new AggregationSearchSyncPublisher(search), storageCommandPublisher,
-                rawVideoGraphClusterer, aggregationPipelineRuntime, matchKeyLock, workPublisher, transactionManager,
+                sourceRecordGraphClusterer, aggregationPipelineRuntime, matchKeyLock, workPublisher, transactionManager,
                 matchingStrategy, safetyPolicy);
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                 () -> actual.aggregateRuntimeWorkBatch(List.of(firstId, secondId)));
-        verify(search).enqueue(firstUnified, com.prodigalgal.ircs.contracts.search.SearchEntityType.UNIFIED_VIDEO,
+        verify(search).enqueue(firstUnified, com.prodigalgal.ircs.contracts.search.SearchEntityType.CATALOG_ENTRY,
                 com.prodigalgal.ircs.contracts.search.SyncOperation.INDEX);
         verify(repository, never()).evaluateAdultAssessments(any());
     }
@@ -1152,17 +1152,17 @@ class AggregationServiceTest {
         verifyNoInteractions(repository);
     }
 
-    private RawVideoAggregationRecord readyRawVideo(UUID rawVideoId) {
-        return readyRawVideo(rawVideoId, "1234567");
+    private SourceRecordAggregationRecord readySourceRecord(UUID sourceRecordId) {
+        return readySourceRecord(sourceRecordId, "1234567");
     }
 
-    private AggregationPipelineExecution pipelineExecution(UUID unifiedVideoId, List<UUID> coverR2SyncImageIds) {
-        return new AggregationPipelineExecution(unifiedVideoId, coverR2SyncImageIds, List.of());
+    private AggregationPipelineExecution pipelineExecution(UUID catalogEntryId, List<UUID> coverR2SyncImageIds) {
+        return new AggregationPipelineExecution(catalogEntryId, coverR2SyncImageIds, List.of());
     }
 
-    private AggregationPipelineExecution pipelineFailure(UUID unifiedVideoId) {
+    private AggregationPipelineExecution pipelineFailure(UUID catalogEntryId) {
         return new AggregationPipelineExecution(
-                unifiedVideoId,
+                catalogEntryId,
                 List.of(UUID.randomUUID()),
                 List.of(new AggregationPipelineStageFailure(
                         AggregationPipelineStage.METADATA,
@@ -1171,17 +1171,17 @@ class AggregationServiceTest {
                         "metadata failed")));
     }
 
-    private RawVideoAggregationRecord readyRawVideo(UUID rawVideoId, String doubanId) {
-        return readyRawVideo(rawVideoId, "Codex Aggregation", "Codex Alias", doubanId);
+    private SourceRecordAggregationRecord readySourceRecord(UUID sourceRecordId, String doubanId) {
+        return readySourceRecord(sourceRecordId, "Codex Aggregation", "Codex Alias", doubanId);
     }
 
-    private RawVideoAggregationRecord readyRawVideo(
-            UUID rawVideoId,
+    private SourceRecordAggregationRecord readySourceRecord(
+            UUID sourceRecordId,
             String title,
             String aliasTitle,
             String doubanId) {
-        return new RawVideoAggregationRecord(
-                rawVideoId,
+        return new SourceRecordAggregationRecord(
+                sourceRecordId,
                 title,
                 aliasTitle,
                 "Aggregation description",
@@ -1203,8 +1203,8 @@ class AggregationServiceTest {
                 "PROCESSING");
     }
 
-    private UnifiedVideoAggregationCandidate unifiedCandidate(UUID id, String title, String year) {
-        return new UnifiedVideoAggregationCandidate(
+    private CatalogEntryAggregationCandidate unifiedCandidate(UUID id, String title, String year) {
+        return new CatalogEntryAggregationCandidate(
                 id,
                 title,
                 null,

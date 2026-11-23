@@ -93,8 +93,8 @@ class SearchReconciliationRunner {
     private ReconciliationResult runOnceLocked() {
         Instant startedAt = Instant.now();
         try {
-            ReconciliationResult raw = reconcile(SearchEntityType.RAW_VIDEO);
-            ReconciliationResult unified = reconcile(SearchEntityType.UNIFIED_VIDEO);
+            ReconciliationResult raw = reconcile(SearchEntityType.SOURCE_RECORD);
+            ReconciliationResult unified = reconcile(SearchEntityType.CATALOG_ENTRY);
             ReconciliationResult result = new ReconciliationResult(
                     raw.scanned() + unified.scanned(),
                     raw.missing() + unified.missing(),
@@ -126,16 +126,16 @@ class SearchReconciliationRunner {
         int effectiveMaxBatches = Math.max(1, maxBatches);
         while (batches < effectiveMaxBatches) {
             ClusterLeaseGuard.checkCurrentOwnership();
-            List<UUID> ids = entityType == SearchEntityType.RAW_VIDEO
-                    ? documentRepository.findNextRawVideoIds(cursor, effectiveBatchSize)
-                    : documentRepository.findNextUnifiedVideoIds(cursor, effectiveBatchSize);
+            List<UUID> ids = entityType == SearchEntityType.SOURCE_RECORD
+                    ? documentRepository.findNextSourceRecordIds(cursor, effectiveBatchSize)
+                    : documentRepository.findNextCatalogEntryIds(cursor, effectiveBatchSize);
             if (ids.isEmpty()) {
                 break;
             }
             cursor = ids.getLast();
             batches++;
             scanned += ids.size();
-            Set<UUID> existing = entityType == SearchEntityType.RAW_VIDEO
+            Set<UUID> existing = entityType == SearchEntityType.SOURCE_RECORD
                     ? searchIndexService.existingRawIds(ids)
                     : searchIndexService.existingUnifiedIds(ids);
             List<UUID> missingIds = ids.stream()

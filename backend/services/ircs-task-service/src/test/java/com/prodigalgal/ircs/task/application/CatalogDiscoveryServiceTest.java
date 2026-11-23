@@ -109,7 +109,7 @@ class CatalogDiscoveryServiceTest {
     @Test
     void unavailableSourcesUseTheCooldownWithoutCountingADispatchAttempt() {
         CatalogDiscoveryCandidate delayed = new CatalogDiscoveryCandidate(
-                candidate.unifiedVideoId(), 2, 12, "Example", 37, candidate.leaseToken());
+                candidate.catalogEntryId(), 2, 12, "Example", 37, candidate.leaseToken());
         when(repository.claimDue(5, LEASE)).thenReturn(List.of(delayed));
         when(repository.renew(delayed, LEASE)).thenReturn(true);
         when(discovery.scheduleCatalog(eq(delayed), anyInt(), any()))

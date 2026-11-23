@@ -44,7 +44,7 @@ class MaintenanceReindexCommandTest {
                 .thenReturn(List.of(first, second));
         when(searchSyncClient.enqueueIndex(
                 org.mockito.Mockito.anyList(),
-                org.mockito.Mockito.eq(SearchEntityType.UNIFIED_VIDEO),
+                org.mockito.Mockito.eq(SearchEntityType.CATALOG_ENTRY),
                 org.mockito.Mockito.eq("corr-1")))
                 .thenReturn(2);
 
@@ -60,7 +60,7 @@ class MaintenanceReindexCommandTest {
 
         verify(searchSyncClient).enqueueIndex(
                 List.of(first, second),
-                SearchEntityType.UNIFIED_VIDEO,
+                SearchEntityType.CATALOG_ENTRY,
                 "corr-1");
     }
 
@@ -73,7 +73,7 @@ class MaintenanceReindexCommandTest {
                 .thenReturn(List.of(first, second));
         when(searchSyncClient.enqueueIndex(
                 org.mockito.Mockito.anyList(),
-                org.mockito.Mockito.eq(SearchEntityType.RAW_VIDEO),
+                org.mockito.Mockito.eq(SearchEntityType.SOURCE_RECORD),
                 org.mockito.Mockito.eq("corr-raw")))
                 .thenReturn(2);
 
@@ -89,13 +89,13 @@ class MaintenanceReindexCommandTest {
 
         verify(searchSyncClient).enqueueIndex(
                 List.of(first, second),
-                SearchEntityType.RAW_VIDEO,
+                SearchEntityType.SOURCE_RECORD,
                 "corr-raw");
     }
 
     @Test
     void hardResetUnifiedIndexDelegatesToSearchOwnerService() {
-        when(searchSyncClient.hardResetIndex(SearchEntityType.UNIFIED_VIDEO, "corr-reset"))
+        when(searchSyncClient.hardResetIndex(SearchEntityType.CATALOG_ENTRY, "corr-reset"))
                 .thenReturn(5);
         MaintenanceReindexCommand command = new MaintenanceReindexCommand(
                 jdbcTemplate, searchSyncClient, configValues);
@@ -106,7 +106,7 @@ class MaintenanceReindexCommandTest {
         assertEquals(1, result.selectedCount());
         assertEquals(5, result.publishedCount());
         assertEquals(List.of(), result.entityIds());
-        verify(searchSyncClient).hardResetIndex(SearchEntityType.UNIFIED_VIDEO, "corr-reset");
+        verify(searchSyncClient).hardResetIndex(SearchEntityType.CATALOG_ENTRY, "corr-reset");
     }
 
     @Test
@@ -172,7 +172,7 @@ class MaintenanceReindexCommandTest {
                 .thenReturn(List.of(third));
         when(searchSyncClient.enqueueIndex(
                 org.mockito.Mockito.anyList(),
-                org.mockito.Mockito.eq(SearchEntityType.UNIFIED_VIDEO),
+                org.mockito.Mockito.eq(SearchEntityType.CATALOG_ENTRY),
                 org.mockito.Mockito.eq("corr-all")))
                 .thenReturn(2)
                 .thenReturn(1);
@@ -188,11 +188,11 @@ class MaintenanceReindexCommandTest {
         assertEquals(List.of(first, second, third), result.entityIds());
         verify(searchSyncClient).enqueueIndex(
                 List.of(first, second),
-                SearchEntityType.UNIFIED_VIDEO,
+                SearchEntityType.CATALOG_ENTRY,
                 "corr-all");
         verify(searchSyncClient).enqueueIndex(
                 List.of(third),
-                SearchEntityType.UNIFIED_VIDEO,
+                SearchEntityType.CATALOG_ENTRY,
                 "corr-all");
     }
 

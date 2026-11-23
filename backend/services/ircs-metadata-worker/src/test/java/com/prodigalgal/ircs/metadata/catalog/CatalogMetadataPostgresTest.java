@@ -50,27 +50,27 @@ class CatalogMetadataPostgresTest {
         repository = new CatalogMetadataRepository(named, mapper);
         authority = new AuthorityCatalogImportRepository(named, repository, new CatalogPeopleRepository(named, mapper));
         jdbc.execute("""
-                create table unified_videos(id uuid primary key,title text,alias_title text,description text,year text,
-                    score numeric,published_at date,tmdb_id text,imdb_id text,cover_image_id uuid,season integer,
+                create table catalog_entries(id uuid primary key,title text,alias_title text,description text,year text,
+                    score numeric,published_at date,tmdb_id text,imdb_id text,media_image_source_id uuid,season integer,
                     actor_names jsonb default '[]',director_names jsonb default '[]',area_codes jsonb default '[]',
                     language_codes jsonb default '[]',genre_codes jsonb default '[]',locked_fields jsonb default '[]',
                     adult_restricted boolean default false,adult_assessment jsonb default '{}',content_visibility text default 'PUBLIC',
                     metadata_status text default 'DIRTY',updated_at timestamptz default now(),version bigint default 0,
                     created_at timestamptz default now(),category_code text,total_episodes text);
-                create table standard_areas(code text,name text);
-                create table standard_languages(code text,name text,english_name text,native_name text);
-                create table standard_genre(code text,name text);
-                insert into standard_areas values('CN','中国大陆');
-                insert into standard_languages values('zh','中文','Chinese','中文');
-                insert into standard_genre values('action','动作');
-                create table source_domains(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
+                create table catalog_regions(code text,name text);
+                create table catalog_languages(code text,name text,english_name text,native_name text);
+                create table catalog_genres(code text,name text);
+                insert into catalog_regions values('CN','中国大陆');
+                insert into catalog_languages values('zh','中文','Chinese','中文');
+                insert into catalog_genres values('action','动作');
+                create table source_origins(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
                     domain_hash varchar(64) not null unique,domain_value varchar(255) not null);
-                create table cover_images(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
-                    storage_type text,original_url text,source_domain_id uuid,status text,retry_count integer,next_retry_time timestamptz,
-                    unique(original_url,source_domain_id));
+                create table media_image_sources(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
+                    storage_type text,original_url text,source_origin_id uuid,status text,retry_count integer,next_retry_time timestamptz,
+                    unique(original_url,source_origin_id));
                 """);
         String migration=Files.readString(migration());
-        for (String table:List.of("external_catalog_identities","catalog_metadata_requests")) {
+        for (String table:List.of("catalog_external_ids","catalog_metadata_enrichment_jobs")) {
             var matcher=Pattern.compile("CREATE TABLE "+table+"[\\s\\S]*?\\n\\);").matcher(migration);
             assertThat(matcher.find()).as("production migration table %s",table).isTrue();
             jdbc.execute(matcher.group());
@@ -84,12 +84,12 @@ class CatalogMetadataPostgresTest {
     void fillsRealMetadataWithoutCreatingOrNeedingAnyRawResource() {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         assertThat(transactions.<Boolean>execute(status->repository.apply(target,evidence()))).isTrue();
-        assertThat(jdbc.queryForObject("select description from unified_videos where id=?",String.class,id)).isEqualTo("Verified overview");
-        assertThat(jdbc.queryForObject("select score from unified_videos where id=?",BigDecimal.class,id)).isEqualByComparingTo("8.2");
-        assertThat(jdbc.queryForObject("select actor_names::text from unified_videos where id=?",String.class,id)).contains("Actor");
-        assertThat(jdbc.queryForObject("select genre_codes::text from unified_videos where id=?",String.class,id)).contains("action");
-        assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("SYNCED");
-        assertThat(jdbc.queryForObject("select to_regclass('raw_videos') is null",Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("select description from catalog_entries where id=?",String.class,id)).isEqualTo("Verified overview");
+        assertThat(jdbc.queryForObject("select score from catalog_entries where id=?",BigDecimal.class,id)).isEqualByComparingTo("8.2");
+        assertThat(jdbc.queryForObject("select actor_names::text from catalog_entries where id=?",String.class,id)).contains("Actor");
+        assertThat(jdbc.queryForObject("select genre_codes::text from catalog_entries where id=?",String.class,id)).contains("action");
+        assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("SYNCED");
+        assertThat(jdbc.queryForObject("select to_regclass('source_records') is null",Boolean.class)).isTrue();
         assertThat(repository.pendingIndexes()).hasSize(1);
     }
 
@@ -97,19 +97,19 @@ class CatalogMetadataPostgresTest {
     void manualArrayAndObjectLocksAndNonemptyValuesSurviveInFlightFetches() {
         for(String locks:List.of("[\"actors\",\"score\"]","{\"actors\":true,\"score\":true}")) {
             UUID id=enqueue(); var target=repository.claim(1).getFirst();
-            jdbc.update("update unified_videos set locked_fields=cast(? as jsonb),score=0,description='Manual text' where id=?",locks,id);
+            jdbc.update("update catalog_entries set locked_fields=cast(? as jsonb),score=0,description='Manual text' where id=?",locks,id);
             transactions.execute(status->repository.apply(target,evidence()));
-            assertThat(jdbc.queryForObject("select score from unified_videos where id=?",BigDecimal.class,id)).isEqualByComparingTo("0");
-            assertThat(jdbc.queryForObject("select description from unified_videos where id=?",String.class,id)).isEqualTo("Manual text");
-            assertThat(jdbc.queryForObject("select actor_names::text from unified_videos where id=?",String.class,id)).isEqualTo("[]");
-            assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("DIRTY");
+            assertThat(jdbc.queryForObject("select score from catalog_entries where id=?",BigDecimal.class,id)).isEqualByComparingTo("0");
+            assertThat(jdbc.queryForObject("select description from catalog_entries where id=?",String.class,id)).isEqualTo("Manual text");
+            assertThat(jdbc.queryForObject("select actor_names::text from catalog_entries where id=?",String.class,id)).isEqualTo("[]");
+            assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("DIRTY");
         }
     }
 
     @Test
     void expiredOwnersCannotApplyOrAcknowledgeReclaimedRequests() {
         enqueue(); var old=repository.claim(1).getFirst();
-        jdbc.update("update catalog_metadata_requests set lease_until=now()-interval '1 second'");
+        jdbc.update("update catalog_metadata_enrichment_jobs set lease_until=now()-interval '1 second'");
         var current=repository.claim(1).getFirst();
         assertThat(transactions.<Boolean>execute(status->repository.apply(old,evidence()))).isFalse();
         assertThat(repository.renew(old)).isFalse(); assertThat(repository.defer(old,false,"OLD")).isFalse();
@@ -127,7 +127,7 @@ class CatalogMetadataPostgresTest {
             assertThat(claimed).hasSize(1);
             assertThat(repository.defer(claimed.getFirst(),true,"NO_VERIFIABLE_PROVIDER")).isTrue();
             assertThat(repository.claim(1)).isEmpty();
-            assertThat(jdbc.queryForObject("select next_attempt_at>now()+interval '23 hours' from catalog_metadata_requests",Boolean.class)).isTrue();
+            assertThat(jdbc.queryForObject("select next_attempt_at>now()+interval '23 hours' from catalog_metadata_enrichment_jobs",Boolean.class)).isTrue();
         }
     }
 
@@ -136,12 +136,12 @@ class CatalogMetadataPostgresTest {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         assertThatThrownBy(()->transactions.execute(status->repository.apply(target,
                 new CatalogMetadataEvidence("99","movie",0,evidence().metadata())))).isInstanceOf(CatalogMetadataUnavailableException.class);
-        jdbc.update("update unified_videos set content_visibility='HIDDEN' where id=?",id);
+        jdbc.update("update catalog_entries set content_visibility='HIDDEN' where id=?",id);
         assertThatThrownBy(()->transactions.execute(status->repository.apply(target,evidence()))).isInstanceOf(CatalogMetadataUnavailableException.class);
-        jdbc.update("update unified_videos set content_visibility='PUBLIC' where id=?",id);
+        jdbc.update("update catalog_entries set content_visibility='PUBLIC' where id=?",id);
         var partial=new EnrichedMetadataDTO(); partial.setTmdbId("42"); partial.setDescription("Only overview");
         assertThat(transactions.<Boolean>execute(status->repository.apply(target,new CatalogMetadataEvidence("42","movie",0,partial)))).isTrue();
-        assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("DIRTY");
+        assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("DIRTY");
     }
 
     @Test
@@ -149,7 +149,7 @@ class CatalogMetadataPostgresTest {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         transactions.execute(status->repository.apply(target,evidence()));
         var old=repository.pendingIndexes().getFirst();
-        jdbc.update("update catalog_metadata_requests set index_generation=index_generation+1 where unified_video_id=?",id);
+        jdbc.update("update catalog_metadata_enrichment_jobs set index_generation=index_generation+1 where catalog_entry_id=?",id);
         repository.indexed(old); assertThat(repository.pendingIndexes()).hasSize(1);
         repository.indexed(repository.pendingIndexes().getFirst()); assertThat(repository.pendingIndexes()).isEmpty();
     }
@@ -158,10 +158,10 @@ class CatalogMetadataPostgresTest {
     void commitsTypedWorksAndEpisodesBeforeCreatingDiscovery() throws Exception {
         installAuthoritySchema();
         jdbc.update("""
-                insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
                 values ('movie',42,-1,100),('tv',42,1,200)
                 """);
-        assertThat(jdbc.queryForObject("select count(*) from catalog_discovery_requests", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from catalog_resource_discovery_jobs", Integer.class)).isZero();
         var tv = authority.claim().orElseThrow();
         assertThat(tv.mediaType()).isEqualTo("tv");
         var premiere = LocalDate.of(2026, 4, 15);
@@ -175,14 +175,14 @@ class CatalogMetadataPostgresTest {
                 List.of(), List.of(), List.of());
         assertThat(transactions.<Boolean>execute(status -> authority.publish(movie,movieEvidence))).isTrue();
 
-        assertThat(jdbc.queryForList("select media_type from authority_catalog_works order by media_type", String.class))
+        assertThat(jdbc.queryForList("select media_type from catalog_works order by media_type", String.class))
                 .containsExactly("movie", "tv");
-        assertThat(jdbc.queryForObject("select tmdb_episode_id from authority_catalog_episodes", Long.class)).isEqualTo(999L);
-        assertThat(jdbc.queryForList("select target_season from catalog_discovery_requests order by target_season", Integer.class))
+        assertThat(jdbc.queryForObject("select tmdb_episode_id from catalog_episodes", Long.class)).isEqualTo(999L);
+        assertThat(jdbc.queryForList("select target_season from catalog_resource_discovery_jobs order by target_season", Integer.class))
                 .containsExactly(0, 1);
         assertThat(authority.pendingIndexes()).hasSize(2);
-        assertThat(jdbc.queryForObject("select count(*) from source_domains", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select count(*) from cover_images", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from source_origins", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from media_image_sources", Integer.class)).isEqualTo(1);
         assertThat(transactions.<Boolean>execute(status -> authority.publish(tv,tvEvidence))).isFalse();
     }
 
@@ -190,7 +190,7 @@ class CatalogMetadataPostgresTest {
     void oneSeasonAdultRejectionBlocksAnInFlightImportForTheSameWork() throws Exception {
         installAuthoritySchema();
         jdbc.update("""
-                insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
                 values ('tv',42,1,200),('tv',42,2,100)
                 """);
         var rejected = authority.claim().orElseThrow();
@@ -203,7 +203,7 @@ class CatalogMetadataPostgresTest {
         assertThatThrownBy(() -> transactions.execute(status -> authority.publish(inFlight,evidence)))
                 .isInstanceOf(CatalogMetadataUnavailableException.class)
                 .hasMessage("ADULT_SOURCE_RECORD");
-        assertThat(jdbc.queryForObject("select count(*) from authority_catalog_works", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from catalog_works", Integer.class)).isZero();
     }
 
     @Test
@@ -211,23 +211,23 @@ class CatalogMetadataPostgresTest {
         installAuthoritySchema();
         jdbc.execute(Files.readString(migration().resolveSibling("23-02-tmdb-authority-inventory.sql")));
         jdbc.update("""
-                update authority_tmdb_inventory_state
+                update provider_catalog_snapshot_states
                    set active_slot=1,snapshot_date=date '2026-11-22',row_count=4 where media_type='movie';
-                insert into authority_tmdb_inventory_entries(media_type,slot,tmdb_id,title,popularity,video)
+                insert into provider_catalog_snapshot_items(media_type,slot,tmdb_id,title,popularity,video)
                 values ('movie',1,100,'First',200,false),('movie',1,99,'Second',100,false),
                        ('movie',1,98,'Third',10,false),('movie',1,2,'Clip',1000,true),
                        ('movie',0,5,'Inactive',3000,false),('tv',1,1,'TV',100,false)
                 """);
         assertThat(authority.seed("movie",2)).isEqualTo(2);
         assertThat(authority.seed("movie",2)).isZero();
-        assertThat(jdbc.queryForList("select tmdb_id from authority_catalog_imports order by tmdb_id",Long.class))
+        assertThat(jdbc.queryForList("select tmdb_id from catalog_authority_import_jobs order by tmdb_id",Long.class))
                 .containsExactly(99L,100L);
     }
 
     @Test
     void storesPeopleByProviderIdAndKeepsPriorRolesOnIncompleteReplies() throws Exception {
         installAuthoritySchema();
-        jdbc.update("insert into authority_catalog_imports(media_type,tmdb_id,season_number) values ('tv',42,1)");
+        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('tv',42,1)");
         var date = LocalDate.of(2026, 4, 15);
         var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", date);
         var episode = new AuthorityCatalogEvidence.Episode(2, 999, "Episode 2", date);
@@ -242,35 +242,35 @@ class CatalogMetadataPostgresTest {
         var complete = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
                 List.of(season), List.of(episode), List.of(scope, episodeScope));
         assertThat(transactions.<Boolean>execute(status -> authority.publish(job, complete))).isTrue();
-        assertThat(jdbc.queryForObject("select count(*) from people", Integer.class)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("select count(distinct person_id) from catalog_credits where external_credit_id in ('main','guest')",
+        assertThat(jdbc.queryForObject("select count(*) from catalog_people", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(distinct person_id) from catalog_person_credits where external_credit_id in ('main','guest')",
                 Integer.class)).isEqualTo(1);
-        UUID guestCreditId = jdbc.queryForObject("select id from catalog_credits where episode_number=2", UUID.class);
+        UUID guestCreditId = jdbc.queryForObject("select id from catalog_person_credits where episode_number=2", UUID.class);
 
-        jdbc.update("update authority_catalog_imports set credits_backfill_at=now()");
+        jdbc.update("update catalog_authority_import_jobs set credits_backfill_at=now()");
         var backfill = authority.claim().orElseThrow();
         assertThat(backfill.creditBackfill()).isTrue();
         authority.defer(backfill, "SOURCE_OR_WRITE_FAILED", false);
         assertThat(authority.claim()).isEmpty();
-        assertThat(jdbc.queryForObject("select status from authority_catalog_imports", String.class)).isEqualTo("SUCCESS");
+        assertThat(jdbc.queryForObject("select status from catalog_authority_import_jobs", String.class)).isEqualTo("SUCCESS");
 
-        jdbc.update("update authority_catalog_imports set credits_backfill_at=now()");
+        jdbc.update("update catalog_authority_import_jobs set credits_backfill_at=now()");
         var rerun = authority.claim().orElseThrow();
         var incomplete = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
                 List.of(season), List.of(episode),
                 List.of(new AuthorityCatalogEvidence.CreditSet(null, null, cast, false, List.of(mainRole))));
         assertThat(transactions.<Boolean>execute(status -> authority.publish(rerun, incomplete))).isTrue();
-        assertThat(jdbc.queryForObject("select count(*) from catalog_credits", Integer.class)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("select id from catalog_credits where episode_number=2", UUID.class)).isEqualTo(guestCreditId);
-        assertThat(jdbc.queryForObject("select credits_backfill_at is null from authority_catalog_imports", Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from catalog_person_credits", Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("select id from catalog_person_credits where episode_number=2", UUID.class)).isEqualTo(guestCreditId);
+        assertThat(jdbc.queryForObject("select credits_backfill_at is null from catalog_authority_import_jobs", Boolean.class)).isTrue();
 
-        jdbc.update("update authority_catalog_imports set status='PENDING',next_attempt_at=now()");
+        jdbc.update("update catalog_authority_import_jobs set status='PENDING',next_attempt_at=now()");
         var refresh = authority.claim().orElseThrow();
         var latest = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
                 List.of(season), List.of(episode),
                 List.of(new AuthorityCatalogEvidence.CreditSet(null, null, cast, true, List.of(mainRole))));
         assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, latest))).isTrue();
-        assertThat(jdbc.queryForList("select external_credit_id from catalog_credits order by external_credit_id", String.class))
+        assertThat(jdbc.queryForList("select external_credit_id from catalog_person_credits order by external_credit_id", String.class))
                 .containsExactly("guest", "main");
     }
 
@@ -282,10 +282,10 @@ class CatalogMetadataPostgresTest {
 
     private void installAuthoritySchema() throws Exception {
         jdbc.execute("""
-                create table raw_videos(id uuid primary key);
+                create table source_records(id uuid primary key);
                 create function catalog_has_target_resources(uuid,integer,integer) returns boolean language sql as 'select false';
                 """);
-        var table = Pattern.compile("CREATE TABLE catalog_discovery_requests[\\s\\S]*?\\n\\);")
+        var table = Pattern.compile("CREATE TABLE catalog_resource_discovery_jobs[\\s\\S]*?\\n\\);")
                 .matcher(Files.readString(migration()));
         assertThat(table.find()).isTrue();
         jdbc.execute(table.group());
@@ -294,8 +294,8 @@ class CatalogMetadataPostgresTest {
     }
 
     private UUID enqueue() {
-        UUID id=UUID.randomUUID(); jdbc.update("insert into unified_videos(id,title,tmdb_id) values(?,'Known title','42')",id);
-        jdbc.update("insert into catalog_metadata_requests(unified_video_id,provider,media_type,external_id) values(?,'TMDB','movie','42')",id);
+        UUID id=UUID.randomUUID(); jdbc.update("insert into catalog_entries(id,title,tmdb_id) values(?,'Known title','42')",id);
+        jdbc.update("insert into catalog_metadata_enrichment_jobs(catalog_entry_id,provider,media_type,external_id) values(?,'TMDB','movie','42')",id);
         return id;
     }
     private CatalogMetadataEvidence evidence() {

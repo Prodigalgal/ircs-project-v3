@@ -34,7 +34,7 @@ class DistributedAggregationWorkDeferrerIntegrationTest {
     private final MutableClock clock = new MutableClock();
     private String prefix;
     private String metrics;
-    private final String type = AggregationWorkTypes.RAW_VIDEO;
+    private final String type = AggregationWorkTypes.SOURCE_RECORD;
     private final String taskId = AggregationWorkTypes.taskId(UUID.randomUUID());
 
     @BeforeEach

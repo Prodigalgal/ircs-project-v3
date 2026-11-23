@@ -53,7 +53,7 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
             Map.entry(PipelineRuntimeWorkTypes.METADATA_PROVIDER, List.of()));
 
     private static final Map<String, List<ConfigFlag>> RUNTIME_CONSUMER_FLAGS = Map.ofEntries(
-            Map.entry(AggregationWorkTypes.RAW_VIDEO, List.of()),
+            Map.entry(AggregationWorkTypes.SOURCE_RECORD, List.of()),
             Map.entry(SearchSyncWorkTypes.RAW, runtimeSubmissionFlags(SearchSyncWorkTypes.RAW)),
             Map.entry(SearchSyncWorkTypes.UNIFIED, runtimeSubmissionFlags(SearchSyncWorkTypes.UNIFIED)),
             Map.entry(LlmCleaningWorkTypes.RAW_TERM, runtimeSubmissionFlags(LlmCleaningWorkTypes.RAW_TERM)),
@@ -112,7 +112,7 @@ public class SystemConfigWorkSubmissionGate implements WorkSubmissionGate {
     private Optional<String> findValueFromDatabase(String key) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select config_value from system_configs where config_key = ?",
+                    "select config_value from application_settings where config_key = ?",
                     String.class,
                     key));
         } catch (EmptyResultDataAccessException ignored) {

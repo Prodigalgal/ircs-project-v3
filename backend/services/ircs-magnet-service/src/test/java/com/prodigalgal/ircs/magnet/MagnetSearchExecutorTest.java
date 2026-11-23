@@ -33,7 +33,7 @@ class MagnetSearchExecutorTest {
 
     @BeforeEach
     void setUp() {
-        when(repository.findUnifiedVideoSearchTarget(videoId)).thenReturn(Optional.of(target("Example", "2026", null)));
+        when(repository.findCatalogEntrySearchTarget(videoId)).thenReturn(Optional.of(target("Example", "2026", null)));
         when(repository.listEnabledProviders()).thenReturn(List.of(provider("source", "TEST", List.of("IMDB"))));
         when(coordinator.enqueue(eq(videoId), anyString(), anyList()))
                 .thenReturn(new MagnetSearchJobCoordinator.Enqueued(job("PENDING", 0, 0), true));
@@ -88,7 +88,7 @@ class MagnetSearchExecutorTest {
 
     @Test
     void wrongSeasonIsRejectedBeforeUpsert() {
-        when(repository.findUnifiedVideoSearchTarget(videoId)).thenReturn(Optional.of(target("Example", "2026", 1)));
+        when(repository.findCatalogEntrySearchTarget(videoId)).thenReturn(Optional.of(target("Example", "2026", 1)));
         when(runner.search(any(), any(), any())).thenReturn(response(candidate("Example S02E03 1080p", Map.of("titleSource", "CANDIDATE"))));
         var result = executor.execute(jobId, videoId, "ADMIN_MANUAL", true);
         assertEquals(1, result.rejectedCount());
@@ -132,7 +132,7 @@ class MagnetSearchExecutorTest {
                 supplied(searchSync), Duration.ofMinutes(2));
         when(runner.search(any(), any(), eq(videoId))).thenReturn(
                 response(candidate("Example 2026 1080p WEB-DL", Map.of("titleSource", "CANDIDATE"))));
-        when(searchSync.enqueue(videoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX))
+        when(searchSync.enqueue(videoId, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX))
                 .thenThrow(new IllegalStateException("temporary index submission failure"))
                 .thenReturn(1);
 
@@ -142,7 +142,7 @@ class MagnetSearchExecutorTest {
         verify(runner).search(any(), any(), eq(videoId));
         verify(repository).upsertLink(eq(videoId), any(), any(), anyBoolean());
         verify(cache, times(2)).evictApprovedLinks(videoId);
-        verify(searchSync, times(2)).enqueue(videoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(searchSync, times(2)).enqueue(videoId, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
     }
 
     @Test
@@ -273,7 +273,7 @@ class MagnetSearchExecutorTest {
 
     @Test
     void imdbOnlyProviderDoesNotReceiveTitleFallback() {
-        when(repository.findUnifiedVideoSearchTarget(videoId)).thenReturn(Optional.of(new MagnetUnifiedVideoSearchTarget(
+        when(repository.findCatalogEntrySearchTarget(videoId)).thenReturn(Optional.of(new MagnetCatalogEntrySearchTarget(
                 videoId, "Example", null, "2026", null, null, null, "SYNCED", null, null, "movie")));
         when(repository.listEnabledProviders()).thenReturn(List.of(provider("yts", "YTS_BZ", List.of("IMDB"))));
         when(repository.markSearchJobSkipped(eq(jobId), any(), anyList(), anyList())).thenReturn(Optional.of(job("SKIPPED", 0, 0)));
@@ -291,7 +291,7 @@ class MagnetSearchExecutorTest {
 
     @Test
     void queryPlanIgnoresPlaceholderIdsAndKeepsSeasonAndAliasesSeparate() {
-        var target = new MagnetUnifiedVideoSearchTarget(videoId, "Example", "Alias One|Alias Two", "2026",
+        var target = new MagnetCatalogEntrySearchTarget(videoId, "Example", "Alias One|Alias Two", "2026",
                 "tt0000000", "0", "0", "SYNCED", "Final", 2, "series");
         var queries = MagnetSearchExecutor.queries(target);
         assertTrue(queries.stream().noneMatch(query -> List.of("IMDB", "TMDB", "DOUBAN").contains(query.type())));
@@ -300,8 +300,8 @@ class MagnetSearchExecutorTest {
         assertTrue(queries.stream().noneMatch(query -> query.value().contains("|")));
     }
 
-    private MagnetUnifiedVideoSearchTarget target(String title, String year, Integer season) {
-        return new MagnetUnifiedVideoSearchTarget(videoId, title, null, year, "tt1234567", null, null, "SYNCED",
+    private MagnetCatalogEntrySearchTarget target(String title, String year, Integer season) {
+        return new MagnetCatalogEntrySearchTarget(videoId, title, null, year, "tt1234567", null, null, "SYNCED",
                 null, season, season == null ? "movie" : "series");
     }
     private MagnetProviderSummary provider(String code, String type, List<String> supported) {

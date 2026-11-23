@@ -3,8 +3,8 @@ package com.prodigalgal.ircs.search.index;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.search.portal.cache.SearchPortalReadModelCache;
 import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
-import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
-import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
+import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
 import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.Collection;
@@ -41,18 +41,18 @@ public class SearchIndexService {
 
     @PostConstruct
     void ensureIndices() {
-        ensureIndex(RawVideoSearchDocument.class);
-        ensureIndex(UnifiedVideoSearchDocument.class);
+        ensureIndex(SourceRecordSearchDocument.class);
+        ensureIndex(CatalogEntrySearchDocument.class);
         ensureIndex(AuditEventSearchDocument.class);
     }
 
-    public void saveRaw(RawVideoSearchDocument document) {
-        ensureIndex(RawVideoSearchDocument.class);
+    public void saveRaw(SourceRecordSearchDocument document) {
+        ensureIndex(SourceRecordSearchDocument.class);
         elasticsearchOperations.save(document);
     }
 
-    public void saveUnified(UnifiedVideoSearchDocument document) {
-        ensureIndex(UnifiedVideoSearchDocument.class);
+    public void saveUnified(CatalogEntrySearchDocument document) {
+        ensureIndex(CatalogEntrySearchDocument.class);
         elasticsearchOperations.save(document);
         readModelCache.evictPortalPublicReadModel();
     }
@@ -76,14 +76,14 @@ public class SearchIndexService {
     }
 
     public void delete(UUID id, SearchEntityType type) {
-        if (type == SearchEntityType.RAW_VIDEO) {
-            ensureIndex(RawVideoSearchDocument.class);
-            elasticsearchOperations.delete(id.toString(), RawVideoSearchDocument.class);
+        if (type == SearchEntityType.SOURCE_RECORD) {
+            ensureIndex(SourceRecordSearchDocument.class);
+            elasticsearchOperations.delete(id.toString(), SourceRecordSearchDocument.class);
             return;
         }
-        if (type == SearchEntityType.UNIFIED_VIDEO) {
-            ensureIndex(UnifiedVideoSearchDocument.class);
-            elasticsearchOperations.delete(id.toString(), UnifiedVideoSearchDocument.class);
+        if (type == SearchEntityType.CATALOG_ENTRY) {
+            ensureIndex(CatalogEntrySearchDocument.class);
+            elasticsearchOperations.delete(id.toString(), CatalogEntrySearchDocument.class);
             readModelCache.evictPortalPublicReadModel();
         }
     }
@@ -96,18 +96,18 @@ public class SearchIndexService {
         }
         boolean recreated = indexOperations.createWithMapping();
         ensuredIndexes.add(documentType);
-        if (type == SearchEntityType.UNIFIED_VIDEO) {
+        if (type == SearchEntityType.CATALOG_ENTRY) {
             readModelCache.evictPortalPublicReadModel();
         }
         return recreated;
     }
 
     public Set<UUID> existingRawIds(Collection<UUID> ids) {
-        return existingIds(ids, RawVideoSearchDocument.class);
+        return existingIds(ids, SourceRecordSearchDocument.class);
     }
 
     public Set<UUID> existingUnifiedIds(Collection<UUID> ids) {
-        return existingIds(ids, UnifiedVideoSearchDocument.class);
+        return existingIds(ids, CatalogEntrySearchDocument.class);
     }
 
     private void ensureIndex(Class<?> documentType) {
@@ -125,10 +125,10 @@ public class SearchIndexService {
     }
 
     private Class<?> documentType(SearchEntityType type) {
-        if (type == SearchEntityType.RAW_VIDEO) {
-            return RawVideoSearchDocument.class;
+        if (type == SearchEntityType.SOURCE_RECORD) {
+            return SourceRecordSearchDocument.class;
         }
-        return UnifiedVideoSearchDocument.class;
+        return CatalogEntrySearchDocument.class;
     }
 
     private <T> Set<UUID> existingIds(Collection<UUID> ids, Class<T> documentType) {

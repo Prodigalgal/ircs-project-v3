@@ -39,9 +39,9 @@ class ContentMaintenanceGateTest {
         UUID unifiedId = UUID.randomUUID();
         fixture.insert("content-video-rebuild", "video", "*", "READ_ONLY", NOW.plusSeconds(600));
 
-        assertThatThrownBy(() -> fixture.gate().assertRawVideoWrite(rawId))
+        assertThatThrownBy(() -> fixture.gate().assertSourceRecordWrite(rawId))
                 .isInstanceOf(MaintenanceGateLockedException.class);
-        assertThatThrownBy(() -> fixture.gate().assertUnifiedVideoWrite(unifiedId))
+        assertThatThrownBy(() -> fixture.gate().assertCatalogEntryWrite(unifiedId))
                 .isInstanceOf(MaintenanceGateLockedException.class);
     }
 
@@ -52,9 +52,9 @@ class ContentMaintenanceGateTest {
         UUID unifiedId = UUID.randomUUID();
         fixture.insert("unified-recalculate", "unified-video", unifiedId.toString(), "QUIESCE_WRITES", NOW.plusSeconds(600));
 
-        fixture.gate().assertRawVideoWrite(rawId);
+        fixture.gate().assertSourceRecordWrite(rawId);
 
-        assertThatThrownBy(() -> fixture.gate().assertUnifiedVideoWrite(unifiedId))
+        assertThatThrownBy(() -> fixture.gate().assertCatalogEntryWrite(unifiedId))
                 .isInstanceOf(MaintenanceGateLockedException.class);
     }
 
@@ -70,7 +70,7 @@ class ContentMaintenanceGateTest {
                 redisProvider(redis.template()));
         fixture.insert("content-video-rebuild", "video", "*", "READ_ONLY", NOW.plusSeconds(600));
 
-        assertThatThrownBy(() -> gate.assertRawVideoWrite(rawId))
+        assertThatThrownBy(() -> gate.assertSourceRecordWrite(rawId))
                 .isInstanceOf(MaintenanceGateLockedException.class);
 
         String redisKey = redisKey("video", resourceScope);
@@ -119,7 +119,7 @@ class ContentMaintenanceGateTest {
                 OBJECT_MAPPER,
                 redisProvider(redis.template()));
         fixture.insert("content-video-rebuild", "video", "*", "READ_ONLY", NOW.plusSeconds(600));
-        assertThatThrownBy(() -> gate.assertRawVideoWrite(rawId))
+        assertThatThrownBy(() -> gate.assertSourceRecordWrite(rawId))
                 .isInstanceOf(MaintenanceGateLockedException.class);
         String redisKey = redisKey("video", resourceScope);
 
@@ -148,7 +148,7 @@ class ContentMaintenanceGateTest {
         dataSource.setUrl("jdbc:h2:mem:content_maintenance_gate_" + name + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         jdbcTemplate.execute("""
-                create table maintenance_operations (
+                create table operations_maintenance_runs (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -194,7 +194,7 @@ class ContentMaintenanceGateTest {
     private record Fixture(JdbcTemplate jdbcTemplate, ContentMaintenanceGate gate) {
         void insert(String operationKey, String resourceType, String resourceScope, String mode, Instant expiresAt) {
             jdbcTemplate.update("""
-                    insert into maintenance_operations (
+                    insert into operations_maintenance_runs (
                         id, created_at, updated_at, operation_key, owner_service, resource_type,
                         resource_scope, mode, status, reason, expires_at
                     ) values (?, ?, ?, ?, 'content-service', ?, ?, ?, 'ACTIVE', '', ?)

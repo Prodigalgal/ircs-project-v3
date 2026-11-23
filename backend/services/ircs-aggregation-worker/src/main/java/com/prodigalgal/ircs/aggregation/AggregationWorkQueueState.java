@@ -16,7 +16,7 @@ record AggregationWorkQueueState(
         String lastRunState,
         String lastError,
         String currentStage,
-        String currentRawVideoId,
+        String currentSourceRecordId,
         String currentTaskId,
         int currentBatchSize,
         Instant currentStageStartedAt,

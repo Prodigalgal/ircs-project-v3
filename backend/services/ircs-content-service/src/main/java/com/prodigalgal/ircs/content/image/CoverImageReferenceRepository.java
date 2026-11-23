@@ -10,30 +10,30 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class CoverImageReferenceRepository {
 
-    private static final String SELECT_RAW_VIDEO_IDS =
-            "select id from raw_videos where cover_image_id = ?";
-    private static final String SELECT_UNIFIED_VIDEO_IDS =
-            "select id from unified_videos where cover_image_id = ?";
-    private static final String UNLINK_RAW_VIDEO =
-            "update raw_videos set cover_image_id = null where cover_image_id = ?";
-    private static final String UNLINK_UNIFIED_VIDEO =
-            "update unified_videos set cover_image_id = null where cover_image_id = ?";
+    private static final String SELECT_SOURCE_RECORD_IDS =
+            "select id from source_records where media_image_source_id = ?";
+    private static final String SELECT_CATALOG_ENTRY_IDS =
+            "select id from catalog_entries where media_image_source_id = ?";
+    private static final String UNLINK_SOURCE_RECORD =
+            "update source_records set media_image_source_id = null where media_image_source_id = ?";
+    private static final String UNLINK_CATALOG_ENTRY =
+            "update catalog_entries set media_image_source_id = null where media_image_source_id = ?";
 
     private final JdbcTemplate jdbcTemplate;
 
-    public List<UUID> findRawVideoIds(UUID imageId) {
-        return jdbcTemplate.query(SELECT_RAW_VIDEO_IDS, (rs, rowNum) -> (UUID) rs.getObject("id"), imageId);
+    public List<UUID> findSourceRecordIds(UUID imageId) {
+        return jdbcTemplate.query(SELECT_SOURCE_RECORD_IDS, (rs, rowNum) -> (UUID) rs.getObject("id"), imageId);
     }
 
-    public List<UUID> findUnifiedVideoIds(UUID imageId) {
-        return jdbcTemplate.query(SELECT_UNIFIED_VIDEO_IDS, (rs, rowNum) -> (UUID) rs.getObject("id"), imageId);
+    public List<UUID> findCatalogEntryIds(UUID imageId) {
+        return jdbcTemplate.query(SELECT_CATALOG_ENTRY_IDS, (rs, rowNum) -> (UUID) rs.getObject("id"), imageId);
     }
 
-    public int unlinkRawVideos(UUID imageId) {
-        return jdbcTemplate.update(UNLINK_RAW_VIDEO, imageId);
+    public int unlinkSourceRecords(UUID imageId) {
+        return jdbcTemplate.update(UNLINK_SOURCE_RECORD, imageId);
     }
 
-    public int unlinkUnifiedVideos(UUID imageId) {
-        return jdbcTemplate.update(UNLINK_UNIFIED_VIDEO, imageId);
+    public int unlinkCatalogEntries(UUID imageId) {
+        return jdbcTemplate.update(UNLINK_CATALOG_ENTRY, imageId);
     }
 }

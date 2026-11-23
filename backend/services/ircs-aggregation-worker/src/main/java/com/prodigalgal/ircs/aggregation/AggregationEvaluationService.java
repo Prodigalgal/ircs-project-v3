@@ -20,22 +20,22 @@ class AggregationEvaluationService {
     private final AggregationMatchingStrategy matchingStrategy;
     private final AggregationSafetyPolicy safetyPolicy;
 
-    public EvaluationResponse evaluate(List<UUID> rawVideoIds) {
+    public EvaluationResponse evaluate(List<UUID> sourceRecordIds) {
         if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
                 || org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
             throw new IllegalStateException("Aggregation evaluation requires an unbound database context");
         }
-        if (rawVideoIds == null || rawVideoIds.isEmpty() || rawVideoIds.size() > 100
-                || rawVideoIds.stream().anyMatch(java.util.Objects::isNull)) {
-            throw new IllegalArgumentException("rawVideoIds must contain 1 to 100 non-null UUIDs");
+        if (sourceRecordIds == null || sourceRecordIds.isEmpty() || sourceRecordIds.size() > 100
+                || sourceRecordIds.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException("sourceRecordIds must contain 1 to 100 non-null UUIDs");
         }
-        List<UUID> orderedIds = rawVideoIds.stream().distinct().toList();
-        Map<UUID, RawVideoAggregationRecord> rawById = loadRawVideos(orderedIds);
+        List<UUID> orderedIds = sourceRecordIds.stream().distinct().toList();
+        Map<UUID, SourceRecordAggregationRecord> rawById = loadSourceRecords(orderedIds);
         List<EvaluationDecision> decisions = new ArrayList<>(orderedIds.size());
         for (UUID id : orderedIds) {
-            RawVideoAggregationRecord raw = rawById.get(id);
+            SourceRecordAggregationRecord raw = rawById.get(id);
             decisions.add(raw == null
-                    ? new EvaluationDecision(id, null, null, List.of(), "MISSING", "RAW_VIDEO_NOT_FOUND")
+                    ? new EvaluationDecision(id, null, null, List.of(), "MISSING", "SOURCE_RECORD_NOT_FOUND")
                     : evaluateRaw(raw));
         }
         return new EvaluationResponse("SNAPSHOT_ONLY", Instant.now(), safetyPolicy.automaticUnifiedMergeEnabled(),
@@ -43,20 +43,20 @@ class AggregationEvaluationService {
                 List.copyOf(decisions));
     }
 
-    private Map<UUID, RawVideoAggregationRecord> loadRawVideos(List<UUID> ids) {
-        Map<UUID, RawVideoAggregationRecord> loaded = new LinkedHashMap<>();
+    private Map<UUID, SourceRecordAggregationRecord> loadSourceRecords(List<UUID> ids) {
+        Map<UUID, SourceRecordAggregationRecord> loaded = new LinkedHashMap<>();
         if (ids.size() > 1) {
-            List<RawVideoAggregationRecord> batch = repository.findRawVideos(ids);
+            List<SourceRecordAggregationRecord> batch = repository.findSourceRecords(ids);
             if (batch != null) {
                 batch.forEach(raw -> loaded.putIfAbsent(raw.id(), raw));
                 return loaded;
             }
         }
-        for (UUID id : ids) { repository.findRawVideo(id).ifPresent(raw -> loaded.put(id, raw)); }
+        for (UUID id : ids) { repository.findSourceRecord(id).ifPresent(raw -> loaded.put(id, raw)); }
         return loaded;
     }
 
-    private EvaluationDecision evaluateRaw(RawVideoAggregationRecord raw) {
+    private EvaluationDecision evaluateRaw(SourceRecordAggregationRecord raw) {
         Optional<UUID> existing = repository.findExistingBinding(raw.id());
         UUID original = existing.orElse(null);
         boolean alreadyBound = "BOUND".equals(raw.aggregationStatus());
@@ -81,16 +81,16 @@ class AggregationEvaluationService {
             return decision(raw, original, plan, "CREATE_NEW", "NO_SUFFICIENT_IDENTITY_MATCH");
         }
         Set<UUID> expected = new LinkedHashSet<>();
-        expected.add(plan.rootUnifiedVideoId());
-        expected.addAll(plan.victimUnifiedVideoIds());
-        List<UnifiedVideoAggregationCandidate> candidates = repository.findUnifiedCandidatesByIds(expected);
+        expected.add(plan.rootCatalogEntryId());
+        expected.addAll(plan.victimCatalogEntryIds());
+        List<CatalogEntryAggregationCandidate> candidates = repository.findUnifiedCandidatesByIds(expected);
         Set<UUID> actual = new LinkedHashSet<>();
         candidates.forEach(candidate -> actual.add(candidate.id()));
         if (candidates.size() != expected.size() || !actual.equals(expected)) {
             return decision(raw, original, plan, "IDENTITY_CONFLICT", "CANDIDATE_SET_CHANGED_OR_INCOMPLETE");
         }
-        UnifiedVideoAggregationCandidate root = candidates.stream()
-                .filter(candidate -> plan.rootUnifiedVideoId().equals(candidate.id())).findFirst().orElseThrow();
+        CatalogEntryAggregationCandidate root = candidates.stream()
+                .filter(candidate -> plan.rootCatalogEntryId().equals(candidate.id())).findFirst().orElseThrow();
         String conflictReason = matchingStrategy.bindingConflictReason(raw, root);
         if (conflictReason != null) {
             return decision(raw, original, plan, "IDENTITY_CONFLICT", "RAW_AND_TARGET_IDENTITY_CONFLICT:" + conflictReason);
@@ -118,15 +118,15 @@ class AggregationEvaluationService {
                         : "MATCH_PLAN_PASSES_SHARED_COMPATIBILITY_AND_MERGE_RULES");
     }
 
-    private static EvaluationDecision decision(RawVideoAggregationRecord raw, UUID original,
+    private static EvaluationDecision decision(SourceRecordAggregationRecord raw, UUID original,
             AggregationMatchPlan plan, String decision, String reason) {
-        return new EvaluationDecision(raw.id(), original, plan.rootUnifiedVideoId(),
-                plan.victimUnifiedVideoIds(), decision, reason);
+        return new EvaluationDecision(raw.id(), original, plan.rootCatalogEntryId(),
+                plan.victimCatalogEntryIds(), decision, reason);
     }
 
     record EvaluationResponse(String scope, Instant evaluatedAt, boolean autoUnifiedMergeEnabled,
             String limitations, List<EvaluationDecision> decisions) { }
 
-    record EvaluationDecision(UUID rawVideoId, UUID originalUnifiedVideoId, UUID proposedRootUnifiedVideoId,
-            List<UUID> proposedVictimUnifiedVideoIds, String decision, String reason) { }
+    record EvaluationDecision(UUID sourceRecordId, UUID originalCatalogEntryId, UUID proposedRootCatalogEntryId,
+            List<UUID> proposedVictimCatalogEntryIds, String decision, String reason) { }
 }

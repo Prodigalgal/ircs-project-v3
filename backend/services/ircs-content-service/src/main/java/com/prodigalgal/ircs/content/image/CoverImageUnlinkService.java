@@ -22,33 +22,33 @@ public class CoverImageUnlinkService {
 
     @Transactional
     public CoverImageUnlinkResult unlink(UUID imageId) {
-        List<UUID> rawVideoIds = referenceRepository.findRawVideoIds(imageId);
-        List<UUID> unifiedVideoIds = referenceRepository.findUnifiedVideoIds(imageId);
-        int rawVideoCount = referenceRepository.unlinkRawVideos(imageId);
-        int unifiedVideoCount = referenceRepository.unlinkUnifiedVideos(imageId);
+        List<UUID> sourceRecordIds = referenceRepository.findSourceRecordIds(imageId);
+        List<UUID> catalogEntryIds = referenceRepository.findCatalogEntryIds(imageId);
+        int sourceRecordCount = referenceRepository.unlinkSourceRecords(imageId);
+        int catalogEntryCount = referenceRepository.unlinkCatalogEntries(imageId);
 
         log.info(
                 "Unlinked cover image {} from {} raw videos and {} unified videos",
                 imageId,
-                rawVideoCount,
-                unifiedVideoCount);
+                sourceRecordCount,
+                catalogEntryCount);
         publishAfterCommit(() -> {
             log.info(
                     "Publishing search refresh after cover image unlink: imageId={}, rawIds={}, unifiedIds={}",
                     imageId,
-                    rawVideoIds,
-                    unifiedVideoIds);
-            rawVideoIds.forEach(id -> {
+                    sourceRecordIds,
+                    catalogEntryIds);
+            sourceRecordIds.forEach(id -> {
                 searchPublisher.publishRawSearch(id, SyncOperation.DELETE);
                 searchPublisher.publishRawSearch(id, SyncOperation.INDEX);
             });
-            unifiedVideoIds.forEach(id -> {
+            catalogEntryIds.forEach(id -> {
                 searchPublisher.publishUnifiedSearch(id, SyncOperation.DELETE);
                 searchPublisher.publishUnifiedSearch(id, SyncOperation.INDEX);
             });
             unlinkedPublisher.publish(imageId);
         });
-        return new CoverImageUnlinkResult(imageId, rawVideoCount, unifiedVideoCount);
+        return new CoverImageUnlinkResult(imageId, sourceRecordCount, catalogEntryCount);
     }
 
     private void publishAfterCommit(Runnable publisher) {

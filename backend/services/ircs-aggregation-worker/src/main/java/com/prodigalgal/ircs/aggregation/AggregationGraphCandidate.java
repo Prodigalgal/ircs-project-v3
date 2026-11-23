@@ -11,45 +11,45 @@ public sealed interface AggregationGraphCandidate
 
     String categoryName();
 
-    static RawNode raw(RawVideoAggregationRecord rawVideo) {
-        return new RawNode(rawVideo);
+    static RawNode raw(SourceRecordAggregationRecord sourceRecord) {
+        return new RawNode(sourceRecord);
     }
 
-    static UnifiedNode unified(UnifiedVideoAggregationCandidate unifiedVideo) {
-        return new UnifiedNode(unifiedVideo);
+    static UnifiedNode unified(CatalogEntryAggregationCandidate catalogEntry) {
+        return new UnifiedNode(catalogEntry);
     }
 
-    record RawNode(RawVideoAggregationRecord rawVideo) implements AggregationGraphCandidate {
+    record RawNode(SourceRecordAggregationRecord sourceRecord) implements AggregationGraphCandidate {
         @Override
         public UUID id() {
-            return rawVideo.id();
+            return sourceRecord.id();
         }
 
         @Override
         public String year() {
-            return rawVideo.year();
+            return sourceRecord.year();
         }
 
         @Override
         public String categoryName() {
-            return rawVideo.categoryName();
+            return sourceRecord.categoryName();
         }
     }
 
-    record UnifiedNode(UnifiedVideoAggregationCandidate unifiedVideo) implements AggregationGraphCandidate {
+    record UnifiedNode(CatalogEntryAggregationCandidate catalogEntry) implements AggregationGraphCandidate {
         @Override
         public UUID id() {
-            return unifiedVideo.id();
+            return catalogEntry.id();
         }
 
         @Override
         public String year() {
-            return unifiedVideo.year();
+            return catalogEntry.year();
         }
 
         @Override
         public String categoryName() {
-            return unifiedVideo.categoryName();
+            return catalogEntry.categoryName();
         }
     }
 }

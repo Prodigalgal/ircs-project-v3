@@ -63,7 +63,7 @@ class TmdbInventoryPostgresTest {
         var old = repository.claim(TmdbInventoryMediaType.TV, FIRST_DATE).orElseThrow();
         assertThat(repository.clearInactiveBatch(old)).isZero();
         jdbc.update("""
-                insert into authority_tmdb_inventory_entries (media_type, slot, tmdb_id, title, popularity)
+                insert into provider_catalog_snapshot_items (media_type, slot, tmdb_id, title, popularity)
                 select 'tv', ?, id, 'Published', 0 from generate_series(1, 99999) id
                 """, old.slot());
         repository.append(old, List.of(new Entry(100_000, "Published series", 5.5, false)));
@@ -77,7 +77,7 @@ class TmdbInventoryPostgresTest {
         repository.fail(next, "SNAPSHOT_INCOMPLETE");
         assertThat(repository.claim(TmdbInventoryMediaType.TV, FIRST_DATE.plusDays(1))).isEmpty();
         assertThat(visibleCount()).isEqualTo(100_000);
-        assertThat(jdbc.queryForObject("select title from authority_tmdb_inventory where tmdb_id=100000", String.class))
+        assertThat(jdbc.queryForObject("select title from active_provider_catalog_items where tmdb_id=100000", String.class))
                 .isEqualTo("Published series");
     }
 
@@ -88,7 +88,7 @@ class TmdbInventoryPostgresTest {
         repository.append(stale, List.of(row));
         assertThat(repository.claim(TmdbInventoryMediaType.MOVIE, FIRST_DATE)).isEmpty();
         assertThat(repository.claim(TmdbInventoryMediaType.TV, FIRST_DATE)).isPresent();
-        jdbc.update("update authority_tmdb_inventory_state set lease_until=now()-interval '1 second' where media_type='movie'");
+        jdbc.update("update provider_catalog_snapshot_states set lease_until=now()-interval '1 second' where media_type='movie'");
         var current = repository.claim(TmdbInventoryMediaType.MOVIE, FIRST_DATE).orElseThrow();
         assertThat(current.slot()).isEqualTo(stale.slot());
         assertThat(repository.clearInactiveBatch(current)).isEqualTo(1);
@@ -97,11 +97,11 @@ class TmdbInventoryPostgresTest {
         assertThatThrownBy(() -> repository.clearInactiveBatch(stale)).isInstanceOf(LeaseLost.class);
         assertThat(repository.publish(stale, 500_000)).isFalse();
         assertThat(visibleCount()).isZero();
-        assertThat(jdbc.queryForObject("select count(*) from authority_tmdb_inventory_entries", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from provider_catalog_snapshot_items", Integer.class)).isEqualTo(1);
     }
 
     private int visibleCount() {
-        return jdbc.queryForObject("select count(*) from authority_tmdb_inventory", Integer.class);
+        return jdbc.queryForObject("select count(*) from active_provider_catalog_items", Integer.class);
     }
 
     private Path migration() {

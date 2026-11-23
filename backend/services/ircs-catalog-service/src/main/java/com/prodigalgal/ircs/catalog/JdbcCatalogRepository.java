@@ -32,7 +32,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, slug
-                from standard_category
+                from catalog_categories
                 order by name
                 """,
                 (rs, rowNum) -> new StandardCategorySummary(
@@ -45,7 +45,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, code
-                from standard_genre
+                from catalog_genres
                 order by name
                 """,
                 (rs, rowNum) -> new StandardGenreSummary(
@@ -58,7 +58,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, code, region
-                from standard_areas
+                from catalog_regions
                 order by name
                 """,
                 (rs, rowNum) -> new StandardAreaSummary(
@@ -72,7 +72,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, code, english_name, native_name
-                from standard_languages
+                from catalog_languages
                 order by name
                 """,
                 (rs, rowNum) -> new StandardLanguageSummary(
@@ -96,7 +96,7 @@ public class JdbcCatalogRepository {
                        coalesce(ip_version_policy, 'AUTO') as ip_version_policy,
                        coalesce(dns_resolver_type, 'SYSTEM') as dns_resolver_type,
                        coalesce(adult_restricted, false) as adult_restricted
-                from data_sources
+                from collection_sources
                 order by name
                 """,
                 (rs, rowNum) -> new DataSourceSummary(
@@ -135,7 +135,7 @@ public class JdbcCatalogRepository {
                        created_at,
                        updated_at
                 """,
-                "from data_sources",
+                "from collection_sources",
                 new MapSqlParameterSource(),
                 pageRequest,
                 Map.of(
@@ -170,7 +170,7 @@ public class JdbcCatalogRepository {
                        coalesce(adult_restricted, false) as adult_restricted,
                        created_at,
                        updated_at
-                from data_sources
+                from collection_sources
                 where id = :id
                 """,
                 new MapSqlParameterSource("id", id),
@@ -199,7 +199,7 @@ public class JdbcCatalogRepository {
                        coalesce(adult_restricted, false) as adult_restricted,
                        created_at,
                        updated_at
-                from data_sources
+                from collection_sources
                 where lower(name) = lower(:name)
                 limit 1
                 """,
@@ -211,7 +211,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, slug, created_at, updated_at
-                from standard_category
+                from catalog_categories
                 order by name
                 """,
                 standardCategoryReadMapper());
@@ -229,7 +229,7 @@ public class JdbcCatalogRepository {
                 """
                 select id, name, slug, created_at, updated_at
                 """,
-                fromWhere("standard_category", predicates),
+                fromWhere("catalog_categories", predicates),
                 params,
                 pageRequest,
                 Map.of(
@@ -247,7 +247,7 @@ public class JdbcCatalogRepository {
         return queryOptional(
                 """
                 select id, name, slug, created_at, updated_at
-                from standard_category
+                from catalog_categories
                 where id = :id
                 """,
                 new MapSqlParameterSource("id", id),
@@ -258,7 +258,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, code
-                from standard_genre
+                from catalog_genres
                 order by name
                 """,
                 standardGenreReadMapper());
@@ -274,7 +274,7 @@ public class JdbcCatalogRepository {
         addLikePredicate(predicates, params, "code", "code", code);
         return queryPage(
                 "select id, name, code",
-                fromWhere("standard_genre", predicates),
+                fromWhere("catalog_genres", predicates),
                 params,
                 pageRequest,
                 Map.of("id", "id", "name", "name", "code", "code"),
@@ -287,7 +287,7 @@ public class JdbcCatalogRepository {
         return queryOptional(
                 """
                 select id, name, code
-                from standard_genre
+                from catalog_genres
                 where id = :id
                 """,
                 new MapSqlParameterSource("id", id),
@@ -298,7 +298,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, code, region, created_at, updated_at
-                from standard_areas
+                from catalog_regions
                 order by name
                 """,
                 standardAreaReadMapper());
@@ -309,7 +309,7 @@ public class JdbcCatalogRepository {
                 """
                 select id, name, code, region, created_at, updated_at
                 """,
-                "from standard_areas",
+                "from catalog_regions",
                 new MapSqlParameterSource(),
                 pageRequest,
                 Map.of(
@@ -328,7 +328,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, code, english_name, native_name
-                from standard_languages
+                from catalog_languages
                 order by name
                 """,
                 standardLanguageReadMapper());
@@ -339,7 +339,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into data_sources (
+                insert into collection_sources (
                     id, created_at, updated_at, version, name, base_url, list_path,
                     list_params, detail_path, detail_params, field_mapping,
                     transport_mode, http_protocol, ip_version_policy, dns_resolver_type, dns_resolver_endpoint,
@@ -399,7 +399,7 @@ public class JdbcCatalogRepository {
         if (assignments.size() == 1) {
             return findDataSource(id);
         }
-        updateWithAssignments("data_sources", assignments, params);
+        updateWithAssignments("collection_sources", assignments, params);
         return findDataSource(id);
     }
 
@@ -419,7 +419,7 @@ public class JdbcCatalogRepository {
                        detail_path,
                        detail_params::text as detail_params,
                        field_mapping::text as field_mapping
-                from data_sources
+                from collection_sources
                 where lower(name) = lower(:name)
                 limit 1
                 """,
@@ -465,7 +465,7 @@ public class JdbcCatalogRepository {
             }
             assignments.add("updated_at = :updatedAt");
             assignments.add("version = coalesce(version, 0) + 1");
-            updateWithAssignments("data_sources", assignments, params);
+            updateWithAssignments("collection_sources", assignments, params);
             return SeedResult.updated(row.id());
         }
 
@@ -473,7 +473,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into data_sources (
+                insert into collection_sources (
                     id, created_at, updated_at, version, name, base_url, list_path,
                     list_params, detail_path, detail_params, field_mapping
                 )
@@ -499,7 +499,7 @@ public class JdbcCatalogRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, field_mapping::text as field_mapping
-                from data_sources
+                from collection_sources
                 order by name
                 """,
                 (rs, rowNum) -> new DataSourceSeedMappingRow(
@@ -511,7 +511,7 @@ public class JdbcCatalogRepository {
     public SeedResult updateDataSourceFieldMapping(UUID id, String fieldMapping) {
         namedParameterJdbcTemplate.update(
                 """
-                update data_sources
+                update collection_sources
                 set field_mapping = cast(:fieldMapping as jsonb),
                     updated_at = :updatedAt,
                     version = coalesce(version, 0) + 1
@@ -529,7 +529,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_category (id, created_at, updated_at, version, name, slug)
+                insert into catalog_categories (id, created_at, updated_at, version, name, slug)
                 values (:id, :now, :now, 0, :name, :slug)
                 """,
                 new MapSqlParameterSource()
@@ -553,7 +553,7 @@ public class JdbcCatalogRepository {
         if (assignments.size() == 1) {
             return findStandardCategory(id);
         }
-        updateWithAssignments("standard_category", assignments, params);
+        updateWithAssignments("catalog_categories", assignments, params);
         return findStandardCategory(id);
     }
 
@@ -562,7 +562,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_genre (id, created_at, updated_at, version, name, code)
+                insert into catalog_genres (id, created_at, updated_at, version, name, code)
                 values (:id, :now, :now, 0, :name, :code)
                 """,
                 new MapSqlParameterSource()
@@ -576,7 +576,7 @@ public class JdbcCatalogRepository {
     public Optional<StandardGenreRead> updateStandardGenre(UUID id, StandardGenreAdminRequest request) {
         int updated = namedParameterJdbcTemplate.update(
                 """
-                update standard_genre
+                update catalog_genres
                 set name = :name,
                     code = :code,
                     updated_at = :updatedAt
@@ -595,7 +595,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_areas (id, created_at, updated_at, version, name, code, region)
+                insert into catalog_regions (id, created_at, updated_at, version, name, code, region)
                 values (:id, :now, :now, 0, :name, :code, :region)
                 """,
                 new MapSqlParameterSource()
@@ -607,7 +607,7 @@ public class JdbcCatalogRepository {
         return queryOptional(
                         """
                         select id, name, code, region, created_at, updated_at
-                        from standard_areas
+                        from catalog_regions
                         where id = :id
                         """,
                         new MapSqlParameterSource("id", id),
@@ -620,7 +620,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_languages (
+                insert into catalog_languages (
                     id, created_at, updated_at, version, name, code, english_name, native_name
                 )
                 values (:id, :now, :now, 0, :name, :code, :englishName, :nativeName)
@@ -635,7 +635,7 @@ public class JdbcCatalogRepository {
         return queryOptional(
                         """
                         select id, name, code, english_name, native_name
-                        from standard_languages
+                        from catalog_languages
                         where id = :id
                         """,
                         new MapSqlParameterSource("id", id),
@@ -650,7 +650,7 @@ public class JdbcCatalogRepository {
                        name,
                        slug,
                        lower(slug) = lower(:slug) as slug_match
-                  from standard_category
+                  from catalog_categories
                  where lower(name) = lower(:name)
                     or lower(slug) = lower(:slug)
                  order by case when lower(slug) = lower(:slug) then 0 else 1 end
@@ -672,7 +672,7 @@ public class JdbcCatalogRepository {
             if (!name.equals(row.name()) || !slug.equals(row.slug())) {
                 namedParameterJdbcTemplate.update(
                         """
-                        update standard_category
+                        update catalog_categories
                            set name = :name,
                                slug = :slug,
                                updated_at = :updatedAt
@@ -691,7 +691,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_category (id, created_at, updated_at, version, name, slug)
+                insert into catalog_categories (id, created_at, updated_at, version, name, slug)
                 values (:id, :now, :now, 0, :name, :slug)
                 """,
                 new MapSqlParameterSource()
@@ -705,7 +705,7 @@ public class JdbcCatalogRepository {
     private record CategorySeedRow(UUID id, String name, String slug, boolean slugMatched) {}
 
     public SeedResult seedStandardGenre(String name) {
-        Optional<UUID> existing = findIdByText("standard_genre", "name", name);
+        Optional<UUID> existing = findIdByText("catalog_genres", "name", name);
         if (existing.isPresent()) {
             return SeedResult.unchanged(existing.get());
         }
@@ -713,7 +713,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_genre (id, created_at, updated_at, version, name, code)
+                insert into catalog_genres (id, created_at, updated_at, version, name, code)
                 values (:id, :now, :now, 0, :name, :code)
                 """,
                 new MapSqlParameterSource()
@@ -728,7 +728,7 @@ public class JdbcCatalogRepository {
         Optional<AreaSeedRow> existing = queryOptional(
                 """
                 select id, region
-                from standard_areas
+                from catalog_regions
                 where upper(code) = upper(:code) or lower(name) = lower(:name)
                 order by case when upper(code) = upper(:code) then 0 else 1 end
                 limit 1
@@ -744,7 +744,7 @@ public class JdbcCatalogRepository {
             if (!StringUtils.hasText(row.region()) && StringUtils.hasText(region)) {
                 namedParameterJdbcTemplate.update(
                         """
-                        update standard_areas
+                        update catalog_regions
                         set region = :region,
                             updated_at = :updatedAt,
                             version = coalesce(version, 0) + 1
@@ -763,7 +763,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_areas (id, created_at, updated_at, version, name, code, region)
+                insert into catalog_regions (id, created_at, updated_at, version, name, code, region)
                 values (:id, :now, :now, 0, :name, :code, :region)
                 """,
                 new MapSqlParameterSource()
@@ -779,7 +779,7 @@ public class JdbcCatalogRepository {
         Optional<LanguageSeedRow> existing = queryOptional(
                 """
                 select id, code, english_name, native_name
-                from standard_languages
+                from catalog_languages
                 where lower(code) = lower(:code) or lower(name) = lower(:name)
                 order by case when lower(code) = lower(:code) then 0 else 1 end
                 limit 1
@@ -800,7 +800,7 @@ public class JdbcCatalogRepository {
             if (fillCode || fillEnglishName || fillNativeName) {
                 namedParameterJdbcTemplate.update(
                         """
-                        update standard_languages
+                        update catalog_languages
                         set code = case when code is null or code = '' then :code else code end,
                             english_name = case
                                 when english_name is null or english_name = '' then :englishName
@@ -829,7 +829,7 @@ public class JdbcCatalogRepository {
         Timestamp now = Timestamp.from(Instant.now());
         namedParameterJdbcTemplate.update(
                 """
-                insert into standard_languages (
+                insert into catalog_languages (
                     id, created_at, updated_at, version, name, code, english_name, native_name
                 )
                 values (:id, :now, :now, 0, :name, :code, :englishName, :nativeName)

@@ -15,7 +15,7 @@ public final class RuntimeWorkQueueCatalog {
     private static final List<RuntimeWorkQueueDescriptor> DESCRIPTORS = List.of(
             new RuntimeWorkQueueDescriptor("SEARCH_RAW", "Search Raw", SearchSyncWorkTypes.RAW, "#2563eb", "#60a5fa"),
             new RuntimeWorkQueueDescriptor("SEARCH_UNIFIED", "Search Unified", SearchSyncWorkTypes.UNIFIED, "#1d4ed8", "#3b82f6"),
-            new RuntimeWorkQueueDescriptor("AGGREGATION", "Aggregation", AggregationWorkTypes.RAW_VIDEO, "#c2410c", "#fb923c"),
+            new RuntimeWorkQueueDescriptor("AGGREGATION", "Aggregation", AggregationWorkTypes.SOURCE_RECORD, "#c2410c", "#fb923c"),
             new RuntimeWorkQueueDescriptor("PIPELINE_NORMALIZE", "Pipeline Normalize", PipelineRuntimeWorkTypes.NORMALIZE_VIDEO, "#16a34a", "#4ade80"),
             new RuntimeWorkQueueDescriptor("PIPELINE_METADATA_DISPATCH", "Pipeline Metadata Dispatch", PipelineRuntimeWorkTypes.ENRICH_METADATA, "#0e7490", "#67e8f9"),
             new RuntimeWorkQueueDescriptor("PIPELINE_METADATA_PROVIDER", "Pipeline Metadata Provider", PipelineRuntimeWorkTypes.METADATA_PROVIDER, "#7c3aed", "#a78bfa"),

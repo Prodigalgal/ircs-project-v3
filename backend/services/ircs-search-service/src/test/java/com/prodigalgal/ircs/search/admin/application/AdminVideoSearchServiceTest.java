@@ -10,8 +10,8 @@ import static org.mockito.Mockito.when;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchRequest;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchResult;
-import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
-import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
+import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -31,23 +31,23 @@ class AdminVideoSearchServiceTest {
     private ElasticsearchOperations elasticsearchOperations;
 
     @Mock
-    private SearchHits<RawVideoSearchDocument> searchHits;
+    private SearchHits<SourceRecordSearchDocument> searchHits;
 
     @Mock
-    private SearchHit<RawVideoSearchDocument> searchHit;
+    private SearchHit<SourceRecordSearchDocument> searchHit;
 
     @Mock
-    private SearchHits<UnifiedVideoSearchDocument> unifiedSearchHits;
+    private SearchHits<CatalogEntrySearchDocument> unifiedSearchHits;
 
     @Test
     void rawSearchUsesStatusFilterSortAndReturnsDeduplicatedIds() {
         UUID id = UUID.randomUUID();
-        RawVideoSearchDocument document = new RawVideoSearchDocument();
+        SourceRecordSearchDocument document = new SourceRecordSearchDocument();
         document.setId(id);
         when(searchHit.getContent()).thenReturn(document);
         when(searchHits.stream()).thenReturn(List.of(searchHit, searchHit).stream());
         when(searchHits.getTotalHits()).thenReturn(10L);
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(RawVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(SourceRecordSearchDocument.class)))
                 .thenReturn(searchHits);
 
         AdminVideoSearchService service = new AdminVideoSearchService(elasticsearchOperations);
@@ -58,7 +58,7 @@ class AdminVideoSearchServiceTest {
         assertEquals(AdminVideoSearchResult.TotalRelation.EXACT, result.totalRelation());
 
         ArgumentCaptor<NativeQuery> queryCaptor = ArgumentCaptor.forClass(NativeQuery.class);
-        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(RawVideoSearchDocument.class));
+        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(SourceRecordSearchDocument.class));
         NativeQuery query = queryCaptor.getValue();
         assertEquals(20, query.getPageable().getPageSize());
         assertTrue(query.getQuery().isBool());
@@ -70,16 +70,16 @@ class AdminVideoSearchServiceTest {
 
     @Test
     void unifiedSearchUsesAreaNameOrCodeAsSingleFilter() {
-        when(unifiedSearchHits.stream()).thenReturn(List.<SearchHit<UnifiedVideoSearchDocument>>of().stream());
+        when(unifiedSearchHits.stream()).thenReturn(List.<SearchHit<CatalogEntrySearchDocument>>of().stream());
         when(unifiedSearchHits.getTotalHits()).thenReturn(0L);
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(unifiedSearchHits);
 
         AdminVideoSearchService service = new AdminVideoSearchService(elasticsearchOperations);
         service.searchUnifiedIds(unifiedRequest("SYNCED", "CN"));
 
         ArgumentCaptor<NativeQuery> queryCaptor = ArgumentCaptor.forClass(NativeQuery.class);
-        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(CatalogEntrySearchDocument.class));
         List<Query> filters = queryCaptor.getValue().getQuery().bool().filter();
         Query statusFilter = filters.stream()
                 .filter(Query::isTerm)

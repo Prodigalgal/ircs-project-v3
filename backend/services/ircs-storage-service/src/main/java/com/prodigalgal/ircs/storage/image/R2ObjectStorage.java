@@ -25,6 +25,7 @@ import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.http.apache5.ProxyConfiguration;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -100,6 +101,13 @@ public class R2ObjectStorage {
             log.info("Stored R2 storage object: {}", storagePath);
             return null;
         });
+    }
+
+    void deleteCover(String bucket, String key) {
+        if (!isActive() || !bucketName.equals(bucket)) {
+            throw new IllegalStateException("The registered media bucket is unavailable");
+        }
+        withClient(client -> client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(extractKey(key)).build()));
     }
 
     private <T> T withClient(Function<S3Client, T> operation) {

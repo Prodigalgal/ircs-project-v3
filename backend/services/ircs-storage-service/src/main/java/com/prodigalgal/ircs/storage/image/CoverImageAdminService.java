@@ -61,7 +61,6 @@ public class CoverImageAdminService {
         publisher.publishImageUnlink(id);
     }
 
-    @Transactional
     public CoverImageResponse manualUpload(MultipartFile file) {
         if (file.isEmpty()) {
             throw new StorageApiException(HttpStatus.BAD_REQUEST, "File is empty");
@@ -71,7 +70,8 @@ public class CoverImageAdminService {
         }
         try {
             securityValidator.validateFilename(file.getOriginalFilename());
-            NormalizedFile normalized = normalizationService.normalize(file.getBytes(), file.getContentType(), coverPathPrefix);
+            NormalizedFile normalized = repository.reserveLocal(
+                    normalizationService.normalize(file.getBytes(), file.getContentType(), coverPathPrefix));
             if (!localObjectStorage.exists(normalized.storageKey())) {
                 localObjectStorage.store(normalized.data(), normalized.storageKey(), normalized.mimeType());
             }

@@ -57,7 +57,7 @@ class MagnetWorkPublisherTest {
         verify(submissions).submitIfAbsent(org.mockito.ArgumentMatchers.argThat(request ->
                 request.taskId().equals(MagnetWorkTypes.searchTaskId(job.id()))
                         && request.payload().contains(job.id().toString())
-                        && request.payload().contains(job.unifiedVideoId().toString())
+                        && request.payload().contains(job.catalogEntryId().toString())
                         && request.payload().contains("manual")));
     }
 

@@ -29,7 +29,7 @@ final class AggregationRecallKeys {
         return mainKey.contains(subtitleKey) ? main : main + " " + subtitle.trim();
     }
 
-    static List<String> titles(RawVideoAggregationRecord raw) {
+    static List<String> titles(SourceRecordAggregationRecord raw) {
         LinkedHashMap<String, String> titles = new LinkedHashMap<>();
         String completeTitle = completeTitle(raw.title(), raw.subtitle());
         addTitle(titles, completeTitle);

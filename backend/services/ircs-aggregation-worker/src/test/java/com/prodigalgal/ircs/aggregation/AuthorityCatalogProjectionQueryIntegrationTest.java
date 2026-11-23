@@ -42,24 +42,24 @@ class AuthorityCatalogProjectionQueryIntegrationTest {
         pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
         jdbc.execute("""
-                create table authority_catalog_works(
+                create table catalog_works(
                     id uuid primary key, media_type varchar(8) not null, tmdb_id bigint not null,
                     imdb_id varchar(32), title_key varchar(500) not null, original_title_key varchar(500),
                     release_year smallint, released_on date, regular_season_count integer not null default 0);
-                create table authority_catalog_projections(
-                    work_id uuid not null, season_number integer not null, unified_video_id uuid not null);
-                create table authority_catalog_seasons(
+                create table catalog_authority_publications(
+                    work_id uuid not null, season_number integer not null, catalog_entry_id uuid not null);
+                create table catalog_seasons(
                     work_id uuid not null, season_number integer not null, released_on date);
-                create table unified_videos(
+                create table catalog_entries(
                     id uuid primary key, content_visibility varchar(32) not null, adult_restricted boolean);
                 """);
         workId = UUID.randomUUID();
         projectionId = UUID.randomUUID();
-        jdbc.update("insert into authority_catalog_works(id,media_type,tmdb_id,title_key,release_year) values (?,?,?,?,?)",
+        jdbc.update("insert into catalog_works(id,media_type,tmdb_id,title_key,release_year) values (?,?,?,?,?)",
                 workId, "movie", 603L, "thematrix", 1999);
-        jdbc.update("insert into authority_catalog_projections(work_id,season_number,unified_video_id) values (?,?,?)",
+        jdbc.update("insert into catalog_authority_publications(work_id,season_number,catalog_entry_id) values (?,?,?)",
                 workId, -1, projectionId);
-        jdbc.update("insert into unified_videos(id,content_visibility,adult_restricted) values (?,?,?)",
+        jdbc.update("insert into catalog_entries(id,content_visibility,adult_restricted) values (?,?,?)",
                 projectionId, "PUBLIC", false);
         repository = JdbcAggregationRepository.forTest(
                 new NamedParameterJdbcTemplate(pool), AggregationTestFixtures.matchingStrategy());
@@ -81,11 +81,11 @@ class AuthorityCatalogProjectionQueryIntegrationTest {
         var byId = repository.findAuthorityCatalogProjections("movie", Set.of("wrongtitle"), 603L, null);
 
         assertThat(byTitle).hasSize(1);
-        assertThat(byTitle.getFirst().unifiedVideoId()).isEqualTo(projectionId);
+        assertThat(byTitle.getFirst().catalogEntryId()).isEqualTo(projectionId);
         assertThat(byId).hasSize(1);
-        assertThat(byId.getFirst().unifiedVideoId()).isEqualTo(projectionId);
+        assertThat(byId.getFirst().catalogEntryId()).isEqualTo(projectionId);
         assertThat(new AuthorityCatalogBindingPolicy().decide(
-                new RawVideoAggregationRecord(UUID.randomUUID(), "Wrong Title", null, null, "1999",
+                new SourceRecordAggregationRecord(UUID.randomUUID(), "Wrong Title", null, null, "1999",
                         null, null, null, null, null, null, null, "movie", "movie",
                         null, "603", null, null, "READY", "SUCCESS", "PENDING"),
                 "movie", byId).status()).isEqualTo("WAITING_AUTHORITY");

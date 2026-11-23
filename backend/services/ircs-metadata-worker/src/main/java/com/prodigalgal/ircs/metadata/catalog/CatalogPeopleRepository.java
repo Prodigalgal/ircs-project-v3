@@ -37,11 +37,11 @@ class CatalogPeopleRepository {
     private void storePeople(Map<String, ?> params) {
         // Reserve new provider IDs in a consistent order. The deferred FK is checked when the work transaction commits.
         jdbc.update(CREDIT_INPUT + """
-                insert into person_external_ids(provider, external_id, person_id)
+                insert into catalog_person_external_ids(provider, external_id, person_id)
                 select :provider, pending.external_id, uuidv7()
                 from (select distinct external_id from incoming) pending
                 where not exists (
-                    select 1 from person_external_ids known
+                    select 1 from catalog_person_external_ids known
                     where known.provider=:provider and known.external_id=pending.external_id
                 )
                 order by pending.external_id
@@ -51,19 +51,19 @@ class CatalogPeopleRepository {
                 , names as (
                     select distinct on (identity.person_id) identity.person_id, fact.credited_name, fact.original_name
                     from incoming fact
-                    join person_external_ids identity on identity.provider=:provider and identity.external_id=fact.external_id
+                    join catalog_person_external_ids identity on identity.provider=:provider and identity.external_id=fact.external_id
                     order by identity.person_id, fact.season_number nulls first, fact.episode_number nulls first,
                         fact.original_name nulls last, fact.source_order, fact.external_credit_id
                 )
-                insert into people(id, display_name, original_name)
+                insert into catalog_people(id, display_name, original_name)
                 select names.person_id, names.credited_name, names.original_name
-                from names left join people known on known.id=names.person_id
+                from names left join catalog_people known on known.id=names.person_id
                 where known.id is null or (known.display_name, known.original_name) is distinct from
                     (names.credited_name, coalesce(names.original_name,known.original_name))
                 order by names.person_id
                 on conflict (id) do update set display_name=excluded.display_name,
                     original_name=coalesce(excluded.original_name,people.original_name),updated_at=now()
-                where (people.display_name,people.original_name) is distinct from
+                where (catalog_people.display_name,people.original_name) is distinct from
                     (excluded.display_name,coalesce(excluded.original_name,people.original_name))
                 """, params);
     }
@@ -73,7 +73,7 @@ class CatalogPeopleRepository {
                 , complete_scopes as (
                     select distinct season_number, episode_number, credit_kind from incoming where complete
                 )
-                delete from catalog_credits existing using complete_scopes scope
+                delete from catalog_person_credits existing using complete_scopes scope
                 where existing.work_id=:work and existing.provider=:provider and existing.credit_kind=scope.credit_kind
                     and existing.season_number is not distinct from scope.season_number
                     and existing.episode_number is not distinct from scope.episode_number
@@ -88,13 +88,13 @@ class CatalogPeopleRepository {
 
     private void upsertCredits(Map<String, ?> params) {
         jdbc.update(CREDIT_INPUT + """
-                insert into catalog_credits as existing(work_id,season_number,episode_number,person_id,provider,
+                insert into catalog_person_credits as existing(work_id,season_number,episode_number,person_id,provider,
                     external_credit_id,credit_kind,credited_name,department,job,character_name,billing_order,source_order)
                 select :work,fact.season_number,fact.episode_number,identity.person_id,:provider,
                     fact.external_credit_id,fact.credit_kind,fact.credited_name,fact.department,fact.job,
                     fact.character_name,fact.billing_order,fact.source_order
                 from incoming fact
-                join person_external_ids identity on identity.provider=:provider and identity.external_id=fact.external_id
+                join catalog_person_external_ids identity on identity.provider=:provider and identity.external_id=fact.external_id
                 on conflict (work_id,season_number,episode_number,provider,credit_kind,external_credit_id) do update
                     set person_id=excluded.person_id,credited_name=excluded.credited_name,department=excluded.department,
                         job=excluded.job,character_name=excluded.character_name,billing_order=excluded.billing_order,

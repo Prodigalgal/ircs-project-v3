@@ -10,9 +10,9 @@ import { useMediaInteraction } from "@/hooks/useMediaInteraction";
 export function MovieActions() {
     const { addToast } = useToast();
     const pathname = usePathname();
-    const unifiedVideoId = pathname.split("/").pop() || "";
+    const catalogEntryId = pathname.split("/").pop() || "";
 
-    const { isFavorite, isLoading: isLoadingList, toggleFavorite } = useMediaInteraction(unifiedVideoId);
+    const { isFavorite, isLoading: isLoadingList, toggleFavorite } = useMediaInteraction(catalogEntryId);
 
     const [isSharing, setIsSharing] = useState(false);
 

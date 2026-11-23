@@ -31,7 +31,7 @@ class TaskServiceAuditConfigurationTest {
 
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement()
-                     .executeQuery("select job_source from worker_job_audit_events")) {
+                     .executeQuery("select job_source from background_job_audit_events")) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("job_source"))
                     .startsWith("ircs-task-service@")
@@ -44,7 +44,7 @@ class TaskServiceAuditConfigurationTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table worker_job_audit_events (
+                    create table background_job_audit_events (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

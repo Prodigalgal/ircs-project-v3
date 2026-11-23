@@ -37,7 +37,7 @@ class InternalAggregationController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
-        return ResponseEntity.ok(evaluationService.evaluate(request.rawVideoIds()));
+        return ResponseEntity.ok(evaluationService.evaluate(request.sourceRecordIds()));
     }
 
     @PostMapping("/unified-videos/{id}/recalculate")
@@ -121,8 +121,8 @@ class InternalAggregationController {
         return ResponseEntity.ok(worker == null ? null : worker.state());
     }
 
-    record RecalculateResponse(UUID unifiedVideoId, int sourceCount) {
+    record RecalculateResponse(UUID catalogEntryId, int sourceCount) {
     }
 
-    record EvaluationRequest(@NotNull @Size(min = 1, max = 100) List<@NotNull UUID> rawVideoIds) { }
+    record EvaluationRequest(@NotNull @Size(min = 1, max = 100) List<@NotNull UUID> sourceRecordIds) { }
 }

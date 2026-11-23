@@ -7,7 +7,7 @@ import { useVideoHeartbeat } from "@/hooks/useVideoHeartbeat";
 interface IframePlayerProps {
     src: string;
     title: string;
-    unifiedVideoId?: string;
+    catalogEntryId?: string;
     videoId?: string;
     episodeId?: string;
     episodeName?: string;
@@ -17,7 +17,7 @@ interface IframePlayerProps {
 export function IframePlayer({
                                  src,
                                  title,
-                                 unifiedVideoId,
+                                 catalogEntryId,
                                  videoId,
                                  episodeId,
                                  episodeName,
@@ -33,7 +33,7 @@ export function IframePlayer({
 
     // Use Abstraction Hook
     useVideoHeartbeat({
-        unifiedVideoId,
+        catalogEntryId,
         videoId,
         episodeId,
         episodeName,

@@ -12,11 +12,11 @@ class AggregationMatchKeysTest {
 
     @Test
     void titleVariantsShareFallbackMatchKey() {
-        RawVideoAggregationRecord left = rawVideo("Codex Signal 1080p", null);
-        RawVideoAggregationRecord right = rawVideo("Codex Signal", null);
+        SourceRecordAggregationRecord left = sourceRecord("Codex Signal 1080p", null);
+        SourceRecordAggregationRecord right = sourceRecord("Codex Signal", null);
 
-        List<String> leftKeys = AggregationMatchKeys.forRawVideo(left);
-        List<String> rightKeys = AggregationMatchKeys.forRawVideo(right);
+        List<String> leftKeys = AggregationMatchKeys.forSourceRecord(left);
+        List<String> rightKeys = AggregationMatchKeys.forSourceRecord(right);
 
         assertThat(leftKeys).containsAnyElementsOf(rightKeys);
         assertThat(leftKeys).allMatch(key -> key.startsWith("title:"));
@@ -24,9 +24,9 @@ class AggregationMatchKeysTest {
 
     @Test
     void externalIdsProduceProviderSpecificKeysBeforeTitleFallback() {
-        RawVideoAggregationRecord rawVideo = rawVideo("Codex Signal", "1234567");
+        SourceRecordAggregationRecord sourceRecord = sourceRecord("Codex Signal", "1234567");
 
-        List<String> keys = AggregationMatchKeys.forRawVideo(rawVideo);
+        List<String> keys = AggregationMatchKeys.forSourceRecord(sourceRecord);
 
         assertThat(keys).hasSizeGreaterThan(1);
         assertThat(keys.getFirst()).startsWith("douban:");
@@ -35,7 +35,7 @@ class AggregationMatchKeysTest {
 
     @Test
     void rejectedDouban456DoesNotProduceAnIdentityBucketKey() {
-        List<String> keys = AggregationMatchKeys.forRawVideo(rawVideo("Source title", "456"));
+        List<String> keys = AggregationMatchKeys.forSourceRecord(sourceRecord("Source title", "456"));
 
         assertThat(keys).noneMatch(key -> key.startsWith("douban:"));
         assertThat(keys).anyMatch(key -> key.startsWith("title:"));
@@ -43,8 +43,8 @@ class AggregationMatchKeysTest {
 
     @Test
     void canonicalExternalIdVariantsShareTheSameProviderLock() {
-        List<String> padded = AggregationMatchKeys.forRawVideo(rawVideo("Source title", "0035000001"));
-        List<String> canonical = AggregationMatchKeys.forRawVideo(rawVideo("Another title", "35000001"));
+        List<String> padded = AggregationMatchKeys.forSourceRecord(sourceRecord("Source title", "0035000001"));
+        List<String> canonical = AggregationMatchKeys.forSourceRecord(sourceRecord("Another title", "35000001"));
         assertThat(padded.stream().filter(key -> key.startsWith("douban:")).toList())
                 .containsExactlyElementsOf(canonical.stream().filter(key -> key.startsWith("douban:")).toList())
                 .hasSize(1);
@@ -52,13 +52,13 @@ class AggregationMatchKeysTest {
 
     @Test
     void dateAndSeasonSpellingsShareASportsFixtureLock() {
-        RawVideoAggregationRecord shortDate = rawVideo("11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
-        RawVideoAggregationRecord fullDate = rawVideo("NBA常规赛:黄蜂VS太阳20261113", null);
-        List<String> fullDateEventKeys = AggregationMatchKeys.forRawVideo(fullDate).stream()
+        SourceRecordAggregationRecord shortDate = sourceRecord("11月13日25-26赛季NBA常规赛黄蜂VS太阳", null);
+        SourceRecordAggregationRecord fullDate = sourceRecord("NBA常规赛:黄蜂VS太阳20261113", null);
+        List<String> fullDateEventKeys = AggregationMatchKeys.forSourceRecord(fullDate).stream()
                 .filter(key -> key.startsWith("event:")).toList();
 
         assertThat(fullDateEventKeys).hasSize(1);
-        assertThat(AggregationMatchKeys.forRawVideo(shortDate)).containsAll(fullDateEventKeys);
+        assertThat(AggregationMatchKeys.forSourceRecord(shortDate)).containsAll(fullDateEventKeys);
         assertThat(AggregationRecallKeys.titles(fullDate)).contains("nba常规赛 黄蜂vs太阳");
     }
 
@@ -66,9 +66,9 @@ class AggregationMatchKeysTest {
     void clusterKeysKeepIdentityKeysWhenTruncating() {
         // Clusters can have more than MAX_KEYS provider/unified keys. They all protect a distinct
         // identity and must remain in the lock set even though title fallback keys are capped.
-        List<RawVideoAggregationRecord> members = new java.util.ArrayList<>();
+        List<SourceRecordAggregationRecord> members = new java.util.ArrayList<>();
         for (int index = 0; index < 4; index++) {
-            members.add(rawVideoWithIds(
+            members.add(sourceRecordWithIds(
                     "Codex Signal " + index,
                     "3500000" + index,
                     "7000" + index,
@@ -76,12 +76,12 @@ class AggregationMatchKeysTest {
                     "rt-" + index));
         }
         List<UUID> unifiedIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
-        RawVideoAggregationCluster cluster = new RawVideoAggregationCluster(members.getFirst(), members, unifiedIds);
+        SourceRecordAggregationCluster cluster = new SourceRecordAggregationCluster(members.getFirst(), members, unifiedIds);
 
         List<String> keys = AggregationMatchKeys.forCluster(cluster);
 
         List<String> expectedIdentityKeys = new java.util.ArrayList<>();
-        members.forEach(member -> expectedIdentityKeys.addAll(AggregationMatchKeys.forRawVideo(member).stream()
+        members.forEach(member -> expectedIdentityKeys.addAll(AggregationMatchKeys.forSourceRecord(member).stream()
                 .filter(key -> !key.startsWith("title:"))
                 .toList()));
         unifiedIds.forEach(id -> expectedIdentityKeys.add("unified:" + id));
@@ -119,9 +119,9 @@ class AggregationMatchKeysTest {
 
     @Test
     void identityKeySetsRemainCompleteAndOrderedWhenInputsAreRearranged() {
-        List<RawVideoAggregationRecord> members = new java.util.ArrayList<>();
+        List<SourceRecordAggregationRecord> members = new java.util.ArrayList<>();
         for (int index = 0; index < 4; index++) {
-            members.add(rawVideoWithIds(
+            members.add(sourceRecordWithIds(
                     "Codex Signal " + index,
                     "3500000" + index,
                     "7000" + index,
@@ -131,13 +131,13 @@ class AggregationMatchKeysTest {
         List<UUID> unifiedIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
         List<String> keys = AggregationMatchKeys.forCluster(
-                new RawVideoAggregationCluster(members.getFirst(), members, unifiedIds));
-        List<RawVideoAggregationRecord> reversedMembers = new java.util.ArrayList<>(members);
+                new SourceRecordAggregationCluster(members.getFirst(), members, unifiedIds));
+        List<SourceRecordAggregationRecord> reversedMembers = new java.util.ArrayList<>(members);
         java.util.Collections.reverse(reversedMembers);
         List<UUID> reversedUnifiedIds = new java.util.ArrayList<>(unifiedIds);
         java.util.Collections.reverse(reversedUnifiedIds);
         List<String> rearrangedKeys = AggregationMatchKeys.forCluster(
-                new RawVideoAggregationCluster(reversedMembers.getFirst(), reversedMembers, reversedUnifiedIds));
+                new SourceRecordAggregationCluster(reversedMembers.getFirst(), reversedMembers, reversedUnifiedIds));
 
         assertThat(rearrangedKeys).containsExactlyElementsOf(keys);
     }
@@ -146,15 +146,15 @@ class AggregationMatchKeysTest {
     void aliasSplitMatchesTheScoringStrategy() {
         // Scoring split aliases on separators while key generation digested the whole string, so a
         // pair could match on an alias yet hold no shared lock key for it.
-        RawVideoAggregationRecord rawVideo = rawVideoWithAlias("Codex Signal", "Signal Alias/Other Alias");
+        SourceRecordAggregationRecord sourceRecord = sourceRecordWithAlias("Codex Signal", "Signal Alias/Other Alias");
 
-        List<String> keys = AggregationMatchKeys.forRawVideo(rawVideo);
+        List<String> keys = AggregationMatchKeys.forSourceRecord(sourceRecord);
 
         assertThat(keys).hasSizeGreaterThanOrEqualTo(2);
     }
 
-    private RawVideoAggregationRecord rawVideoWithAlias(String title, String aliasTitle) {
-        return new RawVideoAggregationRecord(
+    private SourceRecordAggregationRecord sourceRecordWithAlias(String title, String aliasTitle) {
+        return new SourceRecordAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 aliasTitle,
@@ -177,9 +177,9 @@ class AggregationMatchKeysTest {
                 "PROCESSING");
     }
 
-    private RawVideoAggregationRecord rawVideoWithIds(
+    private SourceRecordAggregationRecord sourceRecordWithIds(
             String title, String doubanId, String tmdbId, String imdbId, String rottenTomatoesId) {
-        return new RawVideoAggregationRecord(
+        return new SourceRecordAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 null,
@@ -206,8 +206,8 @@ class AggregationMatchKeysTest {
                 "PROCESSING");
     }
 
-    private RawVideoAggregationRecord rawVideo(String title, String doubanId) {
-        return new RawVideoAggregationRecord(
+    private SourceRecordAggregationRecord sourceRecord(String title, String doubanId) {
+        return new SourceRecordAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 null,

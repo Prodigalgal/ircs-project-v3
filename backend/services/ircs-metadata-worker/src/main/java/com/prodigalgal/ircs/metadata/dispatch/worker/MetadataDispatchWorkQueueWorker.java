@@ -96,10 +96,10 @@ public class MetadataDispatchWorkQueueWorker {
     private void process(RuntimeWorkItem task) {
         try {
             MetadataDispatchResult result = dispatchService.dispatch(
-                    rawVideoId(task),
+                    sourceRecordId(task),
                     task.version());
             if (!result.videoFound()) {
-                workQueue.fail(task, false, Duration.ZERO, "RAW_VIDEO_NOT_FOUND");
+                workQueue.fail(task, false, Duration.ZERO, "SOURCE_RECORD_NOT_FOUND");
                 return;
             }
             if ("FAILED".equals(result.status())) {
@@ -113,7 +113,7 @@ public class MetadataDispatchWorkQueueWorker {
         }
     }
 
-    private static java.util.UUID rawVideoId(RuntimeWorkItem task) {
+    private static java.util.UUID sourceRecordId(RuntimeWorkItem task) {
         if (task == null || task.aggregateId() == null || task.aggregateId().isBlank()) {
             throw new IllegalArgumentException("Metadata dispatch runtime task requires aggregateId");
         }

@@ -23,7 +23,7 @@ class JdbcAdminApiTokenRepository implements AdminApiTokenRepository {
     public void insert(AdminApiTokenRecord record) {
         jdbcTemplate.update(
                 """
-                        insert into admin_api_tokens (
+                        insert into admin_api_access_tokens (
                             id, created_at, updated_at, version, name, token_prefix, token_hash,
                             status, created_by, last_used_at, revoked_at, revoked_by, expires_at
                         ) values (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -48,7 +48,7 @@ class JdbcAdminApiTokenRepository implements AdminApiTokenRepository {
                 """
                         select id, name, token_prefix, token_hash, status, created_by, created_at,
                                last_used_at, revoked_at, revoked_by, expires_at
-                          from admin_api_tokens
+                          from admin_api_access_tokens
                          order by created_at desc
                         """,
                 this::map);
@@ -60,7 +60,7 @@ class JdbcAdminApiTokenRepository implements AdminApiTokenRepository {
                 """
                         select id, name, token_prefix, token_hash, status, created_by, created_at,
                                last_used_at, revoked_at, revoked_by, expires_at
-                          from admin_api_tokens
+                          from admin_api_access_tokens
                          where token_hash = ?
                            and status = 'ACTIVE'
                            and (expires_at is null or expires_at > ?)
@@ -76,7 +76,7 @@ class JdbcAdminApiTokenRepository implements AdminApiTokenRepository {
     public boolean revoke(UUID id, String revokedBy, Instant now) {
         return jdbcTemplate.update(
                 """
-                        update admin_api_tokens
+                        update admin_api_access_tokens
                            set status = 'REVOKED',
                                revoked_at = ?,
                                revoked_by = ?,
@@ -95,7 +95,7 @@ class JdbcAdminApiTokenRepository implements AdminApiTokenRepository {
     public void touch(UUID id, Instant now) {
         jdbcTemplate.update(
                 """
-                        update admin_api_tokens
+                        update admin_api_access_tokens
                            set last_used_at = ?,
                                updated_at = ?,
                                version = version + 1

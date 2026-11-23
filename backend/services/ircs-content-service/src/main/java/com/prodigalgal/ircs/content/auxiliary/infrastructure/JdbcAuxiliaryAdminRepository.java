@@ -71,41 +71,45 @@ public class JdbcAuxiliaryAdminRepository {
     private final ObjectMapper objectMapper;
 
     public PlaylistDetailResponse createPlaylist(PlaylistRequest request) {
-        assertRawVideoExists(request.videoId());
+        UUID sourceRecordId = request.videoId();
+        lockSourceRecord(sourceRecordId);
         UUID id = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update(
                 """
-                insert into playlists (id, created_at, updated_at, version, name, video_id)
-                values (:id, :now, :now, 0, :name, :videoId)
+                insert into source_playlists (id, created_at, updated_at, version, name, source_record_id)
+                values (:id, :now, :now, 0, :name, :sourceRecordId)
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("now", now)
                         .addValue("name", trimToLength(request.name(), 100))
-                        .addValue("videoId", request.videoId()));
-        replaceEpisodes(id, resolveDataSourceId(request.videoId()).orElse(null), request.episodes());
+                        .addValue("sourceRecordId", sourceRecordId));
+        replaceEpisodes(id, sourceRecordId, resolveDataSourceId(sourceRecordId).orElse(null), request.episodes());
+        reconcilePlayback(sourceRecordId);
         return requirePlaylist(id);
     }
 
     public PlaylistDetailResponse updatePlaylist(UUID id, PlaylistUpdateRequest request) {
-        if (!playlistExists(id)) {
-            throw notFound("Playlist not found: " + id);
-        }
-        jdbcTemplate.update(
+        UUID sourceRecordId = lockPlaylistOwner(id);
+        int updated = jdbcTemplate.update(
                 """
-                update playlists
-                set name = :name, updated_at = :now, version = coalesce(version, 0) + 1
+                update source_playlists
+                set name = :name, updated_at = :now, version = coalesce(version, 0) + 1,
+                    managed_manually = true, source_record_version_id = null
                 where id = :id
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", id)
                         .addValue("name", trimToLength(request.name(), 100))
                         .addValue("now", Timestamp.from(Instant.now())));
-        if (request.episodes() != null) {
-            UUID videoId = playlistVideoId(id);
-            replaceEpisodes(id, resolveDataSourceId(videoId).orElse(null), request.episodes());
+        if (updated == 0) {
+            throw notFound("Playlist not found: " + id);
         }
+        if (request.episodes() != null) {
+            replaceEpisodes(id, sourceRecordId, resolveDataSourceId(sourceRecordId).orElse(null), request.episodes());
+        }
+        reconcilePlayback(sourceRecordId);
         return requirePlaylist(id);
     }
 
@@ -114,14 +118,14 @@ public class JdbcAuxiliaryAdminRepository {
         MapSqlParameterSource params = pagingParams(safe);
         String where = playlistWhere(params, name, videoTitle);
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from playlists p left join raw_videos rv on p.video_id = rv.id" + where,
+                "select count(*) from source_playlists p left join source_records rv on p.source_record_id = rv.id" + where,
                 params,
                 Long.class);
         List<PlaylistBaseCard> pageItems = jdbcTemplate.query(
                 """
-                select p.id, p.name, p.video_id
-                from playlists p
-                left join raw_videos rv on p.video_id = rv.id
+                select p.id, p.name, p.source_record_id
+                from source_playlists p
+                left join source_records rv on p.source_record_id = rv.id
                 """
                         + where
                         + orderBy(safe, PLAYLIST_SORT_COLUMNS, "p.created_at desc")
@@ -130,7 +134,7 @@ public class JdbcAuxiliaryAdminRepository {
                 (rs, rowNum) -> new PlaylistBaseCard(
                         rs.getObject("id", UUID.class),
                         rs.getString("name"),
-                        rs.getObject("video_id", UUID.class)));
+                        rs.getObject("source_record_id", UUID.class)));
         Map<UUID, Integer> episodeCounts = episodeCounts(pageItems.stream()
                 .map(PlaylistBaseCard::id)
                 .toList());
@@ -152,7 +156,7 @@ public class JdbcAuxiliaryAdminRepository {
         jdbcTemplate.query(
                 """
                 select playlist_id, count(*) as episode_count
-                from episodes
+                from source_playback_items
                 where playlist_id in (:playlistIds)
                 group by playlist_id
                 """,
@@ -166,9 +170,9 @@ public class JdbcAuxiliaryAdminRepository {
         try {
             PlaylistBase base = jdbcTemplate.queryForObject(
                     """
-                    select p.id, p.name, p.video_id, rv.title as video_title, p.created_at, p.updated_at
-                    from playlists p
-                    left join raw_videos rv on p.video_id = rv.id
+                    select p.id, p.name, p.source_record_id, rv.title as video_title, p.created_at, p.updated_at
+                    from source_playlists p
+                    left join source_records rv on p.source_record_id = rv.id
                     where p.id = :id
                     """,
                     new MapSqlParameterSource("id", id),
@@ -187,11 +191,11 @@ public class JdbcAuxiliaryAdminRepository {
     }
 
     public void deletePlaylist(UUID id) {
-        if (!playlistExists(id)) {
+        UUID sourceRecordId = lockPlaylistOwner(id);
+        if (jdbcTemplate.update("delete from source_playlists where id = :id", new MapSqlParameterSource("id", id)) == 0) {
             throw notFound("Playlist not found: " + id);
         }
-        jdbcTemplate.update("delete from episodes where playlist_id = :id", new MapSqlParameterSource("id", id));
-        jdbcTemplate.update("delete from playlists where id = :id", new MapSqlParameterSource("id", id));
+        reconcilePlayback(sourceRecordId);
     }
 
     public Page<SourceDomainResponse> findSourceDomains(Pageable pageable, String keyword, UUID dataSourceId) {
@@ -199,17 +203,17 @@ public class JdbcAuxiliaryAdminRepository {
         MapSqlParameterSource params = pagingParams(safe);
         String where = sourceDomainWhere(params, keyword, dataSourceId);
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from source_domains sd left join data_sources ds on sd.data_source_id = ds.id" + where,
+                "select count(*) from source_origins sd left join collection_sources ds on sd.collection_source_id = ds.id" + where,
                 params,
                 Long.class);
         List<SourceDomainResponse> content = jdbcTemplate.query(
                 """
-                select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.data_source_id,
+                select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.collection_source_id,
                        ds.name as data_source_name,
                        coalesce(ds.adult_restricted, false) as adult_restricted,
                        sd.created_at, sd.updated_at
-                from source_domains sd
-                left join data_sources ds on sd.data_source_id = ds.id
+                from source_origins sd
+                left join collection_sources ds on sd.collection_source_id = ds.id
                 """
                         + where
                         + orderBy(safe, SOURCE_DOMAIN_SORT_COLUMNS, "sd.domain_value asc")
@@ -223,12 +227,12 @@ public class JdbcAuxiliaryAdminRepository {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.data_source_id,
+                    select sd.id, sd.domain_hash, sd.domain_value, sd.remark, sd.collection_source_id,
                            ds.name as data_source_name,
                            coalesce(ds.adult_restricted, false) as adult_restricted,
                            sd.created_at, sd.updated_at
-                    from source_domains sd
-                    left join data_sources ds on sd.data_source_id = ds.id
+                    from source_origins sd
+                    left join collection_sources ds on sd.collection_source_id = ds.id
                     where sd.id = :id
                     """,
                     new MapSqlParameterSource("id", id),
@@ -245,10 +249,10 @@ public class JdbcAuxiliaryAdminRepository {
         }
         jdbcTemplate.update(
                 """
-                update source_domains
+                update source_origins
                 set domain_value = :domainValue,
                     remark = :remark,
-                    data_source_id = :dataSourceId,
+                    collection_source_id = :dataSourceId,
                     updated_at = :now,
                     version = coalesce(version, 0) + 1
                 where id = :id
@@ -267,7 +271,7 @@ public class JdbcAuxiliaryAdminRepository {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update(
                 """
-                insert into video_resolver_sources (id, created_at, updated_at, version, name, is_active, remark, lines)
+                insert into playback_resolver_profiles (id, created_at, updated_at, version, name, is_active, remark, lines)
                 values (:id, :now, :now, 0, :name, :active, :remark, cast(:lines as jsonb))
                 """,
                 new MapSqlParameterSource()
@@ -285,7 +289,7 @@ public class JdbcAuxiliaryAdminRepository {
             return false;
         }
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from video_resolver_sources where name = :name)",
+                "select exists(select 1 from playback_resolver_profiles where name = :name)",
                 new MapSqlParameterSource("name", name.trim()),
                 Boolean.class);
         return Boolean.TRUE.equals(exists);
@@ -297,7 +301,7 @@ public class JdbcAuxiliaryAdminRepository {
         }
         jdbcTemplate.update(
                 """
-                update video_resolver_sources
+                update playback_resolver_profiles
                 set name = :name,
                     is_active = :active,
                     remark = :remark,
@@ -319,9 +323,9 @@ public class JdbcAuxiliaryAdminRepository {
     public Page<ResolverResponse> findResolvers(Pageable pageable) {
         Pageable safe = sanitize(pageable);
         MapSqlParameterSource params = pagingParams(safe);
-        Long total = jdbcTemplate.queryForObject("select count(*) from video_resolver_sources", params, Long.class);
+        Long total = jdbcTemplate.queryForObject("select count(*) from playback_resolver_profiles", params, Long.class);
         List<ResolverResponse> content = jdbcTemplate.query(
-                "select id, name, is_active, remark, lines from video_resolver_sources "
+                "select id, name, is_active, remark, lines from playback_resolver_profiles "
                         + orderBy(safe, RESOLVER_SORT_COLUMNS, "created_at desc")
                         + " limit :limit offset :offset",
                 params,
@@ -331,7 +335,7 @@ public class JdbcAuxiliaryAdminRepository {
 
     public List<ResolverResponse> findActiveResolvers() {
         return jdbcTemplate.query(
-                "select id, name, is_active, remark, lines from video_resolver_sources where is_active = true order by name asc",
+                "select id, name, is_active, remark, lines from playback_resolver_profiles where is_active = true order by name asc",
                 new MapSqlParameterSource(),
                 this::mapResolver);
     }
@@ -339,7 +343,7 @@ public class JdbcAuxiliaryAdminRepository {
     public Optional<ResolverResponse> findResolver(UUID id) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select id, name, is_active, remark, lines from video_resolver_sources where id = :id",
+                    "select id, name, is_active, remark, lines from playback_resolver_profiles where id = :id",
                     new MapSqlParameterSource("id", id),
                     this::mapResolver));
         } catch (EmptyResultDataAccessException ignored) {
@@ -351,11 +355,11 @@ public class JdbcAuxiliaryAdminRepository {
         if (!resolverExists(id)) {
             throw notFound("Resolver not found: " + id);
         }
-        jdbcTemplate.update("delete from video_resolver_sources where id = :id", new MapSqlParameterSource("id", id));
+        jdbcTemplate.update("delete from playback_resolver_profiles where id = :id", new MapSqlParameterSource("id", id));
     }
 
-    private void replaceEpisodes(UUID playlistId, UUID dataSourceId, List<EpisodeRequest> episodes) {
-        jdbcTemplate.update("delete from episodes where playlist_id = :playlistId",
+    private void replaceEpisodes(UUID playlistId, UUID sourceRecordId, UUID dataSourceId, List<EpisodeRequest> episodes) {
+        jdbcTemplate.update("delete from source_playback_items where playlist_id = :playlistId",
                 new MapSqlParameterSource("playlistId", playlistId));
         if (episodes == null) {
             return;
@@ -368,8 +372,9 @@ public class JdbcAuxiliaryAdminRepository {
             EpisodeUrlBinding binding = bindEpisodeUrl(episode.url().trim(), dataSourceId);
             jdbcTemplate.update(
                     """
-                    insert into episodes (id, created_at, updated_at, version, name, url, playlist_id, source_domain_id)
-                    values (:id, :now, :now, 0, :name, :url, :playlistId, :sourceDomainId)
+                    insert into source_playback_items
+                        (id, created_at, updated_at, version, name, url, playlist_id, source_origin_id, source_record_id)
+                    values (:id, :now, :now, 0, :name, :url, :playlistId, :sourceDomainId, :sourceRecordId)
                     """,
                     new MapSqlParameterSource()
                             .addValue("id", IrcsUuidGenerators.nextId())
@@ -377,6 +382,7 @@ public class JdbcAuxiliaryAdminRepository {
                             .addValue("name", trimToLength(episode.name(), 255))
                             .addValue("url", trimToLength(binding.relativePath(), 2048))
                             .addValue("playlistId", playlistId)
+                            .addValue("sourceRecordId", sourceRecordId)
                             .addValue("sourceDomainId", binding.sourceDomainId()));
         }
     }
@@ -414,7 +420,7 @@ public class JdbcAuxiliaryAdminRepository {
         if (existing.isPresent()) {
             if (dataSourceId != null) {
                 jdbcTemplate.update(
-                        "update source_domains set data_source_id = coalesce(data_source_id, :dataSourceId) where id = :id",
+                        "update source_origins set collection_source_id = coalesce(collection_source_id, :dataSourceId) where id = :id",
                         new MapSqlParameterSource()
                                 .addValue("id", existing.get())
                                 .addValue("dataSourceId", dataSourceId));
@@ -425,7 +431,7 @@ public class JdbcAuxiliaryAdminRepository {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update(
                 """
-                insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
+                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value, remark, collection_source_id)
                 values (:id, :now, :now, 0, :hash, :domain, 'Auto-discovered', :dataSourceId)
                 """,
                 new MapSqlParameterSource()
@@ -440,7 +446,7 @@ public class JdbcAuxiliaryAdminRepository {
     private Optional<UUID> findSourceDomainIdByHash(String hash) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select id from source_domains where domain_hash = :hash",
+                    "select id from source_origins where domain_hash = :hash",
                     new MapSqlParameterSource("hash", hash),
                     UUID.class));
         } catch (EmptyResultDataAccessException ignored) {
@@ -452,8 +458,8 @@ public class JdbcAuxiliaryAdminRepository {
         return jdbcTemplate.query(
                 """
                 select e.id, e.name, e.url, sd.domain_value
-                from episodes e
-                left join source_domains sd on e.source_domain_id = sd.id
+                from source_playback_items e
+                left join source_origins sd on e.source_origin_id = sd.id
                 where e.playlist_id = :playlistId
                 order by e.created_at asc, e.id asc
                 """,
@@ -482,12 +488,8 @@ public class JdbcAuxiliaryAdminRepository {
         return domain + path;
     }
 
-    private boolean playlistExists(UUID id) {
-        return exists("playlists", id);
-    }
-
     private boolean resolverExists(UUID id) {
-        return exists("video_resolver_sources", id);
+        return exists("playback_resolver_profiles", id);
     }
 
     private boolean exists(String table, UUID id) {
@@ -498,28 +500,38 @@ public class JdbcAuxiliaryAdminRepository {
         return Boolean.TRUE.equals(exists);
     }
 
-    private void assertRawVideoExists(UUID id) {
-        if (id == null || !exists("raw_videos", id)) {
-            throw notFound("Video not found: " + id);
+    private void lockSourceRecord(UUID id) {
+        if (id == null || jdbcTemplate.queryForList("select id from source_records where id = :id for update",
+                new MapSqlParameterSource("id", id), UUID.class).isEmpty()) {
+            throw notFound("Source record not found: " + id);
         }
     }
 
-    private UUID playlistVideoId(UUID id) {
-        return jdbcTemplate.queryForObject(
-                "select video_id from playlists where id = :id",
-                new MapSqlParameterSource("id", id),
-                UUID.class);
+    private UUID lockPlaylistOwner(UUID id) {
+        try {
+            return jdbcTemplate.queryForObject("""
+                    select r.id from source_playlists p join source_records r on r.id = p.source_record_id
+                     where p.id = :id for update of r
+                    """, new MapSqlParameterSource("id", id), UUID.class);
+        } catch (EmptyResultDataAccessException ignored) {
+            throw notFound("Playlist not found: " + id);
+        }
     }
 
-    private Optional<UUID> resolveDataSourceId(UUID rawVideoId) {
+    private void reconcilePlayback(UUID sourceRecordId) {
+        jdbcTemplate.query("select reconcile_catalog_playback(:sourceRecordId)",
+                new MapSqlParameterSource("sourceRecordId", sourceRecordId), (rs, rowNum) -> null);
+    }
+
+    private Optional<UUID> resolveDataSourceId(UUID sourceRecordId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select rv.data_source_id as data_source_id
-                    from raw_videos rv
+                    select rv.collection_source_id as collection_source_id
+                    from source_records rv
                     where rv.id = :id
                     """,
-                    new MapSqlParameterSource("id", rawVideoId),
+                    new MapSqlParameterSource("id", sourceRecordId),
                     UUID.class));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
@@ -555,7 +567,7 @@ public class JdbcAuxiliaryAdminRepository {
         }
         if (dataSourceId != null) {
             params.addValue("dataSourceId", dataSourceId);
-            where.add("sd.data_source_id = :dataSourceId");
+            where.add("sd.collection_source_id = :dataSourceId");
         }
         return where.isEmpty() ? "" : " where " + String.join(" and ", where);
     }
@@ -593,7 +605,7 @@ public class JdbcAuxiliaryAdminRepository {
         return new PlaylistBase(
                 rs.getObject("id", UUID.class),
                 rs.getString("name"),
-                rs.getObject("video_id", UUID.class),
+                rs.getObject("source_record_id", UUID.class),
                 rs.getString("video_title"),
                 instant(rs, "created_at"),
                 instant(rs, "updated_at"));
@@ -605,7 +617,7 @@ public class JdbcAuxiliaryAdminRepository {
                 rs.getString("domain_hash"),
                 rs.getString("domain_value"),
                 rs.getString("remark"),
-                rs.getObject("data_source_id", UUID.class),
+                rs.getObject("collection_source_id", UUID.class),
                 rs.getString("data_source_name"),
                 rs.getBoolean("adult_restricted"),
                 instant(rs, "created_at"),

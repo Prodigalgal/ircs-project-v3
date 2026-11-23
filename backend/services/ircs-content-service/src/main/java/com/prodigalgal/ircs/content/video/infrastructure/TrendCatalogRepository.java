@@ -31,18 +31,19 @@ public class TrendCatalogRepository {
                 .addValue("requestedSeason", authoritySeason(candidate)).addValue("episode", candidate.episode());
         return jdbc.query("""
                 with matches as (
-                    select id,title from authority_catalog_works
-                    where media_type=:type and (tmdb_id=:tmdb or imdb_id=:imdb) limit 2
+                    select id,title from catalog_works
+                    where identity_status='VERIFIED' and media_type=:type and (tmdb_id=:tmdb or imdb_id=:imdb) limit 2
                 )
-                select p.unified_video_id,p.season_number,w.title
-                from matches w join authority_catalog_projections p on p.work_id=w.id
-                join unified_videos uv on uv.id=p.unified_video_id
+                select uv.id,coalesce(scope.season_number,-1),w.title
+                from matches w join catalog_entries uv on uv.work_id=w.id
+                left join catalog_seasons scope on scope.id=uv.season_id
                 where (select count(*) from matches)=1
-                  and (p.season_number=:requestedSeason or :requestedSeason=-1 and p.season_number<>0)
-                  and (:episode=0 or exists(select 1 from authority_catalog_episodes ep
-                     where ep.work_id=p.work_id and ep.season_number=p.season_number and ep.episode_number=:episode))
+                  and (coalesce(scope.season_number,-1)=:requestedSeason
+                       or :requestedSeason=-1 and scope.season_number<>0)
+                  and (:episode=0 or exists(select 1 from catalog_episodes ep
+                     where ep.work_id=w.id and ep.season_id is not distinct from uv.season_id and ep.episode_number=:episode))
                   and uv.content_visibility='PUBLIC' and not coalesce(uv.adult_restricted,false)
-                order by p.season_number limit 1
+                order by scope.season_number nulls first limit 1
                 """, p, (rs, row) -> new AuthorityProjection(rs.getObject(1, UUID.class), rs.getInt(2), rs.getString(3)))
                 .stream().findFirst();
     }
@@ -53,23 +54,23 @@ public class TrendCatalogRepository {
         Integer position = candidate.item().signal() == null ? null : candidate.item().signal().position();
         int priority = candidate.episode() > 0 ? 2000 : 1000 - Math.min(900, position == null ? 100 : position);
         jdbc.update("""
-                insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
                 select :type,:tmdb,:season,:priority
-                 where not exists(select 1 from authority_catalog_imports
+                 where not exists(select 1 from catalog_authority_import_jobs
                       where media_type=:type and tmdb_id=:tmdb and last_error='ADULT_SOURCE_RECORD')
                 on conflict (media_type,tmdb_id,season_number) do update
-                    set priority=greatest(authority_catalog_imports.priority,excluded.priority),
-                        status=case when authority_catalog_imports.status in ('SUCCESS','UNAVAILABLE')
-                                    and authority_catalog_imports.next_attempt_at<=now()
-                                    and (authority_catalog_imports.last_success_at is null
-                                         or authority_catalog_imports.last_success_at<now()-interval '12 hours')
-                               then 'PENDING' else authority_catalog_imports.status end,
+                    set priority=greatest(catalog_authority_import_jobs.priority,excluded.priority),
+                        status=case when catalog_authority_import_jobs.status in ('SUCCESS','UNAVAILABLE')
+                                    and catalog_authority_import_jobs.next_attempt_at<=now()
+                                    and (catalog_authority_import_jobs.last_success_at is null
+                                         or catalog_authority_import_jobs.last_success_at<now()-interval '12 hours')
+                               then 'PENDING' else catalog_authority_import_jobs.status end,
                         updated_at=now()
-                    where authority_catalog_imports.priority<excluded.priority
-                       or authority_catalog_imports.status in ('SUCCESS','UNAVAILABLE')
-                          and authority_catalog_imports.next_attempt_at<=now()
-                          and (authority_catalog_imports.last_success_at is null
-                               or authority_catalog_imports.last_success_at<now()-interval '12 hours')
+                    where catalog_authority_import_jobs.priority<excluded.priority
+                       or catalog_authority_import_jobs.status in ('SUCCESS','UNAVAILABLE')
+                          and catalog_authority_import_jobs.next_attempt_at<=now()
+                          and (catalog_authority_import_jobs.last_success_at is null
+                               or catalog_authority_import_jobs.last_success_at<now()-interval '12 hours')
                 """, new MapSqlParameterSource("type", candidate.mediaType()).addValue("tmdb", tmdb)
                 .addValue("season", authoritySeason(candidate)).addValue("priority", priority));
     }
@@ -111,8 +112,13 @@ public class TrendCatalogRepository {
 
     public Optional<UUID> findIdentity(TrendCatalogCandidate candidate) {
         return jdbc.query("""
-                select unified_video_id from external_catalog_identities
-                 where provider = :provider and media_type = :type and external_id = :externalId and season = :season
+                select entry.id from catalog_external_ids identity
+                join catalog_entries entry on entry.work_id=identity.work_id
+                left join catalog_seasons scope on scope.id=entry.season_id
+                where identity.provider=:provider and identity.media_type=:type and identity.external_id=:externalId
+                  and identity.target_kind='WORK'
+                  and (:season=0 or scope.season_number=:season or :season=1 and scope.id is null)
+                order by scope.season_number nulls first, entry.id limit 1
                 """, params(candidate), (rs, n) -> rs.getObject(1, UUID.class)).stream().findFirst();
     }
 
@@ -128,7 +134,7 @@ public class TrendCatalogRepository {
         String typeFilter = "movie".equals(candidate.mediaType())
                 ? "uv.category_code = 'movie'"
                 : "uv.category_code in ('series','short-drama','anime','variety','documentary','sports','news','education','music')";
-        List<UUID> byId = jdbc.query("select uv.id from unified_videos uv where " + column + " = :externalId and "
+        List<UUID> byId = jdbc.query("select uv.id from catalog_entries uv where " + column + " = :externalId and "
                 + typeFilter + " and (:season = 0 or uv.season = :season or (:season = 1 and uv.season is null)) limit 2",
                 p, (rs, n) -> rs.getObject(1, UUID.class));
         if (byId.size() == 1) return Optional.of(byId.getFirst());
@@ -138,7 +144,7 @@ public class TrendCatalogRepository {
         // Exact case-insensitive title + year + type + compatible season, with no contradictory source ID.
         List<ExistingTitle> titles = jdbc.query("""
                 select uv.id, uv.title, uv.alias_title
-                  from unified_videos uv
+                  from catalog_entries uv
                  where uv.year = :year and %s
                    and (nullif(btrim(uv.%s), '') is null or uv.%s = :externalId)
                    and (:season = 0 or uv.season = :season or (:season = 1 and uv.season is null))
@@ -173,41 +179,49 @@ public class TrendCatalogRepository {
                         ? AuthoritativeIds.normalizeRottenTomatoes(candidate.externalId().replaceFirst("^(m|tv)/", "").split("/")[0]) : null)
                 .addValue("category", candidate.categoryCode());
         jdbc.update("""
-                insert into unified_videos (id, created_at, updated_at, version, title, alias_title, season,
-                    cover_image_id, description, year, score, published_at, douban_id, tmdb_id, imdb_id,
+                with provisional_work as (
+                    insert into catalog_works(id,media_type,title,original_title,title_key,original_title_key,release_year,
+                        released_on,identity_status)
+                    values(uuidv7(),:type,:title,:originalTitle,:titleKey,lower(:originalTitle),cast(:year as smallint),
+                        :publishedAt,'PROVISIONAL') returning id
+                )
+                insert into catalog_entries (id, work_id, created_at, updated_at, version, title, alias_title, season,
+                    media_image_source_id, description, year, score, published_at, douban_id, tmdb_id, imdb_id,
                     rotten_tomatoes_id, locked_fields, category_code, content_visibility, metadata_status)
-                values (:id, now(), now(), 0, :title, :originalTitle, nullif(:season, 0), :cover, :description,
+                select :id, provisional_work.id, now(), now(), 0, :title, :originalTitle, nullif(:season, 0), :cover, :description,
                     :year, :score, :publishedAt, :doubanId, :tmdbId, :imdbId, :rtId, '[]'::jsonb,
-                    :category, 'PUBLIC', 'DIRTY')
-                """, p);
+                    :category, 'PUBLIC', 'DIRTY' from provisional_work
+                """, p.addValue("titleKey", candidate.titleKey()));
         return id;
     }
 
     public void bind(TrendCatalogCandidate candidate, UUID id) {
-        jdbc.update("""
-                insert into external_catalog_identities(provider, media_type, external_id, season, unified_video_id)
-                values (:provider, :type, :externalId, :season, :id)
-                on conflict (provider, media_type, external_id, season) do nothing
+        int bound = jdbc.update("""
+                insert into catalog_external_ids(provider, media_type, external_id, target_kind, work_id)
+                select :provider,:type,:externalId,'WORK',work_id from catalog_entries where id=:id
+                on conflict (provider,media_type,target_kind,external_id) do update set observed_at=now()
+                where catalog_external_ids.work_id=excluded.work_id
                 """, params(candidate).addValue("id", id));
+        if (bound != 1) throw new IllegalStateException("Provider identity is already assigned to another work");
     }
 
     public void requestMissingMetadata(TrendCatalogCandidate candidate, UUID id) {
         jdbc.update("""
-                insert into catalog_metadata_requests(unified_video_id, provider, media_type, external_id, season)
-                select uv.id, :provider, :type, :externalId, coalesce(nullif(:season,0),uv.season,0) from unified_videos uv
+                insert into catalog_metadata_enrichment_jobs(catalog_entry_id, provider, media_type, external_id, season)
+                select uv.id, :provider, :type, :externalId, coalesce(nullif(:season,0),uv.season,0) from catalog_entries uv
                  where uv.id = :id and (uv.metadata_status = 'DIRTY' or uv.score is null
-                    or nullif(btrim(uv.description), '') is null or uv.cover_image_id is null
+                    or nullif(btrim(uv.description), '') is null or uv.media_image_source_id is null
                     or coalesce(uv.actor_names, '[]'::jsonb) = '[]'::jsonb
                     or coalesce(uv.director_names, '[]'::jsonb) = '[]'::jsonb
                     or coalesce(uv.genre_codes, '[]'::jsonb) = '[]'::jsonb)
-                on conflict (unified_video_id) do update set provider = excluded.provider,
+                on conflict (catalog_entry_id) do update set provider = excluded.provider,
                     media_type = excluded.media_type, external_id = excluded.external_id, season = excluded.season,
                     status = 'PENDING', attempts = 0, next_attempt_at = now(), lease_token = null,
                     lease_until = null, updated_at = now()
-                 where catalog_metadata_requests.status <> 'DISPATCHING'
-                   and ((catalog_metadata_requests.provider <> 'TMDB' and excluded.provider = 'TMDB')
-                        or (catalog_metadata_requests.status = 'SUCCESS'
-                            and catalog_metadata_requests.last_success_at < now() - interval '1 day'))
+                 where catalog_metadata_enrichment_jobs.status <> 'DISPATCHING'
+                   and ((catalog_metadata_enrichment_jobs.provider <> 'TMDB' and excluded.provider = 'TMDB')
+                        or (catalog_metadata_enrichment_jobs.status = 'SUCCESS'
+                            and catalog_metadata_enrichment_jobs.last_success_at < now() - interval '1 day'))
                 """, params(candidate).addValue("id", id));
     }
 
@@ -220,17 +234,17 @@ public class TrendCatalogRepository {
     private boolean requestMissingResources(MapSqlParameterSource p) {
         // A binding alone is not playable. Episode targets require an exact parsed episode match.
         return jdbc.update("""
-                insert into catalog_discovery_requests(unified_video_id, target_season, target_episode, keyword, priority)
+                insert into catalog_resource_discovery_jobs(catalog_entry_id, target_season, target_episode, keyword, priority)
                 select :id, :season, :episode, :title, :priority
                  where not catalog_has_target_resources(:id, :season, :episode)
-                on conflict (unified_video_id, target_season, target_episode) do update
-                    set priority = greatest(catalog_discovery_requests.priority, excluded.priority),
-                        status = case when catalog_discovery_requests.status = 'SUBMITTED'
-                            and catalog_discovery_requests.submitted_at < now() - interval '6 hours'
-                            then 'PENDING' else catalog_discovery_requests.status end,
-                        next_attempt_at = case when catalog_discovery_requests.status = 'SUBMITTED'
-                            and catalog_discovery_requests.submitted_at < now() - interval '6 hours'
-                            then now() else catalog_discovery_requests.next_attempt_at end,
+                on conflict (catalog_entry_id, target_season, target_episode) do update
+                    set priority = greatest(catalog_resource_discovery_jobs.priority, excluded.priority),
+                        status = case when catalog_resource_discovery_jobs.status = 'SUBMITTED'
+                            and catalog_resource_discovery_jobs.submitted_at < now() - interval '6 hours'
+                            then 'PENDING' else catalog_resource_discovery_jobs.status end,
+                        next_attempt_at = case when catalog_resource_discovery_jobs.status = 'SUBMITTED'
+                            and catalog_resource_discovery_jobs.submitted_at < now() - interval '6 hours'
+                            then now() else catalog_resource_discovery_jobs.next_attempt_at end,
                         updated_at = now()
                 """, p) > 0;
     }

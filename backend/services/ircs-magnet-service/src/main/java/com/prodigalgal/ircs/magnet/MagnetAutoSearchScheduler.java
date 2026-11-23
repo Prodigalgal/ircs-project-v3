@@ -99,16 +99,16 @@ class MagnetAutoSearchScheduler {
                 batchSize(),
                 Instant.now().minus(cooldown()));
         int triggered = 0;
-        for (UUID unifiedVideoId : candidates) {
+        for (UUID catalogEntryId : candidates) {
             ClusterLeaseGuard.checkCurrentOwnership();
             if (!hasCapacity(maxQueueDepth)) {
                 break;
             }
             try {
-                magnetQueryService.enqueueAutomaticSearch(unifiedVideoId);
+                magnetQueryService.enqueueAutomaticSearch(catalogEntryId);
                 triggered++;
             } catch (RuntimeException ex) {
-                log.warn("Magnet auto search failed: unifiedVideoId={}, error={}", unifiedVideoId, ex.getMessage());
+                log.warn("Magnet auto search failed: catalogEntryId={}, error={}", catalogEntryId, ex.getMessage());
                 break;
             }
         }

@@ -4,9 +4,9 @@ import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
-import com.prodigalgal.ircs.metadata.dispatch.domain.RawVideoEnrichmentRecord;
+import com.prodigalgal.ircs.metadata.dispatch.domain.SourceRecordEnrichmentRecord;
 import com.prodigalgal.ircs.metadata.dispatch.dto.MetadataDispatchResult;
-import com.prodigalgal.ircs.metadata.dispatch.infrastructure.RawVideoEnrichmentRepository;
+import com.prodigalgal.ircs.metadata.dispatch.infrastructure.SourceRecordEnrichmentRepository;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
@@ -27,7 +27,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class MetadataDispatchService {
 
-    private final RawVideoEnrichmentRepository repository;
+    private final SourceRecordEnrichmentRepository repository;
     private final MetadataConfigValues configValues;
     private final MetadataPipelineRunRepository pipelineRunRepository;
     private final MetadataProviderTaskPublisher providerTaskPublisher;
@@ -36,13 +36,13 @@ public class MetadataDispatchService {
     private final MetadataResultCollectorService resultCollector;
 
     public MetadataDispatchResult dispatch(UUID videoId, String pipelineVersion) {
-        Optional<RawVideoEnrichmentRecord> recordOpt = repository.findById(videoId);
+        Optional<SourceRecordEnrichmentRecord> recordOpt = repository.findById(videoId);
         if (recordOpt.isEmpty()) {
             log.warn("Metadata dispatch references missing raw video: {}", videoId);
             return new MetadataDispatchResult(videoId, false, null, List.of());
         }
 
-        RawVideoEnrichmentRecord record = recordOpt.get();
+        SourceRecordEnrichmentRecord record = recordOpt.get();
         if (isStale(pipelineVersion, record.getDataHash())) {
             return new MetadataDispatchResult(videoId, true, "STALE", List.of());
         }
@@ -80,7 +80,7 @@ public class MetadataDispatchService {
         return new MetadataDispatchResult(videoId, true, "DISPATCHED", pendingProviders);
     }
 
-    private String finalizeImmediate(RawVideoEnrichmentRecord record) {
+    private String finalizeImmediate(SourceRecordEnrichmentRecord record) {
         if (record.hasAuthoritativeId()) {
             return repository.updateStatus(record.getId(), record.getDataHash(), "SUCCESS", 0) == 1 ? "SUCCESS" : "STALE";
         }
@@ -91,7 +91,7 @@ public class MetadataDispatchService {
                 ? "PERMANENT_FAILURE" : "STALE";
     }
 
-    private List<ProviderType> providersFor(RawVideoEnrichmentRecord record) {
+    private List<ProviderType> providersFor(SourceRecordEnrichmentRecord record) {
         List<ProviderType> providers = new ArrayList<>();
         MetadataSearchContext context = toContext(record);
         if (configValues.doubanEnabled() && AuthoritativeIds.normalizeDouban(record.getDoubanId()) == null
@@ -109,7 +109,7 @@ public class MetadataDispatchService {
         return providers;
     }
 
-    private MetadataSearchContext toContext(RawVideoEnrichmentRecord record) {
+    private MetadataSearchContext toContext(SourceRecordEnrichmentRecord record) {
         return MetadataSearchContext.builder()
                 .videoId(record.getId())
                 .pipelineVersion(record.getDataHash())

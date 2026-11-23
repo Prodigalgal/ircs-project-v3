@@ -21,8 +21,8 @@ class InternalScraperController {
     private final ManualScraperService manualScraperService;
 
     @PostMapping("/raw-videos/{id}/refetch")
-    ResponseEntity<Void> refetchRawVideo(@PathVariable UUID id) {
-        manualScraperService.refetchRawVideo(id);
+    ResponseEntity<Void> refetchSourceRecord(@PathVariable UUID id) {
+        manualScraperService.refetchSourceRecord(id);
         return ResponseEntity.accepted().build();
     }
 

@@ -71,7 +71,7 @@ public class TaskSnapshotFlushService {
     }
 
     public boolean flushOne(UUID masterTaskId) {
-        Optional<TaskDetailSummary> task = taskRepository.findById(masterTaskId);
+        Optional<TaskDetailSummary> task = taskRepository.findCurrentRunDetail(masterTaskId);
         Optional<TaskMasterSnapshot> snapshot = snapshotService.find(masterTaskId);
         Map<String, String> masterState = hash(TaskHotKeys.masterState(masterTaskId));
         List<TaskFlushPageState> pages = pages(masterTaskId);

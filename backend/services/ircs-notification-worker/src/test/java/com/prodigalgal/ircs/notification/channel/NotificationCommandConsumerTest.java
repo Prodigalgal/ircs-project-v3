@@ -73,7 +73,7 @@ class NotificationCommandConsumerTest {
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement().executeQuery("""
                      select job_type, job_name, correlation_id, status
-                     from worker_job_audit_events
+                     from background_job_audit_events
                      """)) {
             org.assertj.core.api.Assertions.assertThat(result.next()).isTrue();
             org.assertj.core.api.Assertions.assertThat(result.getString("job_type")).isEqualTo("queue_consumer");
@@ -99,7 +99,7 @@ class NotificationCommandConsumerTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table worker_job_audit_events (
+                    create table background_job_audit_events (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

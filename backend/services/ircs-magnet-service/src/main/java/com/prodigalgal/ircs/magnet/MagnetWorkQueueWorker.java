@@ -179,12 +179,12 @@ class MagnetWorkQueueWorker {
         }
         try {
             payload = objectMapper.readValue(item.payload(), MagnetSearchWorkPayload.class);
-            if (payload.jobId() == null || payload.unifiedVideoId() == null) {
-                throw new IllegalArgumentException("Magnet search work payload requires jobId and unifiedVideoId");
+            if (payload.jobId() == null || payload.catalogEntryId() == null) {
+                throw new IllegalArgumentException("Magnet search work payload requires jobId and catalogEntryId");
             }
             MagnetQueueClaimGuard.checkCurrentOwnership();
             magnetQueryService.executeQueuedSearch(
-                    payload.jobId(), payload.unifiedVideoId(), payload.triggerType(), item.attempt() < maxRetries());
+                    payload.jobId(), payload.catalogEntryId(), payload.triggerType(), item.attempt() < maxRetries());
             MagnetQueueClaimGuard.checkCurrentOwnership();
             if (!MagnetQueueClaimGuard.finishCurrent(item, () -> workQueue.complete(item))) {
                 log.warn("Magnet queue completion rejected after claim loss: taskId={}", item.taskId());

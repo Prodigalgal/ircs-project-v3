@@ -20,7 +20,7 @@ class JdbcDashboardRepositorySqlPolicyTest {
         assertThat(source).contains("table_estimates");
         assertThat(source).doesNotContain("SELECT count(*) AS unified_count");
         assertThat(source).doesNotContain("SELECT count(*) AS task_count");
-        assertThat(source).doesNotContain("count(\"raw_videos\")");
+        assertThat(source).doesNotContain("count(\"source_records\")");
         assertThat(source).doesNotContain("countRawByStatus(");
         assertThat(source).doesNotContain("countCoverByStatus(");
     }

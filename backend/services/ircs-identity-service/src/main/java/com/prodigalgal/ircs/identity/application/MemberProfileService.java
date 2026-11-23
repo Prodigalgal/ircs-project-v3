@@ -109,21 +109,26 @@ public class MemberProfileService {
 
     @Transactional
     public CheckInResult checkIn(UUID memberId) {
-        MemberRecord member = requireUsableMember(memberId);
         String timezone = configService.value(IdentityConfigKey.MEMBER_REGISTER_TIMEZONE);
-        MemberRecord.CheckInMutation mutation = member.checkIn(LocalDate.now(ZoneId.of(timezone)));
+        MemberRecord member = requireUsableMember(memberRepository.findByIdForUpdate(memberId));
+        LocalDate checkInDate = LocalDate.now(ZoneId.of(timezone));
+        MemberRecord.CheckInMutation mutation = member.checkIn(checkInDate);
         memberRepository.update(mutation.member());
+        int balance = memberRepository.grantDailyCheckInPoints(memberId, checkInDate, mutation.earnedPoints());
         return new CheckInResult(
                 mutation.earnedPoints(),
-                mutation.member().points(),
+                balance,
                 mutation.member().checkInStreak(),
                 mutation.member().experience(),
                 mutation.member().level());
     }
 
     private MemberRecord requireUsableMember(UUID memberId) {
-        MemberRecord member = memberRepository.findById(memberId)
-                .orElseThrow(() -> ApiException.notFound("用户不存在", "member", "not.found"));
+        return requireUsableMember(memberRepository.findById(memberId));
+    }
+
+    private MemberRecord requireUsableMember(java.util.Optional<MemberRecord> memberLookup) {
+        MemberRecord member = memberLookup.orElseThrow(() -> ApiException.notFound("用户不存在", "member", "not.found"));
         if (member.status() == MemberStatus.BANNED) {
             throw ApiException.forbidden("账号已被封禁", "member", "auth.banned");
         }

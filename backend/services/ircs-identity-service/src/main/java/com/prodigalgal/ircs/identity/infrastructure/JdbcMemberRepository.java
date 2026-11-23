@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -38,9 +39,18 @@ public class JdbcMemberRepository implements MemberRepository {
 
     @Override
     public Optional<MemberRecord> findById(UUID id) {
+        return findById(id, "");
+    }
+
+    @Override
+    public Optional<MemberRecord> findByIdForUpdate(UUID id) {
+        return findById(id, " for no key update of account");
+    }
+
+    private Optional<MemberRecord> findById(UUID id, String lock) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    selectSql() + " where id = ?",
+                    selectSql() + " where account.id = ?" + lock,
                     mapper(),
                     id));
         } catch (EmptyResultDataAccessException ignored) {
@@ -51,7 +61,7 @@ public class JdbcMemberRepository implements MemberRepository {
     @Override
     public boolean existsByEmail(String email) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from members where lower(email) = lower(?))",
+                "select exists(select 1 from member_accounts where lower(email) = lower(?))",
                 Boolean.class,
                 email);
         return Boolean.TRUE.equals(exists);
@@ -61,11 +71,11 @@ public class JdbcMemberRepository implements MemberRepository {
     public MemberRecord insert(MemberRecord member) {
         jdbcTemplate.update(
                 """
-                insert into members (
+                insert into member_accounts (
                     id, created_at, updated_at, version, email, password_hash, nickname, avatar_url, role, status,
-                    adult_content_allowed, experience, points, last_check_in_date, check_in_streak
+                    adult_content_allowed, experience, last_check_in_date, check_in_streak
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 member.id(),
                 timestamp(member.createdAt()),
@@ -79,17 +89,19 @@ public class JdbcMemberRepository implements MemberRepository {
                 member.status().name(),
                 member.adultContentAllowed(),
                 member.experience(),
-                member.points(),
                 date(member.lastCheckInDate()),
                 member.checkInStreak());
+        if (member.points() > 0) {
+            applyPointTransaction(member.id(), "account-opening", "ACCOUNT_OPENING", member.points(), false);
+        }
         return member;
     }
 
     @Override
     public MemberRecord update(MemberRecord member) {
-        jdbcTemplate.update(
+        int updatedRows = jdbcTemplate.update(
                 """
-                update members
+                update member_accounts
                    set updated_at = ?,
                        version = coalesce(version, 0) + 1,
                        email = ?,
@@ -100,10 +112,9 @@ public class JdbcMemberRepository implements MemberRepository {
                        status = ?,
                        adult_content_allowed = ?,
                        experience = ?,
-                       points = ?,
                        last_check_in_date = ?,
                        check_in_streak = ?
-                 where id = ?
+                 where id = ? and coalesce(version, 0) = coalesce(cast(? as bigint), 0)
                 """,
                 timestamp(member.updatedAt()),
                 member.email(),
@@ -114,19 +125,39 @@ public class JdbcMemberRepository implements MemberRepository {
                 member.status().name(),
                 member.adultContentAllowed(),
                 member.experience(),
-                member.points(),
                 date(member.lastCheckInDate()),
                 member.checkInStreak(),
-                member.id());
+                member.id(),
+                member.version());
+        if (updatedRows == 0) {
+            throw new OptimisticLockingFailureException("Member account changed during update");
+        }
         return member;
+    }
+
+    @Override
+    public int grantDailyCheckInPoints(UUID memberId, LocalDate date, int earnedPoints) {
+        return applyPointTransaction(memberId, "daily-check-in:" + date, "DAILY_CHECK_IN", earnedPoints, false);
+    }
+
+    @Override
+    public void setPointBalance(UUID memberId, int balance) {
+        applyPointTransaction(memberId, "admin-adjustment:" + UUID.randomUUID(), "ADMIN_ADJUSTMENT", balance, true);
+    }
+
+    private int applyPointTransaction(UUID memberId, String key, String reason, int points, boolean setBalance) {
+        return jdbcTemplate.queryForObject(
+                "select apply_member_point_transaction(?, ?, ?, ?, ?, null)",
+                Integer.class, memberId, key, reason, points, setBalance);
     }
 
     private String selectSql() {
         return """
-        select id, created_at, updated_at, version, email, password_hash, nickname, avatar_url, role, status,
-               coalesce(adult_content_allowed, false) as adult_content_allowed,
-               experience, points, last_check_in_date, check_in_streak
-          from members
+        select account.id, account.created_at, account.updated_at, account.version, account.email,
+               account.password_hash, account.nickname, account.avatar_url, account.role, account.status,
+               coalesce(account.adult_content_allowed, false) as adult_content_allowed,
+               account.experience, points.balance as points, account.last_check_in_date, account.check_in_streak
+          from member_accounts account join member_point_balances points on points.member_id = account.id
         """;
     }
 

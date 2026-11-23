@@ -58,21 +58,21 @@ class MagnetQueryServiceTest {
     }
 
     @Test
-    void approvedLinksCachePerUnifiedVideo() {
-        UUID unifiedVideoId = UUID.randomUUID();
+    void approvedLinksCachePerCatalogEntry() {
+        UUID catalogEntryId = UUID.randomUUID();
         MagnetLinkSummary link = new MagnetLinkSummary(
-                UUID.randomUUID(), unifiedVideoId, "codex_provider", "abcdef1234567890abcdef1234567890abcdef12",
+                UUID.randomUUID(), catalogEntryId, "codex_provider", "abcdef1234567890abcdef1234567890abcdef12",
                 "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12", "Codex Fixture", 1024L, "1 KB",
                 Instant.parse("2026-06-07T00:00:00Z"), 10, 1, "WEB", "1080p", "IMDB", "tt1234567", 100,
                 "APPROVED", "fixture://magnet-provider/codex_provider", List.of("dev-safe"),
                 Instant.parse("2026-06-07T00:00:00Z"), Instant.parse("2026-06-07T00:00:01Z"));
-        when(magnetRepository.findApprovedLinks(unifiedVideoId)).thenReturn(List.of(link));
+        when(magnetRepository.findApprovedLinks(catalogEntryId)).thenReturn(List.of(link));
         MagnetQueryService cachedService = cachedService();
 
-        assertEquals(List.of(link), cachedService.findApprovedLinks(unifiedVideoId));
-        assertEquals(List.of(link), cachedService.findApprovedLinks(unifiedVideoId));
+        assertEquals(List.of(link), cachedService.findApprovedLinks(catalogEntryId));
+        assertEquals(List.of(link), cachedService.findApprovedLinks(catalogEntryId));
 
-        verify(magnetRepository, times(1)).findApprovedLinks(unifiedVideoId);
+        verify(magnetRepository, times(1)).findApprovedLinks(catalogEntryId);
     }
 
     @Test

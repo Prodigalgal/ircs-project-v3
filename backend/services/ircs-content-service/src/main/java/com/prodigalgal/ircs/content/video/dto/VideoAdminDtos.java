@@ -31,7 +31,7 @@ public final class VideoAdminDtos {
             Instant updatedAt) {
     }
 
-    public record RawVideoCreateRequest(
+    public record SourceRecordCreateRequest(
             @NotBlank(message = "Title cannot be blank") @Size(max = 255) String title,
             String subtitle,
             Integer season,
@@ -61,7 +61,7 @@ public final class VideoAdminDtos {
             String sourceCategoryName) {
     }
 
-    public record RawVideoUpdateRequest(
+    public record SourceRecordUpdateRequest(
             @NotNull(message = "ID is required for update") UUID id,
             @Size(max = 255) String title,
             @Size(max = 255) String aliasTitle,
@@ -82,7 +82,7 @@ public final class VideoAdminDtos {
             Set<String> lockedFields,
             UUID dataSourceId,
             UUID categoryId,
-            UUID unifiedVideoId,
+            UUID catalogEntryId,
             String rawLanguageStr,
             Set<String> actorNames,
             Set<String> directorNames,
@@ -94,7 +94,7 @@ public final class VideoAdminDtos {
             String sourceCategoryName) {
     }
 
-    public record RawVideoCardResponse(
+    public record SourceRecordCardResponse(
             UUID id,
             String sourceVid,
             String title,
@@ -122,7 +122,7 @@ public final class VideoAdminDtos {
             Set<String> genreCodes) {
     }
 
-    public record RawVideoDetailResponse(
+    public record SourceRecordDetailResponse(
             UUID id,
             String sourceVid,
             String title,
@@ -153,7 +153,7 @@ public final class VideoAdminDtos {
             String dataSourceName,
             UUID dataSourceId,
             String detailApiUrl,
-            UUID unifiedVideoId,
+            UUID catalogEntryId,
             String enrichmentStatus,
             String normalizationStatus,
             Instant createdAt,
@@ -170,7 +170,7 @@ public final class VideoAdminDtos {
             Set<String> genreCodes) {
     }
 
-    public record UnifiedVideoCreateRequest(
+    public record CatalogEntryCreateRequest(
             @NotBlank(message = "Title cannot be blank") @Size(max = 255) String title,
             @Size(max = 255) String aliasTitle,
             @Size(max = 1024) String coverImageUrl,
@@ -200,7 +200,7 @@ public final class VideoAdminDtos {
             String categoryCode) {
     }
 
-    public record UnifiedVideoUpdateRequest(
+    public record CatalogEntryUpdateRequest(
             @NotNull(message = "ID cannot be null") UUID id,
             @Size(max = 255) String title,
             @Size(max = 255) String aliasTitle,
@@ -232,7 +232,7 @@ public final class VideoAdminDtos {
             String categoryCode) {
     }
 
-    public record UnifiedVideoCardResponse(
+    public record CatalogEntryCardResponse(
             UUID id,
             String title,
             String aliasTitle,
@@ -259,7 +259,7 @@ public final class VideoAdminDtos {
             Set<String> areaCodes) {
     }
 
-    public record UnifiedVideoDetailResponse(
+    public record CatalogEntryDetailResponse(
             UUID id,
             String title,
             String aliasTitle,
@@ -292,7 +292,7 @@ public final class VideoAdminDtos {
             Set<String> genres,
             Set<String> tags,
             Set<String> lockedFields,
-            List<RawVideoCardResponse> sourceVideos,
+            List<SourceRecordCardResponse> sourceVideos,
             Instant createdAt,
             Instant updatedAt,
             String categoryCode,

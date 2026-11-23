@@ -247,3 +247,23 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 4.1.1
+  - include:
+      file: db/changelog/2026/11/24-01-domain-table-names.sql
+  - include:
+      file: db/changelog/2026/11/24-02-catalog-relationships.sql
+  - include:
+      file: db/changelog/2026/11/24-04-source-record-versions.sql
+  - include:
+      file: db/changelog/2026/11/24-06-catalog-publication-and-playback.sql
+  - include:
+      file: db/changelog/2026/11/24-03-member-relationships.sql
+  - include:
+      file: db/changelog/2026/11/24-05-collection-runs.sql
+  - include:
+      file: db/changelog/2026/11/24-07-media-assets.sql
+  - changeSet:
+      id: 1795470000013-tag-5.0.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 5.0.0

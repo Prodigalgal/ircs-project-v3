@@ -104,7 +104,7 @@ public class JdbcAggregationRepository {
                 30);
     }
 
-    public Optional<RawVideoAggregationRecord> findRawVideo(UUID rawVideoId) {
+    public Optional<SourceRecordAggregationRecord> findSourceRecord(UUID sourceRecordId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
@@ -117,30 +117,30 @@ public class JdbcAggregationRepository {
                     from (
                     select rv.*,
                            sc.name as category_name
-                    from raw_videos rv
-                    left join standard_category sc on sc.slug = rv.category_code
+                    from source_records rv
+                    left join catalog_categories sc on sc.slug = rv.category_code
                     where rv.id = :id
                     ) raw_candidate
                     """,
-                    new MapSqlParameterSource("id", rawVideoId),
-                    this::mapRawVideo));
+                    new MapSqlParameterSource("id", sourceRecordId),
+                    this::mapSourceRecord));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
     }
 
-    public List<RawVideoAggregationRecord> findRawVideos(Collection<UUID> rawVideoIds) {
-        if (rawVideoIds == null || rawVideoIds.isEmpty()) {
+    public List<SourceRecordAggregationRecord> findSourceRecords(Collection<UUID> sourceRecordIds) {
+        if (sourceRecordIds == null || sourceRecordIds.isEmpty()) {
             return List.of();
         }
-        List<UUID> ids = rawVideoIds.stream()
+        List<UUID> ids = sourceRecordIds.stream()
                 .filter(java.util.Objects::nonNull)
                 .distinct()
                 .toList();
         if (ids.isEmpty()) {
             return List.of();
         }
-        List<RawVideoAggregationRecord> rawVideos = jdbcTemplate.query(
+        List<SourceRecordAggregationRecord> sourceRecords = jdbcTemplate.query(
                 """
                 select id, title, alias_title, description, year, score, published_at,
                        total_episodes, duration, remarks, subtitle, season,
@@ -151,26 +151,26 @@ public class JdbcAggregationRepository {
                 from (
                     select rv.*,
                            sc.name as category_name
-                    from raw_videos rv
-                    left join standard_category sc on sc.slug = rv.category_code
+                    from source_records rv
+                    left join catalog_categories sc on sc.slug = rv.category_code
                     where rv.id in (:ids)
                 ) raw_candidate
                 """,
                 new MapSqlParameterSource("ids", ids),
-                this::mapRawVideo);
-        return rawVideos;
+                this::mapSourceRecord);
+        return sourceRecords;
     }
 
-    public Optional<UUID> findExistingBinding(UUID rawVideoId) {
+    public Optional<UUID> findExistingBinding(UUID sourceRecordId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select unified_video_id
-                    from raw_video_unified_video
-                    where raw_video_id = :rawVideoId
+                    select catalog_entry_id
+                    from catalog_source_bindings
+                    where source_record_id = :sourceRecordId
                     limit 1
                     """,
-                    new MapSqlParameterSource("rawVideoId", rawVideoId),
+                    new MapSqlParameterSource("sourceRecordId", sourceRecordId),
                     UUID.class));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
@@ -209,19 +209,18 @@ public class JdbcAggregationRepository {
                        work.release_year,
                        work.released_on as work_released_on,
                        work.regular_season_count,
-                       projection.season_number,
+                       coalesce(season.season_number,-1) as season_number,
                        season.released_on,
-                       projection.unified_video_id
-                  from authority_catalog_works work
-                  join authority_catalog_projections projection on projection.work_id=work.id
-                  join unified_videos unified on unified.id=projection.unified_video_id
-                  left join authority_catalog_seasons season
-                    on season.work_id=projection.work_id and season.season_number=projection.season_number
+                       entry.id as catalog_entry_id
+                  from catalog_works work
+                  join catalog_entries entry on entry.work_id=work.id
+                  left join catalog_seasons season on season.id=entry.season_id
                  where work.media_type=:mediaType
+                   and work.identity_status='VERIFIED'
                    and (%s)
-                   and unified.content_visibility='PUBLIC'
-                   and not coalesce(unified.adult_restricted, false)
-                 order by work.id, projection.season_number
+                   and entry.content_visibility='PUBLIC'
+                   and not coalesce(entry.adult_restricted, false)
+                 order by work.id, season.season_number nulls first
                 """.formatted(String.join(" or ", recallConditions));
         return jdbcTemplate.query(sql, parameters,
                 (rs, row) -> new AuthorityCatalogProjection(
@@ -236,7 +235,7 @@ public class JdbcAggregationRepository {
                         (Integer) rs.getObject("regular_season_count"),
                         rs.getInt("season_number"),
                         rs.getDate("released_on") == null ? null : rs.getDate("released_on").toLocalDate(),
-                        rs.getObject("unified_video_id", UUID.class)));
+                        rs.getObject("catalog_entry_id", UUID.class)));
     }
 
     private Integer integerValue(ResultSet rs, String column) throws SQLException {
@@ -244,60 +243,60 @@ public class JdbcAggregationRepository {
         return value == null ? null : ((Number) value).intValue();
     }
 
-    public void lockRawVideos(Collection<UUID> rawVideoIds) {
-        if (rawVideoIds == null || rawVideoIds.isEmpty()) { return; }
-        jdbcTemplate.query("select id from raw_videos where id in (:ids) order by id for update",
-                new MapSqlParameterSource("ids", rawVideoIds), (rs, row) -> rs.getObject(1, UUID.class));
+    public void lockSourceRecords(Collection<UUID> sourceRecordIds) {
+        if (sourceRecordIds == null || sourceRecordIds.isEmpty()) { return; }
+        jdbcTemplate.query("select id from source_records where id in (:ids) order by id for update",
+                new MapSqlParameterSource("ids", sourceRecordIds), (rs, row) -> rs.getObject(1, UUID.class));
     }
 
     public void configureAggregationTransaction() {
         jdbcTemplate.getJdbcTemplate().execute("set local lock_timeout = '2s'");
     }
 
-    public void lockUnifiedVideos(Collection<UUID> unifiedVideoIds) {
-        if (unifiedVideoIds == null || unifiedVideoIds.isEmpty()) { return; }
-        jdbcTemplate.query("select id from unified_videos where id in (:ids) order by id for update",
-                new MapSqlParameterSource("ids", unifiedVideoIds), (rs, row) -> rs.getObject(1, UUID.class));
+    public void lockCatalogEntries(Collection<UUID> catalogEntryIds) {
+        if (catalogEntryIds == null || catalogEntryIds.isEmpty()) { return; }
+        jdbcTemplate.query("select id from catalog_entries where id in (:ids) order by id for update",
+                new MapSqlParameterSource("ids", catalogEntryIds), (rs, row) -> rs.getObject(1, UUID.class));
     }
 
-    public List<UnifiedVideoAggregationCandidate> findUnifiedCandidatesByIds(Collection<UUID> ids) {
+    public List<CatalogEntryAggregationCandidate> findUnifiedCandidatesByIds(Collection<UUID> ids) {
         return candidateRepository.queryUnifiedCandidatesByIdsForWrite(List.copyOf(ids));
     }
 
-    public boolean isAdultAssessmentPending(UUID unifiedVideoId) {
+    public boolean isAdultAssessmentPending(UUID catalogEntryId) {
         return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
-                "select exists(select 1 from unified_videos where id=:id and adult_checked_at is null)",
-                new MapSqlParameterSource("id", unifiedVideoId), Boolean.class));
+                "select exists(select 1 from catalog_entries where id=:id and adult_checked_at is null)",
+                new MapSqlParameterSource("id", catalogEntryId), Boolean.class));
     }
 
-    public List<UUID> findRawIdsForUnified(UUID unifiedVideoId) {
+    public List<UUID> findRawIdsForUnified(UUID catalogEntryId) {
         return jdbcTemplate.queryForList(
                 """
-                select raw_video_id
-                from raw_video_unified_video
-                where unified_video_id = :unifiedVideoId
-                order by raw_video_id
+                select source_record_id
+                from catalog_source_bindings
+                where catalog_entry_id = :catalogEntryId
+                order by source_record_id
                 """,
-                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                 UUID.class);
     }
 
-    List<AggregationMemberIdentity> findBoundMemberIdentities(Collection<UUID> unifiedVideoIds) {
-        if (unifiedVideoIds.isEmpty()) { return List.of(); }
+    List<AggregationMemberIdentity> findBoundMemberIdentities(Collection<UUID> catalogEntryIds) {
+        if (catalogEntryIds.isEmpty()) { return List.of(); }
         // Read one extra link so callers can distinguish a complete view from the review limit.
         // Bound the indexed association lookup before loading the narrow identity projection.
         return jdbcTemplate.query("""
                 select rv.id, rv.title, rv.alias_title, rv.subtitle, rv.remarks, rv.year,
                        rv.season, rv.category_code, rv.douban_id, rv.tmdb_id, rv.imdb_id, rv.rotten_tomatoes_id
                 from (
-                    select raw_video_id
-                    from raw_video_unified_video
-                    where unified_video_id in (:ids)
+                    select source_record_id
+                    from catalog_source_bindings
+                    where catalog_entry_id in (:ids)
                     limit :limit
                 ) members
-                join raw_videos rv on rv.id = members.raw_video_id
+                join source_records rv on rv.id = member_accounts.source_record_id
                 order by rv.created_at asc, rv.id asc
-                """, new MapSqlParameterSource("ids", unifiedVideoIds)
+                """, new MapSqlParameterSource("ids", catalogEntryIds)
                         .addValue("limit", AggregationMemberIdentity.REVIEW_MEMBER_LIMIT + 1),
                 (rs, row) -> new AggregationMemberIdentity(
                         rs.getObject("id", UUID.class), rs.getString("title"), rs.getString("alias_title"),
@@ -311,9 +310,9 @@ public class JdbcAggregationRepository {
         return jdbcTemplate.queryForList(
                 """
                 select uv.id
-                  from unified_videos uv
+                  from catalog_entries uv
                  where uv.metadata_status = 'DIRTY'
-                   and exists (select 1 from raw_video_unified_video link where link.unified_video_id=uv.id)
+                   and exists (select 1 from catalog_source_bindings link where link.catalog_entry_id=uv.id)
                  order by uv.updated_at asc nulls first, uv.id
                  limit :limit
                 """,
@@ -325,7 +324,7 @@ public class JdbcAggregationRepository {
         return jdbcTemplate.queryForList(
                 """
                 select rv.id
-                from raw_videos rv
+                from source_records rv
                 where rv.aggregation_status = 'PENDING'
                   and rv.normalization_status = 'READY'
                   and rv.enrichment_status is distinct from 'PENDING'
@@ -341,11 +340,11 @@ public class JdbcAggregationRepository {
         return jdbcTemplate.queryForList(
                 """
                 select distinct uv.id
-                from unified_videos uv
-                join raw_video_unified_video rvuv on rvuv.unified_video_id = uv.id
-                join raw_videos rv on rv.id = rvuv.raw_video_id
-                where uv.cover_image_id is null
-                  and rv.cover_image_id is not null
+                from catalog_entries uv
+                join catalog_source_bindings rvuv on rvuv.catalog_entry_id = uv.id
+                join source_records rv on rv.id = rvuv.source_record_id
+                where uv.media_image_source_id is null
+                  and rv.media_image_source_id is not null
                 order by uv.id
                 limit :limit
                 """,
@@ -356,38 +355,38 @@ public class JdbcAggregationRepository {
     public List<UnifiedCoverBackfillResult> backfillUnifiedCoverImagesFromRaw(int limit) {
         List<UnifiedCoverBackfillResult> candidates = jdbcTemplate.query(
                 """
-                select unified_video_id, cover_image_id, storage_type, status
+                select catalog_entry_id, media_image_source_id, storage_type, status
                 from (
-                    select rvuv.unified_video_id,
-                           rv.cover_image_id,
+                    select rvuv.catalog_entry_id,
+                           rv.media_image_source_id,
                            ci.storage_type,
                            ci.status,
                            row_number() over (
-                               partition by rvuv.unified_video_id
+                               partition by rvuv.catalog_entry_id
                                order by rv.created_at asc, rv.id asc
                            ) as rn
                     from (
                         select distinct uv.id
-                        from unified_videos uv
-                        join raw_video_unified_video rvuv on rvuv.unified_video_id = uv.id
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where uv.cover_image_id is null
-                          and rv.cover_image_id is not null
+                        from catalog_entries uv
+                        join catalog_source_bindings rvuv on rvuv.catalog_entry_id = uv.id
+                        join source_records rv on rv.id = rvuv.source_record_id
+                        where uv.media_image_source_id is null
+                          and rv.media_image_source_id is not null
                         order by uv.id
                         limit :limit
                     ) cu
-                    join raw_video_unified_video rvuv on rvuv.unified_video_id = cu.id
-                    join raw_videos rv on rv.id = rvuv.raw_video_id
-                    join cover_images ci on ci.id = rv.cover_image_id
-                    where rv.cover_image_id is not null
+                    join catalog_source_bindings rvuv on rvuv.catalog_entry_id = cu.id
+                    join source_records rv on rv.id = rvuv.source_record_id
+                    join media_image_sources ci on ci.id = rv.media_image_source_id
+                    where rv.media_image_source_id is not null
                 )
                 where rn = 1
-                order by unified_video_id
+                order by catalog_entry_id
                 """,
                 new MapSqlParameterSource("limit", Math.max(1, limit)),
                 (rs, rowNum) -> new UnifiedCoverBackfillResult(
-                        rs.getObject("unified_video_id", UUID.class),
-                        rs.getObject("cover_image_id", UUID.class),
+                        rs.getObject("catalog_entry_id", UUID.class),
+                        rs.getObject("media_image_source_id", UUID.class),
                         rs.getString("storage_type"),
                         rs.getString("status")));
         if (candidates.isEmpty()) {
@@ -395,17 +394,17 @@ public class JdbcAggregationRepository {
         }
         MapSqlParameterSource[] batch = candidates.stream()
                 .map(result -> new MapSqlParameterSource()
-                        .addValue("unifiedVideoId", result.unifiedVideoId())
+                        .addValue("catalogEntryId", result.catalogEntryId())
                         .addValue("coverImageId", result.coverImageId()))
                 .toArray(MapSqlParameterSource[]::new);
         int[] updates = jdbcTemplate.batchUpdate(
                 """
-                update unified_videos
-                set cover_image_id = :coverImageId,
+                update catalog_entries
+                set media_image_source_id = :coverImageId,
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
-                  and cover_image_id is null
+                where id = :catalogEntryId
+                  and media_image_source_id is null
                 """,
                 batch);
         List<UnifiedCoverBackfillResult> backfilled = new ArrayList<>();
@@ -421,7 +420,7 @@ public class JdbcAggregationRepository {
         return jdbcTemplate.query(
                 """
                 select id
-                  from unified_videos
+                  from catalog_entries
                  where adult_checked_at is null
                     or coalesce(adult_assessment ->> 'ruleVersion', '') <> :ruleVersion
                  order by adult_checked_at asc nulls first,
@@ -435,41 +434,41 @@ public class JdbcAggregationRepository {
                 (rs, rowNum) -> rs.getObject("id", UUID.class));
     }
 
-    public Optional<UUID> findMatchingUnifiedVideo(RawVideoAggregationRecord rawVideo) {
-        return candidateRepository.findMatchingUnifiedVideo(rawVideo);
+    public Optional<UUID> findMatchingCatalogEntry(SourceRecordAggregationRecord sourceRecord) {
+        return candidateRepository.findMatchingCatalogEntry(sourceRecord);
     }
 
-    public AggregationMatchPlan findMatchPlan(RawVideoAggregationRecord rawVideo) {
-        return candidateRepository.findMatchPlan(rawVideo);
+    public AggregationMatchPlan findMatchPlan(SourceRecordAggregationRecord sourceRecord) {
+        return candidateRepository.findMatchPlan(sourceRecord);
     }
 
-    AggregationMatchPlan findCorrectionMatch(RawVideoAggregationRecord rawVideo, UUID sourceUnifiedId) {
-        return candidateRepository.findMatchPlan(rawVideo, sourceUnifiedId);
+    AggregationMatchPlan findCorrectionMatch(SourceRecordAggregationRecord sourceRecord, UUID sourceUnifiedId) {
+        return candidateRepository.findMatchPlan(sourceRecord, sourceUnifiedId);
     }
 
     BindingCorrectionSnapshot findBindingCorrectionSnapshot(UUID source, UUID target, List<UUID> rawIds) {
         return jdbcTemplate.queryForObject("""
                 with source_refs as (
                     select
-                        (select count(*) from raw_video_unified_video where unified_video_id=:source) as source_members,
-                        (select count(*) from raw_video_unified_video where unified_video_id=:target) as target_members,
-                        (select count(*) from member_favorites where unified_video_id=:source) as favorites,
-                        (select count(*) from member_watch_histories h
-                          where h.unified_video_id=:source or h.last_video_id in (:rawIds)
-                             or h.last_episode_id in (
-                                 select ep.id from episodes ep join playlists pl on pl.id=ep.playlist_id
-                                  where pl.video_id in (:rawIds)
+                        (select count(*) from catalog_source_bindings where catalog_entry_id=:source) as source_members,
+                        (select count(*) from catalog_source_bindings where catalog_entry_id=:target) as target_members,
+                        (select count(*) from member_catalog_favorites where catalog_entry_id=:source) as favorites,
+                        (select count(*) from member_playback_progress h
+                          where h.catalog_entry_id=:source or h.last_source_record_id in (:rawIds)
+                             or h.last_source_playback_item_id in (
+                                 select ep.id from source_playback_items ep join source_playlists pl on pl.id=ep.playlist_id
+                                  where pl.source_record_id in (:rawIds)
                              )) as histories,
-                        (select count(*) from magnet_links where unified_video_id=:source) as magnets
+                        (select count(*) from catalog_magnet_links where catalog_entry_id=:source) as magnets
                 ), chosen_bindings as (
-                    select raw_video_id from raw_video_unified_video
-                     where raw_video_id in (:rawIds)
-                     group by raw_video_id having count(*)=1 and bool_and(unified_video_id=:source)
+                    select source_record_id from catalog_source_bindings
+                     where source_record_id in (:rawIds)
+                     group by source_record_id having count(*)=1 and bool_and(catalog_entry_id=:source)
                 ), target_member_versions as materialized (
                     select r.id, r.xmin::text as revision
-                      from raw_video_unified_video link join raw_videos r on r.id=link.raw_video_id
-                     where link.unified_video_id=:target
-                     order by link.raw_video_id
+                      from catalog_source_bindings link join source_records r on r.id=link.source_record_id
+                     where link.catalog_entry_id=:target
+                     order by link.source_record_id
                      limit :memberLimit
                 )
                 select source_members, target_members, favorites, histories, magnets,
@@ -477,9 +476,9 @@ public class JdbcAggregationRepository {
                     encode(sha256(convert_to(jsonb_build_array(
                         cast(:source as uuid), cast(:target as uuid), to_jsonb(source_refs),
                         (select jsonb_agg(jsonb_build_array(id, xmin::text) order by id)
-                           from raw_videos where id in (:rawIds)),
+                           from source_records where id in (:rawIds)),
                         (select jsonb_agg(jsonb_build_array(id, xmin::text) order by id)
-                           from unified_videos where id in (:source, :target)),
+                           from catalog_entries where id in (:source, :target)),
                         (select jsonb_agg(jsonb_build_array(id, revision) order by id) from target_member_versions)
                     )::text, 'UTF8')), 'hex') as fingerprint
                 from source_refs
@@ -492,28 +491,28 @@ public class JdbcAggregationRepository {
 
     boolean lockRetainedCorrectionBinding(UUID source, List<UUID> movedIds) {
         return !jdbcTemplate.queryForList("""
-                select raw_video_id from raw_video_unified_video
-                 where unified_video_id=:source and raw_video_id not in (:rawIds)
-                 order by raw_video_id limit 1 for update
+                select source_record_id from catalog_source_bindings
+                 where catalog_entry_id=:source and source_record_id not in (:rawIds)
+                 order by source_record_id limit 1 for update
                 """, new MapSqlParameterSource("source", source).addValue("rawIds", movedIds), UUID.class).isEmpty();
     }
 
     void lockSelectedCorrectionBindings(List<UUID> rawIds) {
         jdbcTemplate.queryForList("""
-                select raw_video_id from raw_video_unified_video where raw_video_id in (:rawIds)
-                 order by raw_video_id, unified_video_id for update
+                select source_record_id from catalog_source_bindings where source_record_id in (:rawIds)
+                 order by source_record_id, catalog_entry_id for update
                 """, new MapSqlParameterSource("rawIds", rawIds), UUID.class);
     }
 
     int moveCorrectionBindings(UUID source, UUID target, List<UUID> rawIds) {
         return jdbcTemplate.update("""
                 with moved as (
-                    delete from raw_video_unified_video
-                    where unified_video_id=:source and raw_video_id in (:rawIds)
-                    returning raw_video_id
+                    delete from catalog_source_bindings
+                    where catalog_entry_id=:source and source_record_id in (:rawIds)
+                    returning source_record_id
                 )
-                insert into raw_video_unified_video(raw_video_id,unified_video_id)
-                select raw_video_id,:target from moved
+                insert into catalog_source_bindings(source_record_id,catalog_entry_id)
+                select source_record_id,:target from moved
                 """, correctionParams(source, target, rawIds));
     }
 
@@ -524,15 +523,15 @@ public class JdbcAggregationRepository {
     record BindingCorrectionSnapshot(long sourceMembers, long targetMembers, long favorites,
             long histories, long magnets, int expectedBindings, String fingerprint) { }
 
-    public List<UnifiedVideoAggregationCandidate> findContextUnifiedCandidates(List<RawVideoAggregationRecord> rawVideos) {
-        return candidateRepository.findContextUnifiedCandidates(rawVideos);
+    public List<CatalogEntryAggregationCandidate> findContextUnifiedCandidates(List<SourceRecordAggregationRecord> sourceRecords) {
+        return candidateRepository.findContextUnifiedCandidates(sourceRecords);
     }
 
-    public UUID createUnifiedVideo(RawVideoAggregationRecord rawVideo) {
-        UUID unifiedVideoId = IrcsUuidGenerators.nextId();
+    public UUID createCatalogEntry(SourceRecordAggregationRecord sourceRecord) {
+        UUID catalogEntryId = IrcsUuidGenerators.nextId();
         jdbcTemplate.update(
                 """
-                insert into unified_videos (
+                insert into catalog_entries (
                     id, created_at, updated_at, version,
                     title, alias_title, description, year, score, published_at,
                     total_episodes, duration, remarks, subtitle, season,
@@ -543,18 +542,18 @@ public class JdbcAggregationRepository {
                     :title, :aliasTitle, :description, :year, :score, :publishedAt,
                     :totalEpisodes, :duration, :remarks, :subtitle, :season,
                     :doubanId, :tmdbId, :imdbId, :rottenTomatoesId,
-                    (select id from standard_category where slug = :categoryCode limit 1), :categoryCode,
+                    (select id from catalog_categories where slug = :categoryCode limit 1), :categoryCode,
                     '[]'::jsonb, 'SYNCED'
                 )
                 """,
-                paramsForUnified(unifiedVideoId, rawVideo));
-        return unifiedVideoId;
+                paramsForUnified(catalogEntryId, sourceRecord));
+        return catalogEntryId;
     }
 
-    public int upsertUnifiedFields(UUID unifiedVideoId, RawVideoAggregationRecord rawVideo) {
+    public int upsertUnifiedFields(UUID catalogEntryId, SourceRecordAggregationRecord sourceRecord) {
         return jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set title = coalesce(nullif(title, ''), :title),
                     alias_title = coalesce(nullif(alias_title, ''), :aliasTitle),
                     description = coalesce(nullif(description, ''), :description),
@@ -575,7 +574,7 @@ public class JdbcAggregationRepository {
                             category_code is null
                             or nullif(trim(category_code), '') is null
                             or lower(category_code) not in (:allowedCategoryCodes)
-                        ) then (select id from standard_category where slug = :categoryCode limit 1)
+                        ) then (select id from catalog_categories where slug = :categoryCode limit 1)
                         else category_id
                     end,
                     category_code = case
@@ -590,40 +589,37 @@ public class JdbcAggregationRepository {
                     updated_at = now()
                 where id = :id
                 """,
-                paramsForUnified(unifiedVideoId, rawVideo));
+                paramsForUnified(catalogEntryId, sourceRecord));
     }
 
-    public int bindRawToUnified(UUID rawVideoId, UUID unifiedVideoId) {
+    public int bindRawToUnified(UUID sourceRecordId, UUID catalogEntryId) {
         return jdbcTemplate.update(
                 """
-                insert into raw_video_unified_video (raw_video_id, unified_video_id)
-                values (:rawVideoId, :unifiedVideoId)
+                insert into catalog_source_bindings (source_record_id, catalog_entry_id)
+                values (:sourceRecordId, :catalogEntryId)
                 on conflict do nothing
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
-                        .addValue("unifiedVideoId", unifiedVideoId));
+                        .addValue("sourceRecordId", sourceRecordId)
+                        .addValue("catalogEntryId", catalogEntryId));
     }
 
-    public int recordAuthorityBinding(UUID rawVideoId, UUID unifiedVideoId, String evidenceKind) {
-        return jdbcTemplate.update("""
-                insert into authority_resource_bindings(raw_video_id, unified_video_id, evidence_kind)
-                values (:rawVideoId, :unifiedVideoId, :evidenceKind)
-                on conflict (raw_video_id) do update
-                   set evidence_kind=excluded.evidence_kind, bound_at=now()
-                 where authority_resource_bindings.unified_video_id=excluded.unified_video_id
+    public int recordAuthorityBinding(UUID sourceRecordId, UUID catalogEntryId, String evidenceKind) {
+        Integer changed = jdbcTemplate.queryForObject("""
+                select affirm_catalog_source_match(:sourceRecordId, :catalogEntryId, :evidenceKind)
                 """, new MapSqlParameterSource()
-                .addValue("rawVideoId", rawVideoId)
-                .addValue("unifiedVideoId", unifiedVideoId)
-                .addValue("evidenceKind", evidenceKind));
+                .addValue("sourceRecordId", sourceRecordId)
+                .addValue("catalogEntryId", catalogEntryId)
+                .addValue("evidenceKind", evidenceKind), Integer.class);
+        return changed == null ? 0 : changed;
     }
 
     public int enqueueAuthorityCatalogImport(String mediaType, long tmdbId, int seasonNumber) {
         return jdbcTemplate.update("""
-                insert into authority_catalog_imports(media_type, tmdb_id, season_number, priority)
+                insert into catalog_authority_import_jobs(media_type, tmdb_id, season_number, priority)
                 select :mediaType, :tmdbId, :seasonNumber, 30
                  where not exists (
-                     select 1 from authority_catalog_imports rejected
+                     select 1 from catalog_authority_import_jobs rejected
                       where rejected.media_type=:mediaType and rejected.tmdb_id=:tmdbId
                         and rejected.last_error='ADULT_SOURCE_RECORD'
                  )
@@ -634,31 +630,31 @@ public class JdbcAggregationRepository {
                 .addValue("seasonNumber", seasonNumber));
     }
 
-    public void rebuildUnifiedPipelineRelations(UUID unifiedVideoId) {
-        rebuildUnifiedPipelineMetadataRelations(unifiedVideoId);
-        rebuildUnifiedPipelineCategory(unifiedVideoId);
+    public void rebuildUnifiedPipelineRelations(UUID catalogEntryId) {
+        rebuildUnifiedPipelineMetadataRelations(catalogEntryId);
+        rebuildUnifiedPipelineCategory(catalogEntryId);
     }
 
-    public void rebuildUnifiedPipelineMetadataRelations(UUID unifiedVideoId) {
-        Set<String> lockedFields = findLockedFields(unifiedVideoId);
-        rebuildUnifiedFlatMetadata(unifiedVideoId, lockedFields);
-        evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(unifiedVideoId));
+    public void rebuildUnifiedPipelineMetadataRelations(UUID catalogEntryId) {
+        Set<String> lockedFields = findLockedFields(catalogEntryId);
+        rebuildUnifiedFlatMetadata(catalogEntryId, lockedFields);
+        evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(catalogEntryId));
     }
 
-    public void rebuildUnifiedPipelineScalars(UUID unifiedVideoId) {
-        rebuildUnifiedPipelineBasicAttributes(unifiedVideoId);
-        rebuildUnifiedPipelineExternalIds(unifiedVideoId);
-        rebuildUnifiedPipelineDynamicFields(unifiedVideoId);
+    public void rebuildUnifiedPipelineScalars(UUID catalogEntryId) {
+        rebuildUnifiedPipelineBasicAttributes(catalogEntryId);
+        rebuildUnifiedPipelineExternalIds(catalogEntryId);
+        rebuildUnifiedPipelineDynamicFields(catalogEntryId);
     }
 
-    public void rebuildUnifiedPipelineBasicAttributes(UUID unifiedVideoId) {
-        var display = findUnifiedDisplayState(unifiedVideoId);
+    public void rebuildUnifiedPipelineBasicAttributes(UUID catalogEntryId) {
+        var display = findUnifiedDisplayState(catalogEntryId);
         if (display.isEmpty()) { return; }
         UnifiedDisplayState current = display.orElseThrow();
-        Set<String> lockedFields = lockedFieldsWithCatalog(unifiedVideoId, current.storedLocks());
-        MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+        Set<String> lockedFields = lockedFieldsWithCatalog(catalogEntryId, current.storedLocks());
+        MapSqlParameterSource params = new MapSqlParameterSource("catalogEntryId", catalogEntryId);
         if (current.sports()) {
-            rebuildSportsDisplayIdentity(unifiedVideoId, current.identity(), lockedFields, params);
+            rebuildSportsDisplayIdentity(catalogEntryId, current.identity(), lockedFields, params);
         } else {
             if (!isLocked(lockedFields, "title")) {
                 updateUnifiedStringByVote("title", "title", params);
@@ -675,12 +671,12 @@ public class JdbcAggregationRepository {
         }
     }
 
-    public void rebuildUnifiedPipelineExternalIds(UUID unifiedVideoId) {
-        MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+    public void rebuildUnifiedPipelineExternalIds(UUID catalogEntryId) {
+        MapSqlParameterSource params = new MapSqlParameterSource("catalogEntryId", catalogEntryId);
         List<String> columns = List.of("douban_id", "tmdb_id", "imdb_id", "rotten_tomatoes_id");
         List<String[]> roots = jdbcTemplate.query("""
                 select douban_id, tmdb_id, imdb_id, rotten_tomatoes_id, cast(locked_fields as varchar) as external_id_locks
-                  from unified_videos where id = :unifiedVideoId
+                  from catalog_entries where id = :catalogEntryId
                 """, params, (rs, rowNum) -> new String[] {
                         rs.getString("douban_id"), rs.getString("tmdb_id"), rs.getString("imdb_id"), rs.getString("rotten_tomatoes_id"),
                         rs.getString("external_id_locks")});
@@ -699,7 +695,7 @@ public class JdbcAggregationRepository {
             needsAnyEvidence |= needsEvidence[index];
         }
         if (!needsAnyEvidence) { return; }
-        List<UUID> target = List.of(unifiedVideoId);
+        List<UUID> target = List.of(catalogEntryId);
         List<AggregationMemberIdentity> members = findBoundMemberIdentities(target);
         String[] selected = new String[columns.size()];
         if (members.size() <= AggregationMemberIdentity.REVIEW_MEMBER_LIMIT) {
@@ -720,10 +716,10 @@ public class JdbcAggregationRepository {
             if (selected[index] == null && !clearRejected[index]) { continue; }
             String column = columns.get(index);
             jdbcTemplate.update("""
-                    update unified_videos set %s = :selectedId, updated_at = now(), version = coalesce(version, 0) + 1
-                     where id = :unifiedVideoId and coalesce(%s, '') = coalesce(:observedId, '')
+                    update catalog_entries set %s = :selectedId, updated_at = now(), version = coalesce(version, 0) + 1
+                     where id = :catalogEntryId and coalesce(%s, '') = coalesce(:observedId, '')
                        and coalesce(cast(locked_fields as varchar), '') = coalesce(:observedLocks, '')
-                    """.formatted(column, column), new MapSqlParameterSource("unifiedVideoId", unifiedVideoId)
+                    """.formatted(column, column), new MapSqlParameterSource("catalogEntryId", catalogEntryId)
                     .addValue("selectedId", selected[index]).addValue("observedId", observed[index])
                     .addValue("observedLocks", observed[4]));
         }
@@ -737,12 +733,12 @@ public class JdbcAggregationRepository {
                 .orElse(false);
     }
 
-    public void rebuildUnifiedPipelineDynamicFields(UUID unifiedVideoId) {
-        var display = findUnifiedDisplayState(unifiedVideoId);
+    public void rebuildUnifiedPipelineDynamicFields(UUID catalogEntryId) {
+        var display = findUnifiedDisplayState(catalogEntryId);
         if (display.isEmpty()) { return; }
         UnifiedDisplayState current = display.orElseThrow();
-        Set<String> lockedFields = lockedFieldsWithCatalog(unifiedVideoId, current.storedLocks());
-        MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+        Set<String> lockedFields = lockedFieldsWithCatalog(catalogEntryId, current.storedLocks());
+        MapSqlParameterSource params = new MapSqlParameterSource("catalogEntryId", catalogEntryId);
         if (!isLocked(lockedFields, "aliasTitle")) {
             updateUnifiedLongestString("alias_title", "alias_title", params);
         }
@@ -766,23 +762,23 @@ public class JdbcAggregationRepository {
         }
     }
 
-    private Optional<UnifiedDisplayState> findUnifiedDisplayState(UUID unifiedVideoId) {
+    private Optional<UnifiedDisplayState> findUnifiedDisplayState(UUID catalogEntryId) {
         return jdbcTemplate.query("""
                 select category_code, title, subtitle, year, cast(locked_fields as varchar) as field_locks
-                  from unified_videos where id=:unifiedVideoId
-                """, new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                  from catalog_entries where id=:catalogEntryId
+                """, new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                 (rs, row) -> new UnifiedDisplayState("sports".equals(rs.getString("category_code")),
                         new SportsDisplayIdentity(rs.getString("title"), rs.getString("subtitle"), rs.getString("year")),
                         rs.getString("field_locks"))).stream().findFirst();
     }
 
-    private void rebuildSportsDisplayIdentity(UUID unifiedVideoId, SportsDisplayIdentity current,
+    private void rebuildSportsDisplayIdentity(UUID catalogEntryId, SportsDisplayIdentity current,
             Set<String> lockedFields, MapSqlParameterSource params) {
         boolean titleLocked = isLocked(lockedFields, "title");
         boolean subtitleLocked = isLocked(lockedFields, "subtitle");
         boolean yearLocked = isLocked(lockedFields, "year");
         if (titleLocked && subtitleLocked && yearLocked) { return; }
-        List<AggregationMemberIdentity> members = findBoundMemberIdentities(List.of(unifiedVideoId));
+        List<AggregationMemberIdentity> members = findBoundMemberIdentities(List.of(catalogEntryId));
         if (members.size() > AggregationMemberIdentity.REVIEW_MEMBER_LIMIT) { return; }
         // A competition heading and the opposing teams must come from the same observed row.
         // Vote over complete tuples so a long subtitle from another event cannot win alone.
@@ -801,8 +797,8 @@ public class JdbcAggregationRepository {
                 .map(Map.Entry::getKey).orElse(current);
         if (!selected.equals(current)) {
             jdbcTemplate.update("""
-                    update unified_videos set title=:sportsTitle, subtitle=:sportsSubtitle, year=:sportsYear,
-                      updated_at=now(), version=coalesce(version, 0)+1 where id=:unifiedVideoId
+                    update catalog_entries set title=:sportsTitle, subtitle=:sportsSubtitle, year=:sportsYear,
+                      updated_at=now(), version=coalesce(version, 0)+1 where id=:catalogEntryId
                     """, params.addValue("sportsTitle", selected.title()).addValue("sportsSubtitle", selected.subtitle())
                             .addValue("sportsYear", selected.year()));
         }
@@ -812,23 +808,23 @@ public class JdbcAggregationRepository {
 
     private record UnifiedDisplayState(boolean sports, SportsDisplayIdentity identity, String storedLocks) { }
 
-    public void rebuildUnifiedPipelineCategory(UUID unifiedVideoId) {
-        Set<String> lockedFields = findLockedFields(unifiedVideoId);
+    public void rebuildUnifiedPipelineCategory(UUID catalogEntryId) {
+        Set<String> lockedFields = findLockedFields(catalogEntryId);
         if (!isLocked(lockedFields, "category")) {
-            MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+            MapSqlParameterSource params = new MapSqlParameterSource("catalogEntryId", catalogEntryId);
             voteUnifiedCategory(params);
             voteUnifiedCategoryCode(params);
         }
     }
 
-    public void rebuildUnifiedAdultAssessment(UUID unifiedVideoId) {
-        lockAdultAssessmentRow(unifiedVideoId);
-        if (adultFieldsLocked(unifiedVideoId)) { return; }
-        Optional<UnifiedAdultAssessmentBase> base = findUnifiedAdultAssessmentBase(unifiedVideoId);
+    public void rebuildUnifiedAdultAssessment(UUID catalogEntryId) {
+        lockAdultAssessmentRow(catalogEntryId);
+        if (adultFieldsLocked(catalogEntryId)) { return; }
+        Optional<UnifiedAdultAssessmentBase> base = findUnifiedAdultAssessmentBase(catalogEntryId);
         if (base.isEmpty()) {
             return;
         }
-        AdultAssessment assessment = assessOrDefer(unifiedVideoId, new AdultAssessmentInput(
+        AdultAssessment assessment = assessOrDefer(catalogEntryId, new AdultAssessmentInput(
                 base.get().title(),
                 base.get().aliasTitle(),
                 base.get().description(),
@@ -839,14 +835,14 @@ public class JdbcAggregationRepository {
                 JsonStringArrays.readSet(objectMapper, base.get().actorNamesJson()),
                 JsonStringArrays.readSet(objectMapper, base.get().directorNamesJson()),
                 JsonStringArrays.readSet(objectMapper, base.get().genreCodesJson()),
-                findAdultAssessmentSources(unifiedVideoId)));
-        writeUnifiedAdultAssessment(unifiedVideoId, assessment);
+                findAdultAssessmentSources(catalogEntryId)));
+        writeUnifiedAdultAssessment(catalogEntryId, assessment);
     }
 
-    public List<UUID> rebuildUnifiedAdultAssessments(List<UUID> unifiedVideoIds) {
-        List<UUID> orderedIds = unifiedVideoIds == null
+    public List<UUID> rebuildUnifiedAdultAssessments(List<UUID> catalogEntryIds) {
+        List<UUID> orderedIds = catalogEntryIds == null
                 ? List.of()
-                : unifiedVideoIds.stream()
+                : catalogEntryIds.stream()
                         .filter(java.util.Objects::nonNull)
                         .distinct()
                         .toList();
@@ -861,12 +857,12 @@ public class JdbcAggregationRepository {
         Map<UUID, List<AdultAssessmentInput.SourceEvidence>> sourcesByUnifiedId =
                 findAdultAssessmentSources(orderedIds);
         Map<UUID, AdultAssessmentInput> inputs = new LinkedHashMap<>();
-        for (UUID unifiedVideoId : orderedIds) {
-            UnifiedAdultAssessmentBase base = bases.get(unifiedVideoId);
-            if (base == null || adultFieldsLocked(unifiedVideoId)) {
+        for (UUID catalogEntryId : orderedIds) {
+            UnifiedAdultAssessmentBase base = bases.get(catalogEntryId);
+            if (base == null || adultFieldsLocked(catalogEntryId)) {
                 continue;
             }
-            inputs.put(unifiedVideoId, new AdultAssessmentInput(
+            inputs.put(catalogEntryId, new AdultAssessmentInput(
                     base.title(),
                     base.aliasTitle(),
                     base.description(),
@@ -877,7 +873,7 @@ public class JdbcAggregationRepository {
                     JsonStringArrays.readSet(objectMapper, base.actorNamesJson()),
                     JsonStringArrays.readSet(objectMapper, base.directorNamesJson()),
                     JsonStringArrays.readSet(objectMapper, base.genreCodesJson()),
-                    sourcesByUnifiedId.getOrDefault(unifiedVideoId, List.of())));
+                    sourcesByUnifiedId.getOrDefault(catalogEntryId, List.of())));
         }
         Map<UUID, AdultAssessment> assessments;
         if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -887,18 +883,18 @@ public class JdbcAggregationRepository {
             assessments = adultAssessmentEvaluator.assessAll(inputs);
         }
         List<AdultAssessmentWrite> writes = new ArrayList<>(assessments.size());
-        for (UUID unifiedVideoId : orderedIds) {
-            AdultAssessment assessment = assessments.get(unifiedVideoId);
+        for (UUID catalogEntryId : orderedIds) {
+            AdultAssessment assessment = assessments.get(catalogEntryId);
             if (assessment == null) {
                 continue;
             }
-            writes.add(new AdultAssessmentWrite(unifiedVideoId, assessment));
+            writes.add(new AdultAssessmentWrite(catalogEntryId, assessment));
         }
         return writeUnifiedAdultAssessments(writes);
     }
 
     private void lockAdultAssessmentRow(UUID id) {
-        jdbcTemplate.query("select id from unified_videos where id=:id for update",
+        jdbcTemplate.query("select id from catalog_entries where id=:id for update",
                 new MapSqlParameterSource("id", id), (rs, row) -> rs.getObject("id", UUID.class));
     }
 
@@ -932,13 +928,13 @@ public class JdbcAggregationRepository {
     static final String ADULT_SOURCE_DIGEST = """
             md5(coalesce((select jsonb_agg(jsonb_build_array(to_jsonb(rv),to_jsonb(ds),to_jsonb(ci),to_jsonb(sd))
                                                order by rv.id)::text
-                            from raw_video_unified_video links
-                            join raw_videos rv on rv.id=links.raw_video_id
-                            left join data_sources ds on ds.id=rv.data_source_id
-                            left join cover_images ci on ci.id=rv.cover_image_id
-                            left join source_domains sd on sd.id=ci.source_domain_id
-                           where links.unified_video_id=uv.id),'')
-                || coalesce((select to_jsonb(sc)::text from standard_category sc where sc.slug=uv.category_code),''))
+                            from catalog_source_bindings links
+                            join source_records rv on rv.id=links.source_record_id
+                            left join collection_sources ds on ds.id=rv.collection_source_id
+                            left join media_image_sources ci on ci.id=rv.media_image_source_id
+                            left join source_origins sd on sd.id=ci.source_origin_id
+                           where links.catalog_entry_id=uv.id),'')
+                || coalesce((select to_jsonb(sc)::text from catalog_categories sc where sc.slug=uv.category_code),''))
             """;
 
     AdultAssessmentSnapshot captureAdultAssessment(UUID id) {
@@ -953,7 +949,7 @@ public class JdbcAggregationRepository {
                 JsonStringArrays.readSet(objectMapper, base.genreCodesJson()), findAdultAssessmentSources(id));
         List<AdultAssessmentSnapshot> snapshots = jdbcTemplate.query(
                 "select md5(to_jsonb(uv)::text) as unified_digest, " + ADULT_SOURCE_DIGEST
-                        + " as source_digest from unified_videos uv where uv.id=:id",
+                        + " as source_digest from catalog_entries uv where uv.id=:id",
                 new MapSqlParameterSource("id", id), (rs, row) -> new AdultAssessmentSnapshot(
                         id, rs.getString("unified_digest"), rs.getString("source_digest"), input));
         return snapshots.stream().findFirst().orElse(null);
@@ -985,19 +981,19 @@ public class JdbcAggregationRepository {
         // The parent FOR UPDATE also fences FK binding inserts until this short transaction ends.
         MapSqlParameterSource params = new MapSqlParameterSource("id", snapshot.id());
         jdbcTemplate.query("""
-                select links.raw_video_id from raw_video_unified_video links
-                join raw_videos rv on rv.id=links.raw_video_id
-                where links.unified_video_id=:id order by rv.id for share of links, rv nowait
+                select links.source_record_id from catalog_source_bindings links
+                join source_records rv on rv.id=links.source_record_id
+                where links.catalog_entry_id=:id order by rv.id for share of links, rv nowait
                 """, params, (rs, row) -> rs.getObject(1, UUID.class));
         for (String sourceLock : List.of(
-                "select ds.id from data_sources ds where ds.id in (select rv.data_source_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ds.id for share nowait",
-                "select ci.id from cover_images ci where ci.id in (select rv.cover_image_id from raw_videos rv join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by ci.id for share nowait",
-                "select sd.id from source_domains sd where sd.id in (select ci.source_domain_id from cover_images ci join raw_videos rv on rv.cover_image_id=ci.id join raw_video_unified_video l on l.raw_video_id=rv.id where l.unified_video_id=:id) order by sd.id for share nowait",
-                "select sc.id from standard_category sc where sc.slug=(select uv.category_code from unified_videos uv where uv.id=:id) for share nowait")) {
+                "select ds.id from collection_sources ds where ds.id in (select rv.collection_source_id from source_records rv join catalog_source_bindings l on l.source_record_id=rv.id where l.catalog_entry_id=:id) order by ds.id for share nowait",
+                "select ci.id from media_image_sources ci where ci.id in (select rv.media_image_source_id from source_records rv join catalog_source_bindings l on l.source_record_id=rv.id where l.catalog_entry_id=:id) order by ci.id for share nowait",
+                "select sd.id from source_origins sd where sd.id in (select ci.source_origin_id from media_image_sources ci join source_records rv on rv.media_image_source_id=ci.id join catalog_source_bindings l on l.source_record_id=rv.id where l.catalog_entry_id=:id) order by sd.id for share nowait",
+                "select sc.id from catalog_categories sc where sc.slug=(select uv.category_code from catalog_entries uv where uv.id=:id) for share nowait")) {
             jdbcTemplate.query(sourceLock, params, (rs, row) -> rs.getObject(1));
         }
         return jdbcTemplate.update("""
-                update unified_videos uv
+                update catalog_entries uv
                    set adult_restricted=:adultRestricted, adult_assessment=cast(:assessment as jsonb),
                        adult_checked_at=now(), updated_at=now(), version=coalesce(uv.version,0)+1
                  where uv.id=:id and md5(to_jsonb(uv)::text)=:unifiedDigest and
@@ -1009,9 +1005,9 @@ public class JdbcAggregationRepository {
                         .addValue("assessment", writeJson(assessment))) > 0;
     }
 
-    public List<UUID> rebuildUnifiedPipelineCoverImage(UUID unifiedVideoId) {
-        List<CoverImageChoice> choices = findCoverImageChoices(unifiedVideoId);
-        Optional<CoverImageChoice> currentCover = findCurrentUnifiedCover(unifiedVideoId);
+    public List<UUID> rebuildUnifiedPipelineCoverImage(UUID catalogEntryId) {
+        List<CoverImageChoice> choices = findCoverImageChoices(catalogEntryId);
+        Optional<CoverImageChoice> currentCover = findCurrentUnifiedCover(catalogEntryId);
         if (currentCover.isEmpty() && choices.isEmpty()) {
             return List.of();
         }
@@ -1031,16 +1027,16 @@ public class JdbcAggregationRepository {
                 }
             }
         }
-        updateUnifiedCoverImage(unifiedVideoId, selected.id());
+        updateUnifiedCoverImage(catalogEntryId, selected.id());
         return promoteCandidates;
     }
 
-    public void mergeDuplicateUnifiedVideos(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
-        if (victimUnifiedVideoIds == null || victimUnifiedVideoIds.isEmpty()) {
+    public void mergeDuplicateCatalogEntries(UUID rootCatalogEntryId, List<UUID> victimCatalogEntryIds) {
+        if (victimCatalogEntryIds == null || victimCatalogEntryIds.isEmpty()) {
             return;
         }
-        List<UUID> victims = victimUnifiedVideoIds.stream()
-                .filter(victimId -> !rootUnifiedVideoId.equals(victimId))
+        List<UUID> victims = victimCatalogEntryIds.stream()
+                .filter(victimId -> !rootCatalogEntryId.equals(victimId))
                 .distinct()
                 .toList();
         if (victims.isEmpty()) {
@@ -1048,63 +1044,63 @@ public class JdbcAggregationRepository {
         }
 
         List<UUID> allIds = new ArrayList<>(victims);
-        allIds.add(rootUnifiedVideoId);
-        lockUnifiedVideos(allIds);
+        allIds.add(rootCatalogEntryId);
+        lockCatalogEntries(allIds);
 
         MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("rootId", rootUnifiedVideoId)
+                .addValue("rootId", rootCatalogEntryId)
                 .addValue("victimIds", victims);
         migrateRawBindingsToRoot(params);
         migrateFavoritesToRoot(params);
         migrateWatchHistoriesToRoot(params);
-        mergeVictimScalarsToRoot(rootUnifiedVideoId, victims);
-        mergeVictimFlatMetadataToRoot(rootUnifiedVideoId, victims);
+        mergeVictimScalarsToRoot(rootCatalogEntryId, victims);
+        mergeVictimFlatMetadataToRoot(rootCatalogEntryId, victims);
         deleteVictimUnifiedRows(params);
         List<UUID> changedIds = new ArrayList<>(victims.size() + 1);
-        changedIds.add(rootUnifiedVideoId);
+        changedIds.add(rootCatalogEntryId);
         changedIds.addAll(victims);
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, changedIds);
     }
 
-    public int markBound(UUID rawVideoId) {
-        return updateAggregationStatus(rawVideoId, "BOUND");
+    public int markBound(UUID sourceRecordId) {
+        return updateAggregationStatus(sourceRecordId, "BOUND");
     }
 
-    public int markUnifiedSynced(UUID unifiedVideoId) {
+    public int markUnifiedSynced(UUID catalogEntryId) {
         return jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set metadata_status = 'SYNCED',
                     updated_at = now()
-                where id = :unifiedVideoId
-                  and exists (select 1 from raw_video_unified_video link where link.unified_video_id=:unifiedVideoId)
+                where id = :catalogEntryId
+                  and exists (select 1 from catalog_source_bindings link where link.catalog_entry_id=:catalogEntryId)
                 """,
-                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId));
+                new MapSqlParameterSource("catalogEntryId", catalogEntryId));
     }
 
-    public int markUnifiedDirty(UUID unifiedVideoId) {
+    public int markUnifiedDirty(UUID catalogEntryId) {
         return jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set metadata_status = 'DIRTY',
                     updated_at = now()
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                 """,
-                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId));
+                new MapSqlParameterSource("catalogEntryId", catalogEntryId));
     }
 
-    public int markPending(UUID rawVideoId) {
+    public int markPending(UUID sourceRecordId) {
         // A queue item can outlive the work it described (ops backfill, manual status edits), so a
         // blind `PENDING` write would demote an already BOUND row and re-queue it indefinitely.
         return jdbcTemplate.update(
                 """
-            update raw_videos
+            update source_records
             set aggregation_status = 'PENDING',
                 aggregation_status_updated_at = now()
-            where id = :rawVideoId
+            where id = :sourceRecordId
               and aggregation_status not in ('BOUND', 'PENDING')
                 """,
-                new MapSqlParameterSource().addValue("rawVideoId", rawVideoId));
+                new MapSqlParameterSource().addValue("sourceRecordId", sourceRecordId));
     }
 
     public int resetStuckProcessing(int timeoutMinutes, int limit) {
@@ -1112,14 +1108,14 @@ public class JdbcAggregationRepository {
                 """
                 with stuck as (
                     select id
-                  from raw_videos
+                  from source_records
                   where aggregation_status = 'PROCESSING'
                     and aggregation_status_updated_at < now() - (:timeoutMinutes * interval '1 minute')
                   order by aggregation_status_updated_at asc
                   limit :limit
                   for update skip locked
                 )
-              update raw_videos rv
+              update source_records rv
               set aggregation_status = 'PENDING',
                   aggregation_status_updated_at = now()
                 from stuck
@@ -1130,11 +1126,11 @@ public class JdbcAggregationRepository {
                         .addValue("limit", limit));
     }
 
-    public List<UUID> sampleRawVideoIds(int limit) {
+    public List<UUID> sampleSourceRecordIds(int limit) {
         return jdbcTemplate.queryForList(
                 """
                 select id
-                  from raw_videos
+                  from source_records
                  order by aggregation_status_updated_at asc, id asc
                  limit :limit
                 """,
@@ -1142,16 +1138,16 @@ public class JdbcAggregationRepository {
                 UUID.class);
     }
 
-    public long countRawVideos() {
-        return count("raw_videos");
+    public long countSourceRecords() {
+        return count("source_records");
     }
 
-    public long countUnifiedVideos() {
-        return count("unified_videos");
+    public long countCatalogEntries() {
+        return count("catalog_entries");
     }
 
     public long countRawUnifiedBindings() {
-        return count("raw_video_unified_video");
+        return count("catalog_source_bindings");
     }
 
     // Transaction-scoped advisory locks coordinate every replica and release on rollback.
@@ -1166,32 +1162,32 @@ public class JdbcAggregationRepository {
     public int deleteAllAggregationResetOwnedRows() {
         int changedRows = 0;
         changedRows += updateIfTableExists("""
-                delete from magnet_provider_runs
+                delete from magnet_discovery_provider_runs
                  where job_id in (
                        select id
-                         from magnet_search_jobs
-                        where unified_video_id in (select id from unified_videos)
+                         from magnet_discovery_jobs
+                        where catalog_entry_id in (select id from catalog_entries)
                  )
                 """);
         changedRows += updateIfTableExists("""
-                delete from magnet_search_jobs
-                 where unified_video_id in (select id from unified_videos)
+                delete from magnet_discovery_jobs
+                 where catalog_entry_id in (select id from catalog_entries)
                 """);
         changedRows += updateIfTableExists("""
-                delete from magnet_links
-                 where unified_video_id in (select id from unified_videos)
+                delete from catalog_magnet_links
+                 where catalog_entry_id in (select id from catalog_entries)
                 """);
         changedRows += updateIfTableExists("""
-                delete from member_favorites
-                 where unified_video_id in (select id from unified_videos)
+                delete from member_catalog_favorites
+                 where catalog_entry_id in (select id from catalog_entries)
                 """);
         changedRows += updateIfTableExists("""
-                delete from member_watch_histories
-                 where unified_video_id in (select id from unified_videos)
+                delete from member_playback_progress
+                 where catalog_entry_id in (select id from catalog_entries)
                 """);
-        changedRows += updateIfTableExists("delete from raw_video_unified_video");
-        changedRows += updateIfTableExists("delete from unified_video_tags");
-        changedRows += jdbcTemplate.update("delete from unified_videos", new MapSqlParameterSource());
+        changedRows += updateIfTableExists("delete from catalog_source_bindings");
+        changedRows += updateIfTableExists("delete from catalog_entry_tags");
+        changedRows += jdbcTemplate.update("delete from catalog_entries", new MapSqlParameterSource());
         evictAllMetadataNameCache();
         return changedRows;
     }
@@ -1199,23 +1195,23 @@ public class JdbcAggregationRepository {
     public int markAllRawAggregationPending() {
         return jdbcTemplate.update(
                 """
-                update raw_videos
+                update source_records
                    set aggregation_status = 'PENDING',
                        aggregation_status_updated_at = now()
                 """,
                 new MapSqlParameterSource());
     }
 
-    private int updateAggregationStatus(UUID rawVideoId, String status) {
+    private int updateAggregationStatus(UUID sourceRecordId, String status) {
         return jdbcTemplate.update(
                 """
-            update raw_videos
+            update source_records
             set aggregation_status = :status,
                 aggregation_status_updated_at = now()
-            where id = :rawVideoId
+            where id = :sourceRecordId
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("status", status));
     }
 
@@ -1253,17 +1249,8 @@ public class JdbcAggregationRepository {
     private void migrateRawBindingsToRoot(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                insert into raw_video_unified_video (raw_video_id, unified_video_id)
-                select raw_video_id, :rootId
-                from raw_video_unified_video
-                where unified_video_id in (:victimIds)
-                on conflict do nothing
-                """,
-                params);
-        jdbcTemplate.update(
-                """
-                delete from raw_video_unified_video
-                where unified_video_id in (:victimIds)
+                update catalog_source_bindings set catalog_entry_id=:rootId
+                where catalog_entry_id in (:victimIds)
                 """,
                 params);
     }
@@ -1271,23 +1258,16 @@ public class JdbcAggregationRepository {
     private void migrateFavoritesToRoot(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                delete from member_favorites
-                where unified_video_id in (:victimIds)
-                  and exists (
-                      select 1
-                      from member_favorites root
-                      where root.member_id = member_favorites.member_id
-                        and root.unified_video_id = :rootId
-                  )
+                insert into member_catalog_favorites (id, created_at, updated_at, version, member_id, catalog_entry_id)
+                select distinct on (member_id) uuidv7(), created_at, now(), 0, member_id, :rootId
+                from member_catalog_favorites where catalog_entry_id in (:victimIds)
+                order by member_id, created_at, id
+                on conflict (member_id, catalog_entry_id) do nothing
                 """,
                 params);
         jdbcTemplate.update(
                 """
-                update member_favorites
-                set unified_video_id = :rootId,
-                    updated_at = now(),
-                    version = coalesce(version, 0) + 1
-                where unified_video_id in (:victimIds)
+                delete from member_catalog_favorites where catalog_entry_id in (:victimIds)
                 """,
                 params);
     }
@@ -1295,50 +1275,59 @@ public class JdbcAggregationRepository {
     private void migrateWatchHistoriesToRoot(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                delete from member_watch_histories
-                where unified_video_id in (:victimIds)
-                  and exists (
-                      select 1
-                      from member_watch_histories root
-                      where root.member_id = member_watch_histories.member_id
-                        and root.unified_video_id = :rootId
-                  )
+                insert into member_playback_progress (id, created_at, updated_at, version, member_id, catalog_entry_id,
+                    work_id, season_id, catalog_episode_id, last_source_record_id, last_source_playback_item_id,
+                    progress_seconds, duration_seconds, episode_name, last_watched_at)
+                select distinct on (old.member_id) uuidv7(), old.created_at, old.updated_at, 0, old.member_id, entry.id,
+                    entry.work_id, coalesce(playback.season_id,entry.season_id), playback.episode_id,
+                    playback.source_record_id, playback.source_playback_item_id,
+                    old.progress_seconds, old.duration_seconds, old.episode_name, old.last_watched_at
+                from member_playback_progress old cross join catalog_entries entry
+                left join catalog_playback_bindings playback on playback.work_id=entry.work_id
+                    and playback.season_id is not distinct from entry.season_id
+                    and playback.source_playback_item_id=old.last_source_playback_item_id
+                where old.catalog_entry_id in (:victimIds) and entry.id=:rootId
+                order by old.member_id, old.last_watched_at desc, old.id
+                on conflict (member_id, catalog_entry_id) do update set
+                    updated_at=excluded.updated_at, version=coalesce(member_playback_progress.version,0)+1,
+                    season_id=excluded.season_id, catalog_episode_id=excluded.catalog_episode_id,
+                    last_source_record_id=excluded.last_source_record_id,
+                    last_source_playback_item_id=excluded.last_source_playback_item_id,
+                    progress_seconds=excluded.progress_seconds, duration_seconds=excluded.duration_seconds,
+                    episode_name=excluded.episode_name, last_watched_at=excluded.last_watched_at
+                where member_playback_progress.last_watched_at < excluded.last_watched_at
                 """,
                 params);
         jdbcTemplate.update(
                 """
-                update member_watch_histories
-                set unified_video_id = :rootId,
-                    updated_at = now(),
-                    version = coalesce(version, 0) + 1
-                where unified_video_id in (:victimIds)
+                delete from member_playback_progress where catalog_entry_id in (:victimIds)
                 """,
                 params);
     }
 
-    private Set<String> findLockedFields(UUID unifiedVideoId) {
+    private Set<String> findLockedFields(UUID catalogEntryId) {
         try {
             String lockedFields = jdbcTemplate.queryForObject(
                     """
                     select cast(locked_fields as varchar)
-                    from unified_videos
-                    where id = :unifiedVideoId
+                    from catalog_entries
+                    where id = :catalogEntryId
                     """,
-                    new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                    new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                     String.class);
-            return lockedFieldsWithCatalog(unifiedVideoId, lockedFields);
+            return lockedFieldsWithCatalog(catalogEntryId, lockedFields);
         } catch (EmptyResultDataAccessException ignored) {
             return Set.of();
         }
     }
 
-    private Set<String> lockedFieldsWithCatalog(UUID unifiedVideoId, String storedLocks) {
+    private Set<String> lockedFieldsWithCatalog(UUID catalogEntryId, String storedLocks) {
         Set<String> retained = new LinkedHashSet<>(parseLockedFields(storedLocks));
-        retainVerifiedCatalogFields(unifiedVideoId, retained);
+        retainVerifiedCatalogFields(catalogEntryId, retained);
         return retained;
     }
 
-    private void retainVerifiedCatalogFields(UUID unifiedVideoId, Set<String> retained) {
+    private void retainVerifiedCatalogFields(UUID catalogEntryId, Set<String> retained) {
         Map<String,String> fields = Map.ofEntries(
                 Map.entry("title","title"), Map.entry("year","year"), Map.entry("score","score"),
                 Map.entry("published_at","publishedat"), Map.entry("alias_title","aliastitle"),
@@ -1347,10 +1336,10 @@ public class JdbcAggregationRepository {
                 Map.entry("area_codes","area"), Map.entry("language_codes","language"), Map.entry("genre_codes","genres"));
         // Retain only recorded, verified authority values; these are not persisted as manual locks.
         jdbcTemplate.query("""
-                select uv.* from unified_videos uv where uv.id=:unifiedVideoId
-                  and exists(select 1 from catalog_metadata_requests job
-                             where job.unified_video_id=uv.id and job.last_success_at is not null)
-                """, new MapSqlParameterSource("unifiedVideoId",unifiedVideoId),
+                select uv.* from catalog_entries uv where uv.id=:catalogEntryId
+                  and exists(select 1 from catalog_metadata_enrichment_jobs job
+                             where job.catalog_entry_id=uv.id and job.last_success_at is not null)
+                """, new MapSqlParameterSource("catalogEntryId",catalogEntryId),
                 (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
                     java.sql.ResultSetMetaData metadata = rs.getMetaData();
                     for (int n=1;n<=metadata.getColumnCount();n++) {
@@ -1422,14 +1411,14 @@ public class JdbcAggregationRepository {
     private void updateUnifiedStringByVote(String unifiedColumn, String rawColumn, MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set %s = (
                         select selected_value
                         from (
                             select trim(%s) as selected_value, count(*) as votes
-                            from raw_video_unified_video rvuv
-                            join raw_videos rv on rv.id = rvuv.raw_video_id
-                            where rvuv.unified_video_id = :unifiedVideoId
+                            from catalog_source_bindings rvuv
+                            join source_records rv on rv.id = rvuv.source_record_id
+                            where rvuv.catalog_entry_id = :catalogEntryId
                               and nullif(trim(%s), '') is not null
                             group by trim(%s)
                             order by votes desc, selected_value asc
@@ -1438,12 +1427,12 @@ public class JdbcAggregationRepository {
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and nullif(trim(%s), '') is not null
                   )
                 """.formatted(unifiedColumn, rawColumn, rawColumn, rawColumn, rawColumn),
@@ -1453,22 +1442,22 @@ public class JdbcAggregationRepository {
     private void updateUnifiedScoreMax(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set score = (
                         select max(rv.score)
-                        from raw_video_unified_video rvuv
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where rvuv.unified_video_id = :unifiedVideoId
+                        from catalog_source_bindings rvuv
+                        join source_records rv on rv.id = rvuv.source_record_id
+                        where rvuv.catalog_entry_id = :catalogEntryId
                           and rv.score is not null
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and rv.score is not null
                   )
                 """,
@@ -1478,24 +1467,24 @@ public class JdbcAggregationRepository {
     private void updateUnifiedFirstDate(String unifiedColumn, String rawColumn, MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set %s = (
                         select %s
-                        from raw_video_unified_video rvuv
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where rvuv.unified_video_id = :unifiedVideoId
+                        from catalog_source_bindings rvuv
+                        join source_records rv on rv.id = rvuv.source_record_id
+                        where rvuv.catalog_entry_id = :catalogEntryId
                           and %s is not null
                         order by rv.created_at asc, rv.id asc
                         limit 1
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and %s is not null
                   )
                 """.formatted(unifiedColumn, rawColumn, rawColumn, rawColumn),
@@ -1505,14 +1494,14 @@ public class JdbcAggregationRepository {
     private void updateUnifiedLongestString(String unifiedColumn, String rawColumn, MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set %s = (
                         select selected_value
                         from (
                             select trim(%s) as selected_value, rv.created_at, rv.id
-                            from raw_video_unified_video rvuv
-                            join raw_videos rv on rv.id = rvuv.raw_video_id
-                            where rvuv.unified_video_id = :unifiedVideoId
+                            from catalog_source_bindings rvuv
+                            join source_records rv on rv.id = rvuv.source_record_id
+                            where rvuv.catalog_entry_id = :catalogEntryId
                               and nullif(trim(%s), '') is not null
                         ) values_by_length
                         order by length(selected_value) desc, created_at asc, id asc
@@ -1520,12 +1509,12 @@ public class JdbcAggregationRepository {
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and nullif(trim(%s), '') is not null
                   )
                 """.formatted(unifiedColumn, rawColumn, rawColumn, rawColumn),
@@ -1535,24 +1524,24 @@ public class JdbcAggregationRepository {
     private void updateUnifiedLatestRemarks(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set remarks = (
                         select trim(rv.remarks)
-                        from raw_video_unified_video rvuv
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where rvuv.unified_video_id = :unifiedVideoId
+                        from catalog_source_bindings rvuv
+                        join source_records rv on rv.id = rvuv.source_record_id
+                        where rvuv.catalog_entry_id = :catalogEntryId
                           and nullif(trim(rv.remarks), '') is not null
                         order by rv.updated_at desc, rv.id asc
                         limit 1
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and nullif(trim(rv.remarks), '') is not null
                   )
                 """,
@@ -1562,24 +1551,24 @@ public class JdbcAggregationRepository {
     private void updateUnifiedFirstString(String unifiedColumn, String rawColumn, MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set %s = (
                         select trim(%s)
-                        from raw_video_unified_video rvuv
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where rvuv.unified_video_id = :unifiedVideoId
+                        from catalog_source_bindings rvuv
+                        join source_records rv on rv.id = rvuv.source_record_id
+                        where rvuv.catalog_entry_id = :catalogEntryId
                           and nullif(trim(%s), '') is not null
                         order by rv.created_at asc, rv.id asc
                         limit 1
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and nullif(trim(%s), '') is not null
                   )
                 """.formatted(unifiedColumn, rawColumn, rawColumn, rawColumn),
@@ -1589,24 +1578,24 @@ public class JdbcAggregationRepository {
     private void updateUnifiedFirstInteger(String unifiedColumn, String rawColumn, MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set %s = (
                         select %s
-                        from raw_video_unified_video rvuv
-                        join raw_videos rv on rv.id = rvuv.raw_video_id
-                        where rvuv.unified_video_id = :unifiedVideoId
+                        from catalog_source_bindings rvuv
+                        join source_records rv on rv.id = rvuv.source_record_id
+                        where rvuv.catalog_entry_id = :catalogEntryId
                           and %s is not null
                         order by rv.created_at asc, rv.id asc
                         limit 1
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and %s is not null
                   )
                 """.formatted(unifiedColumn, rawColumn, rawColumn, rawColumn),
@@ -1623,12 +1612,12 @@ public class JdbcAggregationRepository {
         };
     }
 
-    private void rebuildUnifiedFlatMetadata(UUID unifiedVideoId, Set<String> lockedFields) {
-        List<RawFlatMetadataRow> rows = findRawFlatMetadataRows(unifiedVideoId);
+    private void rebuildUnifiedFlatMetadata(UUID catalogEntryId, Set<String> lockedFields) {
+        List<RawFlatMetadataRow> rows = findRawFlatMetadataRows(catalogEntryId);
         if (rows.isEmpty()) {
             return;
         }
-        MapSqlParameterSource params = new MapSqlParameterSource("unifiedVideoId", unifiedVideoId);
+        MapSqlParameterSource params = new MapSqlParameterSource("catalogEntryId", catalogEntryId);
         appendFlatJsonUpdate(params, "actorNames", collectFlatValues(rows, RawFlatMetadataRow::actorNames),
                 !isLocked(lockedFields, "actors"));
         appendFlatJsonUpdate(params, "directorNames", collectFlatValues(rows, RawFlatMetadataRow::directorNames),
@@ -1643,22 +1632,22 @@ public class JdbcAggregationRepository {
             return;
         }
         String setSql = params.getValues().keySet().stream()
-                .filter(name -> !"unifiedVideoId".equals(name))
+                .filter(name -> !"catalogEntryId".equals(name))
                 .map(this::flatJsonSetSql)
                 .reduce((left, right) -> left + ",\n                       " + right)
                 .orElse("");
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                    set %s,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1
-                 where id = :unifiedVideoId
+                 where id = :catalogEntryId
                 """.formatted(setSql),
                 params);
     }
 
-    private List<RawFlatMetadataRow> findRawFlatMetadataRows(UUID unifiedVideoId) {
+    private List<RawFlatMetadataRow> findRawFlatMetadataRows(UUID catalogEntryId) {
         return jdbcTemplate.query(
                 """
                 select cast(rv.actor_names as varchar) as actor_names,
@@ -1667,11 +1656,11 @@ public class JdbcAggregationRepository {
                        cast(rv.language_codes as varchar) as language_codes,
                        cast(rv.genre_codes as varchar) as genre_codes,
                        rv.category_code
-                  from raw_video_unified_video rvuv
-                  join raw_videos rv on rv.id = rvuv.raw_video_id
-                 where rvuv.unified_video_id = :unifiedVideoId
+                  from catalog_source_bindings rvuv
+                  join source_records rv on rv.id = rvuv.source_record_id
+                 where rvuv.catalog_entry_id = :catalogEntryId
                 """,
-                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                 (rs, rowNum) -> new RawFlatMetadataRow(
                         JsonStringArrays.readSet(objectMapper, rs.getString("actor_names")),
                         JsonStringArrays.readSet(objectMapper, rs.getString("director_names")),
@@ -1713,17 +1702,17 @@ public class JdbcAggregationRepository {
         return "%s = cast(:%s as jsonb)".formatted(columnName, paramName);
     }
 
-    private List<CoverImageChoice> findCoverImageChoices(UUID unifiedVideoId) {
+    private List<CoverImageChoice> findCoverImageChoices(UUID catalogEntryId) {
         return jdbcTemplate.query(
                 """
                 select ci.id, ci.storage_type, ci.status, ci.file_size
-                from raw_video_unified_video rvuv
-                join raw_videos rv on rv.id = rvuv.raw_video_id
-                join cover_images ci on ci.id = rv.cover_image_id
-                where rvuv.unified_video_id = :unifiedVideoId
+                from catalog_source_bindings rvuv
+                join source_records rv on rv.id = rvuv.source_record_id
+                join media_image_sources ci on ci.id = rv.media_image_source_id
+                where rvuv.catalog_entry_id = :catalogEntryId
                 order by rv.created_at asc, rv.id asc
                 """,
-                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                 (rs, rowNum) -> new CoverImageChoice(
                         rs.getObject("id", UUID.class),
                         rs.getString("storage_type"),
@@ -1732,16 +1721,16 @@ public class JdbcAggregationRepository {
                         rs.wasNull()));
     }
 
-    private Optional<CoverImageChoice> findCurrentUnifiedCover(UUID unifiedVideoId) {
+    private Optional<CoverImageChoice> findCurrentUnifiedCover(UUID catalogEntryId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
                     select ci.id, ci.storage_type, ci.status, ci.file_size
-                    from unified_videos uv
-                    join cover_images ci on ci.id = uv.cover_image_id
-                    where uv.id = :unifiedVideoId
+                    from catalog_entries uv
+                    join media_image_sources ci on ci.id = uv.media_image_source_id
+                    where uv.id = :catalogEntryId
                     """,
-                    new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                    new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                     (rs, rowNum) -> new CoverImageChoice(
                             rs.getObject("id", UUID.class),
                             rs.getString("storage_type"),
@@ -1765,33 +1754,33 @@ public class JdbcAggregationRepository {
         return false;
     }
 
-    private void updateUnifiedCoverImage(UUID unifiedVideoId, UUID coverImageId) {
+    private void updateUnifiedCoverImage(UUID catalogEntryId, UUID coverImageId) {
         jdbcTemplate.update(
                 """
-                update unified_videos
-                set cover_image_id = :coverImageId,
+                update catalog_entries
+                set media_image_source_id = :coverImageId,
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
-                  and (cover_image_id is null or cover_image_id <> :coverImageId)
+                where id = :catalogEntryId
+                  and (media_image_source_id is null or media_image_source_id <> :coverImageId)
                 """,
                 new MapSqlParameterSource()
-                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("catalogEntryId", catalogEntryId)
                         .addValue("coverImageId", coverImageId));
     }
 
     private void voteUnifiedCategory(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set category_id = (
                         select category_id
                         from (
                             select sc.id as category_id, count(*) as votes
-                            from raw_video_unified_video rvuv
-                            join raw_videos rv on rv.id = rvuv.raw_video_id
-                            join standard_category sc on sc.slug = rv.category_code
-                            where rvuv.unified_video_id = :unifiedVideoId
+                            from catalog_source_bindings rvuv
+                            join source_records rv on rv.id = rvuv.source_record_id
+                            join catalog_categories sc on sc.slug = rv.category_code
+                            where rvuv.catalog_entry_id = :catalogEntryId
                               and nullif(trim(rv.category_code), '') is not null
                             group by sc.id
                             order by votes desc, cast(sc.id as varchar) asc
@@ -1800,13 +1789,13 @@ public class JdbcAggregationRepository {
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      join standard_category sc on sc.slug = rv.category_code
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      join catalog_categories sc on sc.slug = rv.category_code
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and nullif(trim(rv.category_code), '') is not null
                   )
                 """,
@@ -1816,14 +1805,14 @@ public class JdbcAggregationRepository {
     private void voteUnifiedCategoryCode(MapSqlParameterSource params) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                 set category_code = (
                         select category_code
                         from (
                             select rv.category_code, count(*) as votes
-                            from raw_video_unified_video rvuv
-                            join raw_videos rv on rv.id = rvuv.raw_video_id
-                            where rvuv.unified_video_id = :unifiedVideoId
+                            from catalog_source_bindings rvuv
+                            join source_records rv on rv.id = rvuv.source_record_id
+                            where rvuv.catalog_entry_id = :catalogEntryId
                               and nullif(trim(rv.category_code), '') is not null
                             group by rv.category_code
                             order by votes desc, rv.category_code asc
@@ -1832,19 +1821,19 @@ public class JdbcAggregationRepository {
                     ),
                     updated_at = now(),
                     version = coalesce(version, 0) + 1
-                where id = :unifiedVideoId
+                where id = :catalogEntryId
                   and exists (
                       select 1
-                      from raw_video_unified_video rvuv
-                      join raw_videos rv on rv.id = rvuv.raw_video_id
-                      where rvuv.unified_video_id = :unifiedVideoId
+                      from catalog_source_bindings rvuv
+                      join source_records rv on rv.id = rvuv.source_record_id
+                      where rvuv.catalog_entry_id = :catalogEntryId
                         and nullif(trim(rv.category_code), '') is not null
                   )
                 """,
                 params);
     }
 
-    private Optional<UnifiedAdultAssessmentBase> findUnifiedAdultAssessmentBase(UUID unifiedVideoId) {
+    private Optional<UnifiedAdultAssessmentBase> findUnifiedAdultAssessmentBase(UUID catalogEntryId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
@@ -1859,18 +1848,18 @@ public class JdbcAggregationRepository {
                            cast(uv.actor_names as varchar) as actor_names,
                            cast(uv.director_names as varchar) as director_names,
                            cast(uv.genre_codes as varchar) as genre_codes
-                      from unified_videos uv
-                      left join standard_category sc on sc.slug = uv.category_code
-                     where uv.id = :unifiedVideoId
+                      from catalog_entries uv
+                      left join catalog_categories sc on sc.slug = uv.category_code
+                     where uv.id = :catalogEntryId
                     """,
-                    new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                    new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                     this::mapUnifiedAdultAssessmentBase));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
     }
 
-    private Map<UUID, UnifiedAdultAssessmentBase> findUnifiedAdultAssessmentBases(Collection<UUID> unifiedVideoIds) {
+    private Map<UUID, UnifiedAdultAssessmentBase> findUnifiedAdultAssessmentBases(Collection<UUID> catalogEntryIds) {
         List<UnifiedAdultAssessmentBase> rows = jdbcTemplate.query(
                 """
                 select uv.id,
@@ -1884,11 +1873,11 @@ public class JdbcAggregationRepository {
                        cast(uv.actor_names as varchar) as actor_names,
                        cast(uv.director_names as varchar) as director_names,
                        cast(uv.genre_codes as varchar) as genre_codes
-                  from unified_videos uv
-                  left join standard_category sc on sc.slug = uv.category_code
+                  from catalog_entries uv
+                  left join catalog_categories sc on sc.slug = uv.category_code
                  where uv.id in (:ids)
                 """,
-                new MapSqlParameterSource("ids", unifiedVideoIds),
+                new MapSqlParameterSource("ids", catalogEntryIds),
                 this::mapUnifiedAdultAssessmentBase);
         Map<UUID, UnifiedAdultAssessmentBase> byId = new LinkedHashMap<>();
         for (UnifiedAdultAssessmentBase row : rows) {
@@ -1897,7 +1886,7 @@ public class JdbcAggregationRepository {
         return byId;
     }
 
-    private List<AdultAssessmentInput.SourceEvidence> findAdultAssessmentSources(UUID unifiedVideoId) {
+    private List<AdultAssessmentInput.SourceEvidence> findAdultAssessmentSources(UUID catalogEntryId) {
         return jdbcTemplate.query(
                 """
                 select ds.name as data_source_name,
@@ -1906,15 +1895,15 @@ public class JdbcAggregationRepository {
                        rv.source_category_name,
                        coalesce(ds.base_url, sd.domain_value) as source_domain,
                        cast(null as varchar) as raw_metadata
-                  from raw_video_unified_video rvuv
-                  join raw_videos rv on rv.id = rvuv.raw_video_id
-                  left join data_sources ds on ds.id = rv.data_source_id
-                  left join cover_images ci on ci.id = rv.cover_image_id
-                  left join source_domains sd on sd.id = ci.source_domain_id
-                 where rvuv.unified_video_id = :unifiedVideoId
+                  from catalog_source_bindings rvuv
+                  join source_records rv on rv.id = rvuv.source_record_id
+                  left join collection_sources ds on ds.id = rv.collection_source_id
+                  left join media_image_sources ci on ci.id = rv.media_image_source_id
+                  left join source_origins sd on sd.id = ci.source_origin_id
+                 where rvuv.catalog_entry_id = :catalogEntryId
                  order by rv.created_at asc, rv.id asc
                 """,
-                new MapSqlParameterSource("unifiedVideoId", unifiedVideoId),
+                new MapSqlParameterSource("catalogEntryId", catalogEntryId),
                 (rs, rowNum) -> new AdultAssessmentInput.SourceEvidence(
                         rs.getString("data_source_name"),
                         rs.getBoolean("data_source_adult_restricted"),
@@ -1925,29 +1914,29 @@ public class JdbcAggregationRepository {
     }
 
     private Map<UUID, List<AdultAssessmentInput.SourceEvidence>> findAdultAssessmentSources(
-            Collection<UUID> unifiedVideoIds) {
+            Collection<UUID> catalogEntryIds) {
         Map<UUID, List<AdultAssessmentInput.SourceEvidence>> sourcesByUnifiedId = new LinkedHashMap<>();
         jdbcTemplate.query(
                 """
-                select rvuv.unified_video_id,
+                select rvuv.catalog_entry_id,
                        ds.name as data_source_name,
                        coalesce(ds.adult_restricted, false) as data_source_adult_restricted,
                        rv.source_category_code,
                        rv.source_category_name,
                        coalesce(ds.base_url, sd.domain_value) as source_domain,
                        cast(null as varchar) as raw_metadata
-                  from raw_video_unified_video rvuv
-                  join raw_videos rv on rv.id = rvuv.raw_video_id
-                  left join data_sources ds on ds.id = rv.data_source_id
-                  left join cover_images ci on ci.id = rv.cover_image_id
-                  left join source_domains sd on sd.id = ci.source_domain_id
-                 where rvuv.unified_video_id in (:ids)
-                 order by rvuv.unified_video_id, rv.created_at asc, rv.id asc
+                  from catalog_source_bindings rvuv
+                  join source_records rv on rv.id = rvuv.source_record_id
+                  left join collection_sources ds on ds.id = rv.collection_source_id
+                  left join media_image_sources ci on ci.id = rv.media_image_source_id
+                  left join source_origins sd on sd.id = ci.source_origin_id
+                 where rvuv.catalog_entry_id in (:ids)
+                 order by rvuv.catalog_entry_id, rv.created_at asc, rv.id asc
                 """,
-                new MapSqlParameterSource("ids", unifiedVideoIds),
+                new MapSqlParameterSource("ids", catalogEntryIds),
                 rs -> {
-                    UUID unifiedVideoId = rs.getObject("unified_video_id", UUID.class);
-                    sourcesByUnifiedId.computeIfAbsent(unifiedVideoId, ignored -> new ArrayList<>())
+                    UUID catalogEntryId = rs.getObject("catalog_entry_id", UUID.class);
+                    sourcesByUnifiedId.computeIfAbsent(catalogEntryId, ignored -> new ArrayList<>())
                             .add(new AdultAssessmentInput.SourceEvidence(
                                     rs.getString("data_source_name"),
                                     rs.getBoolean("data_source_adult_restricted"),
@@ -1959,22 +1948,22 @@ public class JdbcAggregationRepository {
         return sourcesByUnifiedId;
     }
 
-    private void writeUnifiedAdultAssessment(UUID unifiedVideoId, AdultAssessment assessment) {
+    private void writeUnifiedAdultAssessment(UUID catalogEntryId, AdultAssessment assessment) {
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                    set adult_restricted = :adultRestricted,
                        adult_assessment = cast(:adultAssessment as jsonb),
                        adult_checked_at = case when :pending then null else now() end,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1
-                 where id = :unifiedVideoId
+                 where id = :catalogEntryId
                 """,
                 new MapSqlParameterSource()
-                        .addValue("unifiedVideoId", unifiedVideoId)
+                        .addValue("catalogEntryId", catalogEntryId)
                         .addValue("adultRestricted", assessment.adultRestricted())
                         .addValue("adultAssessment", writeJson(assessment))
-                        .addValue("pending", DeferredAdultAssessments.contains(unifiedVideoId)));
+                        .addValue("pending", DeferredAdultAssessments.contains(catalogEntryId)));
     }
 
     private List<UUID> writeUnifiedAdultAssessments(List<AdultAssessmentWrite> writes) {
@@ -1983,26 +1972,26 @@ public class JdbcAggregationRepository {
         }
         MapSqlParameterSource[] batch = writes.stream()
                 .map(write -> new MapSqlParameterSource()
-                        .addValue("unifiedVideoId", write.unifiedVideoId())
+                        .addValue("catalogEntryId", write.catalogEntryId())
                         .addValue("adultRestricted", write.assessment().adultRestricted())
                         .addValue("adultAssessment", writeJson(write.assessment()))
-                        .addValue("pending", DeferredAdultAssessments.contains(write.unifiedVideoId())))
+                        .addValue("pending", DeferredAdultAssessments.contains(write.catalogEntryId())))
                 .toArray(MapSqlParameterSource[]::new);
         int[] updates = jdbcTemplate.batchUpdate(
                 """
-                update unified_videos
+                update catalog_entries
                    set adult_restricted = :adultRestricted,
                        adult_assessment = cast(:adultAssessment as jsonb),
                        adult_checked_at = case when :pending then null else now() end,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1
-                 where id = :unifiedVideoId
+                 where id = :catalogEntryId
                 """,
                 batch);
         List<UUID> updatedIds = new ArrayList<>(updates.length);
         for (int i = 0; i < updates.length; i++) {
             if (updates[i] > 0) {
-                updatedIds.add(writes.get(i).unifiedVideoId());
+                updatedIds.add(writes.get(i).catalogEntryId());
             }
         }
         return updatedIds;
@@ -2031,11 +2020,11 @@ public class JdbcAggregationRepository {
         }
     }
 
-    private void mergeVictimScalarsToRoot(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
-        for (UUID victimUnifiedVideoId : victimUnifiedVideoIds) {
+    private void mergeVictimScalarsToRoot(UUID rootCatalogEntryId, List<UUID> victimCatalogEntryIds) {
+        for (UUID victimCatalogEntryId : victimCatalogEntryIds) {
             jdbcTemplate.update(
                     """
-                    update unified_videos root
+                    update catalog_entries root
                     set douban_id = coalesce(nullif(root.douban_id, ''), nullif(victim.douban_id, '')),
                         tmdb_id = coalesce(nullif(root.tmdb_id, ''), nullif(victim.tmdb_id, '')),
                         imdb_id = coalesce(nullif(root.imdb_id, ''), nullif(victim.imdb_id, '')),
@@ -2061,18 +2050,18 @@ public class JdbcAggregationRepository {
                         metadata_status = 'DIRTY',
                         updated_at = now(),
                         version = coalesce(root.version, 0) + 1
-                    from unified_videos victim
+                    from catalog_entries victim
                     where root.id = :rootId
                       and victim.id = :victimId
                     """,
                     new MapSqlParameterSource()
-                            .addValue("rootId", rootUnifiedVideoId)
-                            .addValue("victimId", victimUnifiedVideoId));
+                            .addValue("rootId", rootCatalogEntryId)
+                            .addValue("victimId", victimCatalogEntryId));
         }
     }
 
-    private void mergeVictimFlatMetadataToRoot(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
-        if (victimUnifiedVideoIds == null || victimUnifiedVideoIds.isEmpty()) {
+    private void mergeVictimFlatMetadataToRoot(UUID rootCatalogEntryId, List<UUID> victimCatalogEntryIds) {
+        if (victimCatalogEntryIds == null || victimCatalogEntryIds.isEmpty()) {
             return;
         }
         List<RawFlatMetadataRow> rows = jdbcTemplate.query(
@@ -2083,14 +2072,14 @@ public class JdbcAggregationRepository {
                        cast(language_codes as varchar) as language_codes,
                        cast(genre_codes as varchar) as genre_codes,
                        category_code
-                 from unified_videos
+                 from catalog_entries
                  where id = :rootId
                     or id in (:victimIds)
                  order by case when id = :rootId then 0 else 1 end, id
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rootId", rootUnifiedVideoId)
-                        .addValue("victimIds", victimUnifiedVideoIds),
+                        .addValue("rootId", rootCatalogEntryId)
+                        .addValue("victimIds", victimCatalogEntryIds),
                 (rs, rowNum) -> new RawFlatMetadataRow(
                         JsonStringArrays.readSet(objectMapper, rs.getString("actor_names")),
                         JsonStringArrays.readSet(objectMapper, rs.getString("director_names")),
@@ -2103,7 +2092,7 @@ public class JdbcAggregationRepository {
         }
         jdbcTemplate.update(
                 """
-                update unified_videos
+                update catalog_entries
                    set actor_names = cast(:actorNames as jsonb),
                        director_names = cast(:directorNames as jsonb),
                        area_codes = cast(:areaCodes as jsonb),
@@ -2122,7 +2111,7 @@ public class JdbcAggregationRepository {
                  where id = :rootId
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rootId", rootUnifiedVideoId)
+                        .addValue("rootId", rootCatalogEntryId)
                         .addValue("actorNames", JsonStringArrays.write(
                                 objectMapper,
                                 collectFlatValues(rows, RawFlatMetadataRow::actorNames)))
@@ -2152,12 +2141,12 @@ public class JdbcAggregationRepository {
     }
 
     private void deleteVictimUnifiedRows(MapSqlParameterSource params) {
-        jdbcTemplate.update("delete from unified_videos where id in (:victimIds)", params);
+        jdbcTemplate.update("delete from catalog_entries where id in (:victimIds)", params);
     }
 
-    private RawVideoAggregationRecord mapRawVideo(ResultSet rs, int rowNum) throws SQLException {
+    private SourceRecordAggregationRecord mapSourceRecord(ResultSet rs, int rowNum) throws SQLException {
         Date publishedAt = rs.getDate("published_at");
-        return new RawVideoAggregationRecord(
+        return new SourceRecordAggregationRecord(
                 rs.getObject("id", UUID.class),
                 rs.getString("title"),
                 rs.getString("alias_title"),
@@ -2205,26 +2194,26 @@ public class JdbcAggregationRepository {
         }
     }
 
-    private MapSqlParameterSource paramsForUnified(UUID unifiedVideoId, RawVideoAggregationRecord rawVideo) {
+    private MapSqlParameterSource paramsForUnified(UUID catalogEntryId, SourceRecordAggregationRecord sourceRecord) {
         return new MapSqlParameterSource()
-                .addValue("id", unifiedVideoId)
-                .addValue("title", trimToLength(rawVideo.title(), 255))
-                .addValue("aliasTitle", trimToLength(rawVideo.aliasTitle(), 255))
-                .addValue("description", rawVideo.description())
-                .addValue("year", trimToLength(rawVideo.year(), 20))
-                .addValue("score", rawVideo.score())
-                .addValue("publishedAt", rawVideo.publishedAt() == null ? null : Date.valueOf(rawVideo.publishedAt()))
-                .addValue("totalEpisodes", trimToLength(rawVideo.totalEpisodes(), 50))
-                .addValue("duration", trimToLength(rawVideo.duration(), 50))
-                .addValue("remarks", trimToLength(rawVideo.remarks(), 255))
-                .addValue("subtitle", trimToLength(rawVideo.subtitle(), 255))
-                .addValue("season", rawVideo.season())
-                .addValue("categoryCode", trimToLength(rawVideo.categoryCode(), 100))
+                .addValue("id", catalogEntryId)
+                .addValue("title", trimToLength(sourceRecord.title(), 255))
+                .addValue("aliasTitle", trimToLength(sourceRecord.aliasTitle(), 255))
+                .addValue("description", sourceRecord.description())
+                .addValue("year", trimToLength(sourceRecord.year(), 20))
+                .addValue("score", sourceRecord.score())
+                .addValue("publishedAt", sourceRecord.publishedAt() == null ? null : Date.valueOf(sourceRecord.publishedAt()))
+                .addValue("totalEpisodes", trimToLength(sourceRecord.totalEpisodes(), 50))
+                .addValue("duration", trimToLength(sourceRecord.duration(), 50))
+                .addValue("remarks", trimToLength(sourceRecord.remarks(), 255))
+                .addValue("subtitle", trimToLength(sourceRecord.subtitle(), 255))
+                .addValue("season", sourceRecord.season())
+                .addValue("categoryCode", trimToLength(sourceRecord.categoryCode(), 100))
                 .addValue("allowedCategoryCodes", ALLOWED_CATEGORY_CODES)
-                .addValue("doubanId", trimToLength(usableExternalIdOrNull("douban", rawVideo.doubanId()), 20))
-                .addValue("tmdbId", trimToLength(usableExternalIdOrNull("tmdb", rawVideo.tmdbId()), 20))
-                .addValue("imdbId", trimToLength(usableExternalIdOrNull("imdb", rawVideo.imdbId()), 20))
-                .addValue("rottenTomatoesId", trimToLength(usableExternalIdOrNull("rt", rawVideo.rottenTomatoesId()), 50));
+                .addValue("doubanId", trimToLength(usableExternalIdOrNull("douban", sourceRecord.doubanId()), 20))
+                .addValue("tmdbId", trimToLength(usableExternalIdOrNull("tmdb", sourceRecord.tmdbId()), 20))
+                .addValue("imdbId", trimToLength(usableExternalIdOrNull("imdb", sourceRecord.imdbId()), 20))
+                .addValue("rottenTomatoesId", trimToLength(usableExternalIdOrNull("rt", sourceRecord.rottenTomatoesId()), 50));
     }
 
     private String usableExternalIdOrNull(String provider, String value) {
@@ -2276,6 +2265,6 @@ public class JdbcAggregationRepository {
             String genreCodesJson) {
     }
 
-    private record AdultAssessmentWrite(UUID unifiedVideoId, AdultAssessment assessment) {
+    private record AdultAssessmentWrite(UUID catalogEntryId, AdultAssessment assessment) {
     }
 }

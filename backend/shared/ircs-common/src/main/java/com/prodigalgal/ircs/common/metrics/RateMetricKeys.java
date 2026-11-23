@@ -83,7 +83,7 @@ public final class RateMetricKeys {
         return switch (taskType) {
             case SearchSyncWorkTypes.RAW -> "runtime.search_raw";
             case SearchSyncWorkTypes.UNIFIED -> "runtime.search_unified";
-            case AggregationWorkTypes.RAW_VIDEO -> "runtime.aggregation";
+            case AggregationWorkTypes.SOURCE_RECORD -> "runtime.aggregation";
             case PipelineRuntimeWorkTypes.NORMALIZE_VIDEO -> "runtime.pipeline_normalize";
             case PipelineRuntimeWorkTypes.ENRICH_METADATA -> "runtime.pipeline_metadata_dispatch";
             case PipelineRuntimeWorkTypes.METADATA_PROVIDER -> "runtime.pipeline_metadata_provider";

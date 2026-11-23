@@ -13,7 +13,7 @@ public class RawSearchSyncPublisher {
 
     private final SearchSyncWorkPublisher searchSyncWorkPublisher;
 
-    public void publishIndex(UUID rawVideoId) {
-        searchSyncWorkPublisher.enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
+    public void publishIndex(UUID sourceRecordId) {
+        searchSyncWorkPublisher.enqueue(sourceRecordId, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX);
     }
 }

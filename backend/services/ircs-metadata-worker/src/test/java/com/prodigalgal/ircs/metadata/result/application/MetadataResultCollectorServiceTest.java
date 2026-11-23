@@ -21,9 +21,9 @@ import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.ProviderCompletion;
-import com.prodigalgal.ircs.metadata.result.domain.RawVideoMetadataRecord;
+import com.prodigalgal.ircs.metadata.result.domain.SourceRecordMetadataRecord;
 import com.prodigalgal.ircs.metadata.result.dto.MetadataResultProcessingResult;
-import com.prodigalgal.ircs.metadata.result.infrastructure.RawVideoMetadataRepository;
+import com.prodigalgal.ircs.metadata.result.infrastructure.SourceRecordMetadataRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -44,7 +44,7 @@ class MetadataResultCollectorServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private RawVideoMetadataRepository repository;
+    private SourceRecordMetadataRepository repository;
 
     @Mock
     private RawSearchSyncPublisher searchSyncPublisher;
@@ -64,7 +64,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void appliesSuccessfulMetadataAndPublishesSearchSync() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenReturn(1);
@@ -84,7 +84,7 @@ class MetadataResultCollectorServiceTest {
                 .metadata(metadata)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("SUCCESS", result.enrichmentStatus());
         assertEquals("101", record.getValue().getTmdbId());
@@ -101,7 +101,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void treatsRottenTomatoesIdAsAuthoritativeSuccess() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenReturn(1);
@@ -116,7 +116,7 @@ class MetadataResultCollectorServiceTest {
                 .metadata(metadata)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("SUCCESS", result.enrichmentStatus());
         assertEquals("matrix", record.getValue().getRottenTomatoesId());
@@ -127,7 +127,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void mergesEnrichmentRichFieldsIntoRawMetadataForNormalization() throws Exception {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setRawMetadata("""
                 {
                   "genreNames": ["动作"],
@@ -161,7 +161,7 @@ class MetadataResultCollectorServiceTest {
                 .metadata(metadata)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         JsonNode rawMetadata = objectMapper.readTree(record.getValue().getRawMetadata());
         assertEquals("SUCCESS", result.enrichmentStatus());
@@ -182,7 +182,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void honorsLockedFields() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setDescription("locked description");
         existing.setYear("2025");
         existing.setLockedFields(Set.of("description", "year"));
@@ -202,7 +202,7 @@ class MetadataResultCollectorServiceTest {
                 .metadata(metadata)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("locked description", record.getValue().getDescription());
         assertEquals("2025", record.getValue().getYear());
@@ -211,7 +211,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void retryableFailureMovesToFailedAndIncrementsRetryCount() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setEnrichmentRetryCount(1);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
@@ -226,7 +226,7 @@ class MetadataResultCollectorServiceTest {
                 .retryable(true)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("FAILED", result.enrichmentStatus());
         assertEquals(2, record.getValue().getEnrichmentRetryCount());
@@ -236,7 +236,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void terminalFailureMovesToPermanentFailureAndPublishesSearchSync() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenReturn(1);
@@ -251,7 +251,7 @@ class MetadataResultCollectorServiceTest {
                 .errorMessage("Provider implementation not found")
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("PERMANENT_FAILURE", result.enrichmentStatus());
         assertEquals("PERMANENT_FAILURE", record.getValue().getEnrichmentStatus());
@@ -297,7 +297,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void firstProviderResultWithRemainingPendingOnlySavesMetadata() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenReturn(1);
@@ -313,7 +313,7 @@ class MetadataResultCollectorServiceTest {
                 .metadata(metadata)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("PENDING", result.enrichmentStatus());
         assertEquals("104", record.getValue().getTmdbId());
@@ -346,7 +346,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void finalProviderResultSettlesStatusClearsPendingAndPublishesSearchSync() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setTmdbId("106");
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
@@ -360,7 +360,7 @@ class MetadataResultCollectorServiceTest {
                 .retryable(false)
                 .build(), 0);
 
-        ArgumentCaptor<RawVideoMetadataRecord> record = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> record = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository).save(record.capture());
         assertEquals("SUCCESS", result.enrichmentStatus());
         assertEquals("SUCCESS", record.getValue().getEnrichmentStatus());
@@ -389,7 +389,7 @@ class MetadataResultCollectorServiceTest {
     @ValueSource(strings = {"0", "null", "tmdb-not-an-id"})
     void rejectsSuccessWithInvalidOwnProviderIdWithoutApplyingRichFieldsOrRetrying(String providerId) throws Exception {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setTmdbId("0");
         existing.setRawMetadata("{\"doubanId\":0,\"sourcePayload\":{\"vod_douban_id\":0},\"sourceNote\":\"keep\"}");
         when(repository.findById(id)).thenReturn(Optional.of(existing));
@@ -420,7 +420,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void placeholderZeroCannotFinalizeAsSuccessButANewValidProviderCanReplaceIt() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setTmdbId("0");
         assertEquals(false, existing.hasAuthoritativeId());
         assertEquals(false, existing.hasProviderId(ProviderType.TMDB));
@@ -439,9 +439,9 @@ class MetadataResultCollectorServiceTest {
     @Test
     void twoProvidersMergeIntoFreshLockedRowInsteadOfOverwritingEachOthersResults() throws Exception {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord snapshot = record(id);
-        RawVideoMetadataRecord firstCurrent = record(id);
-        RawVideoMetadataRecord secondCurrent = record(id);
+        SourceRecordMetadataRecord snapshot = record(id);
+        SourceRecordMetadataRecord firstCurrent = record(id);
+        SourceRecordMetadataRecord secondCurrent = record(id);
         secondCurrent.setTmdbId("101");
         secondCurrent.setRawMetadata("{\"actorNames\":[\"罗予彤\"],\"sourcePayload\":{\"doubanId\":0}}");
         when(repository.findById(id)).thenReturn(Optional.of(snapshot));
@@ -461,9 +461,9 @@ class MetadataResultCollectorServiceTest {
         assertEquals("PENDING", service.process(message(id, ProviderType.TMDB, first), 0).enrichmentStatus());
         assertEquals("SUCCESS", service.process(message(id, ProviderType.DOUBAN, second), 0).enrichmentStatus());
 
-        ArgumentCaptor<RawVideoMetadataRecord> saved = ArgumentCaptor.forClass(RawVideoMetadataRecord.class);
+        ArgumentCaptor<SourceRecordMetadataRecord> saved = ArgumentCaptor.forClass(SourceRecordMetadataRecord.class);
         verify(repository, org.mockito.Mockito.times(2)).save(saved.capture());
-        RawVideoMetadataRecord merged = saved.getAllValues().get(1);
+        SourceRecordMetadataRecord merged = saved.getAllValues().get(1);
         assertEquals("101", merged.getTmdbId());
         assertEquals("202", merged.getDoubanId());
         assertArrayContains(objectMapper.readTree(merged.getRawMetadata()).path("actorNames"), "罗予彤", "孙乾钊");
@@ -479,7 +479,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void changedHashDiscoveredAfterPipelineLockDoesNotWriteOrPublish() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord newer = record(id);
+        SourceRecordMetadataRecord newer = record(id);
         newer.setDataHash("hash-v2");
         when(repository.findById(id)).thenReturn(Optional.of(record(id)));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(newer));
@@ -498,7 +498,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void failedProjectionCasAbortsWithoutPublishingDownstreamSuccess() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(existing));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenReturn(0);
@@ -516,7 +516,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void protectsAuthorityAliasPeopleAndClassificationLocksAcrossProviderMerge() throws Exception {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord existing = record(id);
+        SourceRecordMetadataRecord existing = record(id);
         existing.setDoubanId("123");
         existing.setTmdbId("456");
         existing.setImdbId("tt1234567");
@@ -554,7 +554,7 @@ class MetadataResultCollectorServiceTest {
     @Test
     void completedRunWithOnlyPlaceholderIdFinalizesFailureUsingPipelineThenRawLockOrder() {
         UUID id = UUID.randomUUID();
-        RawVideoMetadataRecord record = record(id);
+        SourceRecordMetadataRecord record = record(id);
         record.setTmdbId("0");
         when(pipelineRunRepository.findCompletionForUpdate(id, "hash-v1")).thenReturn(Optional.of(completedSuccess()));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(record));
@@ -615,8 +615,8 @@ class MetadataResultCollectorServiceTest {
         return ProviderCompletion.tracked(true, 2, 1, 1, 0, 0, 0);
     }
 
-    private RawVideoMetadataRecord record(UUID id) {
-        return new RawVideoMetadataRecord(
+    private SourceRecordMetadataRecord record(UUID id) {
+        return new SourceRecordMetadataRecord(
                 id,
                 null,
                 null,

@@ -16,14 +16,14 @@ final class AuthorityCatalogBindingPolicy {
     private static final Pattern RELEASE_YEAR = Pattern.compile("(?<!\\d)((?:19|20)\\d{2})(?!\\d)");
 
     AuthorityCatalogBindingDecision decide(
-            RawVideoAggregationRecord raw,
+            SourceRecordAggregationRecord raw,
             String mediaType,
             List<AuthorityCatalogProjection> projections) {
         return decide(raw, Set.of(mediaType), projections);
     }
 
     AuthorityCatalogBindingDecision decide(
-            RawVideoAggregationRecord raw,
+            SourceRecordAggregationRecord raw,
             Set<String> mediaTypes,
             List<AuthorityCatalogProjection> projections) {
         String rawYear = year(raw.year());
@@ -69,7 +69,7 @@ final class AuthorityCatalogBindingPolicy {
         }
         if (seasonMatches.size() == 1) {
             AuthorityCatalogProjection candidate = seasonMatches.getFirst();
-            return AuthorityCatalogBindingDecision.bind(candidate.unifiedVideoId(), evidenceKind(raw, candidate));
+            return AuthorityCatalogBindingDecision.bind(candidate.catalogEntryId(), evidenceKind(raw, candidate));
         }
         if (seasonMatches.size() > 1) {
             return AuthorityCatalogBindingDecision.review("MERGE_AMBIGUOUS");
@@ -77,7 +77,7 @@ final class AuthorityCatalogBindingPolicy {
         return AuthorityCatalogBindingDecision.waitForAuthority();
     }
 
-    private Integer requestedSeason(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
+    private Integer requestedSeason(SourceRecordAggregationRecord raw, AuthorityCatalogProjection candidate) {
         if ("movie".equals(candidate.mediaType())) {
             return -1;
         }
@@ -88,7 +88,7 @@ final class AuthorityCatalogBindingPolicy {
     }
 
     private boolean compatibleYear(
-            RawVideoAggregationRecord raw,
+            SourceRecordAggregationRecord raw,
             String rawYear,
             AuthorityCatalogProjection candidate) {
         Integer sourceYear = Integer.valueOf(rawYear);
@@ -122,7 +122,7 @@ final class AuthorityCatalogBindingPolicy {
                 || candidate.originalTitleKey() != null && titleKeys.contains(candidate.originalTitleKey());
     }
 
-    static Set<String> rawTitleKeys(RawVideoAggregationRecord raw) {
+    static Set<String> rawTitleKeys(SourceRecordAggregationRecord raw) {
         java.util.stream.Stream<String> cleanTitles = java.util.stream.Stream.concat(
                 java.util.stream.Stream.of(raw.title(), AggregationRecallKeys.completeTitle(raw.title(), raw.subtitle())),
                 AggregationTitleNormalizer.splitAliases(raw.aliasTitle()).stream());
@@ -139,7 +139,7 @@ final class AuthorityCatalogBindingPolicy {
                 .toLowerCase(Locale.ROOT);
     }
 
-    static OptionalLong importTmdbId(RawVideoAggregationRecord raw) {
+    static OptionalLong importTmdbId(SourceRecordAggregationRecord raw) {
         Long normalized = normalizeTmdbId(raw.tmdbId());
         return normalized == null ? OptionalLong.empty() : OptionalLong.of(normalized);
     }
@@ -160,7 +160,7 @@ final class AuthorityCatalogBindingPolicy {
         return AuthoritativeIds.normalizeImdb(value);
     }
 
-    static boolean hasImportRequestEvidence(RawVideoAggregationRecord raw) {
+    static boolean hasImportRequestEvidence(SourceRecordAggregationRecord raw) {
         return StringUtils.hasText(raw.title()) && year(raw.year()) != null && !rawTitleKeys(raw).isEmpty();
     }
 
@@ -172,15 +172,15 @@ final class AuthorityCatalogBindingPolicy {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private Long normalizedTmdbId(RawVideoAggregationRecord raw) {
+    private Long normalizedTmdbId(SourceRecordAggregationRecord raw) {
         return normalizeTmdbId(raw.tmdbId());
     }
 
-    private String normalizedImdbId(RawVideoAggregationRecord raw) {
+    private String normalizedImdbId(SourceRecordAggregationRecord raw) {
         return normalizeImdbId(raw.imdbId());
     }
 
-    private boolean externalIdsContradict(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
+    private boolean externalIdsContradict(SourceRecordAggregationRecord raw, AuthorityCatalogProjection candidate) {
         return differs(normalizedTmdbId(raw), candidate.tmdbId())
                 || differs(normalizedImdbId(raw), normalizeImdbId(candidate.imdbId()));
     }
@@ -193,18 +193,18 @@ final class AuthorityCatalogBindingPolicy {
         return rawId != null && authorityId != null && !rawId.equals(authorityId);
     }
 
-    private boolean hasCorroboratingExternalId(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
+    private boolean hasCorroboratingExternalId(SourceRecordAggregationRecord raw, AuthorityCatalogProjection candidate) {
         return matchesProvidedExternalId(raw, candidate);
     }
 
-    private boolean matchesProvidedExternalId(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
+    private boolean matchesProvidedExternalId(SourceRecordAggregationRecord raw, AuthorityCatalogProjection candidate) {
         Long tmdbId = normalizedTmdbId(raw);
         String imdbId = normalizedImdbId(raw);
         return tmdbId != null && candidate.tmdbId() != null && tmdbId.equals(candidate.tmdbId())
                 || imdbId != null && imdbId.equals(normalizeImdbId(candidate.imdbId()));
     }
 
-    private String evidenceKind(RawVideoAggregationRecord raw, AuthorityCatalogProjection candidate) {
+    private String evidenceKind(SourceRecordAggregationRecord raw, AuthorityCatalogProjection candidate) {
         Long tmdbId = normalizedTmdbId(raw);
         if (tmdbId != null && tmdbId.equals(candidate.tmdbId())) {
             return "TMDB_TITLE_YEAR_SEASON";

@@ -25,7 +25,7 @@ class SystemConfigWorkSubmissionGateTest {
     void setUp() {
         jdbcTemplate = new JdbcTemplate(dataSource());
         jdbcTemplate.execute("""
-                create table system_configs (
+                create table application_settings (
                     config_key varchar(255) primary key,
                     config_value varchar(255)
                 )
@@ -61,7 +61,7 @@ class SystemConfigWorkSubmissionGateTest {
 
         SystemConfigWorkSubmissionGate gate = gate(new StandardEnvironment());
 
-        assertThat(gate.canSubmitRuntime(AggregationWorkTypes.RAW_VIDEO)).isTrue();
+        assertThat(gate.canSubmitRuntime(AggregationWorkTypes.SOURCE_RECORD)).isTrue();
     }
 
     @Test
@@ -127,7 +127,7 @@ class SystemConfigWorkSubmissionGateTest {
 
     private void insert(String key, String value) {
         jdbcTemplate.update(
-                "insert into system_configs(config_key, config_value) values (?, ?)",
+                "insert into application_settings(config_key, config_value) values (?, ?)",
                 key,
                 value);
     }

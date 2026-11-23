@@ -50,7 +50,7 @@ class SearchServiceMaintenanceSyncClient implements MaintenanceSearchSyncClient 
         if (ids.isEmpty()) {
             return 0;
         }
-        SearchEntityType safeEntityType = entityType == null ? SearchEntityType.UNIFIED_VIDEO : entityType;
+        SearchEntityType safeEntityType = entityType == null ? SearchEntityType.CATALOG_ENTRY : entityType;
 
         try {
             byte[] body = objectMapper.writeValueAsBytes(new SearchSyncTaskBatchEnqueueRequest(
@@ -95,7 +95,7 @@ class SearchServiceMaintenanceSyncClient implements MaintenanceSearchSyncClient 
 
     @Override
     public int hardResetIndex(SearchEntityType entityType, String correlationId) {
-        SearchEntityType safeEntityType = entityType == null ? SearchEntityType.UNIFIED_VIDEO : entityType;
+        SearchEntityType safeEntityType = entityType == null ? SearchEntityType.CATALOG_ENTRY : entityType;
         try {
             OutboundHttpPolicy policy = OutboundHttpPolicy.internalService(configValues.searchOwnerRequestTimeout())
                     .withCallerCircuitBreakerKey("ops-search-maintenance");

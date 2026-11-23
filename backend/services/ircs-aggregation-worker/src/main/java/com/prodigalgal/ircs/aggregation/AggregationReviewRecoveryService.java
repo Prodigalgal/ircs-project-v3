@@ -11,14 +11,14 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 class AggregationReviewRecoveryService {
-    static final int MAX_RAW_VIDEOS = 50;
+    static final int MAX_SOURCE_RECORDS = 50;
     private final AggregationEvaluationService evaluation;
     private final AggregationWorkDeferrer queue;
 
     RecoveryResponse recover(List<UUID> rawIds, boolean execute) {
-        if (rawIds == null || rawIds.isEmpty() || rawIds.size() > MAX_RAW_VIDEOS
+        if (rawIds == null || rawIds.isEmpty() || rawIds.size() > MAX_SOURCE_RECORDS
                 || rawIds.stream().anyMatch(Objects::isNull)) {
-            throw new IllegalArgumentException("rawVideoIds must contain 1 to 50 non-null UUIDs");
+            throw new IllegalArgumentException("sourceRecordIds must contain 1 to 50 non-null UUIDs");
         }
         Map<UUID, AggregationWorkDeferrer.ReviewedWork> reviewed = new LinkedHashMap<>();
         List<UUID> unique = rawIds.stream().distinct().toList();
@@ -26,7 +26,7 @@ class AggregationReviewRecoveryService {
         Map<UUID, AggregationEvaluationService.EvaluationDecision> decisions = new LinkedHashMap<>();
         if (!reviewed.isEmpty()) {
             evaluation.evaluate(List.copyOf(reviewed.keySet())).decisions()
-                    .forEach(decision -> decisions.put(decision.rawVideoId(), decision));
+                    .forEach(decision -> decisions.put(decision.sourceRecordId(), decision));
         }
         List<RecoveryDecision> result = unique.stream()
                 .map(id -> recoverOne(id, reviewed.get(id), decisions.get(id), execute)).toList();
@@ -38,11 +38,11 @@ class AggregationReviewRecoveryService {
         if (work == null || decision == null) {
             return new RecoveryDecision(id, null, "NOT_PENDING_IDENTITY_REVIEW", null);
         }
-        UUID target = decision.proposedRootUnifiedVideoId();
-        boolean newBinding = "MATCH".equals(decision.decision()) && decision.originalUnifiedVideoId() == null;
+        UUID target = decision.proposedRootCatalogEntryId();
+        boolean newBinding = "MATCH".equals(decision.decision()) && decision.originalCatalogEntryId() == null;
         boolean retainedBinding = "EXISTING_BINDING_COMPATIBLE".equals(decision.decision())
-                && Objects.equals(decision.originalUnifiedVideoId(), target);
-        if ((!newBinding && !retainedBinding) || target == null || !decision.proposedVictimUnifiedVideoIds().isEmpty()) {
+                && Objects.equals(decision.originalCatalogEntryId(), target);
+        if ((!newBinding && !retainedBinding) || target == null || !decision.proposedVictimCatalogEntryIds().isEmpty()) {
             return new RecoveryDecision(id, target, "STILL_REQUIRES_REVIEW", decision.reason());
         }
         String result = execute
@@ -51,6 +51,6 @@ class AggregationReviewRecoveryService {
         return new RecoveryDecision(id, target, result, work.reason());
     }
 
-    record RecoveryDecision(UUID rawVideoId, UUID targetUnifiedVideoId, String status, String reason) { }
+    record RecoveryDecision(UUID sourceRecordId, UUID targetCatalogEntryId, String status, String reason) { }
     record RecoveryResponse(boolean execute, List<RecoveryDecision> decisions) { }
 }

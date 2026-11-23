@@ -10,13 +10,13 @@ public record TrendSyncApplyResponse(
         long updatedByTitleMatch,
         long createdGhosts,
         long skippedDuplicates,
-        List<UUID> updatedUnifiedVideoIds,
-        List<UUID> createdUnifiedVideoIds,
+        List<UUID> updatedCatalogEntryIds,
+        List<UUID> createdCatalogEntryIds,
         List<String> discoveryKeywords) {
 
     public TrendSyncApplyResponse {
-        updatedUnifiedVideoIds = updatedUnifiedVideoIds == null ? List.of() : List.copyOf(updatedUnifiedVideoIds);
-        createdUnifiedVideoIds = createdUnifiedVideoIds == null ? List.of() : List.copyOf(createdUnifiedVideoIds);
+        updatedCatalogEntryIds = updatedCatalogEntryIds == null ? List.of() : List.copyOf(updatedCatalogEntryIds);
+        createdCatalogEntryIds = createdCatalogEntryIds == null ? List.of() : List.copyOf(createdCatalogEntryIds);
         discoveryKeywords = discoveryKeywords == null ? List.of() : List.copyOf(discoveryKeywords);
     }
 }

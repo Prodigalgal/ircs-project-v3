@@ -23,7 +23,7 @@ public class IrcsJwtRuntimeConfigResolver {
     private static final String JWT_IAT_FLOOR_DB_KEY = "security.jwt.iat-floor";
     private static final String JWT_SECRET_FALLBACK = "";
     private static final String IAT_FLOOR_FALLBACK = "0";
-    private static final String SELECT_SQL = "select config_value from system_configs where config_key = ?";
+    private static final String SELECT_SQL = "select config_value from application_settings where config_key = ?";
 
     private final Environment environment;
     private final String datasourceUrl;

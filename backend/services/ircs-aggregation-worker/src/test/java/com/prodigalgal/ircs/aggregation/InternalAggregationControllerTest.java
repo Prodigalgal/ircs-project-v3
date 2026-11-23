@@ -33,7 +33,7 @@ class InternalAggregationControllerTest {
         var request = new InternalAggregationController.EvaluationRequest(List.of(rawId));
         var response = new AggregationEvaluationService.EvaluationResponse(
                 "SNAPSHOT_ONLY", java.time.Instant.now(), false, "snapshot", List.of());
-        when(evaluationService.evaluate(request.rawVideoIds())).thenReturn(response);
+        when(evaluationService.evaluate(request.sourceRecordIds())).thenReturn(response);
 
         var result = controller.evaluate(request, "ops-service", "token", "aggregation:maintenance");
 
@@ -91,7 +91,7 @@ class InternalAggregationControllerTest {
                 "aggregation:maintenance");
 
         assertEquals(HttpStatus.OK, result.getStatusCode());
-        assertEquals(unifiedId, result.getBody().unifiedVideoId());
+        assertEquals(unifiedId, result.getBody().catalogEntryId());
         assertEquals(2, result.getBody().sourceCount());
         verify(accessPolicy).assertAccess("ops-service", "token", "aggregation:maintenance");
         verify(aggregationService).recalculateUnified(unifiedId);

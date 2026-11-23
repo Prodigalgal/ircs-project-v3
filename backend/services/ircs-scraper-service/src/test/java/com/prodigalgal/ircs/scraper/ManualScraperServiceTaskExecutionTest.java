@@ -33,14 +33,14 @@ class ManualScraperServiceTaskExecutionTest {
     private final ListScraperClient listScraperClient = org.mockito.Mockito.mock(ListScraperClient.class);
     private final ScraperMappingService mappingService = new ScraperMappingService(new ObjectMapper());
     private final IngestionPublisher ingestionPublisher = org.mockito.Mockito.mock(IngestionPublisher.class);
-    private final RawVideoRefetchRepository rawVideoRefetchRepository = org.mockito.Mockito.mock(RawVideoRefetchRepository.class);
+    private final SourceRecordRefetchRepository sourceRecordRefetchRepository = org.mockito.Mockito.mock(SourceRecordRefetchRepository.class);
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final ManualScraperService service = new ManualScraperService(
             dataSourceRepository,
             listScraperClient,
             mappingService,
             ingestionPublisher,
-            rawVideoRefetchRepository,
+            sourceRecordRefetchRepository,
             Runnable::run,
             auditWriter,
             new ScrapeUpdateWindowFilter(null));
@@ -290,8 +290,8 @@ class ManualScraperServiceTaskExecutionTest {
     }
 
     @Test
-    void writesSucceededAuditForRawVideoRefetchRunner() {
-        UUID rawVideoId = UUID.randomUUID();
+    void writesSucceededAuditForSourceRecordRefetchRunner() {
+        UUID sourceRecordId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
         DataSourceRecord source = new DataSourceRecord(
                 dataSourceId,
@@ -309,20 +309,20 @@ class ManualScraperServiceTaskExecutionTest {
                           }
                         }
                         """);
-        when(rawVideoRefetchRepository.findTarget(rawVideoId))
-                .thenReturn(Optional.of(new RawVideoRefetchRepository.RawVideoRefetchTarget(rawVideoId, "v-refetch", dataSourceId)));
+        when(sourceRecordRefetchRepository.findTarget(sourceRecordId))
+                .thenReturn(Optional.of(new SourceRecordRefetchRepository.SourceRecordRefetchTarget(sourceRecordId, "v-refetch", dataSourceId)));
         when(dataSourceRepository.findById(dataSourceId)).thenReturn(Optional.of(source));
         when(listScraperClient.fetchDetail(eq(source), any(), eq("v-refetch"))).thenReturn("""
                 {"list":[{"vod_id":"v-refetch","vod_name":"Codex refetched video"}]}
                 """);
 
-        service.refetchRawVideo(rawVideoId);
+        service.refetchSourceRecord(sourceRecordId);
 
         verify(ingestionPublisher).publish(org.mockito.ArgumentMatchers.any(IngestionItem.class));
         WorkerJobAuditEvent event = captureAuditEvent();
         org.assertj.core.api.Assertions.assertThat(event.jobType()).isEqualTo("runner");
         org.assertj.core.api.Assertions.assertThat(event.jobName()).isEqualTo("scraper.refetch-raw-video");
-        org.assertj.core.api.Assertions.assertThat(event.correlationId()).isEqualTo(rawVideoId.toString());
+        org.assertj.core.api.Assertions.assertThat(event.correlationId()).isEqualTo(sourceRecordId.toString());
         org.assertj.core.api.Assertions.assertThat(event.status()).isEqualTo("succeeded");
     }
 

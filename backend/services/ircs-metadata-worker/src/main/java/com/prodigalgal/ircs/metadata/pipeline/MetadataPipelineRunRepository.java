@@ -25,27 +25,27 @@ public class MetadataPipelineRunRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
     @Transactional
-    public List<ProviderType> prepareDispatch(UUID rawVideoId, String pipelineVersion, List<ProviderType> providers) {
+    public List<ProviderType> prepareDispatch(UUID sourceRecordId, String pipelineVersion, List<ProviderType> providers) {
         if (providers == null || providers.isEmpty()) {
             return List.of();
         }
         String version = normalizeVersion(pipelineVersion);
         jdbcTemplate.update(
                 """
-                insert into raw_video_pipeline_runs (
-                    raw_video_id, pipeline_version, step, status, expected_count,
+                insert into source_record_processing_runs (
+                    source_record_id, pipeline_version, step, status, expected_count,
                     completed_count, success_count, failure_count,
                     retryable_failure_count, permanent_failure_count,
                     created_at, updated_at
                 )
                 values (
-                    :rawVideoId, :pipelineVersion, :step, :status, :expectedCount,
+                    :sourceRecordId, :pipelineVersion, :step, :status, :expectedCount,
                     0, 0, 0, 0, 0, now(), now()
                 )
-                on conflict (raw_video_id, pipeline_version, step) do nothing
+                on conflict (source_record_id, pipeline_version, step) do nothing
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", version)
                         .addValue("step", STEP)
                         .addValue("status", STATUS_PENDING)
@@ -53,22 +53,22 @@ public class MetadataPipelineRunRepository {
 
         MapSqlParameterSource[] batch = providers.stream()
                 .map(provider -> new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", version)
                         .addValue("providerType", provider.name())
                         .addValue("status", STATUS_PENDING))
                 .toArray(MapSqlParameterSource[]::new);
         jdbcTemplate.batchUpdate(
                 """
-                insert into raw_video_enrichment_provider_runs (
-                    raw_video_id, pipeline_version, provider_type, status,
+                insert into source_metadata_provider_runs (
+                    source_record_id, pipeline_version, provider_type, status,
                     attempt_count, dispatched_at, created_at, updated_at
                 )
                 values (
-                    :rawVideoId, :pipelineVersion, :providerType, :status,
+                    :sourceRecordId, :pipelineVersion, :providerType, :status,
                     0, now(), now(), now()
                 )
-                on conflict (raw_video_id, pipeline_version, provider_type) do nothing
+                on conflict (source_record_id, pipeline_version, provider_type) do nothing
                 """,
                 batch);
 
@@ -77,27 +77,27 @@ public class MetadataPipelineRunRepository {
         jdbcTemplate.update(
                 """
                 with retried as (
-                    update raw_video_enrichment_provider_runs
+                    update source_metadata_provider_runs
                     set status = 'PENDING', retryable = false,
                         error_code = null, error_message = null,
                         completed_at = null, dispatched_at = now(), updated_at = now()
-                    where raw_video_id = :rawVideoId
+                    where source_record_id = :sourceRecordId
                       and pipeline_version = :pipelineVersion
                       and provider_type in (:providers)
                       and status = 'FAILED' and retryable = true
                     returning provider_type
                 )
-                update raw_video_pipeline_runs
+                update source_record_processing_runs
                 set status = 'PENDING',
                     completed_count = greatest(0, completed_count - (select count(*) from retried)),
                     failure_count = greatest(0, failure_count - (select count(*) from retried)),
                     retryable_failure_count = greatest(0, retryable_failure_count - (select count(*) from retried)),
                     updated_at = now()
-                where raw_video_id = :rawVideoId and pipeline_version = :pipelineVersion
+                where source_record_id = :sourceRecordId and pipeline_version = :pipelineVersion
                   and step = :step and exists (select 1 from retried)
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", version)
                         .addValue("step", STEP)
                         .addValue("providers", providers.stream().map(Enum::name).toList()));
@@ -105,14 +105,14 @@ public class MetadataPipelineRunRepository {
         List<String> pendingProviderNames = jdbcTemplate.queryForList(
                 """
                 select provider_type
-                from raw_video_enrichment_provider_runs
-                where raw_video_id = :rawVideoId
+                from source_metadata_provider_runs
+                where source_record_id = :sourceRecordId
                   and pipeline_version = :pipelineVersion
                   and provider_type in (:providers)
                   and status = 'PENDING'
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", version)
                         .addValue("providers", providers.stream().map(Enum::name).toList()),
                 String.class);
@@ -122,19 +122,19 @@ public class MetadataPipelineRunRepository {
     }
 
     public Optional<PendingProviderAttempt> findPendingProviderAttempt(
-            UUID rawVideoId, String pipelineVersion, ProviderType providerType) {
+            UUID sourceRecordId, String pipelineVersion, ProviderType providerType) {
         return jdbcTemplate.query(
                 """
                 select p.attempt_count, r.title, r.raw_metadata ->> 'title' as original_title,
                        coalesce(nullif(r.raw_metadata ->> 'totalEpisodes', ''), r.total_episodes) as total_episodes
-                from raw_video_enrichment_provider_runs p
-                join raw_videos r on r.id = p.raw_video_id
-                where p.raw_video_id = :rawVideoId and p.pipeline_version = :pipelineVersion
+                from source_metadata_provider_runs p
+                join source_records r on r.id = p.source_record_id
+                where p.source_record_id = :sourceRecordId and p.pipeline_version = :pipelineVersion
                   and p.provider_type = :providerType and p.status = 'PENDING'
                   and coalesce(nullif(btrim(r.data_hash), ''), '_') = p.pipeline_version
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", normalizeVersion(pipelineVersion))
                         .addValue("providerType", providerType.name()),
                 (rs, row) -> new PendingProviderAttempt(rs.getInt("attempt_count"),
@@ -144,7 +144,7 @@ public class MetadataPipelineRunRepository {
 
     @Transactional
     public ProviderCompletion completeProvider(
-            UUID rawVideoId,
+            UUID sourceRecordId,
             String pipelineVersion,
             ProviderType providerType,
             boolean success,
@@ -162,7 +162,7 @@ public class MetadataPipelineRunRepository {
         String providerStatus = success ? STATUS_SUCCESS : retryable ? STATUS_FAILED : STATUS_PERMANENT_FAILURE;
         int changed = jdbcTemplate.update(
                 """
-                update raw_video_enrichment_provider_runs
+                update source_metadata_provider_runs
                 set status = :status,
                     retryable = :retryable,
                     error_code = :errorCode,
@@ -170,14 +170,14 @@ public class MetadataPipelineRunRepository {
                     attempt_count = attempt_count + 1,
                     completed_at = now(),
                     updated_at = now()
-                where raw_video_id = :rawVideoId
+                where source_record_id = :sourceRecordId
                   and pipeline_version = :pipelineVersion
                   and provider_type = :providerType
                   and status = 'PENDING'
                   and attempt_count = :expectedAttempt
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", version)
                         .addValue("providerType", providerType.name())
                         .addValue("status", providerStatus)
@@ -186,7 +186,7 @@ public class MetadataPipelineRunRepository {
                         .addValue("errorMessage", errorMessage)
                         .addValue("expectedAttempt", expectedAttempt));
         if (changed == 0) {
-            return findCompletion(rawVideoId, version, false).orElse(ProviderCompletion.untracked());
+            return findCompletion(sourceRecordId, version, false).orElse(ProviderCompletion.untracked());
         }
 
         int successDelta = success ? 1 : 0;
@@ -195,21 +195,21 @@ public class MetadataPipelineRunRepository {
         int failureDelta = retryableFailureDelta + permanentFailureDelta;
         List<ProviderCompletion> completions = jdbcTemplate.query(
                 """
-                update raw_video_pipeline_runs
+                update source_record_processing_runs
                 set completed_count = least(expected_count, completed_count + 1),
                     success_count = success_count + :successDelta,
                     failure_count = failure_count + :failureDelta,
                     retryable_failure_count = retryable_failure_count + :retryableFailureDelta,
                     permanent_failure_count = permanent_failure_count + :permanentFailureDelta,
                     updated_at = now()
-                where raw_video_id = :rawVideoId
+                where source_record_id = :sourceRecordId
                   and pipeline_version = :pipelineVersion
                   and step = :step
                 returning expected_count, completed_count, success_count, failure_count,
                           retryable_failure_count, permanent_failure_count
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", version)
                         .addValue("step", STEP)
                         .addValue("successDelta", successDelta)
@@ -230,47 +230,47 @@ public class MetadataPipelineRunRepository {
         return completions.get(0);
     }
 
-    public int markRunFinished(UUID rawVideoId, String pipelineVersion, String status) {
+    public int markRunFinished(UUID sourceRecordId, String pipelineVersion, String status) {
         return jdbcTemplate.update(
                 """
-                update raw_video_pipeline_runs
+                update source_record_processing_runs
                 set status = :status,
                     updated_at = now()
-                where raw_video_id = :rawVideoId
+                where source_record_id = :sourceRecordId
                   and pipeline_version = :pipelineVersion
                   and step = :step
                 """,
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", normalizeVersion(pipelineVersion))
                         .addValue("step", STEP)
                         .addValue("status", status));
     }
 
     private Optional<ProviderCompletion> findCompletion(
-            UUID rawVideoId,
+            UUID sourceRecordId,
             String pipelineVersion,
             boolean newlyCompleted) {
-        return findCompletion(rawVideoId, pipelineVersion, newlyCompleted, false);
+        return findCompletion(sourceRecordId, pipelineVersion, newlyCompleted, false);
     }
 
-    public Optional<ProviderCompletion> findCompletionForUpdate(UUID rawVideoId, String pipelineVersion) {
-        return findCompletion(rawVideoId, normalizeVersion(pipelineVersion), false, true);
+    public Optional<ProviderCompletion> findCompletionForUpdate(UUID sourceRecordId, String pipelineVersion) {
+        return findCompletion(sourceRecordId, normalizeVersion(pipelineVersion), false, true);
     }
 
     private Optional<ProviderCompletion> findCompletion(
-            UUID rawVideoId, String pipelineVersion, boolean newlyCompleted, boolean forUpdate) {
+            UUID sourceRecordId, String pipelineVersion, boolean newlyCompleted, boolean forUpdate) {
         List<ProviderCompletion> completions = jdbcTemplate.query(
                 """
                 select expected_count, completed_count, success_count, failure_count,
                        retryable_failure_count, permanent_failure_count
-                from raw_video_pipeline_runs
-                where raw_video_id = :rawVideoId
+                from source_record_processing_runs
+                where source_record_id = :sourceRecordId
                   and pipeline_version = :pipelineVersion
                   and step = :step
                 """ + (forUpdate ? "\nfor update" : ""),
                 new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("sourceRecordId", sourceRecordId)
                         .addValue("pipelineVersion", pipelineVersion)
                         .addValue("step", STEP),
                 (rs, rowNum) -> ProviderCompletion.tracked(

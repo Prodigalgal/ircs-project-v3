@@ -39,15 +39,15 @@ public class TaskRuntimeReadService {
     private final TaskMasterSnapshotService snapshotService;
     private final StringRedisTemplate redisTemplate;
 
-    public Optional<TaskRuntimeDetailResponse> find(UUID masterTaskId, int pageOffset, int pageLimit, int detailLimit) {
-        Optional<TaskDetailSummary> task = taskQueryService.findOne(masterTaskId);
-        Optional<TaskMasterSnapshot> snapshot = snapshotService.find(masterTaskId);
-        Map<String, String> masterState = hash(TaskHotKeys.masterState(masterTaskId));
-        List<UUID> runtimePageIds = runtimePageIds(masterTaskId);
-
-        if (task.isEmpty() && snapshot.isEmpty() && masterState.isEmpty() && runtimePageIds.isEmpty()) {
+    public Optional<TaskRuntimeDetailResponse> find(UUID planId, int pageOffset, int pageLimit, int detailLimit) {
+        Optional<TaskDetailSummary> task = taskQueryService.findOne(planId);
+        if (task.isEmpty()) {
             return Optional.empty();
         }
+        UUID masterTaskId = taskQueryService.findCurrentRunId(planId).orElse(null);
+        Optional<TaskMasterSnapshot> snapshot = masterTaskId == null ? Optional.empty() : snapshotService.find(masterTaskId);
+        Map<String, String> masterState = masterTaskId == null ? Map.of() : hash(TaskHotKeys.masterState(masterTaskId));
+        List<UUID> runtimePageIds = masterTaskId == null ? List.of() : runtimePageIds(masterTaskId);
 
         List<TaskPageRuntimeSummary> allPages = runtimePageIds.stream()
                 .map(pageTaskId -> page(pageTaskId, detailLimit))
@@ -163,7 +163,7 @@ public class TaskRuntimeReadService {
                 intValue(masterState, TaskRuntimeFields.TOTAL_PAGES, null),
                 intValue(masterState, TaskRuntimeFields.TOTAL_ITEMS, null),
                 firstNonBlank(masterState.get(TaskRuntimeFields.LAST_ERROR), snapshot == null ? null : snapshot.lastError(), task == null ? null : task.lastErrorMessage()),
-                firstNonBlank(snapshot == null ? null : snapshot.correlationId(), masterTaskId.toString()),
+                firstNonBlank(snapshot == null ? null : snapshot.correlationId(), masterTaskId == null ? null : masterTaskId.toString()),
                 snapshot == null ? task == null ? null : task.statStartTime() : snapshot.queuedAt(),
                 instantFromEpoch(masterState, TaskRuntimeFields.UPDATED_AT).orElse(snapshot == null ? task == null ? null : task.updatedAt() : snapshot.updatedAt()),
                 masterState);

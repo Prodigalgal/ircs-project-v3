@@ -34,9 +34,9 @@ export interface MediaRequest {
 }
 
 export const interactionApi = {
-    async toggleFavorite(unifiedVideoId: string): Promise<boolean> {
+    async toggleFavorite(catalogEntryId: string): Promise<boolean> {
         const token = localStorage.getItem("huawai_token");
-        const res = await fetch(`${API_BASE}/favorites/${unifiedVideoId}`, {
+        const res = await fetch(`${API_BASE}/favorites/${catalogEntryId}`, {
             method: "POST",
             headers: { "Authorization": `Bearer ${token}` }
         });
@@ -45,11 +45,11 @@ export const interactionApi = {
         return data.favorited;
     },
 
-    async checkFavorite(unifiedVideoId: string): Promise<boolean> {
+    async checkFavorite(catalogEntryId: string): Promise<boolean> {
         const token = localStorage.getItem("huawai_token");
         if (!token) return false;
 
-        const res = await fetch(`${API_BASE}/favorites/${unifiedVideoId}/status`, {
+        const res = await fetch(`${API_BASE}/favorites/${catalogEntryId}/status`, {
             method: "GET",
             headers: { "Authorization": `Bearer ${token}` }
         });
@@ -68,7 +68,7 @@ export const interactionApi = {
     },
 
     async reportProgress(
-        unifiedVideoId: string,
+        catalogEntryId: string,
         videoId: string,
         episodeId: string | undefined,
         episodeName: string,
@@ -86,7 +86,7 @@ export const interactionApi = {
                 "Authorization": `Bearer ${token}`
             },
             body: JSON.stringify({
-                unifiedVideoId,
+                catalogEntryId,
                 videoId,
                 episodeId,
                 episodeName,

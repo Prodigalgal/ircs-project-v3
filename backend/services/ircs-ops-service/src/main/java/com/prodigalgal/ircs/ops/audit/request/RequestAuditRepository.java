@@ -109,14 +109,14 @@ public class RequestAuditRepository {
                 select id, created_at, updated_at, version, audit_class, request_source, username, method, path,
                        query_string, status_code, success, duration_ms, client_ip,
                        user_agent, trace_id, error_message
-                  from request_audit_logs
+                  from http_request_audit_events
                 """ + where + JdbcPageSorts.orderBy(pageable, SORT_COLUMNS, DEFAULT_ORDER)
                 + " limit :limit offset :offset";
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<RequestAuditLogResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
         long total = filtered
-                ? count("select count(*) from request_audit_logs" + where, params)
+                ? count("select count(*) from http_request_audit_events" + where, params)
                 : estimatedTotal(pageable, content.size());
         return new PageImpl<>(content, pageable, total);
     }
@@ -134,7 +134,7 @@ public class RequestAuditRepository {
                                max(duration_ms) as max_duration_ms
                           from (
                                 select status_code, duration_ms
-                                  from request_audit_logs
+                                  from http_request_audit_events
                                  where created_at >= :since
                                  order by created_at desc
                                  limit :sampleLimit

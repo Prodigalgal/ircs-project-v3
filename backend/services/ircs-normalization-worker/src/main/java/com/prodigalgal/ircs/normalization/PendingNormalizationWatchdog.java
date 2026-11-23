@@ -31,7 +31,7 @@ class PendingNormalizationWatchdog {
     static final String JOB_NAME = "pending-normalization-reconcile";
     static final String LEASE_NAME = "normalization:pending-watchdog";
 
-    private final RawVideoNormalizationRepository repository;
+    private final SourceRecordNormalizationRepository repository;
     private final RuntimeWorkQueue workQueue;
     private final NormalizationConfigValues configValues;
     private final ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider;
@@ -42,7 +42,7 @@ class PendingNormalizationWatchdog {
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     PendingNormalizationWatchdog(
-            RawVideoNormalizationRepository repository,
+            SourceRecordNormalizationRepository repository,
             RuntimeWorkQueue workQueue,
             NormalizationConfigValues configValues,
             ObjectProvider<ClusterLeaseService> clusterLeaseServiceProvider,
@@ -102,10 +102,10 @@ class PendingNormalizationWatchdog {
 
     private int submitMissingPendingTasks() {
         Instant updatedBefore = Instant.now().minus(configValues.pendingWatchdogMinPendingAge());
-        List<RawVideoNormalizationRepository.RawVideoQueueItem> items =
+        List<SourceRecordNormalizationRepository.SourceRecordQueueItem> items =
                 repository.findPendingNormalizationQueueItems(updatedBefore, configValues.pendingWatchdogBatchSize());
         int submitted = 0;
-        for (RawVideoNormalizationRepository.RawVideoQueueItem item : items) {
+        for (SourceRecordNormalizationRepository.SourceRecordQueueItem item : items) {
             ClusterLeaseGuard.checkCurrentOwnership();
             RuntimeWorkItemRequest request = normalizeRequest(item);
             if (workQueue.hasOpenTask(request.taskType(), request.taskId())) {
@@ -125,7 +125,7 @@ class PendingNormalizationWatchdog {
         return submitted;
     }
 
-    private static RuntimeWorkItemRequest normalizeRequest(RawVideoNormalizationRepository.RawVideoQueueItem item) {
+    private static RuntimeWorkItemRequest normalizeRequest(SourceRecordNormalizationRepository.SourceRecordQueueItem item) {
         return new RuntimeWorkItemRequest(
                 PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
                 PipelineRuntimeWorkTypes.normalizeTaskId(item.id(), item.dataHash()),

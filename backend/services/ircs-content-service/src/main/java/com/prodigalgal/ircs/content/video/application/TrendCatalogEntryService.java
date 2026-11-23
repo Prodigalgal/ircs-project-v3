@@ -22,7 +22,7 @@ public class TrendCatalogEntryService {
 
     @Transactional(timeout = 15)
     public Resolution resolve(TrendCatalogCandidate candidate) {
-        maintenanceGate.assertUnifiedVideoWrite(null);
+        maintenanceGate.assertCatalogEntryWrite(null);
         if (authorityFirst) {
             var projection = repository.findAuthorityProjection(candidate);
             if (projection.isEmpty()) {

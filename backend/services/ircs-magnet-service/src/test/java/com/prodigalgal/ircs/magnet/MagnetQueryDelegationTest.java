@@ -19,78 +19,78 @@ class MagnetQueryDelegationTest {
 
     @Test
     void manualSearchDelegatesToExecutorWithAdminTrigger() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        MagnetSearchJobSummary expected = job(unifiedVideoId, "ADMIN_MANUAL");
-        when(searchExecutor.searchNow(unifiedVideoId, "ADMIN_MANUAL")).thenReturn(expected);
+        UUID catalogEntryId = UUID.randomUUID();
+        MagnetSearchJobSummary expected = job(catalogEntryId, "ADMIN_MANUAL");
+        when(searchExecutor.searchNow(catalogEntryId, "ADMIN_MANUAL")).thenReturn(expected);
 
-        assertSame(expected, service.triggerUnifiedSearch(unifiedVideoId));
+        assertSame(expected, service.triggerUnifiedSearch(catalogEntryId));
 
-        verify(searchExecutor).searchNow(unifiedVideoId, "ADMIN_MANUAL");
+        verify(searchExecutor).searchNow(catalogEntryId, "ADMIN_MANUAL");
     }
 
     @Test
     void automaticSearchDelegatesToExecutorWithScheduledTrigger() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        MagnetSearchJobSummary expected = job(unifiedVideoId, "AUTO_SCHEDULED");
-        when(searchExecutor.searchNow(unifiedVideoId, "AUTO_SCHEDULED")).thenReturn(expected);
+        UUID catalogEntryId = UUID.randomUUID();
+        MagnetSearchJobSummary expected = job(catalogEntryId, "AUTO_SCHEDULED");
+        when(searchExecutor.searchNow(catalogEntryId, "AUTO_SCHEDULED")).thenReturn(expected);
 
-        assertSame(expected, service.triggerAutomaticSearch(unifiedVideoId));
+        assertSame(expected, service.triggerAutomaticSearch(catalogEntryId));
 
-        verify(searchExecutor).searchNow(unifiedVideoId, "AUTO_SCHEDULED");
+        verify(searchExecutor).searchNow(catalogEntryId, "AUTO_SCHEDULED");
     }
 
     @Test
     void manualEnqueueDelegatesToExecutorWithAdminTrigger() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        MagnetSearchJobSummary expected = job(unifiedVideoId, "ADMIN_MANUAL");
-        when(searchExecutor.enqueue(unifiedVideoId, "ADMIN_MANUAL")).thenReturn(expected);
+        UUID catalogEntryId = UUID.randomUUID();
+        MagnetSearchJobSummary expected = job(catalogEntryId, "ADMIN_MANUAL");
+        when(searchExecutor.enqueue(catalogEntryId, "ADMIN_MANUAL")).thenReturn(expected);
 
-        assertSame(expected, service.enqueueUnifiedSearch(unifiedVideoId));
+        assertSame(expected, service.enqueueUnifiedSearch(catalogEntryId));
 
-        verify(searchExecutor).enqueue(unifiedVideoId, "ADMIN_MANUAL");
+        verify(searchExecutor).enqueue(catalogEntryId, "ADMIN_MANUAL");
     }
 
     @Test
     void automaticEnqueueDelegatesToExecutorWithScheduledTrigger() {
-        UUID unifiedVideoId = UUID.randomUUID();
-        MagnetSearchJobSummary expected = job(unifiedVideoId, "AUTO_SCHEDULED");
-        when(searchExecutor.enqueue(unifiedVideoId, "AUTO_SCHEDULED")).thenReturn(expected);
+        UUID catalogEntryId = UUID.randomUUID();
+        MagnetSearchJobSummary expected = job(catalogEntryId, "AUTO_SCHEDULED");
+        when(searchExecutor.enqueue(catalogEntryId, "AUTO_SCHEDULED")).thenReturn(expected);
 
-        assertSame(expected, service.enqueueAutomaticSearch(unifiedVideoId));
+        assertSame(expected, service.enqueueAutomaticSearch(catalogEntryId));
 
-        verify(searchExecutor).enqueue(unifiedVideoId, "AUTO_SCHEDULED");
+        verify(searchExecutor).enqueue(catalogEntryId, "AUTO_SCHEDULED");
     }
 
     @Test
     void queuedExecutionPassesRetryAllowedFalse() {
         UUID jobId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        MagnetSearchJobSummary expected = job(unifiedVideoId, "ADMIN_MANUAL");
-        when(searchExecutor.execute(jobId, unifiedVideoId, "ADMIN_MANUAL", false)).thenReturn(expected);
+        UUID catalogEntryId = UUID.randomUUID();
+        MagnetSearchJobSummary expected = job(catalogEntryId, "ADMIN_MANUAL");
+        when(searchExecutor.execute(jobId, catalogEntryId, "ADMIN_MANUAL", false)).thenReturn(expected);
 
-        assertSame(expected, service.executeQueuedSearch(jobId, unifiedVideoId, "ADMIN_MANUAL", false));
+        assertSame(expected, service.executeQueuedSearch(jobId, catalogEntryId, "ADMIN_MANUAL", false));
 
-        verify(searchExecutor).execute(jobId, unifiedVideoId, "ADMIN_MANUAL", false);
+        verify(searchExecutor).execute(jobId, catalogEntryId, "ADMIN_MANUAL", false);
     }
 
     @Test
     void queuedExecutionPassesRetryAllowedTrueAndLegacyOverloadDefaultsTrue() {
         UUID jobId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
-        MagnetSearchJobSummary expected = job(unifiedVideoId, "AUTO_SCHEDULED");
-        when(searchExecutor.execute(jobId, unifiedVideoId, "AUTO_SCHEDULED", true)).thenReturn(expected);
+        UUID catalogEntryId = UUID.randomUUID();
+        MagnetSearchJobSummary expected = job(catalogEntryId, "AUTO_SCHEDULED");
+        when(searchExecutor.execute(jobId, catalogEntryId, "AUTO_SCHEDULED", true)).thenReturn(expected);
 
-        assertSame(expected, service.executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED", true));
-        assertSame(expected, service.executeQueuedSearch(jobId, unifiedVideoId, "AUTO_SCHEDULED"));
+        assertSame(expected, service.executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED", true));
+        assertSame(expected, service.executeQueuedSearch(jobId, catalogEntryId, "AUTO_SCHEDULED"));
 
         verify(searchExecutor, org.mockito.Mockito.times(2))
-                .execute(jobId, unifiedVideoId, "AUTO_SCHEDULED", true);
+                .execute(jobId, catalogEntryId, "AUTO_SCHEDULED", true);
     }
 
-    private MagnetSearchJobSummary job(UUID unifiedVideoId, String trigger) {
+    private MagnetSearchJobSummary job(UUID catalogEntryId, String trigger) {
         Instant now = Instant.parse("2026-06-07T00:00:00Z");
         return new MagnetSearchJobSummary(
-                UUID.randomUUID(), unifiedVideoId, trigger, "PENDING", List.of(), List.of(),
+                UUID.randomUUID(), catalogEntryId, trigger, "PENDING", List.of(), List.of(),
                 null, null, 0, 0, 0, null, null, List.of(), now, now);
     }
 }

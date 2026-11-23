@@ -31,7 +31,7 @@ class JdbcMailSendHistoryWriter implements MailSendHistoryWriter {
             "\\bBearer\\s+[A-Za-z0-9._~+/=-]+",
             Pattern.CASE_INSENSITIVE);
     private static final String INSERT_SQL = """
-            insert into notification_mail_send_history (
+            insert into mail_delivery_attempts (
                 id, created_at, updated_at, version, audit_class, correlation_id, recipient, subject,
                 template_code, delivery_mode, status, credential_id, failure_code,
                 failure_message

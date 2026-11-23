@@ -20,7 +20,7 @@ class WorkSubmissionTopologyTest {
                 .containsExactly("app.search.sync.enabled", "app.search.work-queue.worker.enabled");
         assertThat(runtimeSubmissionKeys(SearchSyncWorkTypes.UNIFIED))
                 .containsExactly("app.search.sync.enabled", "app.search.work-queue.worker.enabled");
-        assertThat(runtimeSubmissionKeys(AggregationWorkTypes.RAW_VIDEO)).isEmpty();
+        assertThat(runtimeSubmissionKeys(AggregationWorkTypes.SOURCE_RECORD)).isEmpty();
         assertThat(runtimeSubmissionKeys(LlmCleaningWorkTypes.RAW_TERM))
                 .containsExactly(
                         "app.ai.llm.enabled",
@@ -46,7 +46,7 @@ class WorkSubmissionTopologyTest {
 
     @Test
     void consumerTopologyDistinguishesCoreAndEnhancementQueues() {
-        assertThat(runtimeConsumerKeys(AggregationWorkTypes.RAW_VIDEO)).isEmpty();
+        assertThat(runtimeConsumerKeys(AggregationWorkTypes.SOURCE_RECORD)).isEmpty();
         assertThat(runtimeConsumerKeys(LlmCleaningWorkTypes.RAW_TERM))
                 .containsExactly(
                         "app.ai.llm.enabled",

@@ -25,9 +25,9 @@ class ManualAggregationControllerTest {
                 List.of(UUID.randomUUID()),
                 "MERGED",
                 null);
-        when(aggregationService.mergeUnifiedVideos(List.of(rootId, victimId))).thenReturn(response);
+        when(aggregationService.mergeCatalogEntries(List.of(rootId, victimId))).thenReturn(response);
 
-        var result = controller.mergeUnifiedVideos(new ManualAggregationController.ManualUnifiedMergeRequest(
+        var result = controller.mergeCatalogEntries(new ManualAggregationController.ManualUnifiedMergeRequest(
                 List.of(rootId, victimId)));
 
         assertEquals(HttpStatus.ACCEPTED, result.getStatusCode());

@@ -48,7 +48,7 @@ interface VidstackPlayerProps {
     src: string;
     title: string;
     poster?: string;
-    unifiedVideoId?: string;
+    catalogEntryId?: string;
     videoId?: string;
     episodeId?: string;
     episodeName?: string;
@@ -60,7 +60,7 @@ export function VidstackPlayer({
                                    src,
                                    title,
                                    poster,
-                                   unifiedVideoId,
+                                   catalogEntryId,
                                    videoId,
                                    episodeId,
                                    episodeName,
@@ -73,7 +73,7 @@ export function VidstackPlayer({
 
     // Use Abstraction Hook
     const { report } = useVideoHeartbeat({
-        unifiedVideoId,
+        catalogEntryId,
         videoId,
         episodeId,
         episodeName,

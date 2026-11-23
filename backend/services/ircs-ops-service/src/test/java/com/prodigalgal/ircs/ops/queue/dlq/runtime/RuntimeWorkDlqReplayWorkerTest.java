@@ -35,12 +35,12 @@ class RuntimeWorkDlqReplayWorkerTest {
         RuntimeWorkDlqReplayWorker worker = new RuntimeWorkDlqReplayWorker(service, provider(leaseService));
         set(worker, "enabled", true);
         set(worker, "maxReplayAttempts", 3);
-        set(worker, "configuredTaskTypes", AggregationWorkTypes.RAW_VIDEO);
+        set(worker, "configuredTaskTypes", AggregationWorkTypes.SOURCE_RECORD);
 
         int affected = worker.runOnce();
 
         assertThat(affected).isEqualTo(1);
-        assertThat(queue.requeueRequests).containsExactly(new RequeueRequest(AggregationWorkTypes.RAW_VIDEO, 1, 3));
+        assertThat(queue.requeueRequests).containsExactly(new RequeueRequest(AggregationWorkTypes.SOURCE_RECORD, 1, 3));
         assertThat(queue.heartbeatOwners).contains("runtime-dlq-replayer");
         assertThat(leaseService.released).isTrue();
     }

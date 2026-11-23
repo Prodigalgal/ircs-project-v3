@@ -46,7 +46,7 @@ export default function MyListPage() {
     const isLoading = isAuthLoading || Boolean(user && loadedUserId !== user.id);
 
     const adaptToMovieCard = (rec: InteractionRecord): MovieCardType => ({
-        id: rec.unifiedVideoId,
+        id: rec.catalogEntryId,
         title: rec.title,
         posterUrl: rec.coverImageUrl,
         rating: rec.score,
@@ -55,10 +55,10 @@ export default function MyListPage() {
         area: "未知",
     });
 
-    const handleRemove = async (unifiedVideoId: string) => {
+    const handleRemove = async (catalogEntryId: string) => {
         try {
-            await interactionApi.toggleFavorite(unifiedVideoId);
-            setFavorites(prev => prev.filter(f => f.unifiedVideoId !== unifiedVideoId));
+            await interactionApi.toggleFavorite(catalogEntryId);
+            setFavorites(prev => prev.filter(f => f.catalogEntryId !== catalogEntryId));
         } catch (e) {
             console.error(e);
         }
@@ -136,7 +136,7 @@ export default function MyListPage() {
                                     </div>
                                     <div className="mr-4">
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); handleRemove(rec.unifiedVideoId); }}
+                                            onClick={(e) => { e.stopPropagation(); handleRemove(rec.catalogEntryId); }}
                                             className="px-4 py-2 text-sm font-medium text-muted-foreground border border-border rounded-full hover:border-destructive hover:text-destructive hover:bg-destructive/5 transition-all"
                                         >
                                             取消收藏

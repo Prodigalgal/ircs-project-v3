@@ -25,19 +25,19 @@ public class JdbcSearchSyncProcessor implements SearchSyncProcessor {
             return;
         }
 
-        if (message.getEntityType() == SearchEntityType.RAW_VIDEO) {
-            documentRepository.findRawVideo(message.getEntityId())
+        if (message.getEntityType() == SearchEntityType.SOURCE_RECORD) {
+            documentRepository.findSourceRecord(message.getEntityId())
                     .ifPresentOrElse(
                             searchIndexService::saveRaw,
-                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.RAW_VIDEO));
+                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.SOURCE_RECORD));
             return;
         }
 
-        if (message.getEntityType() == SearchEntityType.UNIFIED_VIDEO) {
-            documentRepository.findUnifiedVideo(message.getEntityId())
+        if (message.getEntityType() == SearchEntityType.CATALOG_ENTRY) {
+            documentRepository.findCatalogEntry(message.getEntityId())
                     .ifPresentOrElse(
                             searchIndexService::saveUnified,
-                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.UNIFIED_VIDEO));
+                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.CATALOG_ENTRY));
         }
     }
 }

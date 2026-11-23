@@ -95,7 +95,7 @@ class WorkerJobAuditRepositoryTest {
 
     private static void createTable(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.execute("""
-                create table worker_job_audit_events (
+                create table background_job_audit_events (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -124,7 +124,7 @@ class WorkerJobAuditRepositoryTest {
             String errorClass,
             Instant createdAt) {
         jdbcTemplate.update("""
-                        insert into worker_job_audit_events (
+                        insert into background_job_audit_events (
                             id, created_at, updated_at, version, audit_class, job_source, job_type, job_name,
                             correlation_id, status, duration_ms, error_class, error_message
                         ) values (?, ?, ?, 0, 'SYSTEM', ?, ?, ?, ?, ?, ?, ?, ?)

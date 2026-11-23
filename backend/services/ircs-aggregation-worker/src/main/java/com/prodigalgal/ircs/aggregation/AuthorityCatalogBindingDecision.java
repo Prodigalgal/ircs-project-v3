@@ -2,9 +2,9 @@ package com.prodigalgal.ircs.aggregation;
 
 import java.util.UUID;
 
-record AuthorityCatalogBindingDecision(String status, UUID unifiedVideoId, String evidenceKind) {
-    static AuthorityCatalogBindingDecision bind(UUID unifiedVideoId, String evidenceKind) {
-        return new AuthorityCatalogBindingDecision("BOUND", unifiedVideoId, evidenceKind);
+record AuthorityCatalogBindingDecision(String status, UUID catalogEntryId, String evidenceKind) {
+    static AuthorityCatalogBindingDecision bind(UUID catalogEntryId, String evidenceKind) {
+        return new AuthorityCatalogBindingDecision("BOUND", catalogEntryId, evidenceKind);
     }
 
     static AuthorityCatalogBindingDecision waitForAuthority() {

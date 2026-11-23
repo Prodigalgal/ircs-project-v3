@@ -3,7 +3,7 @@ package com.prodigalgal.ircs.task.domain;
 import java.util.UUID;
 
 public record CatalogDiscoveryCandidate(
-        UUID unifiedVideoId,
+        UUID catalogEntryId,
         int targetSeason,
         int targetEpisode,
         String keyword,
@@ -11,6 +11,6 @@ public record CatalogDiscoveryCandidate(
         UUID leaseToken) {
 
     public String requestKey() {
-        return unifiedVideoId + ":" + targetSeason + ":" + targetEpisode;
+        return catalogEntryId + ":" + targetSeason + ":" + targetEpisode;
     }
 }

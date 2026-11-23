@@ -26,10 +26,10 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).contains("exactCount(exactCountSql, params)");
         assertThat(source).contains("shouldUseExactFilteredCount(pageable, contentSize)");
         assertThat(source).contains("estimatedTotal(pageable, contentSize)");
-        assertThat(source).contains("hasAnyDatabaseRow(\"raw_videos rv\", where, params)");
-        assertThat(source).contains("hasAnyDatabaseRow(\"unified_videos uv\", where, params)");
-        assertThat(source).contains("totalElements(\"raw_videos\"");
-        assertThat(source).contains("totalElements(\"unified_videos\"");
+        assertThat(source).contains("hasAnyDatabaseRow(\"source_records rv\", where, params)");
+        assertThat(source).contains("hasAnyDatabaseRow(\"catalog_entries uv\", where, params)");
+        assertThat(source).contains("totalElements(\"source_records\"");
+        assertThat(source).contains("totalElements(\"catalog_entries\"");
     }
 
     @Test
@@ -37,16 +37,16 @@ class VideoAdminQuerySqlPolicyTest {
         String source = Files.readString(sourceFile());
 
         assertThat(source).contains("withSourceCounts(page)");
-        assertThat(source).contains("where unified_video_id in (:ids)");
-        assertThat(source).doesNotContain("where rvu.unified_video_id = uv.id\n                       ) as source_count");
+        assertThat(source).contains("where catalog_entry_id in (:ids)");
+        assertThat(source).doesNotContain("where rvu.catalog_entry_id = uv.id\n                       ) as source_count");
     }
 
     @Test
     void categoryFiltersUseCodeSubqueryInsteadOfForcingCountJoins() throws IOException {
         String source = Files.readString(sourceFile());
 
-        assertThat(source).contains("rv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
-        assertThat(source).contains("uv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
+        assertThat(source).contains("rv.category_code = (select sc.slug from catalog_categories sc where sc.id = :categoryId)");
+        assertThat(source).contains("uv.category_code = (select sc.slug from catalog_categories sc where sc.id = :categoryId)");
     }
 
     @Test
@@ -74,7 +74,7 @@ class VideoAdminQuerySqlPolicyTest {
         assertThat(source).contains("rawStatusOnlyEmptyPage(");
         assertThat(source).contains("isRawStatusOnlyFilter(");
         assertThat(source).contains("Optional.of(Page.empty(pageable))");
-        assertThat(source).contains("hasAnyDatabaseRow(\"raw_videos rv\", where, params)");
+        assertThat(source).contains("hasAnyDatabaseRow(\"source_records rv\", where, params)");
     }
 
     private static Path sourceFile() {

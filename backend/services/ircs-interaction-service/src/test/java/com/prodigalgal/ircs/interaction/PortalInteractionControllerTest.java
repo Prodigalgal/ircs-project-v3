@@ -25,27 +25,27 @@ class PortalInteractionControllerTest {
     @Test
     void togglesFavoriteForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
-        when(commandService.toggleFavorite(memberId, unifiedVideoId)).thenReturn(true);
+        when(commandService.toggleFavorite(memberId, catalogEntryId)).thenReturn(true);
 
-        Map<String, Boolean> response = controller.toggleFavorite("Bearer token", unifiedVideoId);
+        Map<String, Boolean> response = controller.toggleFavorite("Bearer token", catalogEntryId);
 
         assertEquals(Map.of("favorited", true), response);
-        verify(commandService).toggleFavorite(memberId, unifiedVideoId);
+        verify(commandService).toggleFavorite(memberId, catalogEntryId);
     }
 
     @Test
     void returnsFavoriteStatusForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
-        UUID unifiedVideoId = UUID.randomUUID();
+        UUID catalogEntryId = UUID.randomUUID();
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
-        when(commandService.favoriteStatus(memberId, unifiedVideoId)).thenReturn(false);
+        when(commandService.favoriteStatus(memberId, catalogEntryId)).thenReturn(false);
 
-        Map<String, Boolean> response = controller.favoriteStatus("Bearer token", unifiedVideoId);
+        Map<String, Boolean> response = controller.favoriteStatus("Bearer token", catalogEntryId);
 
         assertEquals(Map.of("favorited", false), response);
-        verify(commandService).favoriteStatus(memberId, unifiedVideoId);
+        verify(commandService).favoriteStatus(memberId, catalogEntryId);
     }
 
     @Test

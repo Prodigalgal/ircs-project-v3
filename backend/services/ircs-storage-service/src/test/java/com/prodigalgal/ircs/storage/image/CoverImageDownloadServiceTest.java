@@ -76,6 +76,7 @@ class CoverImageDownloadServiceTest {
         when(repository.markFetching(imageId)).thenReturn(true);
         when(urlResolver.resolve(row)).thenReturn("https://images.example.test/cover.png");
         when(normalizationService.normalize(any(byte[].class), eq("image/png"), eq("covers"))).thenReturn(normalized);
+        when(repository.reserveLocal(normalized)).thenReturn(normalized);
         when(localObjectStorage.exists("covers/hash.png")).thenReturn(false);
         when(r2ObjectStorage.isActive()).thenReturn(false);
 
@@ -101,6 +102,7 @@ class CoverImageDownloadServiceTest {
         when(repository.markFetching(imageId)).thenReturn(true);
         when(urlResolver.resolve(row)).thenReturn("https://images.example.test/cover.png");
         when(normalizationService.normalize(any(byte[].class), eq("image/png"), eq("covers"))).thenReturn(normalized);
+        when(repository.reserveLocal(normalized)).thenReturn(normalized);
         when(localObjectStorage.exists("covers/hash.png")).thenReturn(true);
         when(r2ObjectStorage.isActive()).thenReturn(true);
 
@@ -155,6 +157,7 @@ class CoverImageDownloadServiceTest {
         when(repository.markFetching(imageId)).thenReturn(true);
         when(urlResolver.resolve(row)).thenReturn("http://images.example.test/cover.png");
         when(normalizationService.normalize(any(byte[].class), eq("image/png"), eq("covers"))).thenReturn(normalized);
+        when(repository.reserveLocal(normalized)).thenReturn(normalized);
         when(localObjectStorage.exists("covers/hash.png")).thenReturn(true);
         when(r2ObjectStorage.isActive()).thenReturn(false);
 

@@ -5,16 +5,16 @@ import java.util.UUID;
 
 interface AggregationContextSearchClient {
 
-    ContextSearchResult findCandidateUnifiedVideoIds(String title, String year);
+    ContextSearchResult findCandidateCatalogEntryIds(String title, String year);
 
-    record ContextSearchResult(boolean attempted, List<UUID> unifiedVideoIds) {
+    record ContextSearchResult(boolean attempted, List<UUID> catalogEntryIds) {
 
         public ContextSearchResult {
-            unifiedVideoIds = unifiedVideoIds == null ? List.of() : List.copyOf(unifiedVideoIds);
+            catalogEntryIds = catalogEntryIds == null ? List.of() : List.copyOf(catalogEntryIds);
         }
 
-        static ContextSearchResult attempted(List<UUID> unifiedVideoIds) {
-            return new ContextSearchResult(true, unifiedVideoIds);
+        static ContextSearchResult attempted(List<UUID> catalogEntryIds) {
+            return new ContextSearchResult(true, catalogEntryIds);
         }
 
         static ContextSearchResult notAttempted() {

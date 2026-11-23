@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class WatchProgressMessage implements Serializable {
     private UUID memberId;
-    private UUID unifiedVideoId;
+    private UUID catalogEntryId;
     private UUID videoId;
     private UUID episodeId;
     private String episodeName;

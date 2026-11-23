@@ -67,7 +67,7 @@ export const apiSlice = createApi({
         'Resolver',
         'Genre',
         'StandardLanguage',
-        'UnifiedVideo',
+        'CatalogEntry',
         'Playlist',
         'CoverImage',
         'FailedMessage',

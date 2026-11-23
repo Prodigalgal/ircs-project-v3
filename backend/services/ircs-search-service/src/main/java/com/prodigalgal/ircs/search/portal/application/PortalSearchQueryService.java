@@ -8,7 +8,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.RangeQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.TermsQueryField;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
-import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
 import com.prodigalgal.ircs.search.portal.cache.SearchPortalReadModelCache;
 import com.prodigalgal.ircs.search.portal.dto.PortalMovieCardResponse;
 import java.math.BigDecimal;
@@ -61,12 +61,12 @@ public class PortalSearchQueryService {
 
     private List<String> suggestUncached(String safeKeyword, IrcsRequestPrincipal principal) {
         try {
-            SearchHits<UnifiedVideoSearchDocument> searchHits = elasticsearchOperations.search(
+            SearchHits<CatalogEntrySearchDocument> searchHits = elasticsearchOperations.search(
                     buildSuggestQuery(safeKeyword, principal),
-                    UnifiedVideoSearchDocument.class);
+                    CatalogEntrySearchDocument.class);
             return searchHits.stream()
                     .map(SearchHit::getContent)
-                    .map(UnifiedVideoSearchDocument::getTitle)
+                    .map(CatalogEntrySearchDocument::getTitle)
                     .filter(StringUtils::hasText)
                     .distinct()
                     .limit(10)
@@ -90,9 +90,9 @@ public class PortalSearchQueryService {
 
     private Page<PortalMovieCardResponse> recommendUncached(UUID videoId, Pageable pageable, IrcsRequestPrincipal principal) {
         try {
-            SearchHits<UnifiedVideoSearchDocument> hits = elasticsearchOperations.search(
+            SearchHits<CatalogEntrySearchDocument> hits = elasticsearchOperations.search(
                     buildRecommendQuery(videoId, pageable, principal),
-                    UnifiedVideoSearchDocument.class);
+                    CatalogEntrySearchDocument.class);
             List<PortalMovieCardResponse> content = hits.stream()
                     .map(SearchHit::getContent)
                     .map(this::toPortalCard)
@@ -104,19 +104,19 @@ public class PortalSearchQueryService {
         }
     }
 
-    public List<UUID> findCandidateUnifiedVideoIds(String title, String year) {
+    public List<UUID> findCandidateCatalogEntryIds(String title, String year) {
         String safeTitle = sanitize(title, MAX_KEYWORD_LENGTH);
         if (safeTitle == null) {
             return List.of();
         }
         try {
-            SearchHits<UnifiedVideoSearchDocument> hits = elasticsearchOperations.search(
+            SearchHits<CatalogEntrySearchDocument> hits = elasticsearchOperations.search(
                     buildCandidateQuery(safeTitle, year),
-                    UnifiedVideoSearchDocument.class);
+                    CatalogEntrySearchDocument.class);
             LinkedHashSet<UUID> ids = new LinkedHashSet<>();
             hits.stream()
                     .map(SearchHit::getContent)
-                    .map(UnifiedVideoSearchDocument::getId)
+                    .map(CatalogEntrySearchDocument::getId)
                     .filter(java.util.Objects::nonNull)
                     .forEach(ids::add);
             return List.copyOf(ids);
@@ -153,7 +153,7 @@ public class PortalSearchQueryService {
         Query recommendQuery = Query.of(q -> q.moreLikeThis(mlt -> mlt
                         .fields("title", "genres", "tags", "actors", "directors", "description")
                 .like(l -> l.document(d -> d
-                        .index(UnifiedVideoSearchDocument.INDEX_NAME)
+                        .index(CatalogEntrySearchDocument.INDEX_NAME)
                         .id(videoId.toString())))
                 .minTermFreq(1)
                 .minDocFreq(1)
@@ -270,7 +270,7 @@ public class PortalSearchQueryService {
                 .mustNot(Query.of(n -> n.exists(e -> e.field(field))))));
     }
 
-    private PortalMovieCardResponse toPortalCard(UnifiedVideoSearchDocument doc) {
+    private PortalMovieCardResponse toPortalCard(CatalogEntrySearchDocument doc) {
         return new PortalMovieCardResponse(
                 doc.getId(),
                 doc.getTitle(),

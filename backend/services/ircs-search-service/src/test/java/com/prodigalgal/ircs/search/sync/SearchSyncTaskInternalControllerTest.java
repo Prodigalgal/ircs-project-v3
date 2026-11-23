@@ -23,13 +23,13 @@ class SearchSyncTaskInternalControllerTest {
     @Test
     void enqueuesSingleInternalRequest() {
         UUID id = UUID.randomUUID();
-        when(publisher.enqueue(id, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX, "content-service", "trace-1"))
+        when(publisher.enqueue(id, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX, "content-service", "trace-1"))
                 .thenReturn(1);
 
         var response = controller.enqueue(
                 new SearchSyncTaskEnqueueRequest(
                         id,
-                        SearchEntityType.RAW_VIDEO,
+                        SearchEntityType.SOURCE_RECORD,
                         SyncOperation.INDEX,
                         "content-service",
                         "trace-1"),
@@ -40,19 +40,19 @@ class SearchSyncTaskInternalControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody().accepted()).isEqualTo(1);
-        verify(publisher).enqueue(id, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX, "content-service", "trace-1");
+        verify(publisher).enqueue(id, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX, "content-service", "trace-1");
     }
 
     @Test
     void enqueuesBatchInternalRequest() {
         List<UUID> ids = List.of(UUID.randomUUID(), UUID.randomUUID());
-        when(publisher.enqueueBatch(ids, SearchEntityType.UNIFIED_VIDEO, SyncOperation.DELETE, "ops", "trace-2"))
+        when(publisher.enqueueBatch(ids, SearchEntityType.CATALOG_ENTRY, SyncOperation.DELETE, "ops", "trace-2"))
                 .thenReturn(2);
 
         var response = controller.enqueueBatch(
                 new SearchSyncTaskBatchEnqueueRequest(
                         ids,
-                        SearchEntityType.UNIFIED_VIDEO,
+                        SearchEntityType.CATALOG_ENTRY,
                         SyncOperation.DELETE,
                         null,
                         null),

@@ -81,7 +81,7 @@ public class MaintenanceRunnerService {
     static final MaintenanceOwnerStep AGGREGATION_RESET_SEARCH_OWNER_STEP = new MaintenanceOwnerStep(
             "hard-reset-unified-index",
             "ircs-search-service",
-            "POST /internal/v1/search/index-maintenance/UNIFIED_VIDEO/hard-reset",
+            "POST /internal/v1/search/index-maintenance/CATALOG_ENTRY/hard-reset",
             "search:sync");
     static final MaintenanceOwnerStep AGGREGATION_RESET_MARK_RAW_OWNER_STEP = new MaintenanceOwnerStep(
             "mark-all-raw-aggregation-pending",

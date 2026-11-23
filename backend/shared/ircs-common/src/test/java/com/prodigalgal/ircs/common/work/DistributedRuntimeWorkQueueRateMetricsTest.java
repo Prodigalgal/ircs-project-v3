@@ -84,7 +84,7 @@ class DistributedRuntimeWorkQueueRateMetricsTest {
 
     @Test
     void claimPassesRateBucketAndMetricArgs() {
-        queue.claim(AggregationWorkTypes.RAW_VIDEO, "worker-a", 5, Duration.ofMinutes(5));
+        queue.claim(AggregationWorkTypes.SOURCE_RECORD, "worker-a", 5, Duration.ofMinutes(5));
 
         CapturedExecution execution = captureExecution();
 
@@ -92,7 +92,7 @@ class DistributedRuntimeWorkQueueRateMetricsTest {
                 execution,
                 5,
                 11,
-                RateMetricKeys.runtimeMetric(AggregationWorkTypes.RAW_VIDEO, RateMetricKeys.ACTION_CLAIMED));
+                RateMetricKeys.runtimeMetric(AggregationWorkTypes.SOURCE_RECORD, RateMetricKeys.ACTION_CLAIMED));
     }
 
     @Test
@@ -112,7 +112,7 @@ class DistributedRuntimeWorkQueueRateMetricsTest {
 
     @Test
     void failPassesRateBucketAndMetricArgs() {
-        RuntimeWorkItem item = item(AggregationWorkTypes.RAW_VIDEO, "task-3");
+        RuntimeWorkItem item = item(AggregationWorkTypes.SOURCE_RECORD, "task-3");
 
         queue.fail(item, false, Duration.ZERO, "boom");
 
@@ -122,7 +122,7 @@ class DistributedRuntimeWorkQueueRateMetricsTest {
                 execution,
                 6,
                 16,
-                RateMetricKeys.runtimeMetric(AggregationWorkTypes.RAW_VIDEO, RateMetricKeys.ACTION_FAILED));
+                RateMetricKeys.runtimeMetric(AggregationWorkTypes.SOURCE_RECORD, RateMetricKeys.ACTION_FAILED));
     }
 
     @Test
@@ -156,17 +156,17 @@ class DistributedRuntimeWorkQueueRateMetricsTest {
 
     @Test
     void requeueDlqPassesReplayLimitAndQueueKeys() {
-        queue.requeueDlq(AggregationWorkTypes.RAW_VIDEO, 7, 3);
+        queue.requeueDlq(AggregationWorkTypes.SOURCE_RECORD, 7, 3);
 
         CapturedExecution execution = captureExecution();
 
         assertEquals(4, execution.keys().size());
-        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.RAW_VIDEO + ":dlq"));
-        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.RAW_VIDEO + ":pending"));
-        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.RAW_VIDEO + ":inflight"));
+        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.SOURCE_RECORD + ":dlq"));
+        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.SOURCE_RECORD + ":pending"));
+        assertTrue(execution.keys().contains("ircs:work:v1:" + AggregationWorkTypes.SOURCE_RECORD + ":inflight"));
         assertEquals("7", execution.args()[1]);
         assertEquals("3", execution.args()[4]);
-        assertEquals(AggregationWorkTypes.RAW_VIDEO, execution.args()[6]);
+        assertEquals(AggregationWorkTypes.SOURCE_RECORD, execution.args()[6]);
         assertTrue(execution.script().contains("'status', 'DLQ_REPLAY_EXHAUSTED'"));
         assertTrue(execution.script().contains("'lastError', 'DLQ_REPLAY_EXHAUSTED'"));
         assertTrue(execution.script().contains("'event', 'dlq_replay_exhausted'"));

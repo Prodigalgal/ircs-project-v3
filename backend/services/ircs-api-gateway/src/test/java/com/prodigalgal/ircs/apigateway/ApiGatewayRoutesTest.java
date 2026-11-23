@@ -41,7 +41,7 @@ class ApiGatewayRoutesTest {
     }
 
     @Test
-    void routesRawVideosBeforeRawDictionaryRoutes() {
+    void routesSourceRecordsBeforeRawDictionaryRoutes() {
         ResolvedRoute route = routes.resolve("/api/v1/raw-videos/batch-sync-search").orElseThrow();
 
         assertThat(route.targetBaseUrl()).isEqualTo("http://content");

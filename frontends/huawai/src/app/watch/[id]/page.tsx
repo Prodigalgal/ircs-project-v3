@@ -16,7 +16,7 @@ type Props = {
 };
 
 export default function WatchPage({ params }: Props) {
-    const { id: unifiedVideoId } = use(params);
+    const { id: catalogEntryId } = use(params);
     const searchParams = useSearchParams();
     const router = useRouter();
     const { addToast } = useToast();
@@ -35,7 +35,7 @@ export default function WatchPage({ params }: Props) {
     useEffect(() => {
         const fetchMovie = async () => {
             try {
-                const data = await contentApi.getMovieDetail(unifiedVideoId);
+                const data = await contentApi.getMovieDetail(catalogEntryId);
                 setMovie(data);
 
                 if (!data || !data.sources || data.sources.length === 0) {
@@ -54,7 +54,7 @@ export default function WatchPage({ params }: Props) {
                             addToast("原播放线路已失效，已为您切换至最佳线路", "info");
                         }
 
-                        router.replace(`/watch/${unifiedVideoId}?source=${defaultSource.id}&episode=${defaultEp.id}`);
+                        router.replace(`/watch/${catalogEntryId}?source=${defaultSource.id}&episode=${defaultEp.id}`);
                     } else {
                         setError("资源解析异常：线路为空");
                     }
@@ -66,7 +66,7 @@ export default function WatchPage({ params }: Props) {
                     const firstEp = targetSource.episodes[0];
                     if (firstEp) {
                         addToast("所选集数已失效，正在播放第一集", "info");
-                        router.replace(`/watch/${unifiedVideoId}?source=${targetSource.id}&episode=${firstEp.id}`);
+                        router.replace(`/watch/${catalogEntryId}?source=${targetSource.id}&episode=${firstEp.id}`);
                     } else {
                         setError("该线路暂无集数");
                     }
@@ -82,7 +82,7 @@ export default function WatchPage({ params }: Props) {
         };
 
         fetchMovie();
-    }, [unifiedVideoId, sourceId, episodeId, router, addToast]);
+    }, [catalogEntryId, sourceId, episodeId, router, addToast]);
 
     if (isLoading) {
         return (
@@ -110,7 +110,7 @@ export default function WatchPage({ params }: Props) {
                 </div>
                 <h1 className="text-2xl font-bold text-white mb-2">信号中断</h1>
                 <p className="text-neutral-400 mb-8 max-w-md">{error || "连接至媒体服务器失败"}</p>
-                <GlowButton onClick={() => router.push(`/movie/${unifiedVideoId}`)} icon={<ArrowLeft className="w-4 h-4" />}>
+                <GlowButton onClick={() => router.push(`/movie/${catalogEntryId}`)} icon={<ArrowLeft className="w-4 h-4" />}>
                     返回详情页
                 </GlowButton>
             </div>
@@ -138,7 +138,7 @@ export default function WatchPage({ params }: Props) {
                 >
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push(`/movie/${unifiedVideoId}`)}
+                            onClick={() => router.push(`/movie/${catalogEntryId}`)}
                             className="p-2 -ml-2 text-neutral-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
                         >
                             <ArrowLeft className="w-5 h-5" />
@@ -168,7 +168,7 @@ export default function WatchPage({ params }: Props) {
                         src={currentEpisode.url}
                         posterUrl={movie.posterUrl}
                         title={currentEpisode.title}
-                        unifiedVideoId={unifiedVideoId}
+                        catalogEntryId={catalogEntryId}
                         videoId={currentSource.id}
                         episodeId={currentEpisode.id}
                         episodeName={currentEpisode.title}

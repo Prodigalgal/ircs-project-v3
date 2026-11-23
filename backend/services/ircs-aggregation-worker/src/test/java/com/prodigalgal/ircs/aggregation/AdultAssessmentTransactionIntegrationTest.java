@@ -73,13 +73,13 @@ class AdultAssessmentTransactionIntegrationTest {
         pool.setConnectionTimeout(1000);
         pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
-        jdbc.execute("create table catalog_metadata_requests(unified_video_id uuid primary key,last_success_at timestamptz)");
+        jdbc.execute("create table catalog_metadata_enrichment_jobs(catalog_entry_id uuid primary key,last_success_at timestamptz)");
         jdbc.execute("""
-                create table standard_category(id uuid primary key, slug text unique, name text);
-                create table data_sources(id uuid primary key, name text, base_url text, adult_restricted boolean);
-                create table source_domains(id uuid primary key, domain_value text);
-                create table cover_images(id uuid primary key, source_domain_id uuid references source_domains(id));
-                create table unified_videos(
+                create table catalog_categories(id uuid primary key, slug text unique, name text);
+                create table collection_sources(id uuid primary key, name text, base_url text, adult_restricted boolean);
+                create table source_origins(id uuid primary key, domain_value text);
+                create table media_image_sources(id uuid primary key, source_origin_id uuid references source_origins(id));
+                create table catalog_entries(
                     id uuid primary key, version bigint default 0, title text, alias_title text,
                     description text, remarks text, subtitle text, category_code text,
                     category_id uuid, year text, score numeric, published_at date, total_episodes text,
@@ -88,9 +88,9 @@ class AdultAssessmentTransactionIntegrationTest {
                     actor_names jsonb default '[]', director_names jsonb default '[]', genre_codes jsonb default '[]',
                     locked_fields jsonb default '[]', adult_restricted boolean default false,
                     adult_assessment jsonb, adult_checked_at timestamptz, updated_at timestamptz default now());
-                create table raw_videos(id uuid primary key, created_at timestamptz default now(), title text,
-                    source_category_code text, source_category_name text, data_source_id uuid references data_sources(id),
-                    cover_image_id uuid references cover_images(id), raw_metadata jsonb,
+                create table source_records(id uuid primary key, created_at timestamptz default now(), title text,
+                    source_category_code text, source_category_name text, collection_source_id uuid references collection_sources(id),
+                    media_image_source_id uuid references media_image_sources(id), raw_metadata jsonb,
                     alias_title text, description text, year text, score numeric, published_at date,
                     total_episodes text, duration text, remarks text, subtitle text, season integer,
                     category_code text default 'movie', douban_id text, tmdb_id text, imdb_id text, rotten_tomatoes_id text,
@@ -98,20 +98,20 @@ class AdultAssessmentTransactionIntegrationTest {
                     aggregation_status text default 'BOUND', aggregation_status_updated_at timestamptz default now(),
                     updated_at timestamptz default now(), actor_names jsonb default '[]',
                     director_names jsonb default '[]', area_codes jsonb default '[]');
-                create table raw_video_unified_video(
-                    raw_video_id uuid references raw_videos(id),
-                    unified_video_id uuid references unified_videos(id) on delete cascade,
-                    primary key(raw_video_id, unified_video_id));
+                create table catalog_source_bindings(
+                    source_record_id uuid references source_records(id),
+                    catalog_entry_id uuid references catalog_entries(id) on delete cascade,
+                    primary key(source_record_id, catalog_entry_id));
                 """);
         id = UUID.randomUUID(); rawId = UUID.randomUUID(); sourceId = UUID.randomUUID();
         coverId = UUID.randomUUID(); domainId = UUID.randomUUID();
-        jdbc.update("insert into standard_category values (?, 'movie', 'Movie')", UUID.randomUUID());
-        jdbc.update("insert into source_domains values (?, 'source.example.test')", domainId);
-        jdbc.update("insert into cover_images values (?, ?)", coverId, domainId);
-        jdbc.update("insert into data_sources values (?, 'Source', 'https://source.example.test', false)", sourceId);
-        jdbc.update("insert into unified_videos(id,title,category_code) values (?, 'Ordinary movie', 'movie')", id);
-        jdbc.update("insert into raw_videos(id,title,source_category_code,source_category_name,data_source_id,cover_image_id) values (?, 'Raw movie', 'movie', 'Movie', ?, ?)", rawId, sourceId, coverId);
-        jdbc.update("insert into raw_video_unified_video values (?, ?)", rawId, id);
+        jdbc.update("insert into catalog_categories values (?, 'movie', 'Movie')", UUID.randomUUID());
+        jdbc.update("insert into source_origins values (?, 'source.example.test')", domainId);
+        jdbc.update("insert into media_image_sources values (?, ?)", coverId, domainId);
+        jdbc.update("insert into collection_sources values (?, 'Source', 'https://source.example.test', false)", sourceId);
+        jdbc.update("insert into catalog_entries(id,title,category_code) values (?, 'Ordinary movie', 'movie')", id);
+        jdbc.update("insert into source_records(id,title,source_category_code,source_category_name,collection_source_id,media_image_source_id) values (?, 'Raw movie', 'movie', 'Movie', ?, ?)", rawId, sourceId, coverId);
+        jdbc.update("insert into catalog_source_bindings values (?, ?)", rawId, id);
         AdultAssessmentEvaluator evaluator = inputs -> {
             remote.accept(inputs);
             return Map.of(id, AdultAssessment.safe("google-test"));
@@ -125,7 +125,7 @@ class AdultAssessmentTransactionIntegrationTest {
         search = mock(SearchSyncWorkPublisher.class);
         work = mock(AggregationWorkPublisher.class);
         service = new AggregationService(repository, new AggregationSearchSyncPublisher(search),
-                mock(AggregationStorageCommandPublisher.class), mock(RawVideoGraphClusterer.class),
+                mock(AggregationStorageCommandPublisher.class), mock(SourceRecordGraphClusterer.class),
                 mock(AggregationPipelineRuntime.class), mock(AggregationMatchKeyLock.class), work, manager,
                 AggregationTestFixtures.matchingStrategy(), AggregationTestFixtures.safetyPolicy());
         org.springframework.aop.framework.ProxyFactory proxy = new org.springframework.aop.framework.ProxyFactory(service);
@@ -151,26 +151,26 @@ class AdultAssessmentTransactionIntegrationTest {
             assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
             assertThat(jdbc.queryForObject("select pg_try_advisory_xact_lock(194223, 1)", Boolean.class)).isTrue();
             assertThat(level()).isEqualTo("SUSPECT");
-            assertThat(jdbc.queryForObject("select adult_checked_at is null from unified_videos where id=?", Boolean.class, id)).isTrue();
+            assertThat(jdbc.queryForObject("select adult_checked_at is null from catalog_entries where id=?", Boolean.class, id)).isTrue();
             verifyNoInteractions(search);
         };
         service.backfillUnifiedAdultAssessments(10);
         assertThat(level()).isEqualTo("SAFE");
-        verify(search).enqueue(id, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(search).enqueue(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
         verifyNoInteractions(work);
     }
 
     @Test
     void dependencyWaitLeavesPostgresRowVersionAndTimestampUntouched() {
-        jdbc.update("update raw_videos set normalization_status='PENDING',enrichment_status='PENDING',"
+        jdbc.update("update source_records set normalization_status='PENDING',enrichment_status='PENDING',"
                 + "aggregation_status='PENDING',updated_at='2026-01-01T00:00:00Z' where id=?", rawId);
         String before = jdbc.queryForObject("select xmin::text||':'||xmax::text||':'||updated_at::text "
-                + "from raw_videos where id=?", String.class, rawId);
+                + "from source_records where id=?", String.class, rawId);
 
         assertThat(service.aggregateRuntimeWork(rawId).status()).isEqualTo("WAITING_DEPENDENCIES");
 
         assertThat(jdbc.queryForObject("select xmin::text||':'||xmax::text||':'||updated_at::text "
-                + "from raw_videos where id=?", String.class, rawId)).isEqualTo(before);
+                + "from source_records where id=?", String.class, rawId)).isEqualTo(before);
         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
         verifyNoInteractions(search, work);
     }
@@ -178,22 +178,22 @@ class AdultAssessmentTransactionIntegrationTest {
     @Test
     void committedLocalAdultRestrictionIsIndexedBeforeOtherItemPendingCanDeferBatch() {
         UUID pending = UUID.randomUUID();
-        jdbc.update("update data_sources set adult_restricted=true where id=?", sourceId);
-        jdbc.update("insert into unified_videos(id,title,category_code) values (?, 'Ordinary second movie', 'movie')", pending);
+        jdbc.update("update collection_sources set adult_restricted=true where id=?", sourceId);
+        jdbc.update("insert into catalog_entries(id,title,category_code) values (?, 'Ordinary second movie', 'movie')", pending);
         remote = inputs -> {
             assertThat(inputs).containsKeys(id, pending);
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
-            assertThat(jdbc.queryForObject("select adult_restricted from unified_videos where id=?", Boolean.class, id)).isTrue();
-            verify(search).enqueue(id, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+            assertThat(jdbc.queryForObject("select adult_restricted from catalog_entries where id=?", Boolean.class, id)).isTrue();
+            verify(search).enqueue(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
             org.mockito.Mockito.verify(search, org.mockito.Mockito.never())
-                    .enqueue(pending, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+                    .enqueue(pending, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
             throw new AdultAssessmentDeferredException("QUEUE_PENDING", 2);
         };
         service.backfillUnifiedAdultAssessments(10);
         assertThat(level()).isEqualTo("ADULT");
-        assertThat(jdbc.queryForObject("select adult_assessment->>'level' from unified_videos where id=?", String.class, pending))
+        assertThat(jdbc.queryForObject("select adult_assessment->>'level' from catalog_entries where id=?", String.class, pending))
                 .isEqualTo("SUSPECT");
-        verify(search).enqueue(id, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(search).enqueue(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
         org.mockito.Mockito.verifyNoMoreInteractions(search);
         verify(work).enqueue(rawId, null, "adult-assessment-pending");
     }
@@ -221,18 +221,18 @@ class AdultAssessmentTransactionIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "update unified_videos set title='New content'",
-            "update unified_videos set locked_fields='[\"adult_restricted\"]', adult_restricted=true",
-            "update unified_videos set adult_restricted=true, adult_assessment='{\"manual\":true}'",
-            "update unified_videos set actor_names='[\"New actor\"]'",
-            "update raw_videos set title='New raw content'",
-            "update raw_videos set raw_metadata='{\"new\":true}'",
-            "update data_sources set adult_restricted=true",
-            "update cover_images set source_domain_id=null",
-            "update source_domains set domain_value='new.example.test'",
-            "update standard_category set name='New category'",
-            "delete from raw_video_unified_video",
-            "delete from unified_videos"
+            "update catalog_entries set title='New content'",
+            "update catalog_entries set locked_fields='[\"adult_restricted\"]', adult_restricted=true",
+            "update catalog_entries set adult_restricted=true, adult_assessment='{\"manual\":true}'",
+            "update catalog_entries set actor_names='[\"New actor\"]'",
+            "update source_records set title='New raw content'",
+            "update source_records set raw_metadata='{\"new\":true}'",
+            "update collection_sources set adult_restricted=true",
+            "update media_image_sources set source_origin_id=null",
+            "update source_origins set domain_value='new.example.test'",
+            "update catalog_categories set name='New category'",
+            "delete from catalog_source_bindings",
+            "delete from catalog_entries"
     })
     void refusesLateResultAfterContentSourceOverrideBindingOrDeletionChanges(String mutation) {
         AdultAssessmentSnapshot snapshot = capture();
@@ -240,7 +240,7 @@ class AdultAssessmentTransactionIntegrationTest {
         Boolean applied = transaction.execute(
                 status -> repository.applyAdultAssessment(snapshot, AdultAssessment.safe("late")));
         assertThat(applied).isFalse();
-        assertThat(jdbc.queryForObject("select count(*) from unified_videos where adult_assessment->>'ruleVersion'='late'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from catalog_entries where adult_assessment->>'ruleVersion'='late'", Integer.class)).isZero();
     }
 
     @Test
@@ -252,14 +252,14 @@ class AdultAssessmentTransactionIntegrationTest {
             editor.setAutoCommit(false);
             try (var statement = editor.createStatement()) {
                 statement.execute("set local search_path to " + schema);
-                statement.executeUpdate("update unified_videos set locked_fields='[\"adultRestricted\"]', adult_restricted=true where id='" + id + "'");
+                statement.executeUpdate("update catalog_entries set locked_fields='[\"adultRestricted\"]', adult_restricted=true where id='" + id + "'");
             }
             var applied = executor.submit(() -> transaction.execute(status -> repository.applyAdultAssessment(snapshot, AdultAssessment.safe("late"))));
             assertThrows(TimeoutException.class, () -> applied.get(150, TimeUnit.MILLISECONDS));
             editor.commit();
             assertThat(applied.get(5, TimeUnit.SECONDS)).isFalse();
         }
-        assertThat(jdbc.queryForObject("select adult_restricted from unified_videos where id=?", Boolean.class, id)).isTrue();
+        assertThat(jdbc.queryForObject("select adult_restricted from catalog_entries where id=?", Boolean.class, id)).isTrue();
     }
 
     @Test
@@ -279,12 +279,12 @@ class AdultAssessmentTransactionIntegrationTest {
                 assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
                 transaction.executeWithoutResult(status -> {
                     repository.lockAggregationMaintenance();
-                    jdbc.update("update unified_videos set locked_fields='[\"adult_restricted\"]', adult_restricted=true where id=?", id);
+                    jdbc.update("update catalog_entries set locked_fields='[\"adult_restricted\"]', adult_restricted=true where id=?", id);
                 });
             } finally { release.countDown(); }
             run.get(5, TimeUnit.SECONDS);
         }
-        assertThat(jdbc.queryForObject("select adult_restricted from unified_videos where id=?", Boolean.class, id)).isTrue();
+        assertThat(jdbc.queryForObject("select adult_restricted from catalog_entries where id=?", Boolean.class, id)).isTrue();
         verifyNoInteractions(search);
         verify(work).enqueue(rawId, null, "adult-assessment-pending");
     }
@@ -298,9 +298,9 @@ class AdultAssessmentTransactionIntegrationTest {
         AggregationResult result = service.aggregateRuntimeWork(rawId);
         assertThat(result.status()).isEqualTo("BOUND");
         assertThat(level()).isEqualTo("SAFE");
-        assertThat(jdbc.queryForObject("select aggregation_status from raw_videos where id=?", String.class, rawId))
+        assertThat(jdbc.queryForObject("select aggregation_status from source_records where id=?", String.class, rawId))
                 .isEqualTo("BOUND");
-        assertThat(jdbc.queryForObject("select count(*) from raw_video_unified_video", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from catalog_source_bindings", Integer.class)).isEqualTo(1);
         verifyNoInteractions(work);
     }
 
@@ -308,10 +308,10 @@ class AdultAssessmentTransactionIntegrationTest {
     void completedBoundDuplicateDoesNotWriteFieldsOrPublishIndexes() {
         service.backfillUnifiedAdultAssessments(10);
         org.mockito.Mockito.clearInvocations(search);
-        Long version = jdbc.queryForObject("select version from unified_videos where id=?", Long.class, id);
+        Long version = jdbc.queryForObject("select version from catalog_entries where id=?", Long.class, id);
         AggregationResult result = service.aggregateRuntimeWork(rawId);
         assertThat(result.status()).isEqualTo("ALREADY_BOUND");
-        assertThat(jdbc.queryForObject("select version from unified_videos where id=?", Long.class, id)).isEqualTo(version);
+        assertThat(jdbc.queryForObject("select version from catalog_entries where id=?", Long.class, id)).isEqualTo(version);
         verifyNoInteractions(search, work);
     }
 
@@ -324,7 +324,7 @@ class AdultAssessmentTransactionIntegrationTest {
             writer.setAutoCommit(false);
             try (var statement = writer.createStatement()) {
                 statement.execute("set local search_path to " + schema);
-                statement.executeQuery("select id from raw_videos where id='" + rawId + "' for update");
+                statement.executeQuery("select id from source_records where id='" + rawId + "' for update");
             }
             var attempt = executor.submit(() -> {
                 AdultAssessmentDeferredException deferred = assertThrows(AdultAssessmentDeferredException.class,
@@ -335,82 +335,82 @@ class AdultAssessmentTransactionIntegrationTest {
             assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
             writer.rollback();
         }
-        assertThat(jdbc.queryForObject("select adult_checked_at is null from unified_videos where id=?", Boolean.class, id))
+        assertThat(jdbc.queryForObject("select adult_checked_at is null from catalog_entries where id=?", Boolean.class, id))
                 .isTrue();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"", "0", "123", "unknown"})
     void invalidExternalIdIsReplacedWithUsableSourceEvidence(String initialId) {
-        jdbc.update("update unified_videos set douban_id=? where id=?", initialId, id);
-        jdbc.update("update raw_videos set douban_id='987654', tmdb_id='123' where id=?", rawId);
+        jdbc.update("update catalog_entries set douban_id=? where id=?", initialId, id);
+        jdbc.update("update source_records set douban_id='987654', tmdb_id='123' where id=?", rawId);
         transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
-        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select douban_id from catalog_entries where id=?", String.class, id))
                 .isEqualTo("987654");
-        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select tmdb_id from catalog_entries where id=?", String.class, id))
                 .isEqualTo("123");
     }
 
     @Test
     void rejectedProviderIdCannotBeFilledIntoAnEmptyUnifiedField() {
-        jdbc.update("update raw_videos set douban_id='123', tmdb_id='123' where id=?", rawId);
+        jdbc.update("update source_records set douban_id='123', tmdb_id='123' where id=?", rawId);
         transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
-        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
-        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isEqualTo("123");
+        assertThat(jdbc.queryForObject("select douban_id from catalog_entries where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select tmdb_id from catalog_entries where id=?", String.class, id)).isEqualTo("123");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"123", "456"})
     void rejectedLegacyUnifiedIdIsClearedWhenNoUsableMemberReplacementExists(String rejectedId) {
-        jdbc.update("update unified_videos set douban_id=? where id=?", rejectedId, id);
-        jdbc.update("update raw_videos set douban_id=? where id=?", rejectedId, rawId);
+        jdbc.update("update catalog_entries set douban_id=? where id=?", rejectedId, id);
+        jdbc.update("update source_records set douban_id=? where id=?", rejectedId, rawId);
 
         transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
 
-        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
-        assertThat(jdbc.queryForObject("select douban_id from raw_videos where id=?", String.class, rawId)).isEqualTo(rejectedId);
+        assertThat(jdbc.queryForObject("select douban_id from catalog_entries where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select douban_id from source_records where id=?", String.class, rawId)).isEqualTo(rejectedId);
     }
 
     @Test
     void unrelatedLegacyUnifiedIdIsPreservedWhenNoUsableMemberReplacementExists() {
-        jdbc.update("update unified_videos set douban_id='legacy-value' where id=?", id);
-        jdbc.update("update raw_videos set douban_id='123' where id=?", rawId);
+        jdbc.update("update catalog_entries set douban_id='legacy-value' where id=?", id);
+        jdbc.update("update source_records set douban_id='123' where id=?", rawId);
 
         transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
 
-        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select douban_id from catalog_entries where id=?", String.class, id))
                 .isEqualTo("legacy-value");
     }
 
     @Test
     void conflictedHistoricalClusterClearsRejectedIdWithoutCopyingMemberIds() {
         UUID other = UUID.randomUUID();
-        jdbc.update("update unified_videos set douban_id='123' where id=?", id);
-        jdbc.update("update raw_videos set douban_id='987654', tmdb_id='101' where id=?", rawId);
-        jdbc.update("insert into raw_videos(id,title,douban_id,tmdb_id) values (?,?,?,?)",
+        jdbc.update("update catalog_entries set douban_id='123' where id=?", id);
+        jdbc.update("update source_records set douban_id='987654', tmdb_id='101' where id=?", rawId);
+        jdbc.update("insert into source_records(id,title,douban_id,tmdb_id) values (?,?,?,?)",
                 other, "Another film", "876543", "102");
-        jdbc.update("insert into raw_video_unified_video values (?, ?)", other, id);
+        jdbc.update("insert into catalog_source_bindings values (?, ?)", other, id);
 
         transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
 
-        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
-        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select douban_id from catalog_entries where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select tmdb_id from catalog_entries where id=?", String.class, id)).isNull();
         transaction.executeWithoutResult(status -> repository.rebuildUnifiedPipelineExternalIds(id));
-        assertThat(jdbc.queryForObject("select douban_id from unified_videos where id=?", String.class, id)).isNull();
-        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, id)).isNull();
-        assertThat(jdbc.queryForObject("select douban_id from raw_videos where id=?", String.class, rawId))
+        assertThat(jdbc.queryForObject("select douban_id from catalog_entries where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select tmdb_id from catalog_entries where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select douban_id from source_records where id=?", String.class, rawId))
                 .isEqualTo("987654");
     }
 
     @Test
     void pendingBackfillSelectsReadyInputsWithoutDemotingExistingBoundMembers() {
-        jdbc.update("update raw_videos set aggregation_status='PENDING' where id=?", rawId);
-        jdbc.update("insert into raw_videos(id,title,normalization_status,aggregation_status) values (?, 'Not ready', 'PENDING', 'PENDING')",
+        jdbc.update("update source_records set aggregation_status='PENDING' where id=?", rawId);
+        jdbc.update("insert into source_records(id,title,normalization_status,aggregation_status) values (?, 'Not ready', 'PENDING', 'PENDING')",
                 UUID.randomUUID());
-        jdbc.update("insert into raw_videos(id,title,enrichment_status,aggregation_status) values (?, 'Waiting metadata', 'PENDING', 'PENDING')",
+        jdbc.update("insert into source_records(id,title,enrichment_status,aggregation_status) values (?, 'Waiting metadata', 'PENDING', 'PENDING')",
                 UUID.randomUUID());
-        jdbc.update("insert into raw_videos(id,title,aggregation_status) values (?, ' ', 'PENDING')", UUID.randomUUID());
-        jdbc.update("insert into raw_videos(id,title,aggregation_status) values (?, 'Already bound', 'BOUND')", UUID.randomUUID());
+        jdbc.update("insert into source_records(id,title,aggregation_status) values (?, ' ', 'PENDING')", UUID.randomUUID());
+        jdbc.update("insert into source_records(id,title,aggregation_status) values (?, 'Already bound', 'BOUND')", UUID.randomUUID());
         assertThat(repository.findEligiblePendingRawIds(10)).containsExactly(rawId);
     }
 
@@ -422,6 +422,6 @@ class AdultAssessmentTransactionIntegrationTest {
     }
 
     private String level() {
-        return jdbc.queryForObject("select adult_assessment->>'level' from unified_videos where id=?", String.class, id);
+        return jdbc.queryForObject("select adult_assessment->>'level' from catalog_entries where id=?", String.class, id);
     }
 }

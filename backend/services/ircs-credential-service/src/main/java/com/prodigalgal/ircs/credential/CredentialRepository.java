@@ -23,7 +23,7 @@ public class CredentialRepository {
             select id, created_at, updated_at, coalesce(version, 0) as version, provider, name, payload,
                    fingerprint, enabled, priority, rate_limit, rate_limit_unit,
                    day_limit, month_limit, class_a_limit, class_b_limit, remark
-              from sys_credentials
+              from integration_credentials
             """;
 
     private static final RowMapper<CredentialRecord> ROW_MAPPER = CredentialRepository::mapRow;
@@ -57,7 +57,7 @@ public class CredentialRepository {
 
     public boolean existsByFingerprint(String fingerprint) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from sys_credentials where fingerprint = :fingerprint)",
+                "select exists(select 1 from integration_credentials where fingerprint = :fingerprint)",
                 Map.of("fingerprint", fingerprint),
                 Boolean.class);
         return Boolean.TRUE.equals(exists);
@@ -67,7 +67,7 @@ public class CredentialRepository {
         Boolean exists = jdbcTemplate.queryForObject(
                 """
                 select exists(
-                    select 1 from sys_credentials
+                    select 1 from integration_credentials
                      where fingerprint = :fingerprint
                        and id <> :id
                 )
@@ -80,7 +80,7 @@ public class CredentialRepository {
     public CredentialRecord create(CredentialDraft draft) {
         return jdbcTemplate.queryForObject(
                 """
-                insert into sys_credentials (
+                insert into integration_credentials (
                     id, created_at, updated_at, version, provider, name, payload,
                     fingerprint, enabled, priority, rate_limit, rate_limit_unit,
                     day_limit, month_limit, class_a_limit, class_b_limit, remark
@@ -101,7 +101,7 @@ public class CredentialRepository {
     public Optional<CredentialRecord> update(UUID id, CredentialDraft draft) {
         List<CredentialRecord> rows = jdbcTemplate.query(
                 """
-                update sys_credentials
+                update integration_credentials
                    set updated_at = now(),
                        version = coalesce(version, 0) + 1,
                        provider = :provider,
@@ -128,7 +128,7 @@ public class CredentialRepository {
     }
 
     public int deleteById(UUID id) {
-        return jdbcTemplate.update("delete from sys_credentials where id = :id", Map.of("id", id));
+        return jdbcTemplate.update("delete from integration_credentials where id = :id", Map.of("id", id));
     }
 
     public List<CredentialRecord> findEnabledProviderCredentials(

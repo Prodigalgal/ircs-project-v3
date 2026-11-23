@@ -3,6 +3,8 @@ package com.prodigalgal.ircs.migrator;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.UUID;
 import liquibase.integration.spring.SpringLiquibase;
 import org.junit.jupiter.api.Test;
@@ -35,12 +37,16 @@ class MigrationSchemaIntegrationTest {
             var jdbc = new JdbcTemplate(dataSource);
             Integer applied = jdbc.queryForObject("select count(*) from databasechangelog", Integer.class);
             assertThat(applied).isGreaterThan(10);
-            assertThat(jdbc.queryForObject("select to_regclass('external_catalog_identities') is not null", Boolean.class)).isTrue();
+            assertThat(jdbc.queryForObject("select to_regclass('catalog_external_ids') is not null", Boolean.class)).isTrue();
             assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?, 2)",
                     Boolean.class, UUID.randomUUID())).isFalse();
             assertThat(jdbc.queryForObject("select catalog_episode_number('S02E12')", Integer.class)).isEqualTo(12);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog where tag='5.0.0'", Integer.class)).isOne();
             migration.afterPropertiesSet();
             assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(applied);
+            try (var fixture = Objects.requireNonNull(getClass().getResourceAsStream("/catalog-v5-relationships.sql"))) {
+                jdbc.execute(new String(fixture.readAllBytes(), StandardCharsets.UTF_8));
+            }
         } finally {
             admin.execute("drop database " + database);
         }

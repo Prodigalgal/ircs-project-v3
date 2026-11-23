@@ -12,23 +12,28 @@ public class MemberPointLedger {
 
     private final JdbcTemplate jdbcTemplate;
 
-    public void spend(UUID memberId, int points, String reason) {
+    public void lockMember(UUID memberId) {
+        boolean memberExists = !jdbcTemplate.queryForList("""
+                select id from member_accounts where id = ? and status = 'ACTIVE' for no key update
+                """, UUID.class, memberId).isEmpty();
+        if (!memberExists) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "账户当前不可用");
+        }
+    }
+
+    public void spend(UUID memberId, int points, String reason, UUID subjectId) {
         if (points <= 0) {
             return;
         }
-        int updated = jdbcTemplate.update(
-                """
-                update members
-                   set points = points - ?,
-                       updated_at = now(),
-                       version = coalesce(version, 0) + 1
-                 where id = ?
-                   and points >= ?
-                """,
-                points,
+        Integer balance = jdbcTemplate.queryForObject(
+                "select apply_member_point_transaction(?, ?, ?, ?, false, ?)",
+                Integer.class,
                 memberId,
-                points);
-        if (updated == 0) {
+                reason + ":" + subjectId,
+                reason,
+                -points,
+                subjectId);
+        if (balance == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "积分不足，请先签到获取积分");
         }
     }

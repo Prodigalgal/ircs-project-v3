@@ -32,7 +32,7 @@ public class CredentialLabelRepository {
         String label = DataAccessUtils.singleResult(jdbcTemplate.query(
                 """
                 select provider, name
-                  from sys_credentials
+                  from integration_credentials
                  where id = :id
                 """,
                 Map.of("id", id),
@@ -53,7 +53,7 @@ public class CredentialLabelRepository {
             int limit) {
         StringBuilder sql = new StringBuilder("""
                 select id, provider, name, rate_limit
-                  from sys_credentials
+                  from integration_credentials
                  where provider = :provider
                    and enabled = true
                 """);

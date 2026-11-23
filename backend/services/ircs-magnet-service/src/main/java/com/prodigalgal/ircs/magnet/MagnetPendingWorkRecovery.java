@@ -73,12 +73,12 @@ final class MagnetPendingWorkRecovery {
         if (!enabled || publisher == null) { return 0; }
         Instant cutoff = Instant.now().minus(leaseDuration).minusSeconds(5);
         List<PendingJob> jobs = jdbc.query("""
-                select id, unified_video_id, coalesce(version, 0) as generation, created_at
-                from magnet_search_jobs
+                select id, catalog_entry_id, coalesce(version, 0) as generation, created_at
+                from magnet_discovery_jobs
                 where status in ('PENDING', 'RUNNING') and updated_at < ?
                   and (created_at, id) > (?, ?)
                 order by created_at, id limit ?
-                """, (rs, row) -> new PendingJob(rs.getObject("id", UUID.class), rs.getObject("unified_video_id", UUID.class),
+                """, (rs, row) -> new PendingJob(rs.getObject("id", UUID.class), rs.getObject("catalog_entry_id", UUID.class),
                         rs.getLong("generation"), rs.getTimestamp("created_at").toInstant()),
                 Timestamp.from(cutoff), Timestamp.from(afterCreatedAt), afterId, batchSize);
         int recovered = 0;
@@ -86,7 +86,7 @@ final class MagnetPendingWorkRecovery {
             ClusterLeaseGuard.checkCurrentOwnership();
             String state = submissions.status(MagnetWorkTypes.searchTaskId(job.id()));
             if ("PERMANENT_FAILURE".equals(state) || "SUCCESS".equals(state)) {
-                if (coordinator.failAbandoned(job.id(), job.unifiedVideoId(), job.generation(), cutoff,
+                if (coordinator.failAbandoned(job.id(), job.catalogEntryId(), job.generation(), cutoff,
                         "MAGNET_QUEUE_TERMINAL_STATE:" + state)) { recovered++; }
             } else if (state == null && publisher.backlogDepth() < maxQueueDepth) {
                 var current = repository.findSearchJob(job.id());
@@ -106,5 +106,5 @@ final class MagnetPendingWorkRecovery {
     @PreDestroy
     void close() { executor.shutdownNow(); }
 
-    private record PendingJob(UUID id, UUID unifiedVideoId, long generation, Instant createdAt) { }
+    private record PendingJob(UUID id, UUID catalogEntryId, long generation, Instant createdAt) { }
 }

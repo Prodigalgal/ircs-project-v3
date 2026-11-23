@@ -55,12 +55,12 @@ public class JdbcPortalRepository {
                    sd.domain_value AS cover_source_domain
             """;
     private static final String CARD_COVER_JOINS = """
-              LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
-              LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
+              LEFT JOIN media_image_sources ci ON uv.media_image_source_id = ci.id
+              LEFT JOIN source_origins sd ON ci.source_origin_id = sd.id
             """;
     private static final String CARD_SELECT = "SELECT " + CARD_COLUMNS + """
-              FROM unified_videos uv
-              LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+              FROM catalog_entries uv
+              LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
             """ + CARD_COVER_JOINS;
     private static final String SITEMAP_LAST_MODIFIED = """
             NULLIF(
@@ -85,8 +85,8 @@ public class JdbcPortalRepository {
         return jdbcTemplate.query(
                 """
                 SELECT sc.name, sc.slug
-                  FROM unified_videos uv
-                  JOIN standard_category sc ON sc.slug = uv.category_code
+                  FROM catalog_entries uv
+                  JOIN catalog_categories sc ON sc.slug = uv.category_code
                 """ + where + """
                  GROUP BY sc.id, sc.name, sc.slug
                  ORDER BY count(uv.id) DESC, sc.name ASC
@@ -101,10 +101,10 @@ public class JdbcPortalRepository {
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
                 SELECT coalesce(sg.name, gc.code) as name
-                  FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  FROM catalog_entries uv
+                  LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
                   JOIN LATERAL jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code) ON true
-                  LEFT JOIN standard_genre sg ON sg.code = gc.code
+                  LEFT JOIN catalog_genres sg ON sg.code = gc.code
                 """ + where + """
                  GROUP BY coalesce(sg.name, gc.code)
                  ORDER BY count(uv.id) DESC, coalesce(sg.name, gc.code) ASC
@@ -117,10 +117,10 @@ public class JdbcPortalRepository {
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
                 SELECT coalesce(sa.name, ac.code) as name
-                  FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  FROM catalog_entries uv
+                  LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
                   JOIN LATERAL jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code) ON true
-                  LEFT JOIN standard_areas sa ON sa.code = ac.code
+                  LEFT JOIN catalog_regions sa ON sa.code = ac.code
                 """ + where + """
                  GROUP BY coalesce(sa.name, ac.code)
                  ORDER BY count(uv.id) DESC, coalesce(sa.name, ac.code) ASC
@@ -133,10 +133,10 @@ public class JdbcPortalRepository {
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
                 SELECT coalesce(sl.name, lc.code) as name
-                  FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  FROM catalog_entries uv
+                  LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
                   JOIN LATERAL jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code) ON true
-                  LEFT JOIN standard_languages sl ON sl.code = lc.code
+                  LEFT JOIN catalog_languages sl ON sl.code = lc.code
                 """ + where + """
                  GROUP BY coalesce(sl.name, lc.code)
                  ORDER BY count(uv.id) DESC, coalesce(sl.name, lc.code) ASC
@@ -152,8 +152,8 @@ public class JdbcPortalRepository {
         appendScopeFilters(where, params, principal);
         return jdbcTemplate.query("""
                 SELECT uv.year
-                  FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+                  FROM catalog_entries uv
+                  LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
                 """ + where + """
                  GROUP BY uv.year
                  ORDER BY uv.year DESC
@@ -181,7 +181,7 @@ public class JdbcPortalRepository {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return decorateRankings(queryCards(
-                CARD_SELECT + " JOIN external_catalog_rankings trend_rank ON trend_rank.unified_video_id = uv.id "
+                CARD_SELECT + " JOIN catalog_entry_rankings trend_rank ON trend_rank.catalog_entry_id = uv.id "
                         + where + " AND trend_rank.heat > 0 " + """
                  ORDER BY row_number() over (partition by uv.category_code order by trend_rank.heat desc, uv.id),
                           trend_rank.heat DESC, uv.id ASC
@@ -196,7 +196,7 @@ public class JdbcPortalRepository {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         appendScopeFilters(where, params, principal);
         return decorateRankings(queryCards(CARD_SELECT
-                + " JOIN external_catalog_recent_events recent_event ON recent_event.unified_video_id = uv.id "
+                + " JOIN catalog_entry_recent_release_events recent_event ON recent_event.catalog_entry_id = uv.id "
                 + where + """
                    AND catalog_has_target_resources(uv.id,
                            coalesce(nullif(recent_event.season, 0), uv.season, 0), coalesce(recent_event.episode, 0))
@@ -210,7 +210,7 @@ public class JdbcPortalRepository {
                 select provider, board, media_type, source_window, status, error_code,
                        last_attempt_at, last_success_at, item_count,
                        (last_success_at is null or last_success_at < now() - interval '6 hours') as stale
-                  from external_trend_boards order by provider, media_type, board, source_window
+                  from provider_ranking_boards order by provider, media_type, board, source_window
                 """, Map.of(), (rs, n) -> new PortalTrendSourceState(rs.getString("provider"), rs.getString("board"),
                         rs.getString("media_type"), rs.getString("source_window"), rs.getString("status"),
                         rs.getString("error_code"), getInstant(rs, "last_attempt_at"), getInstant(rs, "last_success_at"),
@@ -230,9 +230,9 @@ public class JdbcPortalRepository {
                             else inventory.resource_available end as resource_available,
                        inventory.available_episode,
                        recent_event.provider as event_provider
-                  from unified_videos uv
-                  left join external_catalog_rankings trend_rank on trend_rank.unified_video_id = uv.id
-                  left join external_catalog_recent_events recent_event on recent_event.unified_video_id = uv.id
+                  from catalog_entries uv
+                  left join catalog_entry_rankings trend_rank on trend_rank.catalog_entry_id = uv.id
+                  left join catalog_entry_recent_release_events recent_event on recent_event.catalog_entry_id = uv.id
                   cross join lateral (
                       select coalesce(case when :recent then nullif(recent_event.season, 0) end, uv.season, 0) as season
                   ) requested
@@ -287,17 +287,17 @@ public class JdbcPortalRepository {
         List<CategoryCardRow> rows = jdbcTemplate.query(
                 "SELECT " + CARD_COLUMNS + """
                      , sc.slug AS section_key
-                  FROM standard_category sc
+                  FROM catalog_categories sc
                  CROSS JOIN LATERAL (
                        SELECT uv.id, uv.published_at, uv.updated_at
-                         FROM unified_videos uv
+                         FROM catalog_entries uv
                 """ + where + """
                         ORDER BY uv.published_at DESC NULLS LAST,
                                  uv.updated_at DESC NULLS LAST,
                                  uv.id ASC
                         LIMIT :limit
                   ) selected
-                  JOIN unified_videos uv ON uv.id = selected.id
+                  JOIN catalog_entries uv ON uv.id = selected.id
                 """ + CARD_COVER_JOINS + """
                  WHERE sc.slug IN (:categoryKeys)
                  ORDER BY sc.slug ASC,
@@ -345,11 +345,11 @@ public class JdbcPortalRepository {
         boolean recent = List.of("latest", "new", "published", "global-latest").contains(normalizedSort);
         String rankingJoin = "";
         if (trending) {
-            rankingJoin = " JOIN external_catalog_rankings trend_rank ON trend_rank.unified_video_id = uv.id ";
-            where += " AND uv.id in (select unified_video_id from external_catalog_rankings where heat > 0) ";
+            rankingJoin = " JOIN catalog_entry_rankings trend_rank ON trend_rank.catalog_entry_id = uv.id ";
+            where += " AND uv.id in (select catalog_entry_id from catalog_entry_rankings where heat > 0) ";
         } else if (recent) {
-            rankingJoin = " JOIN external_catalog_recent_events recent_event ON recent_event.unified_video_id = uv.id ";
-            where += " AND uv.id in (select unified_video_id from external_catalog_recent_events) ";
+            rankingJoin = " JOIN catalog_entry_recent_release_events recent_event ON recent_event.catalog_entry_id = uv.id ";
+            where += " AND uv.id in (select catalog_entry_id from catalog_entry_recent_release_events) ";
         }
 
         params.put("limit", size);
@@ -383,10 +383,10 @@ public class JdbcPortalRepository {
                        sd.domain_value AS cover_source_domain,
                        """ + SITEMAP_LAST_MODIFIED + """
                        AS last_modified
-                  FROM unified_videos uv
-                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
-                  LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
-                  LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
+                  FROM catalog_entries uv
+                  LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
+                  LEFT JOIN media_image_sources ci ON uv.media_image_source_id = ci.id
+                  LEFT JOIN source_origins sd ON ci.source_origin_id = sd.id
                 """ + where + """
                  ORDER BY last_modified DESC NULLS LAST,
                           uv.id ASC
@@ -438,10 +438,10 @@ public class JdbcPortalRepository {
                            ci.original_url AS cover_original_url,
                            ci.storage_path AS cover_storage_path,
                            sd.domain_value AS cover_source_domain
-                      FROM unified_videos uv
-                      LEFT JOIN standard_category sc ON sc.slug = uv.category_code
-                      LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
-                      LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
+                      FROM catalog_entries uv
+                      LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
+                      LEFT JOIN media_image_sources ci ON uv.media_image_source_id = ci.id
+                      LEFT JOIN source_origins sd ON ci.source_origin_id = sd.id
                     """ + where,
                     params,
                     (rs, rowNum) -> new DetailBase(
@@ -526,7 +526,7 @@ public class JdbcPortalRepository {
                  AND EXISTS (
                      SELECT 1
                        FROM jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code)
-                       LEFT JOIN standard_genre sg ON sg.code = gc.code
+                       LEFT JOIN catalog_genres sg ON sg.code = gc.code
                       WHERE gc.code = :genre OR sg.name = :genre
                  )
                 """);
@@ -534,7 +534,7 @@ public class JdbcPortalRepository {
                  AND EXISTS (
                      SELECT 1
                        FROM jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
-                       LEFT JOIN standard_areas sa ON sa.code = ac.code
+                       LEFT JOIN catalog_regions sa ON sa.code = ac.code
                       WHERE ac.code = :area OR sa.name = :area
                  )
                 """);
@@ -542,7 +542,7 @@ public class JdbcPortalRepository {
                  AND EXISTS (
                      SELECT 1
                        FROM jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code)
-                       LEFT JOIN standard_languages sl ON sl.code = lc.code
+                       LEFT JOIN catalog_languages sl ON sl.code = lc.code
                       WHERE lc.code = :language OR sl.name = :language
                  )
                 """);
@@ -579,7 +579,7 @@ public class JdbcPortalRepository {
 
     private long exactExploreTotal(String where, Map<String, Object> params) {
         Long total = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
+                "SELECT count(*) FROM catalog_entries uv LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code " + where,
                 params,
                 Long.class);
         return total == null ? 0 : total;
@@ -587,7 +587,7 @@ public class JdbcPortalRepository {
 
     private long sitemapMovieTotal(StringBuilder where, Map<String, Object> params) {
         Long total = jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM unified_videos uv LEFT JOIN standard_category sc ON sc.slug = uv.category_code " + where,
+                "SELECT count(*) FROM catalog_entries uv LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code " + where,
                 params,
                 Long.class);
         return total == null ? 0 : total;
@@ -627,7 +627,7 @@ public class JdbcPortalRepository {
                      AND EXISTS (
                          SELECT 1
                            FROM jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) scope_gc(code)
-                           LEFT JOIN standard_genre scope_sg ON scope_sg.code = scope_gc.code
+                           LEFT JOIN catalog_genres scope_sg ON scope_sg.code = scope_gc.code
                           WHERE 1 = 1
                             AND (
                                 cast(scope_sg.id as varchar) IN (:dataGenres)
@@ -642,8 +642,8 @@ public class JdbcPortalRepository {
             where.append("""
                      AND EXISTS (
                          SELECT 1
-                           FROM unified_video_tags scope_uvt
-                          WHERE scope_uvt.unified_video_id = uv.id
+                           FROM catalog_entry_tags scope_uvt
+                          WHERE scope_uvt.catalog_entry_id = uv.id
                             AND scope_uvt.tag IN (:dataTags)
                      )
                     """);
@@ -713,9 +713,10 @@ public class JdbcPortalRepository {
                        playback.episode_id,
                        playback.episode_name,
                        playback.episode_url,
+                       playback.catalog_episode_id,
                        sd.domain_value AS episode_domain
                   FROM catalog_list_playable_episodes(:id) playback
-                  LEFT JOIN source_domains sd ON playback.episode_domain_id = sd.id
+                  LEFT JOIN source_origins sd ON playback.episode_domain_id = sd.id
                  ORDER BY source_name ASC, playback.source_id ASC, playback.playlist_name ASC,
                           playback.episode_name ASC, playback.episode_id ASC
                 """,
@@ -732,7 +733,8 @@ public class JdbcPortalRepository {
                     source.episodes().add(new PortalMovieDetailResponse.Episode(
                             episodeId.toString(),
                             formatEpisodeTitle(rs.getString("playlist_name"), rs.getString("episode_name")),
-                            resolveEpisodeUrl(rs.getString("episode_domain"), rs.getString("episode_url"))));
+                            resolveEpisodeUrl(rs.getString("episode_domain"), rs.getString("episode_url")),
+                            rs.getString("catalog_episode_id")));
                 });
         return sources.values().stream()
                 .map(source -> new PortalMovieDetailResponse.VideoSource(source.id(), source.name(), source.episodes()))
@@ -752,8 +754,8 @@ public class JdbcPortalRepository {
                        seeders,
                        provider_code,
                        tags::text AS tags_json
-                  FROM magnet_links
-                 WHERE unified_video_id = :id
+                  FROM catalog_magnet_links
+                 WHERE catalog_entry_id = :id
                    AND status = 'APPROVED'
                  ORDER BY seeders DESC NULLS LAST,
                           published_at DESC NULLS LAST,
@@ -776,8 +778,8 @@ public class JdbcPortalRepository {
     private List<String> findTags(UUID id) {
         return findNames("""
                 SELECT tag
-                  FROM unified_video_tags
-                 WHERE unified_video_id = :id
+                  FROM catalog_entry_tags
+                 WHERE catalog_entry_id = :id
                  ORDER BY tag ASC
                 """, id);
     }

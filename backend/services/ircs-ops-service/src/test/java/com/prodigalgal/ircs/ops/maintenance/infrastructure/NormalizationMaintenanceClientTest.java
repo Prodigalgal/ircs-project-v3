@@ -47,7 +47,7 @@ class NormalizationMaintenanceClientTest {
         when(configValues.normalizationMaintenanceBatchSize()).thenReturn(300);
         FakeTransport transport = new FakeTransport();
         transport.enqueue(response(202, """
-                {"taskName":"sanitize","rawVideoCount":12,"changedRows":9,"enqueuedRows":11,"sampleRawVideoIds":["%s"]}
+                {"taskName":"sanitize","sourceRecordCount":12,"changedRows":9,"enqueuedRows":11,"sampleSourceRecordIds":["%s"]}
                 """.formatted(sampleId)));
         NormalizationMaintenanceClient client = client(transport);
 

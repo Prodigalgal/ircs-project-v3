@@ -13,9 +13,9 @@ import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository.ProviderCompletion;
-import com.prodigalgal.ircs.metadata.result.domain.RawVideoMetadataRecord;
+import com.prodigalgal.ircs.metadata.result.domain.SourceRecordMetadataRecord;
 import com.prodigalgal.ircs.metadata.result.dto.MetadataResultProcessingResult;
-import com.prodigalgal.ircs.metadata.result.infrastructure.RawVideoMetadataRepository;
+import com.prodigalgal.ircs.metadata.result.infrastructure.SourceRecordMetadataRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
 import java.util.LinkedHashSet;
 import java.util.Optional;
@@ -34,7 +34,7 @@ public class MetadataResultCollectorService {
 
     private static final int MAX_ENRICHMENT_RETRIES = 5;
 
-    private final RawVideoMetadataRepository repository;
+    private final SourceRecordMetadataRepository repository;
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final MetadataPipelineRunRepository pipelineRunRepository;
     private final MetadataEnrichPublisher metadataEnrichPublisher;
@@ -50,11 +50,11 @@ public class MetadataResultCollectorService {
         if (!completion.allCompleted()) {
             return new MetadataResultProcessingResult(videoId, true, "PENDING");
         }
-        Optional<RawVideoMetadataRecord> current = repository.findByIdForUpdate(videoId);
+        Optional<SourceRecordMetadataRecord> current = repository.findByIdForUpdate(videoId);
         if (current.isEmpty()) {
             return new MetadataResultProcessingResult(videoId, false, null);
         }
-        RawVideoMetadataRecord record = current.orElseThrow();
+        SourceRecordMetadataRecord record = current.orElseThrow();
         if (isStale(pipelineVersion, record.getDataHash())) {
             return new MetadataResultProcessingResult(videoId, true, "STALE");
         }
@@ -77,13 +77,13 @@ public class MetadataResultCollectorService {
         if (expectedAttempt < 0) {
             throw new IllegalArgumentException("provider attempt is required");
         }
-        Optional<RawVideoMetadataRecord> recordOpt = repository.findById(message.getVideoId());
+        Optional<SourceRecordMetadataRecord> recordOpt = repository.findById(message.getVideoId());
         if (recordOpt.isEmpty()) {
             log.warn("Metadata result references missing raw video: {}", message.getVideoId());
             return new MetadataResultProcessingResult(message.getVideoId(), false, null);
         }
 
-        RawVideoMetadataRecord record = recordOpt.get();
+        SourceRecordMetadataRecord record = recordOpt.get();
         if (isStale(message.getPipelineVersion(), record.getDataHash())) {
             log.info(
                     "Ignoring stale metadata result: videoId={}, provider={}, commandVersion={}, currentVersion={}",
@@ -118,7 +118,7 @@ public class MetadataResultCollectorService {
         }
         // completeProvider holds the pipeline lock. Match reconciliation's pipeline -> raw lock order,
         // then re-read so another provider result or a new scrape cannot be overwritten by our snapshot.
-        Optional<RawVideoMetadataRecord> locked = repository.findByIdForUpdate(record.getId());
+        Optional<SourceRecordMetadataRecord> locked = repository.findByIdForUpdate(record.getId());
         if (locked.isEmpty()) {
             return new MetadataResultProcessingResult(record.getId(), false, null);
         }
@@ -143,7 +143,7 @@ public class MetadataResultCollectorService {
         return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
     }
 
-    private void saveCurrent(RawVideoMetadataRecord record) {
+    private void saveCurrent(SourceRecordMetadataRecord record) {
         if (repository.save(record) != 1) {
             throw new IllegalStateException("Metadata input changed before projection was saved: " + record.getId());
         }
@@ -161,7 +161,7 @@ public class MetadataResultCollectorService {
         };
     }
 
-    private void normalizeIdentifiers(RawVideoMetadataRecord record) {
+    private void normalizeIdentifiers(SourceRecordMetadataRecord record) {
         if (!record.isFieldLocked("doubanId")) record.setDoubanId(AuthoritativeIds.normalizeDouban(record.getDoubanId()));
         if (!record.isFieldLocked("tmdbId")) record.setTmdbId(AuthoritativeIds.normalizeTmdb(record.getTmdbId()));
         if (!record.isFieldLocked("imdbId")) record.setImdbId(AuthoritativeIds.normalizeImdb(record.getImdbId()));
@@ -169,7 +169,7 @@ public class MetadataResultCollectorService {
                 AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()));
     }
 
-    private void scheduleRetryIfNeeded(RawVideoMetadataRecord record) {
+    private void scheduleRetryIfNeeded(SourceRecordMetadataRecord record) {
         if (!"FAILED".equals(record.getEnrichmentStatus())) {
             return;
         }
@@ -192,7 +192,7 @@ public class MetadataResultCollectorService {
         return StringUtils.hasText(pipelineVersion);
     }
 
-    private boolean applyMetadata(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata) {
+    private boolean applyMetadata(SourceRecordMetadataRecord record, EnrichedMetadataDTO metadata) {
         boolean updated = false;
         updated |= !record.isFieldLocked("doubanId") && fillAuthoritativeId(record::getDoubanId, record::setDoubanId,
                 AuthoritativeIds.normalizeDouban(metadata.getDoubanId()));
@@ -205,7 +205,7 @@ public class MetadataResultCollectorService {
                 record::setRottenTomatoesId,
                 AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()));
 
-        if (!record.isFieldLocked("description") && RawVideoMetadataRecord.hasText(metadata.getDescription())) {
+        if (!record.isFieldLocked("description") && SourceRecordMetadataRecord.hasText(metadata.getDescription())) {
             record.setDescription(metadata.getDescription());
             updated = true;
         }
@@ -213,13 +213,13 @@ public class MetadataResultCollectorService {
             record.setScore(metadata.getScore());
             updated = true;
         }
-        if (!record.isFieldLocked("year") && RawVideoMetadataRecord.hasText(metadata.getYear())) {
+        if (!record.isFieldLocked("year") && SourceRecordMetadataRecord.hasText(metadata.getYear())) {
             record.setYear(metadata.getYear());
             updated = true;
         }
-        if (!record.isFieldLocked("aliasTitle") && RawVideoMetadataRecord.hasText(metadata.getOriginalTitle())) {
+        if (!record.isFieldLocked("aliasTitle") && SourceRecordMetadataRecord.hasText(metadata.getOriginalTitle())) {
             String originalTitle = metadata.getOriginalTitle();
-            if (!RawVideoMetadataRecord.hasText(record.getAliasTitle())) {
+            if (!SourceRecordMetadataRecord.hasText(record.getAliasTitle())) {
                 record.setAliasTitle(originalTitle);
                 updated = true;
             } else if (!record.getAliasTitle().contains(originalTitle)) {
@@ -231,7 +231,7 @@ public class MetadataResultCollectorService {
         return updated;
     }
 
-    private boolean mergeRawMetadata(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata) {
+    private boolean mergeRawMetadata(SourceRecordMetadataRecord record, EnrichedMetadataDTO metadata) {
         ObjectNode merged = readRawMetadata(record.getRawMetadata());
         String before = merged.toString();
 
@@ -352,7 +352,7 @@ public class MetadataResultCollectorService {
             java.util.function.Supplier<String> current,
             java.util.function.Consumer<String> setter,
             String incoming) {
-        if (!RawVideoMetadataRecord.hasText(current.get()) && RawVideoMetadataRecord.hasText(incoming)) {
+        if (!SourceRecordMetadataRecord.hasText(current.get()) && SourceRecordMetadataRecord.hasText(incoming)) {
             setter.accept(incoming);
             return true;
         }
@@ -360,7 +360,7 @@ public class MetadataResultCollectorService {
     }
 
     private void finalizeVideoStatus(
-            RawVideoMetadataRecord record,
+            SourceRecordMetadataRecord record,
             ProviderCompletion completion,
             boolean metadataUpdated) {
         if (record.hasAuthoritativeId()) {

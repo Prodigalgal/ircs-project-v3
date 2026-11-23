@@ -17,8 +17,8 @@ class FixtureMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     public MagnetProviderSearchResult search(
             MagnetProviderSummary provider,
             MagnetExternalIdQuery query,
-            UUID unifiedVideoId) {
-        String infoHash = sha1Hex(provider.code() + ":" + unifiedVideoId + ":" + query.type() + ":" + query.value());
+            UUID catalogEntryId) {
+        String infoHash = sha1Hex(provider.code() + ":" + catalogEntryId + ":" + query.type() + ":" + query.value());
         String title = "IRCS dev-safe fixture " + query.value() + " " + provider.code();
         String encodedTitle = URLEncoder.encode(title, StandardCharsets.UTF_8);
         MagnetProviderCandidate candidate = new MagnetProviderCandidate(

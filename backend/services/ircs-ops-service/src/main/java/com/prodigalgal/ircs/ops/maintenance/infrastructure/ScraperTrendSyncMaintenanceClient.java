@@ -105,8 +105,8 @@ class ScraperTrendSyncMaintenanceClient implements MaintenanceTrendSyncClient {
         if (apply == null) {
             return List.of();
         }
-        List<UUID> ids = new ArrayList<>(apply.updatedUnifiedVideoIds());
-        ids.addAll(apply.createdUnifiedVideoIds());
+        List<UUID> ids = new ArrayList<>(apply.updatedCatalogEntryIds());
+        ids.addAll(apply.createdCatalogEntryIds());
         return ids;
     }
 }

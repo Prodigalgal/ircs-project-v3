@@ -120,14 +120,14 @@ class MagnetReadModelCache {
         return nullProviders(enabledProviderListCache.get(ALL, () -> nullProviders(loader.get())));
     }
 
-    List<MagnetLinkSummary> findApprovedLinks(UUID unifiedVideoId, Supplier<List<MagnetLinkSummary>> loader) {
-        if (unifiedVideoId == null) {
+    List<MagnetLinkSummary> findApprovedLinks(UUID catalogEntryId, Supplier<List<MagnetLinkSummary>> loader) {
+        if (catalogEntryId == null) {
             return List.of();
         }
         if (!enabled()) {
             return nullLinks(loader.get());
         }
-        return nullLinks(approvedLinksCache.get(unifiedVideoId, () -> nullLinks(loader.get())));
+        return nullLinks(approvedLinksCache.get(catalogEntryId, () -> nullLinks(loader.get())));
     }
 
     void evictProviders() {
@@ -146,9 +146,9 @@ class MagnetReadModelCache {
         providerDetailCache.evictByExternalKey(providerId.toString());
     }
 
-    void evictApprovedLinks(UUID unifiedVideoId) {
-        if (unifiedVideoId != null) {
-            approvedLinksCache.evictByExternalKey(unifiedVideoId.toString());
+    void evictApprovedLinks(UUID catalogEntryId) {
+        if (catalogEntryId != null) {
+            approvedLinksCache.evictByExternalKey(catalogEntryId.toString());
         }
     }
 

@@ -49,14 +49,14 @@ export const maintenanceApi = apiSlice.injectEndpoints({
             }),
         }),
         // --- Search Maintenance ---
-        reindexRawVideos: builder.mutation({
+        reindexSourceRecords: builder.mutation({
             query: () => ({
                 url: '/ops/maintenance/search/reindex-raw/init',
                 method: 'POST',
             }),
             invalidatesTags: ['MaintenanceSession']
         }),
-        reindexUnifiedVideos: builder.mutation({
+        reindexCatalogEntries: builder.mutation({
             query: () => ({
                 url: '/ops/maintenance/search/reindex-unified/init',
                 method: 'POST',
@@ -73,6 +73,6 @@ export const {
     useInitUnifiedRecalculateTaskMutation, // Exported
     useInitAdultAssessmentBackfillTaskMutation,
     useTriggerTrendSyncMutation,
-    useReindexRawVideosMutation,
-    useReindexUnifiedVideosMutation
+    useReindexSourceRecordsMutation,
+    useReindexCatalogEntriesMutation
 } = maintenanceApi;

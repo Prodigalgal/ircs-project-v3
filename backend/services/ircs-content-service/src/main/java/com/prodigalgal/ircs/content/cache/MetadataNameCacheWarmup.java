@@ -44,40 +44,40 @@ class MetadataNameCacheWarmup {
             Map<UUID, Set<String>> rawActors = queryNameSetById(
                     """
                     select rv.id as owner_id, actor_name.name
-                    from raw_videos rv
+                    from source_records rv
                     join lateral jsonb_array_elements_text(coalesce(rv.actor_names, '[]'::jsonb)) actor_name(name) on true
                     """);
             Map<UUID, Set<String>> rawDirectors = queryNameSetById(
                     """
                     select rv.id as owner_id, director_name.name
-                    from raw_videos rv
+                    from source_records rv
                     join lateral jsonb_array_elements_text(coalesce(rv.director_names, '[]'::jsonb)) director_name(name) on true
                     """);
             Map<UUID, Set<String>> rawAreas = queryNameSetById(
                     """
                     select rv.id as owner_id, coalesce(sa.name, area_code.code) as name
-                    from raw_videos rv
+                    from source_records rv
                     join lateral jsonb_array_elements_text(coalesce(rv.area_codes, '[]'::jsonb)) area_code(code) on true
-                    left join standard_areas sa on sa.code = area_code.code
+                    left join catalog_regions sa on sa.code = area_code.code
                     """);
             Map<UUID, Set<String>> unifiedActors = queryNameSetById(
                     """
                     select uv.id as owner_id, actor_name.name
-                    from unified_videos uv
+                    from catalog_entries uv
                     join lateral jsonb_array_elements_text(coalesce(uv.actor_names, '[]'::jsonb)) actor_name(name) on true
                     """);
             Map<UUID, Set<String>> unifiedDirectors = queryNameSetById(
                     """
                     select uv.id as owner_id, director_name.name
-                    from unified_videos uv
+                    from catalog_entries uv
                     join lateral jsonb_array_elements_text(coalesce(uv.director_names, '[]'::jsonb)) director_name(name) on true
                     """);
             Map<UUID, Set<String>> unifiedAreas = queryNameSetById(
                     """
                     select uv.id as owner_id, coalesce(sa.name, area_code.code) as name
-                    from unified_videos uv
+                    from catalog_entries uv
                     join lateral jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) area_code(code) on true
-                    left join standard_areas sa on sa.code = area_code.code
+                    left join catalog_regions sa on sa.code = area_code.code
                     """);
 
             metadataNameCache.replaceNames(MetadataNameOwnerType.RAW, MetadataNameRelation.ACTORS, rawActors);

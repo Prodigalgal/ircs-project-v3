@@ -52,6 +52,7 @@ public class CoverImageR2SyncService {
         }
 
         try {
+            repository.reserveRemote(imageId, row.storagePath());
             r2ObjectStorage.store(data.get(), row.storagePath(), row.mimeType());
             if (!repository.finalizeUpload(imageId, row.storagePath())) {
                 return CoverImageR2SyncResult.skipped("image state changed during upload");

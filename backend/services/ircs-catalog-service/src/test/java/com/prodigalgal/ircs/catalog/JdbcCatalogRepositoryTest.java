@@ -28,11 +28,11 @@ class JdbcCatalogRepositoryTest {
 
         assertThat(category.inserted()).isTrue();
         assertThat(categoryAgain.inserted()).isFalse();
-        assertThat(realJdbc.queryForObject("select count(*) from standard_category where name = '电影'", Integer.class))
+        assertThat(realJdbc.queryForObject("select count(*) from catalog_categories where name = '电影'", Integer.class))
                 .isEqualTo(1);
-        assertThat(realJdbc.queryForObject("select slug from standard_category where name = '电影'", String.class))
+        assertThat(realJdbc.queryForObject("select slug from catalog_categories where name = '电影'", String.class))
                 .isEqualTo("movie");
-        assertThat(realJdbc.queryForObject("select code from standard_genre where name = '剧情'", String.class))
+        assertThat(realJdbc.queryForObject("select code from catalog_genres where name = '剧情'", String.class))
                 .startsWith("genre-");
         assertThat(area.id()).isNotNull();
         assertThat(language.id()).isNotNull();
@@ -54,9 +54,9 @@ class JdbcCatalogRepositoryTest {
         assertThat(dataSourceSeed.inserted()).isTrue();
         assertThat(dataSourceAgain.inserted()).isFalse();
         assertThat(dataSourceAgain.updated()).isFalse();
-        assertThat(realJdbc.queryForObject("select count(*) from data_sources where name = '光速资源'", Integer.class))
+        assertThat(realJdbc.queryForObject("select count(*) from collection_sources where name = '光速资源'", Integer.class))
                 .isEqualTo(1);
-        assertThat(realJdbc.queryForObject("select base_url from data_sources where name = '光速资源'", String.class))
+        assertThat(realJdbc.queryForObject("select base_url from collection_sources where name = '光速资源'", String.class))
                 .isEqualTo("https://api.guangsuapi.com");
         assertThat(realRepository.listDataSourceSeedMappings())
                 .singleElement()
@@ -67,7 +67,7 @@ class JdbcCatalogRepositoryTest {
     private void createSeedSchema(JdbcTemplate jdbc) {
         jdbc.execute(
                 """
-                create table standard_category (
+                create table catalog_categories (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -78,7 +78,7 @@ class JdbcCatalogRepositoryTest {
                 """);
         jdbc.execute(
                 """
-                create table standard_genre (
+                create table catalog_genres (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -89,7 +89,7 @@ class JdbcCatalogRepositoryTest {
                 """);
         jdbc.execute(
                 """
-                create table standard_areas (
+                create table catalog_regions (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -101,7 +101,7 @@ class JdbcCatalogRepositoryTest {
                 """);
         jdbc.execute(
                 """
-                create table standard_languages (
+                create table catalog_languages (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -118,7 +118,7 @@ class JdbcCatalogRepositoryTest {
                 """);
         jdbc.execute(
                 """
-                create table data_sources (
+                create table collection_sources (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,

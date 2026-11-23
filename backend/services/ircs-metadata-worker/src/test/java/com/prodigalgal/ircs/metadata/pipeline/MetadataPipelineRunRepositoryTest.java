@@ -22,7 +22,7 @@ class MetadataPipelineRunRepositoryTest {
         NamedParameterJdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(NamedParameterJdbcTemplate.class);
         UUID id = UUID.randomUUID();
         when(jdbcTemplate.queryForList(
-                        argThat(sql -> sql.contains("raw_video_enrichment_provider_runs")
+                        argThat(sql -> sql.contains("source_metadata_provider_runs")
                                 && sql.contains("status = 'PENDING'")),
                         any(MapSqlParameterSource.class),
                         org.mockito.Mockito.eq(String.class)))
@@ -36,8 +36,8 @@ class MetadataPipelineRunRepositoryTest {
 
         assertEquals(List.of(ProviderType.TMDB), pending);
         org.mockito.Mockito.verify(jdbcTemplate).update(
-                argThat(sql -> sql.contains("raw_video_pipeline_runs")
-                        && sql.contains("on conflict (raw_video_id, pipeline_version, step) do nothing")),
+                argThat(sql -> sql.contains("source_record_processing_runs")
+                        && sql.contains("on conflict (source_record_id, pipeline_version, step) do nothing")),
                 any(MapSqlParameterSource.class));
         org.mockito.Mockito.verify(jdbcTemplate).update(
                 argThat(sql -> sql.contains("with retried as")
@@ -46,8 +46,8 @@ class MetadataPipelineRunRepositoryTest {
                         && sql.contains("failure_count - (select count(*) from retried)")),
                 any(MapSqlParameterSource.class));
         org.mockito.Mockito.verify(jdbcTemplate).batchUpdate(
-                argThat(sql -> sql.contains("raw_video_enrichment_provider_runs")
-                        && sql.contains("on conflict (raw_video_id, pipeline_version, provider_type) do nothing")),
+                argThat(sql -> sql.contains("source_metadata_provider_runs")
+                        && sql.contains("on conflict (source_record_id, pipeline_version, provider_type) do nothing")),
                 any(MapSqlParameterSource[].class));
     }
 
@@ -56,12 +56,12 @@ class MetadataPipelineRunRepositoryTest {
         NamedParameterJdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(NamedParameterJdbcTemplate.class);
         UUID id = UUID.randomUUID();
         when(jdbcTemplate.update(
-                        argThat(sql -> sql.contains("raw_video_enrichment_provider_runs")
+                        argThat(sql -> sql.contains("source_metadata_provider_runs")
                                 && sql.contains("status = 'PENDING'")),
                         any(MapSqlParameterSource.class)))
                 .thenReturn(1);
         when(jdbcTemplate.query(
-                        argThat(sql -> sql.contains("raw_video_pipeline_runs")
+                        argThat(sql -> sql.contains("source_record_processing_runs")
                                 && sql.contains("completed_count = least(expected_count, completed_count + 1)")
                                 && sql.contains("returning expected_count")),
                         any(MapSqlParameterSource.class),
@@ -99,7 +99,7 @@ class MetadataPipelineRunRepositoryTest {
         NamedParameterJdbcTemplate jdbc = org.mockito.Mockito.mock(NamedParameterJdbcTemplate.class);
         MetadataPipelineRunRepository repository = new MetadataPipelineRunRepository(jdbc);
         UUID id = UUID.randomUUID();
-        when(jdbc.update(argThat(sql -> sql.contains("update raw_video_enrichment_provider_runs")
+        when(jdbc.update(argThat(sql -> sql.contains("update source_metadata_provider_runs")
                         && sql.contains("attempt_count = :expectedAttempt")),
                 argThat((MapSqlParameterSource parameters) -> Integer.valueOf(0).equals(parameters.getValue("expectedAttempt")))))
                 .thenReturn(0);
@@ -109,7 +109,7 @@ class MetadataPipelineRunRepositoryTest {
 
         org.junit.jupiter.api.Assertions.assertFalse(completion.newlyCompleted());
         org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.never()).query(
-                argThat(sql -> sql.contains("update raw_video_pipeline_runs")),
+                argThat(sql -> sql.contains("update source_record_processing_runs")),
                 any(MapSqlParameterSource.class), any(RowMapper.class));
     }
 

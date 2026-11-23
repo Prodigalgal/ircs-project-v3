@@ -125,7 +125,7 @@ class MagnetPendingWorkRecoveryTest {
             RowMapper<?> mapper = invocation.getArgument(1);
             ResultSet rs = mock(ResultSet.class, Answers.RETURNS_DEEP_STUBS);
             when(rs.getObject("id", UUID.class)).thenReturn(UUID.randomUUID());
-            when(rs.getObject("unified_video_id", UUID.class)).thenReturn(UUID.randomUUID());
+            when(rs.getObject("catalog_entry_id", UUID.class)).thenReturn(UUID.randomUUID());
             when(rs.getLong("generation")).thenReturn(1L);
             when(rs.getTimestamp("created_at")).thenReturn(Timestamp.from(Instant.now().minusSeconds(600)));
             try { mapper.mapRow(rs, 0); } catch (Exception ex) { throw new IllegalStateException(ex); }
@@ -173,7 +173,7 @@ class MagnetPendingWorkRecoveryTest {
                 JobRow job = jobs.get(index);
                 ResultSet rs = mock(ResultSet.class);
                 when(rs.getObject("id", UUID.class)).thenReturn(job.id());
-                when(rs.getObject("unified_video_id", UUID.class)).thenReturn(job.videoId());
+                when(rs.getObject("catalog_entry_id", UUID.class)).thenReturn(job.videoId());
                 when(rs.getLong("generation")).thenReturn(job.generation());
                 when(rs.getTimestamp("created_at")).thenReturn(Timestamp.from(job.createdAt()));
                 try { mapped.add(mapper.mapRow(rs, index)); } catch (Exception ex) { throw new IllegalStateException(ex); }

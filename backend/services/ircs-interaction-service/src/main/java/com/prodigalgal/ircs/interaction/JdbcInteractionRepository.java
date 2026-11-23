@@ -22,7 +22,7 @@ public class JdbcInteractionRepository {
     private final CoverImageUrlResolver coverImageUrlResolver;
 
     public PageResponse<UserMessageResponse> findPublicMessages(PageBounds bounds) {
-        long total = count("select count(*) from user_messages where is_public = true");
+        long total = count("select count(*) from member_feedback_posts where is_public and deleted_at is null");
         List<UserMessageResponse> content = jdbcTemplate.query(
                 """
                 select um.id,
@@ -30,14 +30,18 @@ public class JdbcInteractionRepository {
                        coalesce(nullif(m.nickname, ''), '画外用户') as member_nickname,
                        m.avatar_url as member_avatar_url,
                        um.content,
-                       um.reply,
+                       reply.content as reply,
                        um.status,
                        um.is_public,
                        um.created_at,
                        um.updated_at
-                from user_messages um
-                join members m on m.id = um.member_id
-                where um.is_public = true
+                from member_feedback_posts um
+                join member_accounts m on m.id = um.member_id
+                left join lateral (
+                    select content from member_feedback_replies where feedback_post_id = um.id
+                    order by created_at desc, id desc limit 1
+                ) reply on true
+                where um.is_public and um.deleted_at is null
                 order by um.created_at desc, um.id asc
                 limit ? offset ?
                 """,
@@ -48,33 +52,34 @@ public class JdbcInteractionRepository {
     }
 
     public PageResponse<InteractionRecordResponse> findHistory(UUID memberId, PageBounds bounds) {
-        long total = count("select count(*) from member_watch_histories where member_id = ?", memberId);
+        long total = count("select count(*) from member_playback_progress where member_id = ?", memberId);
         List<InteractionRecordResponse> content = jdbcTemplate.query(
                 """
                 select mwh.id,
-                       mwh.unified_video_id,
+                       mwh.catalog_entry_id,
                        uv.title,
                        uv.score,
                        ci.storage_type as cover_storage_type,
                        ci.original_url as cover_original_url,
                        ci.storage_path as cover_storage_path,
                        sd.domain_value as cover_source_domain,
-                       mwh.last_video_id,
-                       mwh.last_episode_id,
+                       mwh.last_source_record_id,
+                       mwh.last_source_playback_item_id,
+                       mwh.catalog_episode_id,
                        mwh.episode_name,
                        mwh.progress_seconds,
                        mwh.duration_seconds,
                        mwh.last_watched_at,
                        exists (
                            select 1
-                           from member_favorites mf
+                           from member_catalog_favorites mf
                            where mf.member_id = mwh.member_id
-                             and mf.unified_video_id = mwh.unified_video_id
+                             and mf.catalog_entry_id = mwh.catalog_entry_id
                        ) as is_favorite
-                from member_watch_histories mwh
-                join unified_videos uv on uv.id = mwh.unified_video_id
-                left join cover_images ci on ci.id = uv.cover_image_id
-                left join source_domains sd on sd.id = ci.source_domain_id
+                from member_playback_progress mwh
+                join catalog_entries uv on uv.id = mwh.catalog_entry_id
+                left join media_image_sources ci on ci.id = uv.media_image_source_id
+                left join source_origins sd on sd.id = ci.source_origin_id
                 where mwh.member_id = ?
                 order by mwh.last_watched_at desc, mwh.id asc
                 limit ? offset ?
@@ -87,28 +92,29 @@ public class JdbcInteractionRepository {
     }
 
     public PageResponse<InteractionRecordResponse> findFavorites(UUID memberId, PageBounds bounds) {
-        long total = count("select count(*) from member_favorites where member_id = ?", memberId);
+        long total = count("select count(*) from member_catalog_favorites where member_id = ?", memberId);
         List<InteractionRecordResponse> content = jdbcTemplate.query(
                 """
                 select mf.id,
-                       mf.unified_video_id,
+                       mf.catalog_entry_id,
                        uv.title,
                        uv.score,
                        ci.storage_type as cover_storage_type,
                        ci.original_url as cover_original_url,
                        ci.storage_path as cover_storage_path,
                        sd.domain_value as cover_source_domain,
-                       cast(null as uuid) as last_video_id,
-                       cast(null as uuid) as last_episode_id,
+                       cast(null as uuid) as last_source_record_id,
+                       cast(null as uuid) as last_source_playback_item_id,
+                       cast(null as uuid) as catalog_episode_id,
                        cast(null as text) as episode_name,
                        0 as progress_seconds,
                        0 as duration_seconds,
                        mf.created_at as last_watched_at,
                        true as is_favorite
-                from member_favorites mf
-                join unified_videos uv on uv.id = mf.unified_video_id
-                left join cover_images ci on ci.id = uv.cover_image_id
-                left join source_domains sd on sd.id = ci.source_domain_id
+                from member_catalog_favorites mf
+                join catalog_entries uv on uv.id = mf.catalog_entry_id
+                left join media_image_sources ci on ci.id = uv.media_image_source_id
+                left join source_origins sd on sd.id = ci.source_origin_id
                 where mf.member_id = ?
                 order by mf.created_at desc, mf.id asc
                 limit ? offset ?
@@ -123,7 +129,7 @@ public class JdbcInteractionRepository {
     public Optional<String> findMemberStatus(UUID memberId) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select status from members where id = ?",
+                    "select status from member_accounts where id = ?",
                     String.class,
                     memberId));
         } catch (EmptyResultDataAccessException ignored) {
@@ -131,146 +137,126 @@ public class JdbcInteractionRepository {
         }
     }
 
-    public boolean unifiedVideoExists(UUID unifiedVideoId) {
-        return count("select count(*) from unified_videos where id = ?", unifiedVideoId) > 0;
+    public boolean catalogEntryExists(UUID catalogEntryId) {
+        return count("select count(*) from catalog_entries where id = ?", catalogEntryId) > 0;
     }
 
-    public boolean favoriteExists(UUID memberId, UUID unifiedVideoId) {
+    public boolean favoriteExists(UUID memberId, UUID catalogEntryId) {
         return count(
-                "select count(*) from member_favorites where member_id = ? and unified_video_id = ?",
+                "select count(*) from member_catalog_favorites where member_id = ? and catalog_entry_id = ?",
                 memberId,
-                unifiedVideoId) > 0;
+                catalogEntryId) > 0;
     }
 
-    public void insertFavorite(UUID id, UUID memberId, UUID unifiedVideoId, Instant now) {
+    public void insertFavorite(UUID id, UUID memberId, UUID catalogEntryId, Instant now) {
         jdbcTemplate.update(
                 """
-                insert into member_favorites (
-                    id, member_id, unified_video_id, created_at, updated_at, version
+                insert into member_catalog_favorites (
+                    id, member_id, catalog_entry_id, created_at, updated_at, version
                 ) values (?, ?, ?, ?, ?, 0)
                 """,
                 id,
                 memberId,
-                unifiedVideoId,
+                catalogEntryId,
                 Timestamp.from(now),
                 Timestamp.from(now));
     }
 
-    public int deleteFavorite(UUID memberId, UUID unifiedVideoId) {
+    public int deleteFavorite(UUID memberId, UUID catalogEntryId) {
         return jdbcTemplate.update(
-                "delete from member_favorites where member_id = ? and unified_video_id = ?",
+                "delete from member_catalog_favorites where member_id = ? and catalog_entry_id = ?",
                 memberId,
-                unifiedVideoId);
+                catalogEntryId);
     }
 
-    public void upsertWatchHistory(
+    public boolean upsertWatchHistory(
             UUID id,
             UUID memberId,
-            UUID unifiedVideoId,
-            UUID videoId,
-            UUID episodeId,
+            UUID catalogEntryId,
+            UUID sourceRecordId,
+            UUID sourcePlaybackItemId,
             String episodeName,
             int progress,
             int duration,
             Instant now) {
-        jdbcTemplate.update(
-                """
-                insert into member_watch_histories (
-                    id,
-                    member_id,
-                    unified_video_id,
-                    last_video_id,
-                    last_episode_id,
-                    episode_name,
-                    progress_seconds,
-                    duration_seconds,
-                    last_watched_at,
-                    created_at,
-                    updated_at,
-                    version
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-                on conflict (member_id, unified_video_id)
-                do update set
-                    last_video_id = excluded.last_video_id,
-                    last_episode_id = excluded.last_episode_id,
-                    episode_name = excluded.episode_name,
-                    progress_seconds = excluded.progress_seconds,
-                    duration_seconds = excluded.duration_seconds,
-                    last_watched_at = excluded.last_watched_at,
-                    updated_at = excluded.updated_at,
-                    version = coalesce(member_watch_histories.version, 0) + 1
-                """,
-                id,
-                memberId,
-                unifiedVideoId,
-                videoId,
-                episodeId,
-                episodeName,
-                progress,
-                duration,
-                Timestamp.from(now),
-                Timestamp.from(now),
-                Timestamp.from(now));
+        return savePlaybackProgress(id, memberId, catalogEntryId, sourceRecordId, sourcePlaybackItemId,
+                episodeName, progress, duration, now, false) > 0;
     }
 
     public void upsertWatchHistoryIfNewer(
             UUID id,
             UUID memberId,
-            UUID unifiedVideoId,
-            UUID videoId,
-            UUID episodeId,
+            UUID catalogEntryId,
+            UUID sourceRecordId,
+            UUID sourcePlaybackItemId,
             String episodeName,
             int progress,
             int duration,
             Instant now) {
-        jdbcTemplate.update(
+        savePlaybackProgress(id, memberId, catalogEntryId, sourceRecordId, sourcePlaybackItemId,
+                episodeName, progress, duration, now, true);
+    }
+
+    private int savePlaybackProgress(
+            UUID id, UUID memberId, UUID catalogEntryId, UUID sourceRecordId, UUID sourcePlaybackItemId,
+            String episodeName, int progress, int duration, Instant now, boolean onlyIfNewer) {
+        Timestamp observedAt = Timestamp.from(now);
+        return jdbcTemplate.update(
                 """
-                insert into member_watch_histories (
-                    id,
-                    member_id,
-                    unified_video_id,
-                    last_video_id,
-                    last_episode_id,
-                    episode_name,
-                    progress_seconds,
-                    duration_seconds,
-                    last_watched_at,
-                    created_at,
-                    updated_at,
-                    version
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-                on conflict (member_id, unified_video_id)
+                with input as (
+                    select cast(? as uuid) as source_record_id, cast(? as uuid) as source_playback_item_id
+                )
+                insert into member_playback_progress (
+                    id, member_id, catalog_entry_id, work_id, season_id, catalog_episode_id,
+                    last_source_record_id, last_source_playback_item_id, episode_name, progress_seconds,
+                    duration_seconds, last_watched_at, created_at, updated_at, version
+                )
+                select ?, account.id, entry.id, entry.work_id, entry.season_id,
+                       case when input.source_playback_item_id is not null then playable.catalog_episode_id end,
+                       playable.source_id,
+                       case when input.source_playback_item_id is not null then playable.episode_id end,
+                       left(coalesce(case when input.source_playback_item_id is not null then playable.episode_name end, ?), 255),
+                       ?, ?, ?, ?, ?, 0
+                  from catalog_entries entry
+                  join member_accounts account on account.id = ?
+                  cross join input
+                  left join lateral (
+                      select item.source_id, item.episode_id, item.episode_name, item.catalog_episode_id
+                        from catalog_list_playable_episodes(entry.id) item
+                       where (input.source_playback_item_id is not null or input.source_record_id is not null)
+                         and (input.source_playback_item_id is null or item.episode_id = input.source_playback_item_id)
+                         and (input.source_record_id is null or item.source_id = input.source_record_id)
+                       limit 1
+                  ) playable on true
+                 where entry.id = ?
+                   and (playable.source_id is not null
+                        or (input.source_playback_item_id is null and input.source_record_id is null))
+                on conflict (member_id, catalog_entry_id)
                 do update set
-                    last_video_id = excluded.last_video_id,
-                    last_episode_id = excluded.last_episode_id,
+                    work_id = excluded.work_id,
+                    season_id = excluded.season_id,
+                    catalog_episode_id = excluded.catalog_episode_id,
+                    last_source_record_id = excluded.last_source_record_id,
+                    last_source_playback_item_id = excluded.last_source_playback_item_id,
                     episode_name = excluded.episode_name,
                     progress_seconds = excluded.progress_seconds,
                     duration_seconds = excluded.duration_seconds,
                     last_watched_at = excluded.last_watched_at,
                     updated_at = excluded.updated_at,
-                    version = coalesce(member_watch_histories.version, 0) + 1
-                where excluded.last_watched_at >= member_watch_histories.last_watched_at
+                    version = coalesce(member_playback_progress.version, 0) + 1
+                where not ? or excluded.last_watched_at >= member_playback_progress.last_watched_at
                 """,
-                id,
-                memberId,
-                unifiedVideoId,
-                videoId,
-                episodeId,
-                episodeName,
-                progress,
-                duration,
-                Timestamp.from(now),
-                Timestamp.from(now),
-                Timestamp.from(now));
+                sourceRecordId, sourcePlaybackItemId, id, episodeName, progress, duration,
+                observedAt, observedAt, observedAt, memberId, catalogEntryId, onlyIfNewer);
     }
 
     public int deleteHistory(UUID memberId) {
-        return jdbcTemplate.update("delete from member_watch_histories where member_id = ?", memberId);
+        return jdbcTemplate.update("delete from member_playback_progress where member_id = ?", memberId);
     }
 
     public int deleteHistoryRecord(UUID memberId, UUID historyId) {
         return jdbcTemplate.update(
-                "delete from member_watch_histories where member_id = ? and id = ?",
+                "delete from member_playback_progress where member_id = ? and id = ?",
                 memberId,
                 historyId);
     }
@@ -298,12 +284,13 @@ public class JdbcInteractionRepository {
     private RowMapper<InteractionRecordResponse> interactionRecordMapper() {
         return (rs, rowNum) -> new InteractionRecordResponse(
                 rs.getObject("id", UUID.class),
-                rs.getObject("unified_video_id", UUID.class),
+                rs.getObject("catalog_entry_id", UUID.class),
                 rs.getString("title"),
                 coverImageUrl(rs),
                 rs.getObject("score", BigDecimal.class),
-                getUuid(rs, "last_video_id"),
-                getUuid(rs, "last_episode_id"),
+                getUuid(rs, "last_source_record_id"),
+                getUuid(rs, "last_source_playback_item_id"),
+                getUuid(rs, "catalog_episode_id"),
                 rs.getString("episode_name"),
                 getInt(rs, "progress_seconds"),
                 getInt(rs, "duration_seconds"),

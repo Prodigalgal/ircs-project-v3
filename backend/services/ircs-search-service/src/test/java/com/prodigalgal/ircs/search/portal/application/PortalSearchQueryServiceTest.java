@@ -18,7 +18,7 @@ import com.prodigalgal.ircs.common.cache.CacheRegistry;
 import com.prodigalgal.ircs.common.cache.TieredStringCacheStore;
 import com.prodigalgal.ircs.common.security.IrcsPermissions;
 import com.prodigalgal.ircs.common.security.IrcsRequestPrincipal;
-import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
 import com.prodigalgal.ircs.search.portal.cache.SearchPortalReadModelCache;
 import com.prodigalgal.ircs.search.portal.dto.PortalMovieCardResponse;
 import java.time.Duration;
@@ -44,10 +44,10 @@ class PortalSearchQueryServiceTest {
     private ElasticsearchOperations elasticsearchOperations;
 
     @Mock
-    private SearchHits<UnifiedVideoSearchDocument> searchHits;
+    private SearchHits<CatalogEntrySearchDocument> searchHits;
 
     @Mock
-    private SearchHit<UnifiedVideoSearchDocument> searchHit;
+    private SearchHit<CatalogEntrySearchDocument> searchHit;
 
     @Test
     void blankSuggestReturnsEmptyWithoutCallingElasticsearch() {
@@ -57,29 +57,29 @@ class PortalSearchQueryServiceTest {
 
         assertEquals(List.of(), service.suggest("   "));
 
-        verify(elasticsearchOperations, never()).search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations, never()).search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class));
     }
 
     @Test
     void suggestCachesAnonymousPublicReads() {
-        UnifiedVideoSearchDocument document = new UnifiedVideoSearchDocument();
+        CatalogEntrySearchDocument document = new CatalogEntrySearchDocument();
         document.setTitle("Codex Movie");
 
         when(searchHit.getContent()).thenReturn(document);
         when(searchHits.stream()).thenReturn(List.of(searchHit).stream());
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(searchHits);
 
         PortalSearchQueryService service = cachedService();
 
         assertEquals(List.of("Codex Movie"), service.suggest("codex", IrcsRequestPrincipal.publicPrincipal()));
         assertEquals(List.of("Codex Movie"), service.suggest("codex", IrcsRequestPrincipal.publicPrincipal()));
-        verify(elasticsearchOperations, times(1)).search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations, times(1)).search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class));
     }
 
     @Test
     void suggestBypassesCacheForScopedMemberReads() {
-        UnifiedVideoSearchDocument document = new UnifiedVideoSearchDocument();
+        CatalogEntrySearchDocument document = new CatalogEntrySearchDocument();
         document.setTitle("Codex Movie");
         IrcsRequestPrincipal principal = memberPrincipal();
 
@@ -87,20 +87,20 @@ class PortalSearchQueryServiceTest {
         when(searchHits.stream()).thenReturn(
                 List.of(searchHit).stream(),
                 List.of(searchHit).stream());
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(searchHits);
 
         PortalSearchQueryService service = cachedService();
 
         assertEquals(List.of("Codex Movie"), service.suggest("codex", principal));
         assertEquals(List.of("Codex Movie"), service.suggest("codex", principal));
-        verify(elasticsearchOperations, times(2)).search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations, times(2)).search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class));
     }
 
     @Test
     void recommendMapsUnifiedDocumentsToPortalCards() {
         UUID id = UUID.randomUUID();
-        UnifiedVideoSearchDocument document = new UnifiedVideoSearchDocument();
+        CatalogEntrySearchDocument document = new CatalogEntrySearchDocument();
         document.setId(id);
         document.setTitle("Codex Movie");
         document.setAliasTitle("Codex Alias");
@@ -115,7 +115,7 @@ class PortalSearchQueryServiceTest {
         when(searchHit.getContent()).thenReturn(document);
         when(searchHits.stream()).thenReturn(List.of(searchHit).stream());
         when(searchHits.getTotalHits()).thenReturn(1L);
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(searchHits);
 
         PortalSearchQueryService service = new PortalSearchQueryService(
@@ -135,7 +135,7 @@ class PortalSearchQueryServiceTest {
     @Test
     void recommendCachesAnonymousPublicReads() {
         UUID id = UUID.randomUUID();
-        UnifiedVideoSearchDocument document = new UnifiedVideoSearchDocument();
+        CatalogEntrySearchDocument document = new CatalogEntrySearchDocument();
         document.setId(id);
         document.setTitle("Codex Movie");
         document.setYear(2026);
@@ -143,7 +143,7 @@ class PortalSearchQueryServiceTest {
         when(searchHit.getContent()).thenReturn(document);
         when(searchHits.stream()).thenReturn(List.of(searchHit).stream());
         when(searchHits.getTotalHits()).thenReturn(1L);
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(searchHits);
 
         PortalSearchQueryService service = cachedService();
@@ -154,13 +154,13 @@ class PortalSearchQueryServiceTest {
         assertEquals(1, first.getTotalElements());
         assertEquals(1, second.getTotalElements());
         assertEquals("Codex Movie", second.getContent().getFirst().title());
-        verify(elasticsearchOperations, times(1)).search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations, times(1)).search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class));
     }
 
     @Test
     void recommendReturnsEmptyPageWhenElasticsearchFails() {
         UUID id = UUID.randomUUID();
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenThrow(new IllegalStateException("index missing"));
 
         PortalSearchQueryService service = new PortalSearchQueryService(
@@ -175,9 +175,9 @@ class PortalSearchQueryServiceTest {
     void recommendAddsVisibilityAndDataScopeFilters() {
         UUID id = UUID.randomUUID();
         IrcsRequestPrincipal principal = memberPrincipal();
-        when(searchHits.stream()).thenReturn(List.<SearchHit<UnifiedVideoSearchDocument>>of().stream());
+        when(searchHits.stream()).thenReturn(List.<SearchHit<CatalogEntrySearchDocument>>of().stream());
         when(searchHits.getTotalHits()).thenReturn(0L);
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(searchHits);
 
         PortalSearchQueryService service = new PortalSearchQueryService(
@@ -186,7 +186,7 @@ class PortalSearchQueryServiceTest {
         service.recommend(id, PageRequest.of(0, 10), principal);
 
         ArgumentCaptor<NativeQuery> queryCaptor = ArgumentCaptor.forClass(NativeQuery.class);
-        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(CatalogEntrySearchDocument.class));
         Query query = queryCaptor.getValue().getQuery();
         assertTrue(query.isBool());
         assertEquals(1, query.bool().must().size());
@@ -207,22 +207,22 @@ class PortalSearchQueryServiceTest {
     @Test
     void candidateRecallBuildsV1CompatibleQueryAndReturnsDeduplicatedIds() {
         UUID id = UUID.randomUUID();
-        UnifiedVideoSearchDocument document = new UnifiedVideoSearchDocument();
+        CatalogEntrySearchDocument document = new CatalogEntrySearchDocument();
         document.setId(id);
 
         when(searchHit.getContent()).thenReturn(document);
         when(searchHits.stream()).thenReturn(List.of(searchHit, searchHit).stream());
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenReturn(searchHits);
 
         PortalSearchQueryService service = new PortalSearchQueryService(
                 elasticsearchOperations,
                 SearchPortalReadModelCache.disabled());
-        List<UUID> result = service.findCandidateUnifiedVideoIds("  Codex Signal  ", "2026 年");
+        List<UUID> result = service.findCandidateCatalogEntryIds("  Codex Signal  ", "2026 年");
 
         assertEquals(List.of(id), result);
         ArgumentCaptor<NativeQuery> queryCaptor = ArgumentCaptor.forClass(NativeQuery.class);
-        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations).search(queryCaptor.capture(), eq(CatalogEntrySearchDocument.class));
         NativeQuery query = queryCaptor.getValue();
         assertEquals(20, query.getMaxResults());
         assertTrue(query.getQuery().isBool());
@@ -255,21 +255,21 @@ class PortalSearchQueryServiceTest {
                 elasticsearchOperations,
                 SearchPortalReadModelCache.disabled());
 
-        assertEquals(List.of(), service.findCandidateUnifiedVideoIds("   ", "2026"));
+        assertEquals(List.of(), service.findCandidateCatalogEntryIds("   ", "2026"));
 
-        verify(elasticsearchOperations, never()).search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class));
+        verify(elasticsearchOperations, never()).search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class));
     }
 
     @Test
     void candidateRecallReturnsEmptyWhenElasticsearchFails() {
-        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(UnifiedVideoSearchDocument.class)))
+        when(elasticsearchOperations.search(isA(NativeQuery.class), eq(CatalogEntrySearchDocument.class)))
                 .thenThrow(new IllegalStateException("index missing"));
 
         PortalSearchQueryService service = new PortalSearchQueryService(
                 elasticsearchOperations,
                 SearchPortalReadModelCache.disabled());
 
-        assertEquals(List.of(), service.findCandidateUnifiedVideoIds("Codex Signal", "bad year"));
+        assertEquals(List.of(), service.findCandidateCatalogEntryIds("Codex Signal", "bad year"));
     }
 
     private PortalSearchQueryService cachedService() {

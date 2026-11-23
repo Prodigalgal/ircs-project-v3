@@ -77,7 +77,7 @@ class AggregationMaintenanceClientTest {
         UUID rawId = UUID.randomUUID();
         FakeTransport transport = new FakeTransport();
         transport.enqueue(response(202, """
-                {"taskName":"aggregation-reset","stepName":"prepare","rawVideoCount":8,"unifiedVideoCount":3,"bindingCount":5,"changedRows":21,"sampleRawVideoIds":["%s"]}
+                {"taskName":"aggregation-reset","stepName":"prepare","sourceRecordCount":8,"catalogEntryCount":3,"bindingCount":5,"changedRows":21,"sampleSourceRecordIds":["%s"]}
                 """.formatted(rawId)));
         AggregationMaintenanceClient client = client(transport);
 
@@ -171,7 +171,7 @@ class AggregationMaintenanceClientTest {
         UUID rawId = UUID.randomUUID();
         FakeTransport transport = new FakeTransport();
         transport.enqueue(response(202, """
-                {"taskName":"aggregation-reset","stepName":"mark-raw-pending","rawVideoCount":8,"unifiedVideoCount":0,"bindingCount":0,"changedRows":8,"sampleRawVideoIds":["%s"]}
+                {"taskName":"aggregation-reset","stepName":"mark-raw-pending","sourceRecordCount":8,"catalogEntryCount":0,"bindingCount":0,"changedRows":8,"sampleSourceRecordIds":["%s"]}
                 """.formatted(rawId)));
         AggregationMaintenanceClient client = client(transport);
 
