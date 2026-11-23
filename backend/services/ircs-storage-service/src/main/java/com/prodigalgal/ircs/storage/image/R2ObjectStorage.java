@@ -25,7 +25,6 @@ import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.http.apache5.ProxyConfiguration;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -67,24 +66,6 @@ public class R2ObjectStorage {
                 && StringUtils.hasText(accessKey)
                 && StringUtils.hasText(secretKey)
                 && (StringUtils.hasText(endpoint) || StringUtils.hasText(accountId));
-    }
-
-    public void delete(String storagePath) {
-        if (!StringUtils.hasText(storagePath)) {
-            return;
-        }
-        if (!isActive()) {
-            log.info("R2 delete skipped because R2 storage is disabled or incomplete");
-            return;
-        }
-        withClient(client -> {
-            client.deleteObject(DeleteObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(extractKey(storagePath))
-                    .build());
-            log.info("Deleted R2 storage object: {}", storagePath);
-            return null;
-        });
     }
 
     public boolean exists(String storagePath) {

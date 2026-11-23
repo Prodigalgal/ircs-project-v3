@@ -229,3 +229,15 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 4.0.3
+  - include:
+      file: db/changelog/2026/11/23-05-catalog-people-and-credits.sql
+  - include:
+      file: db/changelog/2026/11/23-06-data-source-domain-membership.sql
+  - include:
+      file: db/changelog/2026/11/23-07-authority-playback-binding-proof.sql
+  - changeSet:
+      id: 1795380100004-tag-4.1.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 4.1.0

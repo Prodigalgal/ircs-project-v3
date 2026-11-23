@@ -79,21 +79,25 @@ class CoverImageR2SyncServiceTest {
     }
 
     @Test
-    void deletesTemporaryLocalCoverAfterR2SyncWhenImageDownloadIsDisabled() {
+    void keepsSharedLocalCoverForTheNextUpload() {
         UUID imageId = UUID.randomUUID();
+        UUID secondImageId = UUID.randomUUID();
+        String storagePath = "covers/a.png";
         byte[] data = new byte[] {1, 2, 3};
         when(r2ObjectStorage.isActive()).thenReturn(true);
         when(repository.findRowById(imageId)).thenReturn(Optional.of(row(imageId)));
+        when(repository.findRowById(secondImageId)).thenReturn(Optional.of(row(secondImageId)));
         when(repository.markUploading(imageId)).thenReturn(true);
-        when(localObjectStorage.retrieve("covers/a.png")).thenReturn(Optional.of(data));
-        when(repository.finalizeUpload(imageId, "covers/a.png")).thenReturn(true);
+        when(repository.markUploading(secondImageId)).thenReturn(true);
+        when(localObjectStorage.retrieve(storagePath)).thenReturn(Optional.of(data));
+        when(repository.finalizeUpload(imageId, storagePath)).thenReturn(true);
+        when(repository.finalizeUpload(secondImageId, storagePath)).thenReturn(true);
 
-        CoverImageR2SyncService.CoverImageR2SyncResult result = newService(false).sync(imageId);
+        var service = newService();
 
-        assertTrue(result.synced());
-        verify(r2ObjectStorage).store(data, "covers/a.png", "image/png");
-        verify(repository).finalizeUpload(imageId, "covers/a.png");
-        verify(localObjectStorage).deleteIfExists("covers/a.png");
+        assertTrue(service.sync(imageId).synced());
+        assertTrue(service.sync(secondImageId).synced());
+        verify(localObjectStorage, never()).deleteIfExists(storagePath);
     }
 
     @Test
@@ -155,7 +159,7 @@ class CoverImageR2SyncServiceTest {
         when(localObjectStorage.retrieve("covers/a.png")).thenReturn(Optional.of(new byte[] {1}));
         when(repository.finalizeUpload(imageId, "covers/a.png")).thenReturn(false);
 
-        var result = newService(false).sync(imageId);
+        var result = newService().sync(imageId);
 
         assertFalse(result.synced());
         assertEquals("image state changed during upload", result.reason());
@@ -163,13 +167,8 @@ class CoverImageR2SyncServiceTest {
     }
 
     private CoverImageR2SyncService newService() {
-        return newService(true);
-    }
-
-    private CoverImageR2SyncService newService(boolean imageDownloadEnabled) {
         CoverImageR2SyncService service = new CoverImageR2SyncService(repository, localObjectStorage, r2ObjectStorage);
         ReflectionTestUtils.setField(service, "maxRetries", 3);
-        ReflectionTestUtils.setField(service, "imageDownloadEnabled", imageDownloadEnabled);
         return service;
     }
 

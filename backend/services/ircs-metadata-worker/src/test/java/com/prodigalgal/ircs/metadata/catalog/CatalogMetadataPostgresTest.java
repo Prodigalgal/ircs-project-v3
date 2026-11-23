@@ -45,8 +45,10 @@ class CatalogMetadataPostgresTest {
         pool=new HikariDataSource(); pool.setJdbcUrl(url); pool.setUsername(user); pool.setPassword(password);
         pool.setMaximumPoolSize(3); pool.setMinimumIdle(0); pool.setConnectionInitSql("set search_path to "+schema);
         jdbc=new JdbcTemplate(pool); transactions=new TransactionTemplate(new DataSourceTransactionManager(pool));
-        repository=new CatalogMetadataRepository(new NamedParameterJdbcTemplate(pool),JsonMapper.builder().findAndAddModules().build());
-        authority=new AuthorityCatalogImportRepository(new NamedParameterJdbcTemplate(pool),repository);
+        var named = new NamedParameterJdbcTemplate(pool);
+        var mapper = JsonMapper.builder().findAndAddModules().build();
+        repository = new CatalogMetadataRepository(named, mapper);
+        authority = new AuthorityCatalogImportRepository(named, repository, new CatalogPeopleRepository(named, mapper));
         jdbc.execute("""
                 create table unified_videos(id uuid primary key,title text,alias_title text,description text,year text,
                     score numeric,published_at date,tmdb_id text,imdb_id text,cover_image_id uuid,season integer,
@@ -166,11 +168,11 @@ class CatalogMetadataPostgresTest {
         var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", premiere);
         var episode = new AuthorityCatalogEvidence.Episode(2, 999, "Episode 2", premiere.plusDays(7));
         var tvEvidence = new AuthorityCatalogEvidence("tv",42,1,premiere,"series",authorityFacts("Example Series"),
-                List.of(season),List.of(episode));
+                List.of(season), List.of(episode), List.of());
         assertThat(transactions.<Boolean>execute(status -> authority.publish(tv,tvEvidence))).isTrue();
         var movie = authority.claim().orElseThrow();
         var movieEvidence = new AuthorityCatalogEvidence("movie",42,-1,premiere,"movie",authorityFacts("Example Movie"),
-                List.of(),List.of());
+                List.of(), List.of(), List.of());
         assertThat(transactions.<Boolean>execute(status -> authority.publish(movie,movieEvidence))).isTrue();
 
         assertThat(jdbc.queryForList("select media_type from authority_catalog_works order by media_type", String.class))
@@ -197,7 +199,7 @@ class CatalogMetadataPostgresTest {
         var date = LocalDate.of(2026, 4, 15);
         var season = new AuthorityCatalogEvidence.Season(2, 23, "Season 2", date);
         var evidence = new AuthorityCatalogEvidence("tv",42,2,date,"series",authorityFacts("Example Series"),
-                List.of(season),List.of());
+                List.of(season), List.of(), List.of());
         assertThatThrownBy(() -> transactions.execute(status -> authority.publish(inFlight,evidence)))
                 .isInstanceOf(CatalogMetadataUnavailableException.class)
                 .hasMessage("ADULT_SOURCE_RECORD");
@@ -222,6 +224,56 @@ class CatalogMetadataPostgresTest {
                 .containsExactly(99L,100L);
     }
 
+    @Test
+    void storesPeopleByProviderIdAndKeepsPriorRolesOnIncompleteReplies() throws Exception {
+        installAuthoritySchema();
+        jdbc.update("insert into authority_catalog_imports(media_type,tmdb_id,season_number) values ('tv',42,1)");
+        var date = LocalDate.of(2026, 4, 15);
+        var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", date);
+        var episode = new AuthorityCatalogEvidence.Episode(2, 999, "Episode 2", date);
+        var cast = AuthorityCatalogEvidence.CreditKind.CAST;
+        var guest = AuthorityCatalogEvidence.CreditKind.GUEST_CAST;
+        var mainRole = new AuthorityCatalogEvidence.Credit("101", "main", "Alex", null, "Acting", "Actor", "Lead", 0, 0);
+        var guestRole = new AuthorityCatalogEvidence.Credit("101", "guest", "Alex", null, "Acting", "Actor", "Guest", null, 0);
+        var namesake = new AuthorityCatalogEvidence.Credit("102", "another", "Alex", null, "Acting", "Actor", "Friend", 1, 1);
+        var scope = new AuthorityCatalogEvidence.CreditSet(null, null, cast, true, List.of(mainRole, namesake));
+        var episodeScope = new AuthorityCatalogEvidence.CreditSet(1, 2, guest, true, List.of(guestRole));
+        var job = authority.claim().orElseThrow();
+        var complete = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
+                List.of(season), List.of(episode), List.of(scope, episodeScope));
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, complete))).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from people", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(distinct person_id) from catalog_credits where external_credit_id in ('main','guest')",
+                Integer.class)).isEqualTo(1);
+        UUID guestCreditId = jdbc.queryForObject("select id from catalog_credits where episode_number=2", UUID.class);
+
+        jdbc.update("update authority_catalog_imports set credits_backfill_at=now()");
+        var backfill = authority.claim().orElseThrow();
+        assertThat(backfill.creditBackfill()).isTrue();
+        authority.defer(backfill, "SOURCE_OR_WRITE_FAILED", false);
+        assertThat(authority.claim()).isEmpty();
+        assertThat(jdbc.queryForObject("select status from authority_catalog_imports", String.class)).isEqualTo("SUCCESS");
+
+        jdbc.update("update authority_catalog_imports set credits_backfill_at=now()");
+        var rerun = authority.claim().orElseThrow();
+        var incomplete = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
+                List.of(season), List.of(episode),
+                List.of(new AuthorityCatalogEvidence.CreditSet(null, null, cast, false, List.of(mainRole))));
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(rerun, incomplete))).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from catalog_credits", Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("select id from catalog_credits where episode_number=2", UUID.class)).isEqualTo(guestCreditId);
+        assertThat(jdbc.queryForObject("select credits_backfill_at is null from authority_catalog_imports", Boolean.class)).isTrue();
+
+        jdbc.update("update authority_catalog_imports set status='PENDING',next_attempt_at=now()");
+        var refresh = authority.claim().orElseThrow();
+        var latest = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
+                List.of(season), List.of(episode),
+                List.of(new AuthorityCatalogEvidence.CreditSet(null, null, cast, true, List.of(mainRole))));
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, latest))).isTrue();
+        assertThat(jdbc.queryForList("select external_credit_id from catalog_credits order by external_credit_id", String.class))
+                .containsExactly("guest", "main");
+    }
+
     private EnrichedMetadataDTO authorityFacts(String title) {
         var facts = evidence().metadata();
         facts.setTitle(title);
@@ -238,6 +290,7 @@ class CatalogMetadataPostgresTest {
         assertThat(table.find()).isTrue();
         jdbc.execute(table.group());
         jdbc.execute(Files.readString(migration().resolveSibling("23-01-authority-first-catalog.sql")));
+        jdbc.execute(Files.readString(migration().resolveSibling("23-05-catalog-people-and-credits.sql")));
     }
 
     private UUID enqueue() {

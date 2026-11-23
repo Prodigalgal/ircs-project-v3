@@ -237,20 +237,33 @@ public class JdbcVideoAdminRepository {
         setRawAggregationStatus(rawVideoId, "PENDING");
     }
 
+    public void lockRawVideo(UUID rawVideoId) {
+        jdbcTemplate.query("select id from raw_videos where id=:id for update",
+                new MapSqlParameterSource("id", rawVideoId), rs -> { });
+    }
+
     public void bindRawToUnified(UUID rawVideoId, UUID unifiedVideoId) {
         ensureExists("unified_videos", unifiedVideoId, "Unified video not found: " + unifiedVideoId);
+        MapSqlParameterSource target = new MapSqlParameterSource("rawVideoId", rawVideoId)
+                .addValue("unifiedVideoId", unifiedVideoId);
         jdbcTemplate.update(
-                "delete from raw_video_unified_video where raw_video_id = :rawVideoId",
-                new MapSqlParameterSource("rawVideoId", rawVideoId));
+                "delete from raw_video_unified_video where raw_video_id=:rawVideoId and unified_video_id<>:unifiedVideoId",
+                target);
         jdbcTemplate.update(
                 """
                 insert into raw_video_unified_video (raw_video_id, unified_video_id)
                 values (:rawVideoId, :unifiedVideoId)
                 on conflict do nothing
                 """,
-                new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
-                        .addValue("unifiedVideoId", unifiedVideoId));
+                target);
+        jdbcTemplate.update(
+                """
+                insert into authority_resource_bindings (raw_video_id, unified_video_id, evidence_kind)
+                select :rawVideoId, projection.unified_video_id, 'MANUAL_REVIEW'
+                  from authority_catalog_projections projection
+                 where projection.unified_video_id=:unifiedVideoId
+                on conflict (raw_video_id) do nothing
+                """, target);
         setRawAggregationStatus(rawVideoId, "BOUND");
         markUnifiedDirty(unifiedVideoId);
     }

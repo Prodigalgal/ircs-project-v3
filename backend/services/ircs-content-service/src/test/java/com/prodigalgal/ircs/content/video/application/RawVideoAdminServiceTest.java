@@ -6,6 +6,7 @@ package com.prodigalgal.ircs.content.video.application;
 import com.prodigalgal.ircs.content.video.infrastructure.InternalContentClients;
 import com.prodigalgal.ircs.content.video.messaging.ContentCommandPublisher;
 import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -82,10 +83,14 @@ class RawVideoAdminServiceTest {
         service.update(rawId, request);
 
         verify(maintenanceGate).assertRawVideoWrite(rawId);
+        var writeOrder = inOrder(repository);
+        writeOrder.verify(repository).lockRawVideo(rawId);
+        writeOrder.verify(repository).rawSnapshot(rawId);
         verify(repository).markUnifiedDirty(oldUnifiedId);
         verify(repository).unbindRaw(rawId);
         verify(repository).bindRawToUnified(rawId, newUnifiedId);
         verify(publisher).publishRawSearch(rawId, SyncOperation.INDEX);
+        verify(publisher).publishUnifiedSearch(oldUnifiedId, SyncOperation.INDEX);
         verify(publisher).publishUnifiedSearch(newUnifiedId, SyncOperation.INDEX);
     }
 

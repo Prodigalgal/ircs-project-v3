@@ -53,13 +53,13 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
     AuthorityCatalogEvidence fetchAuthority(String mediaType, long tmdbId, int requestedSeason) {
         return withCredential(credential -> {
             String expected = Long.toString(tmdbId);
-            JsonNode work = readWork(credential, mediaType, expected);
             boolean movie = "movie".equals(mediaType);
+            JsonNode work = readWork(credential, mediaType, expected, !movie);
             LocalDate released = date(work.path(movie ? "release_date" : "first_air_date"));
             String category = categoryCode(work, movie);
             if (movie) {
                 return new AuthorityCatalogEvidence(mediaType, tmdbId, -1, released, category,
-                        metadata(work, work, expected, true), List.of(), List.of());
+                        metadata(work, work, expected, true), List.of(), List.of(), TmdbCatalogCredits.movie(work));
             }
             List<AuthorityCatalogEvidence.Season> seasons = seasonList(work);
             AuthorityCatalogEvidence.Season season = seasons.stream()
@@ -67,8 +67,10 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
                     .min(Comparator.comparingInt(AuthorityCatalogEvidence.Season::number))
                     .orElseThrow(() -> new CatalogMetadataUnavailableException("CATALOG_SEASON_UNVERIFIED"));
             JsonNode scoped = readSeason(credential, expected, season.number(), Long.toString(season.tmdbId()));
+            var episodes = episodeList(scoped, season.number());
             return new AuthorityCatalogEvidence(mediaType, tmdbId, season.number(), released, category,
-                    metadata(work, scoped, expected, false), seasons, episodeList(scoped, season.number()));
+                    metadata(work, scoped, expected, false), seasons, episodes,
+                    TmdbCatalogCredits.television(work, scoped, season.number()));
         });
     }
 
@@ -100,7 +102,7 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
     private CatalogMetadataEvidence fetchWithCredential(CatalogMetadataTarget target, String expected, TmdbCredential credential) {
         String type = target.mediaType();
         boolean movie = "movie".equals(type);
-        JsonNode root = readWork(credential, type, expected);
+        JsonNode root = readWork(credential, type, expected, false);
         JsonNode scoped = root;
         if (!movie && target.season() > 0) {
             var season = seasonList(root).stream().filter(candidate -> candidate.number() == target.season())
@@ -110,9 +112,10 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
         return new CatalogMetadataEvidence(expected, type, target.season(), metadata(root, scoped, expected, movie));
     }
 
-    private JsonNode readWork(TmdbCredential credential, String type, String expected) {
+    private JsonNode readWork(TmdbCredential credential, String type, String expected, boolean aggregateCredits) {
         if (!Set.of("movie", "tv").contains(type)) throw new CatalogMetadataUnavailableException("INVALID_MEDIA_TYPE");
-        JsonNode root = read(credential, "/" + type + "/" + expected, "credits,external_ids");
+        String append = aggregateCredits ? "aggregate_credits,external_ids" : "credits,external_ids";
+        JsonNode root = read(credential, "/" + type + "/" + expected, append);
         String actualId = AuthoritativeIds.normalizeTmdb(root.path("id").asText(null));
         boolean movie = "movie".equals(type);
         boolean correctShape = movie ? root.hasNonNull("title") && root.has("release_date") && !root.has("first_air_date")
@@ -211,26 +214,42 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
             metadata.setArea(text(root.path("origin_country").get(0)));
         }
         metadata.setLanguage(text(root.path("original_language")));
-        Set<String> actors = new LinkedHashSet<>();
-        for (JsonNode person : scoped.path("credits").path("cast")) {
-            if (actors.size() >= 15) break;
-            String name = text(person.path("name"));
-            if (name != null) actors.add(name);
-        }
-        Set<String> directors = new LinkedHashSet<>();
-        for (JsonNode person : scoped.path("credits").path("crew")) {
-            if ("Director".equals(person.path("job").asText())) {
-                String name = text(person.path("name"));
-                if (name != null && directors.size() < 15) directors.add(name);
-            }
-        }
-        metadata.setActorNames(PersonNames.normalize(actors));
-        metadata.setDirectorNames(PersonNames.normalize(directors));
+        metadata.setActorNames(displayNames(scoped, root, false));
+        metadata.setDirectorNames(displayNames(scoped, root, true));
         for (JsonNode genre : root.path("genres")) {
             String name = text(genre.path("name"));
             if (name != null && metadata.getGenreNames().size() < 20) metadata.addGenre(name);
         }
         return metadata;
+    }
+
+    private Set<String> displayNames(JsonNode scoped, JsonNode work, boolean directors) {
+        Set<String> names = displayNames(scoped.path("credits"), directors);
+        if (!names.isEmpty()) return names;
+        if (scoped != work) {
+            names = displayNames(work.path("credits"), directors);
+            if (!names.isEmpty()) return names;
+        }
+        return displayNames(work.path("aggregate_credits"), directors);
+    }
+
+    private Set<String> displayNames(JsonNode credits, boolean directors) {
+        Set<String> names = new LinkedHashSet<>();
+        for (JsonNode person : credits.path(directors ? "crew" : "cast")) {
+            if (names.size() >= 15) break;
+            if (directors && !directs(person)) continue;
+            String name = firstText(person.path("name"), person.path("original_name"));
+            if (name != null) names.add(name);
+        }
+        return PersonNames.normalize(names);
+    }
+
+    private boolean directs(JsonNode person) {
+        if ("Director".equals(person.path("job").asText())) return true;
+        for (JsonNode job : person.path("jobs")) {
+            if ("Director".equals(job.path("job").asText())) return true;
+        }
+        return false;
     }
 
     private JsonNode read(TmdbCredential credential, String path, String append) {

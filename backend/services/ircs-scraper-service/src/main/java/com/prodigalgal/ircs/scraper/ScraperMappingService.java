@@ -68,7 +68,7 @@ class ScraperMappingService {
                 null,
                 item.rawMetadata(),
                 item.playlists() == null ? List.of() : item.playlists());
-        return toItem(draft, forceIngest);
+        return toItem(draft, forceIngest, true);
     }
 
     ScrapedVideoDraft mapDetail(String jsonBody, DataSourceRecord source) {
@@ -118,16 +118,21 @@ class ScraperMappingService {
     }
 
     IngestionItem toItem(ScrapedVideoDraft draft, boolean forceIngest) {
+        return toItem(draft, forceIngest, false);
+    }
+
+    private IngestionItem toItem(ScrapedVideoDraft draft, boolean forceIngest, boolean includePlaylistHash) {
         String rawMetadata = canonicalRawMetadata(draft);
+        String playlistHash = includePlaylistHash ? playlistHash(draft.playlists()) : null;
+        String dataHashInput = includePlaylistHash
+                ? String.join("|", value(draft.title()), value(draft.coverImageUrl()), value(draft.year()),
+                        value(draft.remarks()), rawMetadata, playlistHash)
+                : String.join("|", value(draft.title()), value(draft.coverImageUrl()), value(draft.year()),
+                        value(draft.remarks()), rawMetadata);
         IngestionVideoDTO video = new IngestionVideoDTO(
                 draft.sourceVid(),
                 sha256(draft.dataSourceId() + ":" + draft.sourceVid()),
-                sha256(String.join("|",
-                        value(draft.title()),
-                        value(draft.coverImageUrl()),
-                        value(draft.year()),
-                        value(draft.remarks()),
-                        rawMetadata)),
+                sha256(dataHashInput),
                 draft.title(),
                 draft.aliasTitle(),
                 draft.description(),
@@ -150,6 +155,14 @@ class ScraperMappingService {
                 draft.playlists() == null ? List.of() : draft.playlists(),
                 0);
         return new IngestionItem(video, forceIngest);
+    }
+
+    private String playlistHash(List<IngestionPlaylistDTO> playlists) {
+        try {
+            return objectMapper.writeValueAsString(playlists == null ? List.of() : playlists);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to serialize direct item playlists for hashing", ex);
+        }
     }
 
     private String canonicalRawMetadata(ScrapedVideoDraft draft) {

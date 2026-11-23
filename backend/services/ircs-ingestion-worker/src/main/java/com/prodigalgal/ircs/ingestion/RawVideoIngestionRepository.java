@@ -170,6 +170,7 @@ public class RawVideoIngestionRepository {
         }
         CoverImageReference reference = resolveCoverImageReference(coverImageUrl);
         UUID sourceDomainId = upsertSourceDomain(reference.domainValue(), dataSourceId, "ingestion-cover");
+        linkDataSourceDomain(dataSourceId, sourceDomainId);
         UUID imageId = jdbcTemplate.queryForObject(
                 """
                 insert into cover_images (
@@ -244,6 +245,21 @@ public class RawVideoIngestionRepository {
                         .addValue("remark", remark)
                         .addValue("dataSourceId", dataSourceId),
                 UUID.class);
+    }
+
+    private void linkDataSourceDomain(UUID dataSourceId, UUID sourceDomainId) {
+        if (dataSourceId == null || sourceDomainId == null) {
+            return;
+        }
+        jdbcTemplate.update(
+                """
+                insert into data_source_domains (data_source_id, source_domain_id, first_seen_at)
+                values (:dataSourceId, :sourceDomainId, now())
+                on conflict (data_source_id, source_domain_id) do nothing
+                """,
+                new MapSqlParameterSource()
+                        .addValue("dataSourceId", dataSourceId)
+                        .addValue("sourceDomainId", sourceDomainId));
     }
 
     public int replacePlaylists(PlaylistSyncMessage message) {
@@ -340,7 +356,7 @@ public class RawVideoIngestionRepository {
     }
 
     private UUID upsertSourceDomain(String domainValue, PlaylistSyncMessage message) {
-        return jdbcTemplate.queryForObject(
+        UUID sourceDomainId = jdbcTemplate.queryForObject(
                 """
                 insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
                 values (:id, now(), now(), 0, :domainHash, :domainValue, 'ingestion-worker', (
@@ -357,6 +373,18 @@ public class RawVideoIngestionRepository {
                         .addValue("domainValue", trimToLength(domainValue, 255))
                         .addValue("videoId", message.videoId()),
                 UUID.class);
+        jdbcTemplate.update(
+                """
+                insert into data_source_domains (data_source_id, source_domain_id, first_seen_at)
+                select data_source_id, :sourceDomainId, now()
+                  from raw_videos
+                 where id = :videoId and data_source_id is not null
+                on conflict (data_source_id, source_domain_id) do nothing
+                """,
+                new MapSqlParameterSource()
+                        .addValue("sourceDomainId", sourceDomainId)
+                        .addValue("videoId", message.videoId()));
+        return sourceDomainId;
     }
 
     private String defaultEpisodeName(IngestionEpisodeDTO episode) {

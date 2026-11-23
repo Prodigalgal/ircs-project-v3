@@ -21,9 +21,6 @@ public class CoverImageR2SyncService {
     @Value("${app.storage.image.max-retries:3}")
     private int maxRetries;
 
-    @Value("${app.storage.image.download.enabled:true}")
-    private boolean imageDownloadEnabled;
-
     public CoverImageR2SyncResult sync(UUID imageId) {
         if (imageId == null) {
             return CoverImageR2SyncResult.skipped("image id is null");
@@ -59,27 +56,13 @@ public class CoverImageR2SyncService {
             if (!repository.finalizeUpload(imageId, row.storagePath())) {
                 return CoverImageR2SyncResult.skipped("image state changed during upload");
             }
-            cleanupTemporaryLocalCopy(row.storagePath());
+            // Other cover rows may still need the same local key for serving or upload.
             log.info("Cover image synced to R2 by runtime queue: {}", imageId);
             return CoverImageR2SyncResult.synced(row.storagePath());
         } catch (RuntimeException ex) {
             repository.markFailed(imageId, "R2 upload failed: " + ex.getMessage(), maxRetries);
             log.warn("Cover image R2 upload failed for {}: {}", imageId, ex.getMessage());
             return CoverImageR2SyncResult.failed("r2 upload failed");
-        }
-    }
-
-    private void cleanupTemporaryLocalCopy(String storagePath) {
-        if (imageDownloadEnabled) {
-            return;
-        }
-        try {
-            localObjectStorage.deleteIfExists(storagePath);
-            log.debug("Auto cleaned temporary local cover after R2 sync: {}", storagePath);
-        } catch (RuntimeException ex) {
-            log.warn("Cover image R2 sync kept metadata as R2 but failed to clean local copy {}: {}",
-                    storagePath,
-                    ex.getMessage());
         }
     }
 

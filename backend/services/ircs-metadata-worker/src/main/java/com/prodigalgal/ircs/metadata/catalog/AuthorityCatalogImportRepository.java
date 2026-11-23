@@ -11,6 +11,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,23 +25,30 @@ class AuthorityCatalogImportRepository {
             """;
     private final NamedParameterJdbcTemplate jdbc;
     private final CatalogMetadataRepository projectionRepository;
+    private final CatalogPeopleRepository peopleRepository;
 
     Optional<Import> claim() {
         return jdbc.query("""
                 with due as (
-                    select media_type,tmdb_id,season_number from authority_catalog_imports
+                    select media_type,tmdb_id,season_number,
+                        (status in ('SUCCESS','DISPATCHING') and credits_backfill_at is not null) as backfill
+                    from authority_catalog_imports
                      where (status in ('PENDING','RETRY') and next_attempt_at<=now())
                         or (status='DISPATCHING' and lease_until<=now())
-                     order by priority desc,next_attempt_at,created_at,media_type,tmdb_id,season_number
+                        or (status='SUCCESS' and credits_backfill_at<=now())
+                     order by backfill,priority desc,
+                        case when status='SUCCESS' then credits_backfill_at else next_attempt_at end,
+                        created_at,media_type,tmdb_id,season_number
                      limit 1 for update skip locked
                 )
                 update authority_catalog_imports j set status='DISPATCHING',lease_token=:token,
+                       credits_backfill_at=case when due.backfill then j.credits_backfill_at end,
                        lease_until=now()+interval '5 minutes',attempts=least(attempts+1,1000000),updated_at=now()
                   from due where (j.media_type,j.tmdb_id,j.season_number)=(due.media_type,due.tmdb_id,due.season_number)
-                returning j.media_type,j.tmdb_id,j.season_number,j.priority,j.attempts,j.lease_token
+                returning j.media_type,j.tmdb_id,j.season_number,j.priority,j.attempts,j.lease_token,due.backfill
                 """, Map.of("token", UUID.randomUUID()),
                 (rs, row) -> new Import(rs.getString(1), rs.getLong(2), rs.getInt(3), rs.getInt(4),
-                        rs.getInt(5), rs.getObject(6, UUID.class))).stream().findFirst();
+                        rs.getInt(5), rs.getObject(6, UUID.class), rs.getBoolean(7))).stream().findFirst();
     }
 
     @Transactional(timeout = 20)
@@ -88,6 +96,7 @@ class AuthorityCatalogImportRepository {
                 returning id
                 """, p, UUID.class);
         replaceSeasonFacts(work, evidence);
+        peopleRepository.store(work, evidence.creditSets());
         p.addValue("work", work).addValue("priority", owned.getFirst());
         UUID video = ensureProjection(p, evidence, previous);
         p.addValue("video", video);
@@ -95,7 +104,7 @@ class AuthorityCatalogImportRepository {
         scheduleResources(p);
         jdbc.update("""
                 update authority_catalog_imports set status='SUCCESS',lease_token=null,lease_until=null,
-                    attempts=0,last_success_at=now(),last_error=null,updated_at=now() where
+                    attempts=0,last_success_at=now(),last_error=null,credits_backfill_at=null,updated_at=now() where
                 """ + OWNED, p);
         return true;
     }
@@ -115,8 +124,19 @@ class AuthorityCatalogImportRepository {
                     .addValue("verified", season.number() == evidence.seasonNumber()));
             if (changed != 1) throw new CatalogMetadataUnavailableException("CATALOG_SEASON_IDENTITY_CHANGED");
         }
-        jdbc.update("delete from authority_catalog_episodes where work_id=:work and season_number=:season",
-                Map.of("work", work, "season", evidence.seasonNumber()));
+        // Keep verified episode identities in place so optional credits survive a partial provider reply.
+        jdbc.update("""
+                delete from authority_catalog_episodes existing
+                where existing.work_id=:work and existing.season_number=:season
+                    and not exists (
+                        select 1 from unnest(cast(:numbers as integer[]), cast(:ids as bigint[])) fact(episode_number,tmdb_id)
+                        where fact.episode_number=existing.episode_number and fact.tmdb_id=existing.tmdb_episode_id
+                    )
+                """, new MapSqlParameterSource("work", work).addValue("season", evidence.seasonNumber())
+                .addValue("numbers", new SqlArrayValue("int4", evidence.episodes().stream()
+                        .map(AuthorityCatalogEvidence.Episode::number).toArray()))
+                .addValue("ids", new SqlArrayValue("int8", evidence.episodes().stream()
+                        .map(AuthorityCatalogEvidence.Episode::tmdbId).toArray())));
         if (evidence.episodes().isEmpty()) return;
         var batch = evidence.episodes().stream().map(episode -> new MapSqlParameterSource("work", work)
                 .addValue("season", evidence.seasonNumber()).addValue("episode", episode.number())
@@ -125,6 +145,10 @@ class AuthorityCatalogImportRepository {
         jdbc.batchUpdate("""
                 insert into authority_catalog_episodes(work_id,season_number,episode_number,tmdb_episode_id,title,aired_on)
                 values(:work,:season,:episode,:id,left(:title,500),:aired)
+                on conflict (work_id,season_number,episode_number) do update
+                    set title=excluded.title,aired_on=excluded.aired_on
+                    where (authority_catalog_episodes.title,authority_catalog_episodes.aired_on)
+                        is distinct from (excluded.title,excluded.aired_on)
                 """, batch);
     }
 
@@ -172,14 +196,17 @@ class AuthorityCatalogImportRepository {
 
     @Transactional(timeout = 15)
     public void defer(Import job, String reason, boolean unavailable) {
-        MapSqlParameterSource p = params(job).addValue("reason", reason)
-                .addValue("status", unavailable ? "UNAVAILABLE" : "RETRY")
+        boolean adult = "ADULT_SOURCE_RECORD".equals(reason);
+        boolean keepPublished = job.creditBackfill() && !adult;
+        MapSqlParameterSource p = params(job).addValue("reason", reason).addValue("keepPublished", keepPublished)
+                .addValue("status", keepPublished ? "SUCCESS" : unavailable ? "UNAVAILABLE" : "RETRY")
                 .addValue("seconds", unavailable ? 86400 : Math.min(21600, 60L << Math.min(9, job.attempts() - 1)));
         int retained = jdbc.update("""
                 update authority_catalog_imports set status=:status,lease_token=null,lease_until=null,
+                    credits_backfill_at=case when :keepPublished then now()+(:seconds*interval '1 second') end,
                     next_attempt_at=now()+(:seconds*interval '1 second'),last_error=:reason,updated_at=now() where
                 """ + OWNED, p);
-        if (retained == 1 && "ADULT_SOURCE_RECORD".equals(reason)) {
+        if (retained == 1 && adult) {
             lockWork(job);
             jdbc.update("""
                     update unified_videos set content_visibility='HIDDEN',adult_restricted=true,updated_at=now()
@@ -275,7 +302,8 @@ class AuthorityCatalogImportRepository {
                 .toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\p{Z}\\s]+", "");
     }
 
-    record Import(String mediaType, long tmdbId, int seasonNumber, int priority, int attempts, UUID token) { }
+    record Import(String mediaType, long tmdbId, int seasonNumber, int priority, int attempts, UUID token,
+            boolean creditBackfill) { }
     record IndexPending(UUID id, long generation, boolean delete) { }
     record ChangeCursor(String type, LocalDate day, int page) { }
     private record PreviousWork(String title, String originalTitle) { }

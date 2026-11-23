@@ -409,6 +409,9 @@ class JdbcPortalRankingIntegrationTest {
         episode(raw(video, null, false), "第2集", "https://source.example/missing-season");
         episode(raw(video, 2, true), "S02E02", "https://source.example/restricted");
 
+        assertThat(detailEpisodeNames(video)).isEmpty();
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 1)", Boolean.class, video)).isFalse();
+        recordAuthorityBinding(correct, video);
         assertThat(detailEpisodeNames(video)).containsExactly("S02E01");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 2)", Boolean.class, video)).isFalse();
         assertThat(jdbc.queryForObject("select available_episode from catalog_resource_inventory(?, 2)", Integer.class, video))
@@ -416,8 +419,7 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 1, 1)", Boolean.class, video)).isFalse();
 
         UUID verifiedBinding = raw(video, null, false);
-        jdbc.update("insert into authority_resource_bindings(raw_video_id,unified_video_id,evidence_kind) values (?,?,'TEST')",
-                verifiedBinding, video);
+        recordAuthorityBinding(verifiedBinding, video);
         episode(verifiedBinding, "第2集", "https://source.example/bound");
         assertThat(detailEpisodeNames(video)).containsExactlyInAnyOrder("S02E01", "第2集");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 2)", Boolean.class, video)).isTrue();
@@ -432,14 +434,24 @@ class JdbcPortalRankingIntegrationTest {
                 values (?,0,1,201)
                 """, authority);
         UUID rawSpecial = raw(special, null, false);
+        recordAuthorityBinding(rawSpecial, special);
         episode(rawSpecial, "S00E01", "https://source.example/special");
         episode(rawSpecial, "S01E01", "https://source.example/regular");
         assertThat(detailEpisodeNames(special)).containsExactly("S00E01");
 
         UUID movie = work("Whole film", "movie", 7.5);
         authorityProjection(movie, "movie", -1);
-        episode(raw(movie, null, false), "正片", "https://source.example/movie");
+        UUID movieSource = raw(movie, null, false);
+        episode(movieSource, "正片", "https://source.example/movie");
+        assertThat(detailEpisodeNames(movie)).isEmpty();
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isFalse();
+        assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?, 0)", Boolean.class, movie)).isFalse();
+        jdbc.update("insert into magnet_links(unified_video_id,id,status) values (?,?,'APPROVED')", movie, UUID.randomUUID());
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
+        jdbc.update("delete from magnet_links where unified_video_id=?", movie);
+        recordAuthorityBinding(movieSource, movie);
         assertThat(detailEpisodeNames(movie)).containsExactly("正片");
+        assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
 
         UUID sport = work("Source-first event", "sports", 7.5);
         episode(raw(sport, null, false), "全场回放", "https://source.example/event");
@@ -514,6 +526,11 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.update("insert into episodes(id, playlist_id, name, url) values (?, ?, ?, ?)", UUID.randomUUID(), playlist, name, url);
     }
 
+    private void recordAuthorityBinding(UUID rawId, UUID entryId) {
+        jdbc.update("insert into authority_resource_bindings(raw_video_id,unified_video_id,evidence_kind) values (?,?,'MANUAL_REVIEW')",
+                rawId, entryId);
+    }
+
     private UUID authorityProjection(UUID video, String type, int season) {
         UUID work = UUID.randomUUID();
         jdbc.update("""
@@ -571,7 +588,7 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.execute("create table unified_video_tags(unified_video_id uuid, tag text)");
         jdbc.execute("create table data_sources(id uuid primary key, name text, adult_restricted boolean default false)");
         jdbc.execute("create table raw_videos(id uuid primary key, season integer, data_source_id uuid)");
-        jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid)");
+        jdbc.execute("create table raw_video_unified_video(raw_video_id uuid, unified_video_id uuid, primary key(raw_video_id, unified_video_id))");
         jdbc.execute("create table playlists(id uuid primary key, video_id uuid, name text)");
         jdbc.execute("create table episodes(id uuid primary key, playlist_id uuid, name text, url text, source_domain_id uuid)");
         jdbc.execute("""
@@ -586,6 +603,8 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.execute(Files.readString(migrationPath("22-01-catalog-target-resources.sql")));
         jdbc.execute(Files.readString(migrationPath("23-01-authority-first-catalog.sql")));
         jdbc.execute(Files.readString(migrationPath("23-03-authority-playback-episodes.sql")));
+        jdbc.execute(Files.readString(migrationPath("23-04-authority-binding-integrity.sql")));
+        jdbc.execute(Files.readString(migrationPath("23-07-authority-playback-binding-proof.sql")));
     }
 
     private static Path migrationPath(String filename) {

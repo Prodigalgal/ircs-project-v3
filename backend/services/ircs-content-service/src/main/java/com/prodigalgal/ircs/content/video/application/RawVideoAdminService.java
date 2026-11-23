@@ -68,6 +68,7 @@ public class RawVideoAdminService {
     @Transactional
     public void update(UUID id, RawVideoUpdateRequest request) {
         maintenanceGate.assertRawVideoWrite(id);
+        repository.lockRawVideo(id);
         RawVideoSnapshot before = repository.rawSnapshot(id);
         repository.updateRawVideo(id, request);
 
@@ -87,6 +88,9 @@ public class RawVideoAdminService {
 
         if (request.unifiedVideoId() != null) {
             repository.bindRawToUnified(id, request.unifiedVideoId());
+            if (before.unifiedVideoId() != null && !before.unifiedVideoId().equals(request.unifiedVideoId())) {
+                publisher.publishUnifiedSearch(before.unifiedVideoId(), SyncOperation.INDEX);
+            }
             publisher.publishUnifiedSearch(request.unifiedVideoId(), SyncOperation.INDEX);
         }
         publisher.publishRawSearch(id, SyncOperation.INDEX);
