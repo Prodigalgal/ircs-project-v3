@@ -413,7 +413,7 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(detailEpisodeNames(video)).isEmpty();
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 2, 1)", Boolean.class, video)).isFalse();
         recordAuthorityBinding(correct, video);
-        assertThat(detailEpisodeNames(video)).containsExactly("S02E01");
+        assertThat(detailEpisodeNames(video)).containsExactly("[Main] S02E01");
         UUID canonicalEpisodeOne = jdbc.queryForObject(
                 "select id from catalog_episodes where work_id=? and season_number=2 and episode_number=1", UUID.class, authority);
         assertThat(detailEpisodes(video).getFirst().catalogEpisodeId()).isEqualTo(canonicalEpisodeOne.toString());
@@ -425,7 +425,7 @@ class JdbcPortalRankingIntegrationTest {
         UUID verifiedBinding = raw(video, null, false);
         recordAuthorityBinding(verifiedBinding, video);
         episode(verifiedBinding, "第2集", "https://source.example/bound");
-        assertThat(detailEpisodeNames(video)).containsExactlyInAnyOrder("S02E01", "第2集");
+        assertThat(detailEpisodeNames(video)).containsExactlyInAnyOrder("[Main] S02E01", "[Main] 第2集");
         assertThat(detailEpisodes(video)).extracting(PortalMovieDetailResponse.Episode::catalogEpisodeId)
                 .containsExactlyInAnyOrder(canonicalEpisodeOne.toString(), jdbc.queryForObject(
                         "select id from catalog_episodes where work_id=? and season_number=2 and episode_number=2",
@@ -445,7 +445,7 @@ class JdbcPortalRankingIntegrationTest {
         recordAuthorityBinding(rawSpecial, special);
         episode(rawSpecial, "S00E01", "https://source.example/special");
         episode(rawSpecial, "S01E01", "https://source.example/regular");
-        assertThat(detailEpisodeNames(special)).containsExactly("S00E01");
+        assertThat(detailEpisodeNames(special)).containsExactly("[Main] S00E01");
 
         UUID movie = work("Whole film", "movie", 7.5);
         authorityProjection(movie, "movie", -1);
@@ -463,12 +463,12 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
         jdbc.update("delete from catalog_magnet_links where catalog_entry_id=?", movie);
         recordAuthorityBinding(movieSource, movie);
-        assertThat(detailEpisodeNames(movie)).containsExactly("正片");
+        assertThat(detailEpisodeNames(movie)).containsExactly("[Main] 正片");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
 
         UUID sport = work("Source-first event", "sports", 7.5);
         episode(raw(sport, null, false), "全场回放", "https://source.example/event");
-        assertThat(detailEpisodeNames(sport)).containsExactly("全场回放");
+        assertThat(detailEpisodeNames(sport)).containsExactly("[Main] 全场回放");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, sport)).isTrue();
     }
 
