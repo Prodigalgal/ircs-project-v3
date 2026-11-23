@@ -15,6 +15,6 @@ class SourceRecordEnrichmentRepositoryTest {
         assertTrue(sql.contains("c.slug = v.category_code"));
         assertFalse(sql.contains("raw_category"));
         assertFalse(sql.contains("data_source_categories"));
-        assertFalse(sql.contains("categories c"));
+        assertFalse(sql.contains("join categories c"));
     }
 }

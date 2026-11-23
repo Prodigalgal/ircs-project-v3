@@ -3,9 +3,8 @@ package com.prodigalgal.ircs.task.infrastructure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,54 +13,46 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
 class CatalogDiscoveryRepositoryIntegrationTest {
 
     private static final Duration LEASE = Duration.ofMinutes(10);
-    private JdbcTemplate admin;
+    private CatalogTestDatabase database;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
-    private String schema;
     private CatalogDiscoveryRepository requests;
     private JdbcCollectionTaskRepository tasks;
     private UUID workId;
 
     @BeforeEach
     void setUp() throws Exception {
-        String url = System.getenv("IRCS_TEST_POSTGRES_URL");
+        database = CatalogTestDatabase.open();
         String user = System.getenv("IRCS_TEST_POSTGRES_USER");
         String password = System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
-        schema = "catalog_discovery_" + UUID.randomUUID().toString().replace("-", "");
-        admin.execute("create schema " + schema);
         pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
+        pool.setJdbcUrl(database.url());
         pool.setUsername(user);
         pool.setPassword(password);
         pool.setMaximumPoolSize(6);
         pool.setMinimumIdle(0);
-        pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
         requests = new CatalogDiscoveryRepository(new NamedParameterJdbcTemplate(pool));
         tasks = new JdbcCollectionTaskRepository(jdbc);
-        createSchema();
         workId = UUID.randomUUID();
-        jdbc.update("insert into catalog_entries(id, season) values (?, 2)", workId);
+        jdbc.update("insert into catalog_entries(id,season,title,created_at,updated_at) values(?,2,'Fixture',now(),now())", workId);
     }
 
     @AfterEach
     void tearDown() {
         if (pool != null) pool.close();
-        if (admin != null && schema != null) admin.execute("drop schema if exists " + schema + " cascade");
+        if (database != null) database.close();
     }
 
     @Test
@@ -219,17 +210,13 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         acceptedRequest();
         UUID raw = UUID.randomUUID();
         UUID playlist = UUID.randomUUID();
-        jdbc.update("insert into source_records(id, season) values (?, 2)", raw);
-        jdbc.update("insert into catalog_source_bindings values (?, ?)", raw, workId);
-        jdbc.update("insert into source_playlists values (?, ?)", playlist, raw);
-        jdbc.update("insert into source_playback_items(id, playlist_id, name, url) values (?, ?, 'S02E14', 'https://source.example/14')",
-                UUID.randomUUID(), playlist);
+        insertPlaybackGraph(raw, playlist);
+        insertPlaybackItem(raw, playlist, "S02E14", "https://source.example/14");
 
         assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
         assertThat(requestState()).containsEntry("status", "RETRY").containsEntry("fulfilled", false);
 
-        jdbc.update("insert into source_playback_items(id, playlist_id, name, url) values (?, ?, 'S02E12', 'https://source.example/12')",
-                UUID.randomUUID(), playlist);
+        insertPlaybackItem(raw, playlist, "S02E12", "https://source.example/12");
         jdbc.update("update catalog_resource_discovery_jobs set status = 'SUBMITTED', fulfilled_at = null");
         makeReconciliationDue();
         assertThat(requests.reconcileSubmitted(5)).isEqualTo(1);
@@ -239,14 +226,19 @@ class CatalogDiscoveryRepositoryIntegrationTest {
 
     @Test
     void wholeWorkMayUseApprovedMagnetButEpisodeRequestMayNot() {
-        jdbc.update("insert into catalog_magnet_links values (?, 'CANDIDATE')", workId);
+        jdbc.update("""
+                insert into catalog_magnet_links(id,catalog_entry_id,status,provider_code,info_hash,magnet_uri,
+                    title,matched_external_id_type,matched_external_id_value)
+                values(uuidv7(),?,'CANDIDATE','fixture',repeat('f',40),'magnet:?xt=urn:btih:' || repeat('f',40),
+                    'Fixture','TMDB','123')
+                """, workId);
         CatalogDiscoveryCandidate wholeWork = new CatalogDiscoveryCandidate(workId, 0, 0, "Example", 1, UUID.randomUUID());
         CatalogDiscoveryCandidate episode = new CatalogDiscoveryCandidate(workId, 2, 12, "Example", 1, UUID.randomUUID());
         assertThat(requests.hasRequestedResources(wholeWork)).isFalse();
         jdbc.update("update catalog_magnet_links set status = 'APPROVED'");
         assertThat(requests.hasRequestedResources(wholeWork)).isTrue();
         assertThat(requests.hasRequestedResources(episode)).isFalse();
-        jdbc.update("update catalog_entries set content_visibility = 'PRIVATE'");
+        jdbc.update("update catalog_entries set content_visibility = 'HIDDEN'");
         assertThat(requests.hasRequestedResources(wholeWork)).isFalse();
         jdbc.update("update catalog_entries set content_visibility = 'PUBLIC', adult_restricted = true");
         assertThat(requests.hasRequestedResources(wholeWork)).isFalse();
@@ -257,21 +249,22 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         CatalogDiscoveryCandidate target = new CatalogDiscoveryCandidate(workId, 2, 12, "Example", 1, UUID.randomUUID());
         UUID rawId = UUID.randomUUID();
         UUID playlistId = UUID.randomUUID();
-        UUID episodeId = UUID.randomUUID();
-        jdbc.update("insert into source_records(id, season) values (?, 2)", rawId);
-        jdbc.update("insert into catalog_source_bindings values (?, ?)", rawId, workId);
+        insertPlaybackGraph(rawId, playlistId);
         assertThat(requests.hasRequestedResources(target)).isFalse();
-        jdbc.update("insert into source_playlists values (?, ?)", playlistId, rawId);
-        jdbc.update("insert into source_playback_items(id, playlist_id, name, url) values (?, ?, '第12集', '')", episodeId, playlistId);
+        insertPlaybackItem(rawId, playlistId, "第12集", "");
         assertThat(requests.hasRequestedResources(target)).isFalse();
         jdbc.update("update source_playback_items set name = 'HD', url = 'https://source.example/video.m3u8'");
+        reconcilePlayback(rawId);
         assertThat(requests.hasRequestedResources(target)).isFalse();
         jdbc.update("update source_playback_items set name = '第12集'");
+        reconcilePlayback(rawId);
         assertThat(requests.hasRequestedResources(target)).isTrue();
         jdbc.update("update source_playback_items set name = 'S01E12'");
+        reconcilePlayback(rawId);
         assertThat(requests.hasRequestedResources(target)).isFalse();
         jdbc.update("update source_playback_items set name = 'S02E12'");
         jdbc.update("update source_records set season = null");
+        reconcilePlayback(rawId);
         assertThat(requests.hasRequestedResources(target)).isTrue();
         jdbc.update("update catalog_entries set adult_assessment = '{\"level\":\"ADULT\"}'::jsonb");
         assertThat(requests.hasRequestedResources(target)).isFalse();
@@ -282,7 +275,7 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         insertRequest();
         jdbc.update("update catalog_entries set adult_assessment = '{\"level\":\"ADULT\"}'::jsonb");
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
-        jdbc.update("update catalog_entries set adult_assessment = null, content_visibility = 'PRIVATE'");
+        jdbc.update("update catalog_entries set adult_assessment = '{}'::jsonb, content_visibility = 'HIDDEN'");
         assertThat(requests.claimDue(1, LEASE)).isEmpty();
     }
 
@@ -302,7 +295,8 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).isEmpty();
         setRunStatus(busy, "FAILED");
         assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).isEmpty();
-        jdbc.update("update collection_plans set updated_at = now() - interval '31 minutes' where id = ?", busy);
+        jdbc.update("update collection_plans set updated_at=now()-interval '31 minutes' where id=?",busy);
+        jdbc.update("update collection_runs set updated_at=now()-interval '31 minutes' where collection_plan_id=?",busy);
         assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).hasSize(1);
         jdbc.update("update collection_plans set headers = '{\"ircsCatalogDiscovery\":{\"requestKey\":\"request-key\"}}'::jsonb where id = ?", busy);
         setRunStatus(busy, "RUNNING");
@@ -356,15 +350,21 @@ class CatalogDiscoveryRepositoryIntegrationTest {
 
     private UUID insertSource() {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into collection_sources values (?, 'Source', 'https://source.example', '/api.php', '/api.php', "
-                + "'{\"title\":\"vod_name\"}'::jsonb, false)", id);
+        jdbc.update("""
+                insert into collection_sources(id,created_at,updated_at,name,base_url,list_path,detail_path,field_mapping)
+                values(?,now(),now(),?,'https://source.example','/api.php','/api.php','{"title":"vod_name"}')
+                """, id,"Source " + id);
         return id;
     }
 
     private UUID insertTask(UUID source, String status, boolean enabled, String headers) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into collection_plans(id, collection_source_id, enabled, headers, updated_at) "
-                + "values (?, ?, ?, cast(? as jsonb), now())", id, source, enabled, headers);
+        jdbc.update("""
+                insert into collection_plans(id,collection_source_id,created_at,updated_at,name,enabled,headers,task_type,
+                    request_delay_type,fixed_delay_ms,random_delay_min_ms,random_delay_max_ms,timeout_ms,max_retries,
+                    enable_random_ua,use_custom_proxy)
+                values(?,?,now(),now(),?,?,cast(? as jsonb),'COLLECT_ALL','FIXED',0,0,0,5000,0,false,false)
+                """, id, source, "Plan " + id, enabled, headers);
         UUID runId = UUID.randomUUID();
         String runStatus = status.equals("IDLE") ? "STOPPED" : status.equals("STOPPING") ? "RUNNING" : status;
         jdbc.update("insert into collection_runs(id, collection_plan_id, collection_source_id, exclusive_source, "
@@ -380,56 +380,30 @@ class CatalogDiscoveryRepositoryIntegrationTest {
                 status, status, planId);
     }
 
-    private void createSchema() throws Exception {
-        jdbc.execute("create table catalog_entries(id uuid primary key, season integer, adult_restricted boolean default false, "
-                + "adult_assessment jsonb, content_visibility text default 'PUBLIC')");
-        jdbc.execute("create table source_records(id uuid primary key, season integer, collection_source_id uuid)");
-        jdbc.execute("create table catalog_source_bindings(source_record_id uuid, catalog_entry_id uuid)");
-        jdbc.execute("create table source_playlists(id uuid primary key, video_id uuid)");
-        jdbc.execute("create table source_playback_items(id uuid primary key, playlist_id uuid, name text, url text, source_origin_id uuid)");
-        jdbc.execute("create table catalog_magnet_links(catalog_entry_id uuid, status text)");
-        jdbc.execute("create table collection_sources(id uuid primary key, name text, base_url text, list_path text, detail_path text, "
-                + "field_mapping jsonb, adult_restricted boolean default false)");
-        jdbc.execute("create table collection_plans(id uuid primary key, collection_source_id uuid, enabled boolean, "
-                + "headers jsonb, updated_at timestamptz, current_run_id uuid)");
-        jdbc.execute("create table collection_runs(id uuid primary key, collection_plan_id uuid, collection_source_id uuid, "
-                + "exclusive_source boolean, execution_parameters jsonb, status text, start_page integer, checkpoint_page integer, "
-                + "started_at timestamptz, finished_at timestamptz, updated_at timestamptz default now(), success_count bigint default 0)");
-        jdbc.execute("create view collection_plan_details as select p.id, p.collection_source_id, p.enabled, p.headers, "
-                + "coalesce(r.status, 'IDLE') status, r.checkpoint_page current_page, r.updated_at last_execution_time, "
-                + "r.updated_at, r.success_count stat_success, r.finished_at stat_end_time from collection_plans p "
-                + "left join collection_runs r on r.id=p.current_run_id");
-        String migration = Files.readString(migrationPath());
-        for (String pattern : List.of("CREATE TABLE catalog_resource_discovery_jobs\\s*\\([\\s\\S]*?\\n\\);",
-                "CREATE FUNCTION catalog_episode_number[\\s\\S]*?\\$\\$;",
-                "CREATE FUNCTION catalog_resource_inventory[\\s\\S]*?\\$\\$;")) {
-            var matcher = Pattern.compile(pattern).matcher(migration);
-            if (!matcher.find()) throw new IllegalStateException("Catalog migration contract was not found");
-            jdbc.execute(matcher.group());
-        }
-        String targetResources = Files.readString(targetResourcesMigrationPath());
-        var targetFunction = Pattern.compile("CREATE FUNCTION catalog_has_target_resources[\\s\\S]*?\\$\\$;")
-                .matcher(targetResources);
-        if (!targetFunction.find()) throw new IllegalStateException("Target resource migration contract was not found");
-        jdbc.execute(targetFunction.group());
-        jdbc.execute("alter table catalog_resource_discovery_jobs add column fulfilled_at timestamptz");
+    private void insertPlaybackGraph(UUID sourceRecordId, UUID playlistId) {
+        jdbc.update("""
+                insert into source_records(id,created_at,updated_at,source_vid,source_hash,title,season,
+                    enrichment_status,normalization_status)
+                values(?,now(),now(),?,?,'Fixture',2,'PENDING','PENDING')
+                """, sourceRecordId, sourceRecordId.toString(), sourceRecordId.toString());
+        jdbc.update("""
+                insert into catalog_source_bindings(source_record_id,catalog_entry_id) values(?,?)
+                """,sourceRecordId,workId);
+        jdbc.update("""
+                insert into source_playlists(id,source_record_id,created_at,updated_at,name)
+                values(?,?,now(),now(),'Main')
+                """,playlistId,sourceRecordId);
     }
 
-    private static Path migrationPath() {
-        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/16-02-global-rankings-and-discovery.sql");
-        for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
-            if (Files.isRegularFile(root.resolve(relative))) return root.resolve(relative);
-            if (Files.isRegularFile(root.resolve("backend").resolve(relative))) return root.resolve("backend").resolve(relative);
-        }
-        throw new IllegalStateException("Cannot locate catalog migration");
+    private void insertPlaybackItem(UUID sourceRecordId, UUID playlistId, String name, String url) {
+        jdbc.update("""
+                insert into source_playback_items(id,source_record_id,playlist_id,created_at,updated_at,name,url)
+                values(uuidv7(),?,?,now(),now(),?,?)
+                """,sourceRecordId,playlistId,name,url);
+        reconcilePlayback(sourceRecordId);
     }
 
-    private static Path targetResourcesMigrationPath() {
-        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/22-01-catalog-target-resources.sql");
-        for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
-            if (Files.isRegularFile(root.resolve(relative))) return root.resolve(relative);
-            if (Files.isRegularFile(root.resolve("backend").resolve(relative))) return root.resolve("backend").resolve(relative);
-        }
-        throw new IllegalStateException("Cannot locate target resource migration");
+    private void reconcilePlayback(UUID sourceRecordId) {
+        jdbc.query("select reconcile_catalog_playback(?)", (rs,row) -> null, sourceRecordId);
     }
 }

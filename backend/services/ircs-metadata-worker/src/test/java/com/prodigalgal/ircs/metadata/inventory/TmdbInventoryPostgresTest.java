@@ -5,57 +5,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.prodigalgal.ircs.metadata.inventory.TmdbInventoryRepository.LeaseLost;
 import com.prodigalgal.ircs.metadata.inventory.TmdbInventorySnapshotReader.Entry;
-import com.zaxxer.hikari.HikariDataSource;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
 class TmdbInventoryPostgresTest {
     private static final LocalDate FIRST_DATE = LocalDate.of(2026, 11, 22);
-    private JdbcTemplate admin;
+    private CatalogTestDatabase database;
     private JdbcTemplate jdbc;
-    private HikariDataSource pool;
     private TmdbInventoryRepository repository;
-    private String schema;
 
     @BeforeEach
     void setup() throws Exception {
-        String url = System.getenv("IRCS_TEST_POSTGRES_URL");
-        String user = System.getenv("IRCS_TEST_POSTGRES_USER");
-        String password = System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
-        schema = "tmdb_inventory_" + UUID.randomUUID().toString().replace("-", "");
-        admin.execute("create schema " + schema);
-        pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
-        pool.setUsername(user);
-        pool.setPassword(password);
-        pool.setMaximumPoolSize(2);
-        pool.setMinimumIdle(0);
-        pool.setConnectionInitSql("set search_path to " + schema);
-        jdbc = new JdbcTemplate(pool);
-        jdbc.execute(Files.readString(migration()));
-        repository = new TmdbInventoryRepository(new NamedParameterJdbcTemplate(pool));
+        database = CatalogTestDatabase.open();
+        jdbc = new JdbcTemplate(database.dataSource());
+        repository = new TmdbInventoryRepository(new NamedParameterJdbcTemplate(database.dataSource()));
     }
 
     @AfterEach
     void cleanup() {
-        if (pool != null) {
-            pool.close();
-        }
-        if (admin != null && schema != null) {
-            admin.execute("drop schema " + schema + " cascade");
-        }
+        if (database != null) database.close();
     }
 
     @Test
@@ -102,15 +78,5 @@ class TmdbInventoryPostgresTest {
 
     private int visibleCount() {
         return jdbc.queryForObject("select count(*) from active_provider_catalog_items", Integer.class);
-    }
-
-    private Path migration() {
-        Path relative = Path.of("backend/platform/ircs-migrator/src/main/resources/db/changelog/2026/11/23-02-tmdb-authority-inventory.sql");
-        for (Path root = Path.of("").toAbsolutePath(); root != null; root = root.getParent()) {
-            if (Files.isRegularFile(root.resolve(relative))) {
-                return root.resolve(relative);
-            }
-        }
-        throw new IllegalStateException("TMDB inventory migration missing");
     }
 }

@@ -353,10 +353,13 @@ RETURNS boolean LANGUAGE sql STABLE PARALLEL SAFE AS $body$
         SELECT FROM catalog_list_playable_episodes(target_entry) playback
         WHERE (required_season = 0 OR playback.season_number = required_season)
           AND (required_episode = 0 OR playback.episode_number = required_episode)
-    ) OR (required_season = 0 AND required_episode = 0 AND EXISTS (
+          AND EXISTS (SELECT FROM catalog_entries entry WHERE entry.id=target_entry AND entry.content_visibility='PUBLIC')
+    ) OR (required_episode = 0 AND EXISTS (
         SELECT FROM catalog_entries entry JOIN catalog_magnet_links magnet ON magnet.catalog_entry_id = entry.id
+        LEFT JOIN catalog_seasons season ON season.id=entry.season_id
         WHERE entry.id = target_entry AND magnet.status = 'APPROVED' AND entry.content_visibility = 'PUBLIC'
-          AND NOT entry.adult_restricted AND entry.season_id IS NULL
+          AND (required_season=0 OR season.season_number=required_season)
+          AND NOT entry.adult_restricted
           AND lower(coalesce(entry.adult_assessment ->> 'adultRestricted', 'false')) = 'false'
           AND upper(coalesce(entry.adult_assessment ->> 'level', 'SAFE')) <> 'ADULT'
     ))

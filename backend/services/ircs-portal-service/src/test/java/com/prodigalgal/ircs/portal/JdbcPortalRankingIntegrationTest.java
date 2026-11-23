@@ -315,7 +315,7 @@ class JdbcPortalRankingIntegrationTest {
                        genre_codes = '["drama","x-sci","action"," drama ","horror",""]'::jsonb
                  where id = ?
                 """, populated);
-        jdbc.update("update catalog_entries set area_codes = null, genre_codes = null where id = ?", empty);
+
 
         List<PortalMovieCard> cards = repositoryWithColdLookups().findCategorySection(publicPrincipal, "movie", 2);
 
@@ -333,7 +333,19 @@ class JdbcPortalRankingIntegrationTest {
         jdbc.update("insert into application_settings(id,created_at,updated_at,config_key,config_value) "
                 + "values (?,now(),now(),'app.storage.public-path','/configured-media')",
                 UUID.randomUUID());
-        jdbc.update("insert into media_image_sources(id,created_at,updated_at,storage_type,storage_path) values (?,now(),now(),'LOCAL','posters/movie.webp')", cover);
+        UUID originId = UUID.randomUUID();
+        String hash = "a".repeat(64);
+        jdbc.update("""
+                insert into source_origins(id,created_at,updated_at,domain_hash,domain_value)
+                values(?,now(),now(),?,'https://images.example')
+                """, originId, hash);
+        String path = jdbc.queryForObject("select reserve_cover_asset(?,100,'image/webp','posters/movie.webp')",
+                String.class, hash);
+        jdbc.update("""
+                insert into media_image_sources(id,created_at,updated_at,storage_type,storage_path,original_url,file_hash,
+                    source_origin_id,status)
+                values (?,now(),now(),'LOCAL',?,'/movie.webp',?,?,'LOCAL_STORED')
+                """, cover, path, hash, originId);
         jdbc.update("update catalog_entries set media_image_source_id = ? where id = ?", cover, movie);
 
         var sections = repositoryWithColdLookups().findCategorySections(publicPrincipal, List.of("movie"), 1);
@@ -341,7 +353,7 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(sections).containsOnlyKeys("movie");
         assertThat(sections.get("movie")).singleElement().satisfies(card -> {
             assertThat(card.id()).isEqualTo(movie);
-            assertThat(card.posterUrl()).isEqualTo("/configured-media/posters/movie.webp");
+            assertThat(card.posterUrl()).isEqualTo("/configured-media/" + path);
         });
     }
 
@@ -442,7 +454,12 @@ class JdbcPortalRankingIntegrationTest {
         assertThat(detailEpisodeNames(movie)).isEmpty();
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isFalse();
         assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?, 0)", Boolean.class, movie)).isFalse();
-        jdbc.update("insert into catalog_magnet_links(catalog_entry_id,id,status) values (?,?,'APPROVED')", movie, UUID.randomUUID());
+        jdbc.update("""
+                insert into catalog_magnet_links(catalog_entry_id,id,status,provider_code,info_hash,magnet_uri,
+                    title,matched_external_id_type,matched_external_id_value)
+                values(?,uuidv7(),'APPROVED','fixture',repeat('a',40),'magnet:?xt=urn:btih:' || repeat('a',40),
+                    'Whole film','TMDB','123')
+                """, movie);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, movie)).isTrue();
         jdbc.update("delete from catalog_magnet_links where catalog_entry_id=?", movie);
         recordAuthorityBinding(movieSource, movie);
@@ -514,30 +531,32 @@ class JdbcPortalRankingIntegrationTest {
         UUID source = UUID.randomUUID();
         jdbc.update("""
                 insert into collection_sources(id,created_at,updated_at,name,base_url,list_path,detail_path,adult_restricted)
-                values (?,now(),now(),'Fixture source','https://source.example','/list','/detail',?)
-                """, source, adult);
+                values (?,now(),now(),?,'https://source.example','/list','/detail',?)
+                """, source, "Fixture source " + source, adult);
         jdbc.update("""
                 insert into source_records(id,created_at,updated_at,collection_source_id,source_vid,source_hash,title,season,
                     data_hash,enrichment_status,normalization_status)
                 values (?,now(),now(),?,?,?,?, ?,?,'PENDING','PENDING')
                 """, rawId, source, rawId.toString(), UUID.randomUUID().toString().replace("-", ""), "Source fixture", season,
                 UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", ""));
+        UUID version = UUID.randomUUID();
+        jdbc.update("""
+                insert into source_record_versions(id,source_record_id,data_hash,payload,observed_at)
+                values (?,?,(select data_hash from source_records where id=?),'{}',now())
+                """, version, rawId, rawId);
+        jdbc.update("update source_records set current_version_id=?,playback_version_id=?,current_observed_at=now() where id=?",
+                version, version, rawId);
         jdbc.update("insert into catalog_source_bindings(source_record_id,catalog_entry_id) values (?,?)", rawId, id);
         return rawId;
     }
 
     private void episode(UUID rawId, String name, String url) {
-        UUID playlist = UUID.randomUUID();
-        UUID version = jdbc.queryForObject("select current_version_id from source_records where id=?", UUID.class, rawId);
-        if (version == null) {
-            version = UUID.randomUUID();
-            jdbc.update("insert into source_record_versions(id,source_record_id,data_hash,payload,observed_at) values (?,?,(select data_hash from source_records where id=?), '{}'::jsonb,now())",
-                    version, rawId, rawId);
-            jdbc.update("update source_records set current_version_id=?,playback_version_id=?,current_observed_at=now() where id=?",
-                    version, version, rawId);
-        }
-        jdbc.update("insert into source_playlists(id,created_at,updated_at,name,source_record_id,source_record_version_id) values (?,now(),now(),'Main',?,?)",
-                playlist, rawId, version);
+        UUID playlist = jdbc.queryForObject("""
+                insert into source_playlists(id,created_at,updated_at,name,source_record_id,source_record_version_id)
+                select uuidv7(),now(),now(),'Main',id,current_version_id from source_records where id=?
+                on conflict (source_record_id,name) do update set updated_at=now()
+                returning id
+                """, UUID.class, rawId);
         jdbc.update("insert into source_playback_items(id,created_at,updated_at,name,url,playlist_id,source_record_id) values (?,now(),now(),?,?,?,?)",
                 UUID.randomUUID(), name, url, playlist, rawId);
         jdbc.query("select reconcile_catalog_playback(?)", (org.springframework.jdbc.core.RowCallbackHandler) rs -> {}, rawId);

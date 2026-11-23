@@ -20,6 +20,7 @@ import com.prodigalgal.ircs.task.dto.TaskUpdateRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -277,21 +278,23 @@ class CollectionTaskControllerTest {
     }
 
     @Test
-    void deletesTaskAndLogs() {
+    void archivesPlanWithoutErasingRunLogs() {
         UUID taskId = UUID.randomUUID();
 
         assertEquals(HttpStatus.NO_CONTENT, controller.deleteTask(taskId).getStatusCode());
         verify(taskCommandService).delete(taskId);
-        verify(taskLogService).clearLogs(taskId);
+        verifyNoInteractions(taskLogService);
     }
 
     @Test
     void returnsTaskLogs() {
         UUID taskId = UUID.randomUUID();
         TaskItemLogResponse log = new TaskItemLogResponse("2026-06-05T00:00:00Z", "INFO", "codex", "ok");
-        when(taskLogService.getLogs(taskId, 0, 20)).thenReturn(List.of(log));
+        UUID runId = UUID.randomUUID();
+        when(taskQueryService.findCurrentRunId(taskId)).thenReturn(Optional.of(runId));
+        when(taskLogService.getLogs(runId, 0, 20)).thenReturn(List.of(log));
 
         assertEquals(List.of(log), controller.getTaskLogs(taskId, 0, 20).getBody());
-        verify(taskLogService).getLogs(taskId, 0, 20);
+        verify(taskLogService).getLogs(runId, 0, 20);
     }
 }

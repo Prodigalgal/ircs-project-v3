@@ -19,6 +19,12 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class TrendCatalogRepository {
 
+    private static final String NO_CONFLICTING_WORK = """
+            not exists (select from catalog_external_ids identity
+                where identity.provider=:provider and identity.media_type=:type and identity.external_id=:externalId
+                  and identity.target_kind='WORK' and identity.work_id<>uv.work_id)
+            """;
+
     private final NamedParameterJdbcTemplate jdbc;
     private final VideoAdminCoverImageRepository covers;
 
@@ -102,7 +108,7 @@ public class TrendCatalogRepository {
 
     public void lockIdentity(TrendCatalogCandidate candidate) {
         // Serialize cross-provider exact-title candidates as well as repeated source IDs.
-        List<String> keys = List.of("catalog:id:" + candidate.identityKey(),
+        List<String> keys = List.of("catalog:work:" + candidate.provider() + ":" + candidate.mediaType() + ":" + candidate.externalId(),
                 "catalog:title:" + candidate.mediaType() + ":" + candidate.titleKey()).stream().sorted().toList();
         for (String key : keys) {
             jdbc.query("select pg_advisory_xact_lock(hashtextextended(:key, 0))",
@@ -117,8 +123,9 @@ public class TrendCatalogRepository {
                 left join catalog_seasons scope on scope.id=entry.season_id
                 where identity.provider=:provider and identity.media_type=:type and identity.external_id=:externalId
                   and identity.target_kind='WORK'
-                  and (:season=0 or scope.season_number=:season or :season=1 and scope.id is null)
-                order by scope.season_number nulls first, entry.id limit 1
+                  and ((:season=0 and scope.id is null)
+                       or (:season>0 and (scope.season_number=:season or :season=1 and scope.id is null)))
+                order by scope.season_number nulls last, entry.id limit 1
                 """, params(candidate), (rs, n) -> rs.getObject(1, UUID.class)).stream().findFirst();
     }
 
@@ -135,7 +142,8 @@ public class TrendCatalogRepository {
                 ? "uv.category_code = 'movie'"
                 : "uv.category_code in ('series','short-drama','anime','variety','documentary','sports','news','education','music')";
         List<UUID> byId = jdbc.query("select uv.id from catalog_entries uv where " + column + " = :externalId and "
-                + typeFilter + " and (:season = 0 or uv.season = :season or (:season = 1 and uv.season is null)) limit 2",
+                + typeFilter + " and " + NO_CONFLICTING_WORK
+                + " and (:season = 0 or uv.season = :season or (:season = 1 and uv.season is null)) limit 2",
                 p, (rs, n) -> rs.getObject(1, UUID.class));
         if (byId.size() == 1) return Optional.of(byId.getFirst());
         if (!byId.isEmpty()) return Optional.empty();
@@ -146,13 +154,14 @@ public class TrendCatalogRepository {
                 select uv.id, uv.title, uv.alias_title
                   from catalog_entries uv
                  where uv.year = :year and %s
+                   and %s
                    and (nullif(btrim(uv.%s), '') is null or uv.%s = :externalId)
                    and (:season = 0 or uv.season = :season or (:season = 1 and uv.season is null))
                    and (lower(uv.title) = lower(:title) or lower(uv.alias_title) = lower(:title)
                         or (:originalTitle is not null and (lower(uv.title) = lower(:originalTitle)
                                                          or lower(uv.alias_title) = lower(:originalTitle))))
                  limit 3
-                """.formatted(typeFilter, column, column), p, (rs, n) -> new ExistingTitle(
+                """.formatted(typeFilter, NO_CONFLICTING_WORK, column, column), p, (rs, n) -> new ExistingTitle(
                         rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3)));
         List<UUID> exact = titles.stream().filter(title -> candidate.titleKey().equals(TrendCatalogCandidate.titleKey(title.title()))
                 || candidate.titleKey().equals(TrendCatalogCandidate.titleKey(title.aliasTitle()))
@@ -179,18 +188,23 @@ public class TrendCatalogRepository {
                         ? AuthoritativeIds.normalizeRottenTomatoes(candidate.externalId().replaceFirst("^(m|tv)/", "").split("/")[0]) : null)
                 .addValue("category", candidate.categoryCode());
         jdbc.update("""
-                with provisional_work as (
+                with known_work as (
+                    select work_id as id from catalog_external_ids
+                    where provider=:provider and media_type=:type and external_id=:externalId and target_kind='WORK'
+                ), provisional_work as (
                     insert into catalog_works(id,media_type,title,original_title,title_key,original_title_key,release_year,
                         released_on,identity_status)
-                    values(uuidv7(),:type,:title,:originalTitle,:titleKey,lower(:originalTitle),cast(:year as smallint),
-                        :publishedAt,'PROVISIONAL') returning id
+                    select uuidv7(),:type,:title,:originalTitle,:titleKey,lower(:originalTitle),cast(:year as smallint),
+                        :publishedAt,'PROVISIONAL' where not exists(select from known_work) returning id
+                ), publication_work as (
+                    select id from known_work union all select id from provisional_work
                 )
                 insert into catalog_entries (id, work_id, created_at, updated_at, version, title, alias_title, season,
                     media_image_source_id, description, year, score, published_at, douban_id, tmdb_id, imdb_id,
                     rotten_tomatoes_id, locked_fields, category_code, content_visibility, metadata_status)
-                select :id, provisional_work.id, now(), now(), 0, :title, :originalTitle, nullif(:season, 0), :cover, :description,
+                select :id, publication_work.id, now(), now(), 0, :title, :originalTitle, nullif(:season, 0), :cover, :description,
                     :year, :score, :publishedAt, :doubanId, :tmdbId, :imdbId, :rtId, '[]'::jsonb,
-                    :category, 'PUBLIC', 'DIRTY' from provisional_work
+                    :category, 'PUBLIC', 'DIRTY' from publication_work
                 """, p.addValue("titleKey", candidate.titleKey()));
         return id;
     }
