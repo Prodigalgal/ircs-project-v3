@@ -27,12 +27,12 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import {
-    useDeleteUnifiedVideoMagnetMutation,
-    useGetUnifiedVideoMagnetJobsQuery,
-    useGetUnifiedVideoMagnetLinksQuery,
+    useDeleteCatalogEntryMagnetMutation,
+    useGetCatalogEntryMagnetJobsQuery,
+    useGetCatalogEntryMagnetLinksQuery,
     useLazyGetMagnetProviderRunsQuery,
-    useUpdateUnifiedVideoMagnetStatusMutation
-} from '../unified-videos/unifiedVideosApi';
+    useUpdateCatalogEntryMagnetStatusMutation
+} from '../unified-videos/catalogEntriesApi';
 
 const LINK_STATUS_OPTIONS = [
     { value: 'APPROVED', label: '通过', color: 'success' },
@@ -63,7 +63,7 @@ function compactList(value) {
 }
 
 function MagnetResourcePanel({
-    unifiedVideoId,
+    catalogEntryId,
     metadataStatus,
     onScrape,
     isScraping,
@@ -73,11 +73,11 @@ function MagnetResourcePanel({
     const [expandedJobId, setExpandedJobId] = React.useState(null);
     const [runsByJobId, setRunsByJobId] = React.useState({});
     const [runsErrorByJobId, setRunsErrorByJobId] = React.useState({});
-    const linksQuery = useGetUnifiedVideoMagnetLinksQuery(unifiedVideoId, { skip: !unifiedVideoId });
-    const jobsQuery = useGetUnifiedVideoMagnetJobsQuery({ id: unifiedVideoId, limit: 12 }, { skip: !unifiedVideoId });
+    const linksQuery = useGetCatalogEntryMagnetLinksQuery(catalogEntryId, { skip: !catalogEntryId });
+    const jobsQuery = useGetCatalogEntryMagnetJobsQuery({ id: catalogEntryId, limit: 12 }, { skip: !catalogEntryId });
     const [loadRuns, runsQuery] = useLazyGetMagnetProviderRunsQuery();
-    const [updateStatus, { isLoading: isUpdatingStatus }] = useUpdateUnifiedVideoMagnetStatusMutation();
-    const [deleteMagnet, { isLoading: isDeleting }] = useDeleteUnifiedVideoMagnetMutation();
+    const [updateStatus, { isLoading: isUpdatingStatus }] = useUpdateCatalogEntryMagnetStatusMutation();
+    const [deleteMagnet, { isLoading: isDeleting }] = useDeleteCatalogEntryMagnetMutation();
 
     const isReady = metadataStatus === 'SYNCED';
     const links = linksQuery.data || [];
@@ -106,16 +106,16 @@ function MagnetResourcePanel({
     };
 
     const handleStatusChange = async (linkId, status) => {
-        await updateStatus({ id: unifiedVideoId, linkId, status }).unwrap();
+        await updateStatus({ id: catalogEntryId, linkId, status }).unwrap();
     };
 
     const handleDelete = async (linkId) => {
         if (window.confirm('确定删除该磁链资源吗？')) {
-            await deleteMagnet({ id: unifiedVideoId, linkId }).unwrap();
+            await deleteMagnet({ id: catalogEntryId, linkId }).unwrap();
         }
     };
 
-    if (!unifiedVideoId) {
+    if (!catalogEntryId) {
         return <Alert severity="info">{emptyMessage}</Alert>;
     }
 

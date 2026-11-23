@@ -4,17 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
-import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,63 +20,47 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 @EnabledIfEnvironmentVariable(named="IRCS_TEST_POSTGRES_URL",matches=".+")
 class CatalogMetadataPostgresTest {
-    private JdbcTemplate admin;
+    private CatalogTestDatabase database;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
     private TransactionTemplate transactions;
     private CatalogMetadataRepository repository;
     private AuthorityCatalogImportRepository authority;
-    private String schema;
 
     @BeforeEach
     void setup() throws Exception {
-        String url=System.getenv("IRCS_TEST_POSTGRES_URL"), user=System.getenv("IRCS_TEST_POSTGRES_USER"), password=System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
-        admin=new JdbcTemplate(new DriverManagerDataSource(url,user,password));
-        schema="catalog_metadata_"+UUID.randomUUID().toString().replace("-","");
-        admin.execute("create schema "+schema);
-        pool=new HikariDataSource(); pool.setJdbcUrl(url); pool.setUsername(user); pool.setPassword(password);
-        pool.setMaximumPoolSize(3); pool.setMinimumIdle(0); pool.setConnectionInitSql("set search_path to "+schema);
+        database = CatalogTestDatabase.open();
+        pool = new HikariDataSource();
+        pool.setJdbcUrl(database.url());
+        pool.setUsername(System.getenv("IRCS_TEST_POSTGRES_USER"));
+        pool.setPassword(System.getenv("IRCS_TEST_POSTGRES_PASSWORD"));
+        pool.setMaximumPoolSize(3);
+        pool.setMinimumIdle(0);
         jdbc=new JdbcTemplate(pool); transactions=new TransactionTemplate(new DataSourceTransactionManager(pool));
         var named = new NamedParameterJdbcTemplate(pool);
         var mapper = JsonMapper.builder().findAndAddModules().build();
         repository = new CatalogMetadataRepository(named, mapper);
         authority = new AuthorityCatalogImportRepository(named, repository, new CatalogPeopleRepository(named, mapper));
         jdbc.execute("""
-                create table catalog_entries(id uuid primary key,title text,alias_title text,description text,year text,
-                    score numeric,published_at date,tmdb_id text,imdb_id text,media_image_source_id uuid,season integer,
-                    actor_names jsonb default '[]',director_names jsonb default '[]',area_codes jsonb default '[]',
-                    language_codes jsonb default '[]',genre_codes jsonb default '[]',locked_fields jsonb default '[]',
-                    adult_restricted boolean default false,adult_assessment jsonb default '{}',content_visibility text default 'PUBLIC',
-                    metadata_status text default 'DIRTY',updated_at timestamptz default now(),version bigint default 0,
-                    created_at timestamptz default now(),category_code text,total_episodes text);
-                create table catalog_regions(code text,name text);
-                create table catalog_languages(code text,name text,english_name text,native_name text);
-                create table catalog_genres(code text,name text);
-                insert into catalog_regions values('CN','中国大陆');
-                insert into catalog_languages values('zh','中文','Chinese','中文');
-                insert into catalog_genres values('action','动作');
-                create table source_origins(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
-                    domain_hash varchar(64) not null unique,domain_value varchar(255) not null);
-                create table media_image_sources(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
-                    storage_type text,original_url text,source_origin_id uuid,status text,retry_count integer,next_retry_time timestamptz,
-                    unique(original_url,source_origin_id));
+                insert into catalog_regions(id,created_at,updated_at,code,name)
+                    values(uuidv7(),now(),now(),'CN','中国大陆') on conflict do nothing;
+                insert into catalog_languages(id,created_at,updated_at,code,name,english_name,native_name)
+                    values(uuidv7(),now(),now(),'zh','中文','Chinese','中文') on conflict do nothing;
+                insert into catalog_genres(id,created_at,updated_at,code,name)
+                    values(uuidv7(),now(),now(),'action','动作') on conflict do nothing
                 """);
-        String migration=Files.readString(migration());
-        for (String table:List.of("catalog_external_ids","catalog_metadata_enrichment_jobs")) {
-            var matcher=Pattern.compile("CREATE TABLE "+table+"[\\s\\S]*?\\n\\);").matcher(migration);
-            assertThat(matcher.find()).as("production migration table %s",table).isTrue();
-            jdbc.execute(matcher.group());
-        }
     }
 
     @AfterEach
-    void cleanup() { if(pool!=null)pool.close(); if(admin!=null&&schema!=null)admin.execute("drop schema "+schema+" cascade"); }
+    void cleanup() {
+        if (pool != null) pool.close();
+        if (database != null) database.close();
+    }
 
     @Test
     void fillsRealMetadataWithoutCreatingOrNeedingAnyRawResource() {
@@ -89,7 +71,7 @@ class CatalogMetadataPostgresTest {
         assertThat(jdbc.queryForObject("select actor_names::text from catalog_entries where id=?",String.class,id)).contains("Actor");
         assertThat(jdbc.queryForObject("select genre_codes::text from catalog_entries where id=?",String.class,id)).contains("action");
         assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("SYNCED");
-        assertThat(jdbc.queryForObject("select to_regclass('source_records') is null",Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from source_records",Integer.class)).isZero();
         assertThat(repository.pendingIndexes()).hasSize(1);
     }
 
@@ -149,14 +131,13 @@ class CatalogMetadataPostgresTest {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         transactions.execute(status->repository.apply(target,evidence()));
         var old=repository.pendingIndexes().getFirst();
-        jdbc.update("update catalog_metadata_enrichment_jobs set index_generation=index_generation+1 where catalog_entry_id=?",id);
+        jdbc.update("update catalog_entries set title=title || ' v2' where id=?",id);
         repository.indexed(old); assertThat(repository.pendingIndexes()).hasSize(1);
         repository.indexed(repository.pendingIndexes().getFirst()); assertThat(repository.pendingIndexes()).isEmpty();
     }
 
     @Test
     void commitsTypedWorksAndEpisodesBeforeCreatingDiscovery() throws Exception {
-        installAuthoritySchema();
         jdbc.update("""
                 insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
                 values ('movie',42,-1,100),('tv',42,1,200)
@@ -180,7 +161,7 @@ class CatalogMetadataPostgresTest {
         assertThat(jdbc.queryForObject("select tmdb_episode_id from catalog_episodes", Long.class)).isEqualTo(999L);
         assertThat(jdbc.queryForList("select target_season from catalog_resource_discovery_jobs order by target_season", Integer.class))
                 .containsExactly(0, 1);
-        assertThat(authority.pendingIndexes()).hasSize(2);
+        assertThat(repository.pendingIndexes()).hasSize(2);
         assertThat(jdbc.queryForObject("select count(*) from source_origins", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from media_image_sources", Integer.class)).isEqualTo(1);
         assertThat(transactions.<Boolean>execute(status -> authority.publish(tv,tvEvidence))).isFalse();
@@ -188,7 +169,6 @@ class CatalogMetadataPostgresTest {
 
     @Test
     void oneSeasonAdultRejectionBlocksAnInFlightImportForTheSameWork() throws Exception {
-        installAuthoritySchema();
         jdbc.update("""
                 insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
                 values ('tv',42,1,200),('tv',42,2,100)
@@ -208,8 +188,6 @@ class CatalogMetadataPostgresTest {
 
     @Test
     void warmupUsesOnlyTheActivePublicSnapshotAndRespectsItsCap() throws Exception {
-        installAuthoritySchema();
-        jdbc.execute(Files.readString(migration().resolveSibling("23-02-tmdb-authority-inventory.sql")));
         jdbc.update("""
                 update provider_catalog_snapshot_states
                    set active_slot=1,snapshot_date=date '2026-11-22',row_count=4 where media_type='movie';
@@ -226,7 +204,6 @@ class CatalogMetadataPostgresTest {
 
     @Test
     void storesPeopleByProviderIdAndKeepsPriorRolesOnIncompleteReplies() throws Exception {
-        installAuthoritySchema();
         jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('tv',42,1)");
         var date = LocalDate.of(2026, 4, 15);
         var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", date);
@@ -280,21 +257,8 @@ class CatalogMetadataPostgresTest {
         return facts;
     }
 
-    private void installAuthoritySchema() throws Exception {
-        jdbc.execute("""
-                create table source_records(id uuid primary key);
-                create function catalog_has_target_resources(uuid,integer,integer) returns boolean language sql as 'select false';
-                """);
-        var table = Pattern.compile("CREATE TABLE catalog_resource_discovery_jobs[\\s\\S]*?\\n\\);")
-                .matcher(Files.readString(migration()));
-        assertThat(table.find()).isTrue();
-        jdbc.execute(table.group());
-        jdbc.execute(Files.readString(migration().resolveSibling("23-01-authority-first-catalog.sql")));
-        jdbc.execute(Files.readString(migration().resolveSibling("23-05-catalog-people-and-credits.sql")));
-    }
-
     private UUID enqueue() {
-        UUID id=UUID.randomUUID(); jdbc.update("insert into catalog_entries(id,title,tmdb_id) values(?,'Known title','42')",id);
+        UUID id=UUID.randomUUID(); jdbc.update("insert into catalog_entries(id,title,tmdb_id,created_at,updated_at) values(?,'Known title','42',now(),now())",id);
         jdbc.update("insert into catalog_metadata_enrichment_jobs(catalog_entry_id,provider,media_type,external_id) values(?,'TMDB','movie','42')",id);
         return id;
     }
@@ -304,13 +268,5 @@ class CatalogMetadataPostgresTest {
         facts.setScore(new BigDecimal("8.2"));facts.setActorNames(Set.of("Actor"));facts.setDirectorNames(Set.of("Director"));
         facts.setArea("CN");facts.setLanguage("zh");facts.setGenreNames(Set.of("动作"));
         return new CatalogMetadataEvidence("42","movie",0,facts);
-    }
-    private Path migration() {
-        Path relative=Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/16-02-global-rankings-and-discovery.sql");
-        for(Path root=Path.of("").toAbsolutePath();root!=null;root=root.getParent()) {
-            if(Files.isRegularFile(root.resolve(relative)))return root.resolve(relative);
-            if(Files.isRegularFile(root.resolve("backend").resolve(relative)))return root.resolve("backend").resolve(relative);
-        }
-        throw new IllegalStateException("Production catalog migration missing");
     }
 }

@@ -1,15 +1,15 @@
-// File: ircs-frontend/src/components/common/UnifiedVideoSelect.jsx
+// File: ircs-frontend/src/components/common/CatalogEntrySelect.jsx
 import React, { useState, useMemo, useEffect } from 'react';
 import { Autocomplete, TextField, CircularProgress, Box, Typography } from '@mui/material';
 import { debounce } from '@mui/material/utils';
-import { useLazyGetUnifiedVideosQuery } from '../../features/unified-videos/unifiedVideosApi';
+import { useLazyGetCatalogEntriesQuery } from '../../features/unified-videos/catalogEntriesApi';
 
-function UnifiedVideoSelect({ value, onChange, label = "关联聚合视频" }) {
+function CatalogEntrySelect({ value, onChange, label = "关联聚合视频" }) {
     const [open, setOpen] = useState(false);
     const [options, setOptions] = useState([]);
     const [inputValue, setInputValue] = useState('');
 
-    const [triggerSearch, { data, isFetching }] = useLazyGetUnifiedVideosQuery();
+    const [triggerSearch, { data, isFetching }] = useLazyGetCatalogEntriesQuery();
 
     const fetchDebounced = useMemo(() => debounce((input) => {
         triggerSearch({ title: input, page: 0, size: 20 });
@@ -84,4 +84,4 @@ function UnifiedVideoSelect({ value, onChange, label = "关联聚合视频" }) {
     );
 }
 
-export default UnifiedVideoSelect;
+export default CatalogEntrySelect;

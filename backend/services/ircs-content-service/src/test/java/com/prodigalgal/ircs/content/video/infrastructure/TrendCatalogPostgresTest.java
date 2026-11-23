@@ -14,10 +14,9 @@ import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import com.prodigalgal.ircs.contracts.trend.TrendBoardPayload;
 import com.prodigalgal.ircs.contracts.trend.TrendItemPayload;
 import com.prodigalgal.ircs.contracts.trend.TrendSignalPayload;
+import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -35,15 +34,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Real migration and PostgreSQL transaction/locking semantics; every test owns one isolated schema. */
+/** Real migration and PostgreSQL transaction/locking semantics; every test owns one isolated database. */
 class TrendCatalogPostgresTest {
 
     @Test
@@ -53,51 +50,31 @@ class TrendCatalogPostgresTest {
         assertThat(TrendSnapshotRepository.eventHasOccurred(eventDay,Instant.parse("2026-11-17T15:59:00Z"))).isFalse();
     }
 
-    private JdbcTemplate admin;
+    private CatalogTestDatabase database;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
     private TransactionTemplate transactions;
     private TrendCatalogEntryService entries;
     private TrendSnapshotRepository snapshots;
     private ContentCommandPublisher publisher;
-    private String schema;
     private Instant now;
 
     @BeforeEach
     void setUp() throws Exception {
-        String url = requiredEnvironment("IRCS_TEST_POSTGRES_URL");
+        database = CatalogTestDatabase.open();
         String user = requiredEnvironment("IRCS_TEST_POSTGRES_USER");
         String password = requiredEnvironment("IRCS_TEST_POSTGRES_PASSWORD");
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
-        schema = "trend_catalog_" + UUID.randomUUID().toString().replace("-", "");
-        admin.execute("create schema " + schema);
         pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
+        pool.setJdbcUrl(database.url());
         pool.setUsername(user);
         pool.setPassword(password);
         pool.setMaximumPoolSize(6);
         pool.setMinimumIdle(0);
         pool.setConnectionTimeout(5000);
-        pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(pool));
         transactions.setTimeout(10);
         now = Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(60);
-        createSourceTables();
-        String migration = Files.readString(migrationPath());
-        jdbc.execute((ConnectionCallback<Void>) connection -> {
-            try (var statement = connection.createStatement()) {
-                statement.execute(migration);
-            }
-            return null;
-        });
-        String targetResourcesMigration = Files.readString(targetResourcesMigrationPath());
-        jdbc.execute((ConnectionCallback<Void>) connection -> {
-            try (var statement = connection.createStatement()) {
-                statement.execute(targetResourcesMigration);
-            }
-            return null;
-        });
         var covers = Mockito.mock(VideoAdminCoverImageRepository.class);
         when(covers.getOrCreateCoverImage(any())).thenReturn(Optional.empty());
         publisher = Mockito.mock(ContentCommandPublisher.class);
@@ -110,7 +87,7 @@ class TrendCatalogPostgresTest {
     @AfterEach
     void tearDown() {
         if (pool != null) pool.close();
-        if (admin != null && schema != null) admin.execute("drop schema if exists " + schema + " cascade");
+        if (database != null) database.close();
     }
 
     @Test
@@ -270,12 +247,17 @@ class TrendCatalogPostgresTest {
     @Test
     void approvedMagnetSatisfiesOnlyPublicAdultSafeWholeWorkRequest() {
         UUID existing = seedVideo("Known Film", "2026", "movie", 0, "42");
-        jdbc.update("insert into catalog_magnet_links(catalog_entry_id, status) values (?, 'CANDIDATE')", existing);
+        jdbc.update("""
+                insert into catalog_magnet_links(id,catalog_entry_id,status,provider_code,info_hash,magnet_uri,
+                    title,matched_external_id_type,matched_external_id_value)
+                values(uuidv7(),?,'CANDIDATE','fixture',repeat('f',40),'magnet:?xt=urn:btih:' || repeat('f',40),
+                    'Fixture','TMDB','123')
+                """, existing);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
         jdbc.update("update catalog_magnet_links set status = 'APPROVED'");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isTrue();
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 12)", Boolean.class, existing)).isFalse();
-        jdbc.update("update catalog_entries set content_visibility = 'PRIVATE' where id = ?", existing);
+        jdbc.update("update catalog_entries set content_visibility = 'HIDDEN' where id = ?", existing);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
         jdbc.update("update catalog_entries set content_visibility = 'PUBLIC', adult_restricted = true where id = ?", existing);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
@@ -474,7 +456,7 @@ class TrendCatalogPostgresTest {
 
     private UUID seedVideo(String title, String year, String category, Integer season, String tmdbId) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into catalog_entries(id,title,year,category_code,season,tmdb_id) values(?,?,?,?,?,?)",
+        jdbc.update("insert into catalog_entries(id,title,year,category_code,season,tmdb_id,created_at,updated_at) values(?,?,?,?,?,?,now(),now())",
                 id, title, year, category, season, tmdbId);
         return id;
     }
@@ -483,57 +465,40 @@ class TrendCatalogPostgresTest {
         UUID raw = UUID.randomUUID();
         UUID playlist = UUID.randomUUID();
         UUID source = UUID.randomUUID();
-        jdbc.update("insert into collection_sources(id,adult_restricted) values(?,?)", source, adultRestricted);
-        jdbc.update("insert into source_records(id,season,collection_source_id) values(?,?,?)", raw, season, source);
+        jdbc.update("""
+                insert into collection_sources(id,adult_restricted,created_at,updated_at,name,base_url,list_path,detail_path)
+                values(?,?,now(),now(),?,'https://example.invalid','/list','/detail')
+                """, source, adultRestricted, source.toString());
+        jdbc.update("""
+                insert into source_records(id,season,collection_source_id,created_at,updated_at,source_vid,source_hash,
+                    title,enrichment_status,normalization_status)
+                values(?,?,?,now(),now(),?,?,'Fixture','PENDING','PENDING')
+                """, raw, season, source, raw.toString(), raw.toString());
         jdbc.update("insert into catalog_source_bindings(source_record_id,catalog_entry_id) values(?,?)", raw, videoId);
-        jdbc.update("insert into source_playlists(id,video_id) values(?,?)", playlist, raw);
+        jdbc.update("""
+                insert into source_playlists(id,source_record_id,created_at,updated_at,name)
+                values(?,?,now(),now(),'Main')
+                """, playlist, raw);
         return playlist;
     }
 
     private void episode(UUID playlist, String name, String url, UUID sourceDomain) {
-        jdbc.update("insert into source_playback_items(id,playlist_id,name,url,source_origin_id) values(?,?,?,?,?)", UUID.randomUUID(), playlist, name, url, sourceDomain);
+        UUID raw = jdbc.queryForObject("select source_record_id from source_playlists where id=?", UUID.class, playlist);
+        if (sourceDomain != null) {
+            jdbc.update("""
+                    insert into source_origins(id,created_at,updated_at,domain_hash,domain_value)
+                    values(?,now(),now(),?,'https://media.example')
+                    """, sourceDomain, sourceDomain.toString());
+        }
+        jdbc.update("""
+                insert into source_playback_items(id,playlist_id,name,url,source_origin_id,source_record_id,created_at,updated_at)
+                values(?,?,?,?,?,?,now(),now())
+                """, UUID.randomUUID(), playlist, name, url, sourceDomain, raw);
+        jdbc.query("select reconcile_catalog_playback(?)", (rs, row) -> null, raw);
     }
 
     private int count(String table) {
         return jdbc.queryForObject("select count(*) from " + table, Integer.class);
-    }
-
-    private void createSourceTables() {
-        jdbc.execute("""
-                create table catalog_entries(
-                    id uuid primary key, created_at timestamptz default now(), updated_at timestamptz default now(),
-                    version bigint default 0, title varchar(255) not null, alias_title text, season integer,
-                    media_image_source_id uuid, description text, year varchar(10), score numeric, published_at date,
-                    douban_id varchar(255), tmdb_id varchar(255), imdb_id varchar(255), rotten_tomatoes_id varchar(255),
-                    locked_fields jsonb default '[]', category_code varchar(50), content_visibility varchar(30) default 'PUBLIC',
-                    metadata_status varchar(30) default 'DIRTY', adult_restricted boolean default false, adult_assessment jsonb default '{}',
-                    actor_names jsonb default '[]', director_names jsonb default '[]', genre_codes jsonb default '[]'
-                );
-                create table collection_sources(id uuid primary key, adult_restricted boolean default false);
-                create table source_records(id uuid primary key, season integer, collection_source_id uuid);
-                create table catalog_source_bindings(source_record_id uuid not null, catalog_entry_id uuid not null);
-                create table source_playlists(id uuid primary key,video_id uuid not null);
-                create table source_playback_items(id uuid primary key,playlist_id uuid not null,name text,url text,source_origin_id uuid);
-                create table catalog_magnet_links(catalog_entry_id uuid,status text);
-                """);
-    }
-
-    private static Path migrationPath() {
-        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/16-02-global-rankings-and-discovery.sql");
-        for (Path parent = Path.of(System.getProperty("user.dir")).toAbsolutePath(); parent != null; parent = parent.getParent()) {
-            Path candidate = parent.resolve(relative);
-            if (Files.isRegularFile(candidate)) return candidate;
-        }
-        throw new IllegalStateException("Real global-rankings migration was not found in checkout");
-    }
-
-    private static Path targetResourcesMigrationPath() {
-        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/22-01-catalog-target-resources.sql");
-        for (Path parent = Path.of(System.getProperty("user.dir")).toAbsolutePath(); parent != null; parent = parent.getParent()) {
-            Path candidate = parent.resolve(relative);
-            if (Files.isRegularFile(candidate)) return candidate;
-        }
-        throw new IllegalStateException("Target resource migration was not found in checkout");
     }
 
     private static String requiredEnvironment(String key) {

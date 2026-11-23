@@ -20,7 +20,7 @@ import { debounce } from '@mui/material/utils';
 import { LockToggle } from '../../components/common/LockableTextField';
 import LockableTextField from '../../components/common/LockableTextField';
 import LockControlPanel from '../../components/common/LockControlPanel';
-import UnifiedVideoSelect from '../../components/common/UnifiedVideoSelect';
+import CatalogEntrySelect from '../../components/common/CatalogEntrySelect';
 import { useVideoForm } from './hooks/useVideoForm';
 import VideoBasicTab from './components/VideoBasicTab';
 import { useLazyGetGenresPageQuery } from '../genres/genresApi';
@@ -158,7 +158,7 @@ function VideoForm({ open, onClose, onSubmit, video, isLoading }) {
     const {
         formData, setFormData, handleChange, handleLockChange, handleBatchLock, isLocked,
         handleSubmit, isSubmitting, tabIndex, setTabIndex, resetForm,
-        currentUnifiedVideoValue,
+        currentCatalogEntryValue,
         lockedCount, totalLockableCount
     } = useVideoForm(video, onSubmit);
 
@@ -346,12 +346,12 @@ function VideoForm({ open, onClose, onSubmit, video, isLoading }) {
                         <TabPanel value={tabIndex} index={1}>
                             <Grid container spacing={2}>
                                 <Grid size={{ xs: 12 }}>
-                                    <UnifiedVideoSelect
-                                        value={currentUnifiedVideoValue}
+                                    <CatalogEntrySelect
+                                        value={currentCatalogEntryValue}
                                         onChange={(val) => setFormData(prev => ({
                                             ...prev,
-                                            unifiedVideoId: val ? val.id : null,
-                                            unifiedVideoTitle: val ? val.title : ''
+                                            catalogEntryId: val ? val.id : null,
+                                            catalogEntryTitle: val ? val.title : ''
                                         }))}
                                     />
                                 </Grid>

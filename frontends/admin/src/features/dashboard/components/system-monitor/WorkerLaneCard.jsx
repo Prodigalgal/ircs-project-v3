@@ -34,7 +34,7 @@ function WorkerLaneCard({ title, lane }) {
                     color: "text.secondary",
                     display: 'block'
                 }}>
-                Entity: {lane?.currentEntityId || lane?.currentRawVideoId || lane?.currentTaskId || '-'}
+                Entity: {lane?.currentEntityId || lane?.currentSourceRecordId || lane?.currentTaskId || '-'}
             </Typography>
             <Typography
                 variant="caption"

@@ -23,26 +23,26 @@ import MagnetIcon from '@mui/icons-material/TravelExplore';
 import MergeIcon from '@mui/icons-material/MergeType';
 
 import {
-    useBatchDeleteUnifiedVideosMutation,
-    useBatchSyncSearchUnifiedVideosMutation,
-    useCreateUnifiedVideoMutation,
-    useDeleteUnifiedVideoMutation,
-    useGetUnifiedVideosQuery,
-    useLazyGetUnifiedVideoByIdQuery,
-    useMergeUnifiedVideosMutation,
-    useRecalculateUnifiedVideoMetadataMutation,
-    useScrapeUnifiedVideoMagnetsMutation,
-    useUpdateUnifiedVideoMutation
-} from './unifiedVideosApi';
+    useBatchDeleteCatalogEntriesMutation,
+    useBatchSyncSearchCatalogEntriesMutation,
+    useCreateCatalogEntryMutation,
+    useDeleteCatalogEntryMutation,
+    useGetCatalogEntriesQuery,
+    useLazyGetCatalogEntryByIdQuery,
+    useMergeCatalogEntriesMutation,
+    useRecalculateCatalogEntryMetadataMutation,
+    useScrapeCatalogEntryMagnetsMutation,
+    useUpdateCatalogEntryMutation
+} from './catalogEntriesApi';
 import SmartTable from '../../components/common/SmartTable';
 import FilterPanel from '../../components/common/FilterPanel';
 import ListHeader from '../../components/common/ListHeader';
-import UnifiedVideoForm from './UnifiedVideoForm';
+import CatalogEntryForm from './CatalogEntryForm';
 import {getTotalElements} from '../../utils/paginationUtils';
 import {useGetAllCategoriesQuery} from '../categories/categoriesApi';
 import {METADATA_STATUS, getStatusConfig} from '../../utils/constants';
 
-function UnifiedVideoList() {
+function CatalogEntryList() {
     // --- 状态管理 ---
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(10);
@@ -62,7 +62,7 @@ function UnifiedVideoList() {
 
 
     // --- 数据查询 ---
-    const {data, isLoading, isFetching, refetch} = useGetUnifiedVideosQuery({
+    const {data, isLoading, isFetching, refetch} = useGetCatalogEntriesQuery({
         page,
         size: pageSize,
         sort: 'lastTrendAt,desc',
@@ -72,15 +72,15 @@ function UnifiedVideoList() {
     const {data: categories = []} = useGetAllCategoriesQuery();
 
     // --- 操作钩子 ---
-    const [createUnifiedVideo] = useCreateUnifiedVideoMutation();
-    const [deleteUnifiedVideo] = useDeleteUnifiedVideoMutation();
-    const [batchDeleteUnifiedVideos] = useBatchDeleteUnifiedVideosMutation();
-    const [batchSyncSearch] = useBatchSyncSearchUnifiedVideosMutation();
-    const [mergeUnifiedVideos, {isLoading: isMergingUnifiedVideos}] = useMergeUnifiedVideosMutation();
-    const [updateUnifiedVideo] = useUpdateUnifiedVideoMutation();
-    const [recalculateMetadata] = useRecalculateUnifiedVideoMetadataMutation();
-    const [scrapeMagnets, {isLoading: isScrapingMagnets}] = useScrapeUnifiedVideoMagnetsMutation();
-    const [triggerGetById] = useLazyGetUnifiedVideoByIdQuery();
+    const [createCatalogEntry] = useCreateCatalogEntryMutation();
+    const [deleteCatalogEntry] = useDeleteCatalogEntryMutation();
+    const [batchDeleteCatalogEntries] = useBatchDeleteCatalogEntriesMutation();
+    const [batchSyncSearch] = useBatchSyncSearchCatalogEntriesMutation();
+    const [mergeCatalogEntries, {isLoading: isMergingCatalogEntries}] = useMergeCatalogEntriesMutation();
+    const [updateCatalogEntry] = useUpdateCatalogEntryMutation();
+    const [recalculateMetadata] = useRecalculateCatalogEntryMetadataMutation();
+    const [scrapeMagnets, {isLoading: isScrapingMagnets}] = useScrapeCatalogEntryMagnetsMutation();
+    const [triggerGetById] = useLazyGetCatalogEntryByIdQuery();
 
     // --- 事件处理函数 ---
 
@@ -115,9 +115,9 @@ function UnifiedVideoList() {
 
     const handleDelete = useCallback(async (id) => {
         if (window.confirm('确定要删除此聚合视频吗？关联的源视频将被解绑。')) {
-            await deleteUnifiedVideo(id).unwrap();
+            await deleteCatalogEntry(id).unwrap();
         }
-    }, [deleteUnifiedVideo]);
+    }, [deleteCatalogEntry]);
 
     const handleRecalculate = useCallback(async (id) => {
         handleRowMenuClose();
@@ -202,7 +202,7 @@ function UnifiedVideoList() {
         setSelectedIds([]);
     }, [rowsById, scrapeMagnets, selectedIds]);
 
-    const handleMergeSelectedUnifiedVideos = useCallback(async () => {
+    const handleMergeSelectedCatalogEntries = useCallback(async () => {
         if (selectedIds.length < 2) {
             alert('请至少选择两个聚合视频。');
             return;
@@ -214,14 +214,14 @@ function UnifiedVideoList() {
             return;
         }
         try {
-            const result = await mergeUnifiedVideos(selectedIds).unwrap();
-            alert(`聚合完成：主记录 ${result.rootUnifiedVideoId}，合并 ${result.victimUnifiedVideoIds?.length || 0} 个重复项，关联源视频 ${result.rawVideoIds?.length || 0} 个。`);
+            const result = await mergeCatalogEntries(selectedIds).unwrap();
+            alert(`聚合完成：主记录 ${result.rootCatalogEntryId}，合并 ${result.victimCatalogEntryIds?.length || 0} 个重复项，关联源视频 ${result.sourceRecordIds?.length || 0} 个。`);
             setSelectedIds([]);
             refetch();
         } catch (e) {
             alert("一键聚合失败: " + (e.data?.message || e.message));
         }
-    }, [mergeUnifiedVideos, refetch, rowsById, selectedIds]);
+    }, [mergeCatalogEntries, refetch, rowsById, selectedIds]);
 
     const handleBatchAction = async (type) => {
         if (selectedIds.length === 0) return;
@@ -229,7 +229,7 @@ function UnifiedVideoList() {
         try {
             if (type === 'delete') {
                 if (window.confirm(`确定删除选中的 ${selectedIds.length} 个聚合视频吗？`)) {
-                    await batchDeleteUnifiedVideos(selectedIds).unwrap();
+                    await batchDeleteCatalogEntries(selectedIds).unwrap();
                     setSelectedIds([]);
                 }
             } else if (type === 'sync') {
@@ -239,7 +239,7 @@ function UnifiedVideoList() {
             } else if (type === 'magnets') {
                 await handleBatchScrapeMagnets();
             } else if (type === 'merge') {
-                await handleMergeSelectedUnifiedVideos();
+                await handleMergeSelectedCatalogEntries();
             }
         } catch {
             alert('批量操作失败');
@@ -249,16 +249,16 @@ function UnifiedVideoList() {
     const handleFormSubmit = useCallback(async (formData) => {
         try {
             if (formData.id) {
-                await updateUnifiedVideo(formData).unwrap();
+                await updateCatalogEntry(formData).unwrap();
             } else {
-                await createUnifiedVideo(formData).unwrap();
+                await createCatalogEntry(formData).unwrap();
             }
             setIsFormOpen(false);
             setEditingItem(null);
         } catch (e) {
             alert("保存失败: " + (e.data?.message || e.message));
         }
-    }, [updateUnifiedVideo, createUnifiedVideo]);
+    }, [updateCatalogEntry, createCatalogEntry]);
 
     const handleRowMenuOpen = (event, row) => {
         setRowMenuAnchor(event.currentTarget);
@@ -393,7 +393,7 @@ function UnifiedVideoList() {
                                                                                                         color="primary"/></ListItemIcon><ListItemText>立即同步至搜索引擎</ListItemText></MenuItem>
                             <MenuItem onClick={() => handleBatchAction('magnets')} disabled={isScrapingMagnets}><ListItemIcon><MagnetIcon fontSize="small"
                                                                                                                                              color="secondary"/></ListItemIcon><ListItemText>搜刮磁力链接</ListItemText></MenuItem>
-                            <MenuItem onClick={() => handleBatchAction('merge')} disabled={selectedIds.length < 2 || isMergingUnifiedVideos}><ListItemIcon><MergeIcon fontSize="small"
+                            <MenuItem onClick={() => handleBatchAction('merge')} disabled={selectedIds.length < 2 || isMergingCatalogEntries}><ListItemIcon><MergeIcon fontSize="small"
                                                                                                                                                                       color="warning"/></ListItemIcon><ListItemText>一键聚合重复视频</ListItemText></MenuItem>
                             <Divider/>
                             <MenuItem onClick={() => handleBatchAction('delete')}><ListItemIcon><DeleteIcon
@@ -414,8 +414,8 @@ function UnifiedVideoList() {
             />
 
             {isFormOpen && (
-                <UnifiedVideoForm open={isFormOpen} onClose={() => setIsFormOpen(false)} onSubmit={handleFormSubmit}
-                                  unifiedVideo={editingItem}/>
+                <CatalogEntryForm open={isFormOpen} onClose={() => setIsFormOpen(false)} onSubmit={handleFormSubmit}
+                                  catalogEntry={editingItem}/>
             )}
 
             {/* 行级菜单 */}
@@ -434,4 +434,4 @@ function UnifiedVideoList() {
     );
 }
 
-export default UnifiedVideoList;
+export default CatalogEntryList;

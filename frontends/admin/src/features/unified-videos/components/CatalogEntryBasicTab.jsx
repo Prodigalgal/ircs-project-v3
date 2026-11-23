@@ -43,7 +43,7 @@ function ImageStatusChip({ status, storageType }) {
     return null;
 }
 
-function UnifiedVideoBasicTab({ formData, handleChange, isLocked, handleLockChange }) {
+function CatalogEntryBasicTab({ formData, handleChange, isLocked, handleLockChange }) {
 
     const handleLanguagesChange = (event) => {
         handleChange(event);
@@ -219,4 +219,4 @@ function UnifiedVideoBasicTab({ formData, handleChange, isLocked, handleLockChan
     );
 }
 
-export default UnifiedVideoBasicTab;
+export default CatalogEntryBasicTab;

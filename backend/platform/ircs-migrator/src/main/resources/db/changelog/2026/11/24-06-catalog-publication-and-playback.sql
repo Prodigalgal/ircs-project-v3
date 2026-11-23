@@ -236,15 +236,32 @@ BEGIN
 
     -- Source-first serials get stable IDs from their active publication scope. Explicit conflicting seasons are skipped.
     IF binding.identity_status = 'PROVISIONAL' AND binding.media_type = 'tv' THEN
+        INSERT INTO catalog_seasons(work_id,season_number)
+        SELECT DISTINCT binding.work_id, resolved.season_number
+        FROM source_playback_items item
+        CROSS JOIN LATERAL (
+            SELECT substring(upper(btrim(item.name)) FROM '^S([0-9]{1,4})E')::integer AS label_season
+        ) label
+        CROSS JOIN LATERAL (
+            SELECT coalesce(label.label_season,binding.source_season,binding.season_number) AS season_number
+        ) resolved
+        WHERE item.source_record_id=target_source AND resolved.season_number>=0
+          AND (binding.source_season IS NULL OR resolved.season_number=binding.source_season)
+          AND (binding.season_number IS NULL OR resolved.season_number=binding.season_number)
+        ON CONFLICT (work_id,season_number) DO NOTHING;
         INSERT INTO catalog_episodes(work_id, season_id, season_number, episode_number, title)
-        SELECT DISTINCT ON (episode_number) binding.work_id, binding.season_id, binding.season_number,
-            episode_number, left(item.name, 500)
+        SELECT DISTINCT ON (scope.season_number, episode_number) binding.work_id, scope.id, scope.season_number,
+            label.episode_number, left(item.name, 500)
         FROM source_playback_items item
         CROSS JOIN LATERAL (SELECT catalog_episode_number(item.name) AS episode_number,
             substring(upper(btrim(item.name)) FROM '^S([0-9]{1,4})E')::integer AS label_season) label
-        WHERE item.source_record_id = target_source AND episode_number > 0
-          AND (label_season IS NULL OR label_season = coalesce(binding.season_number, binding.source_season))
-        ORDER BY episode_number, item.id
+        LEFT JOIN catalog_seasons scope ON scope.work_id=binding.work_id
+            AND scope.season_number=coalesce(label.label_season,binding.source_season,binding.season_number)
+        WHERE item.source_record_id=target_source AND label.episode_number>0
+          AND (label.label_season IS NULL OR scope.id IS NOT NULL)
+          AND (binding.source_season IS NULL OR scope.season_number=binding.source_season)
+          AND (binding.season_number IS NULL OR scope.season_number=binding.season_number)
+        ORDER BY scope.season_number,label.episode_number,item.id
         ON CONFLICT (work_id, season_number, episode_number) DO NOTHING;
     END IF;
 
@@ -263,7 +280,7 @@ BEGIN
           AND (binding.source_season IS NULL OR binding.season_number IS NULL OR binding.source_season = binding.season_number)
           AND (label.label_season IS NULL OR season.id IS NOT NULL)
           AND (binding.identity_status <> 'VERIFIED' OR binding.media_type = 'movie'
-               OR (binding.media_type = 'tv' AND ep.id IS NOT NULL AND season.verified_at IS NOT NULL))
+               OR (binding.media_type = 'tv' AND ep.tmdb_episode_id IS NOT NULL AND season.verified_at IS NOT NULL))
     ), removed AS (
         DELETE FROM catalog_playback_bindings old
         WHERE old.source_record_id = target_source AND NOT EXISTS (
@@ -309,7 +326,7 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $body$
         item.url::text, item.source_origin_id, season.season_number, episode.episode_number, episode.id
     FROM catalog_entries entry
     JOIN catalog_playback_bindings playback ON playback.work_id = entry.work_id
-        AND playback.season_id IS NOT DISTINCT FROM entry.season_id
+        AND (entry.season_id IS NULL OR playback.season_id=entry.season_id)
     JOIN catalog_source_bindings source_binding ON source_binding.source_record_id = playback.source_record_id
     JOIN catalog_source_match_evidence evidence ON evidence.id = source_binding.evidence_id
     JOIN source_records source ON source.id = playback.source_record_id

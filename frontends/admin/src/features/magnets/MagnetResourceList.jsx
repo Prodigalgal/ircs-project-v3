@@ -2,11 +2,11 @@ import React from 'react';
 import { Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import ListHeader from '../../components/common/ListHeader';
-import UnifiedVideoSelect from '../../components/common/UnifiedVideoSelect';
+import CatalogEntrySelect from '../../components/common/CatalogEntrySelect';
 import MagnetResourcePanel from './MagnetResourcePanel';
 import {
-    useScrapeUnifiedVideoMagnetsMutation
-} from '../unified-videos/unifiedVideosApi';
+    useScrapeCatalogEntryMagnetsMutation
+} from '../unified-videos/catalogEntriesApi';
 
 function formatMagnetResult(result) {
     const status = result?.status || 'UNKNOWN';
@@ -21,7 +21,7 @@ function formatMagnetResult(result) {
 
 function MagnetResourceList() {
     const [selectedVideo, setSelectedVideo] = React.useState(null);
-    const [scrapeMagnets, { isLoading: isScraping }] = useScrapeUnifiedVideoMagnetsMutation();
+    const [scrapeMagnets, { isLoading: isScraping }] = useScrapeCatalogEntryMagnetsMutation();
 
     const isReady = !selectedVideo?.metadataStatus || selectedVideo.metadataStatus === 'SYNCED';
 
@@ -62,7 +62,7 @@ function MagnetResourceList() {
 
             <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
                 <Stack spacing={1.25}>
-                    <UnifiedVideoSelect
+                    <CatalogEntrySelect
                         label="选择聚合视频"
                         value={selectedVideo}
                         onChange={setSelectedVideo}
@@ -94,7 +94,7 @@ function MagnetResourceList() {
 
             <Box sx={{ flex: 1, overflow: 'auto' }}>
                 <MagnetResourcePanel
-                    unifiedVideoId={selectedVideo?.id}
+                    catalogEntryId={selectedVideo?.id}
                     metadataStatus={selectedVideo?.metadataStatus}
                     onScrape={handleScrape}
                     isScraping={isScraping}

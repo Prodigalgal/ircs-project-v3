@@ -1,4 +1,4 @@
-// File: ircs-frontend/src/features/unified-videos/UnifiedVideoForm.jsx
+// File: ircs-frontend/src/features/unified-videos/CatalogEntryForm.jsx
 import React, { useEffect } from 'react';
 import {
     Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
@@ -10,8 +10,8 @@ import LinkIcon from '@mui/icons-material/Link';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
 import LockableTextField, { LockToggle } from '../../components/common/LockableTextField';
 import LockControlPanel from '../../components/common/LockControlPanel';
-import { useUnifiedVideoForm } from './hooks/useUnifiedVideoForm';
-import UnifiedVideoBasicTab from './components/UnifiedVideoBasicTab';
+import { useCatalogEntryForm } from './hooks/useCatalogEntryForm';
+import CatalogEntryBasicTab from './components/CatalogEntryBasicTab';
 import { useLazyGetCategoriesQuery } from '../categories/categoriesApi';
 import { debounce } from '@mui/material/utils';
 
@@ -93,13 +93,13 @@ function TabPanel(props) {
     );
 }
 
-function UnifiedVideoForm({ open, onClose, onSubmit, unifiedVideo }) {
+function CatalogEntryForm({ open, onClose, onSubmit, catalogEntry }) {
     const [tabIndex, setTabIndex] = React.useState(0);
     const {
         formData, setFormData, handleChange, handleLockChange, handleBatchLock, isLocked, handleSubmit, isSubmitting,
         setInputValue, options: videoOptions, isSearching, handleAddSourceVideo, handleRemoveSourceVideo,
         lockedCount, totalLockableCount, standardGenres
-    } = useUnifiedVideoForm(unifiedVideo, onSubmit);
+    } = useCatalogEntryForm(catalogEntry, onSubmit);
 
     useEffect(() => {
         if (open) {
@@ -134,7 +134,7 @@ function UnifiedVideoForm({ open, onClose, onSubmit, unifiedVideo }) {
         <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                    {unifiedVideo ? `编辑聚合视频: ${formData.title}` : '新建聚合视频'}
+                    {catalogEntry ? `编辑聚合视频: ${formData.title}` : '新建聚合视频'}
                 </Box>
                 {formData.lastTrendAt && (
                     <Chip
@@ -164,7 +164,7 @@ function UnifiedVideoForm({ open, onClose, onSubmit, unifiedVideo }) {
                 />
 
                 <TabPanel value={tabIndex} index={0}>
-                    <UnifiedVideoBasicTab
+                    <CatalogEntryBasicTab
                         formData={formData}
                         handleChange={handleChange}
                         isLocked={isLocked}
@@ -376,4 +376,4 @@ function UnifiedVideoForm({ open, onClose, onSubmit, unifiedVideo }) {
     );
 }
 
-export default UnifiedVideoForm;
+export default CatalogEntryForm;
