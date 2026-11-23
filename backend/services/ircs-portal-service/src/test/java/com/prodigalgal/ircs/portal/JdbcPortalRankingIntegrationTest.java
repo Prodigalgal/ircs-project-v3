@@ -579,7 +579,7 @@ class JdbcPortalRankingIntegrationTest {
                     size_label text, published_at timestamp, quality text, resolution text, seeders integer,
                     provider_code text, tags jsonb)
                 """);
-        for (String category : List.of("movie", "series", "adult")) {
+        for (String category : List.of("movie", "series", "adult", "sports")) {
             jdbc.update("insert into standard_category values (?, ?, ?)", UUID.randomUUID(), category, category);
         }
         jdbc.execute(Files.readString(migrationPath("16-02-global-rankings-and-discovery.sql")));

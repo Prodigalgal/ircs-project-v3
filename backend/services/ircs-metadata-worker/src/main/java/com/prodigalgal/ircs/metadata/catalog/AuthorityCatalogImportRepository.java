@@ -198,13 +198,19 @@ class AuthorityCatalogImportRepository {
     int seed(String type, int cap) {
         return jdbc.update("""
                 insert into authority_catalog_imports(media_type,tmdb_id,season_number,priority)
-                select s.media_type,s.tmdb_id,-1,50
-                  from authority_tmdb_inventory s
-                 where s.media_type=:type and not s.video
-                   and not exists(select 1 from authority_catalog_imports j
-                       where j.media_type=s.media_type and j.tmdb_id=s.tmdb_id and j.season_number=-1)
-                 order by s.popularity desc,s.tmdb_id
-                 limit (select greatest(0,:cap-count(*)) from authority_catalog_imports where media_type=:type and priority>=50)
+                select s.media_type,selected.tmdb_id,-1,
+                    greatest(50,99-((row_number() over(order by selected.popularity desc,selected.tmdb_id)-1)/10)::integer)
+                  from authority_tmdb_inventory_state s
+                  cross join lateral (
+                      select entry.tmdb_id,entry.popularity from authority_tmdb_inventory_entries entry
+                       where entry.media_type=s.media_type and entry.slot=s.active_slot and not entry.video
+                         and not exists(select 1 from authority_catalog_imports j
+                             where j.media_type=entry.media_type and j.tmdb_id=entry.tmdb_id and j.season_number=-1)
+                       order by entry.popularity desc,entry.tmdb_id
+                       limit (select greatest(0,:cap-count(*))
+                              from authority_catalog_imports where media_type=:type and priority>=50)
+                  ) selected
+                 where s.media_type=:type and s.snapshot_date is not null
                 on conflict do nothing
                 """, Map.of("type", type, "cap", cap));
     }

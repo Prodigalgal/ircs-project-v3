@@ -84,7 +84,7 @@ class AuthorityCatalogProjectionQueryIntegrationTest {
         assertThat(byTitle.getFirst().unifiedVideoId()).isEqualTo(projectionId);
         assertThat(byId).hasSize(1);
         assertThat(byId.getFirst().unifiedVideoId()).isEqualTo(projectionId);
-        assertThat(AuthorityCatalogBindingPolicy.decide(
+        assertThat(new AuthorityCatalogBindingPolicy().decide(
                 new RawVideoAggregationRecord(UUID.randomUUID(), "Wrong Title", null, null, "1999",
                         null, null, null, null, null, null, null, "movie", "movie",
                         null, "603", null, null, "READY", "SUCCESS", "PENDING"),

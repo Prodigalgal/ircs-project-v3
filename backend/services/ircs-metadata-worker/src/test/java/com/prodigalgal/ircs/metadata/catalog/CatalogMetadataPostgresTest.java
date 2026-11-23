@@ -204,6 +204,24 @@ class CatalogMetadataPostgresTest {
         assertThat(jdbc.queryForObject("select count(*) from authority_catalog_works", Integer.class)).isZero();
     }
 
+    @Test
+    void warmupUsesOnlyTheActivePublicSnapshotAndRespectsItsCap() throws Exception {
+        installAuthoritySchema();
+        jdbc.execute(Files.readString(migration().resolveSibling("23-02-tmdb-authority-inventory.sql")));
+        jdbc.update("""
+                update authority_tmdb_inventory_state
+                   set active_slot=1,snapshot_date=date '2026-11-22',row_count=4 where media_type='movie';
+                insert into authority_tmdb_inventory_entries(media_type,slot,tmdb_id,title,popularity,video)
+                values ('movie',1,100,'First',200,false),('movie',1,99,'Second',100,false),
+                       ('movie',1,98,'Third',10,false),('movie',1,2,'Clip',1000,true),
+                       ('movie',0,5,'Inactive',3000,false),('tv',1,1,'TV',100,false)
+                """);
+        assertThat(authority.seed("movie",2)).isEqualTo(2);
+        assertThat(authority.seed("movie",2)).isZero();
+        assertThat(jdbc.queryForList("select tmdb_id from authority_catalog_imports order by tmdb_id",Long.class))
+                .containsExactly(99L,100L);
+    }
+
     private EnrichedMetadataDTO authorityFacts(String title) {
         var facts = evidence().metadata();
         facts.setTitle(title);
