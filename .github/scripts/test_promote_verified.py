@@ -57,6 +57,25 @@ class PromotionGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verified.validate_jobs(jobs, ['ircs-api-gateway'])
 
+    def test_runtime_recheck_accepts_built_images_after_runtime_and_manifest_failures(self):
+        jobs = self.jobs()
+        for job in jobs:
+            if job['name'] in verified.RUNTIME_JOBS:
+                job['conclusion'] = 'failure'
+            if job['name'] == 'manifests':
+                job['conclusion'] = 'skipped'
+        native, images = verified.validate_jobs(jobs, ['ircs-api-gateway'], recheck_runtime=True)
+        self.assertEqual(native, ['ircs-api-gateway'])
+        self.assertEqual(len(images), 4)
+        with self.assertRaises(ValueError):
+            verified.validate_jobs(jobs, ['ircs-api-gateway'])
+
+    def test_runtime_recheck_requires_every_original_build_and_test_gate(self):
+        for name in ('Native ircs-api-gateway / arm64', 'java-tests', 'Frontend admin / amd64'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                jobs = [job for job in self.jobs() if job['name'] != name]
+                verified.validate_jobs(jobs, ['ircs-api-gateway'], recheck_runtime=True)
+
     def test_missing_architecture_cannot_be_bypassed(self):
         with self.assertRaises(ValueError):
             verified.validate_jobs([j for j in self.jobs() if j['name'] != 'Native ircs-api-gateway / arm64'], ['ircs-api-gateway'])

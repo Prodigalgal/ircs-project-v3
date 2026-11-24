@@ -56,13 +56,11 @@ docker run -d --network ircs-native-consumers --name ircs-native-broker -p 127.0
 requires_search="$(python3 backend/scripts/ci/native-consumer-smoke.py --requires-search-fixture)"
 if [[ "$requires_search" == true ]]; then
   plugin_dir="${RUNNER_TEMP}/ircs-native-search-plugins"
+  package_dir="${RUNNER_TEMP}/ircs-search-packages"
+  python3 backend/scripts/ci/download-search-plugins.py "$package_dir"
   mkdir -p "$plugin_dir/ik" "$plugin_dir/pinyin"
   for plugin in ik pinyin; do
-    curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 \
-      --connect-timeout 10 --max-time 90 \
-      "https://release.infinilabs.com/analysis-${plugin}/stable/elasticsearch-analysis-${plugin}-9.1.4.zip" \
-      -o "${RUNNER_TEMP}/ircs-${plugin}.zip"
-    unzip -q "${RUNNER_TEMP}/ircs-${plugin}.zip" -d "$plugin_dir/$plugin"
+    unzip -q "$package_dir/$plugin.zip" -d "$plugin_dir/$plugin"
   done
   chmod -R a+rX "$plugin_dir"
   docker run -d --network ircs-native-consumers --name ircs-native-search -p 127.0.0.1:19200:9200 \
