@@ -47,8 +47,8 @@ jobs:
       frontend_tests: ${{ steps.matrix.outputs.frontend_tests || '[]' }}
       frontend_matrix: ${{ steps.matrix.outputs.frontend_matrix }}
       frontend_test_matrix: ${{ steps.matrix.outputs.frontend_test_matrix }}
-      image_refs: ${{ steps.matrix.outputs.image_refs }}
-      module_versions: ${{ steps.matrix.outputs.module_versions }}
+      image_refs: ${{ steps.matrix.outputs.image_refs || '{}' }}
+      module_versions: ${{ steps.matrix.outputs.module_versions || '{}' }}
       version: ${{ steps.recheck.outputs.version || steps.release.outputs.version }}
       release_tag: ${{ steps.recheck.outputs.release_tag || steps.release.outputs.release_tag }}
       source_revision: ${{ steps.recheck.outputs.source_revision || github.sha }}
