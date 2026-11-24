@@ -64,11 +64,14 @@ public class JdbcCollectionTaskRepository {
                         rs.getString("name")));
     }
 
-    public List<DataSourceSeedCandidate> findCatalogDiscoveryDataSources(String requestKey, int limit) {
+    public List<DataSourceSeedCandidate> findCatalogDiscoveryDataSources(String requestKey, int limit, List<UUID> sourceIds) {
+        String allowedIds = String.join(",", sourceIds.stream().map(UUID::toString).toList());
         return jdbcTemplate.query(
                 """
+                with policy as (select string_to_array(nullif(?, ''), ',')::uuid[] as source_ids)
                 select ds.id, ds.name
                   from collection_sources ds
+                  cross join policy
                   left join lateral (
                        select max(coalesce(tried.last_execution_time, tried.updated_at)) as last_attempt
                          from collection_plan_details tried
@@ -82,11 +85,12 @@ public class JdbcCollectionTaskRepository {
                    and ds.detail_path is not null and btrim(ds.detail_path) <> ''
                    and ds.field_mapping is not null and ds.field_mapping <> '{}'::jsonb
                    and coalesce(ds.adult_restricted, false) = false
-                   and exists (
+                   and case when policy.source_ids is not null then ds.id = any(policy.source_ids) else exists (
                        select 1 from collection_plans configured
                         where configured.collection_source_id = ds.id and configured.enabled = true
+                          and configured.archived_at is null
                           and not coalesce(jsonb_exists(configured.headers, 'ircsCatalogDiscovery'), false)
-                   )
+                   ) end
                    and not exists (
                        select 1 from collection_plan_details active
                         where active.collection_source_id = ds.id and active.status in ('QUEUED', 'RUNNING')
@@ -105,7 +109,7 @@ public class JdbcCollectionTaskRepository {
                  limit ?
                 """,
                 (rs, rowNum) -> new DataSourceSeedCandidate(rs.getObject("id", UUID.class), rs.getString("name")),
-                requestKey, requestKey, requestKey, Math.max(1, Math.min(3, limit)));
+                allowedIds, requestKey, requestKey, requestKey, Math.max(1, Math.min(3, limit)));
     }
 
     public boolean existsTaskByName(String name) {

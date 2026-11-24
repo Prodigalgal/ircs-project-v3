@@ -2,6 +2,9 @@ package com.prodigalgal.ircs.task.config;
 
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +25,16 @@ public class CatalogDiscoveryConfigValues {
 
     public int maxDataSources() {
         return config.boundedIntValue(PREFIX + "max-data-sources", 3, 1, 3);
+    }
+
+    public List<UUID> sourceIds() {
+        String configured = config.stringValue(PREFIX + "source-ids", "");
+        if (configured.isEmpty()) return List.of();
+        return Arrays.stream(configured.split(",", -1))
+                .map(String::strip)
+                .map(UUID::fromString)
+                .distinct()
+                .toList();
     }
 
     public int maxActiveTasks() {

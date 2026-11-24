@@ -168,6 +168,56 @@ class CatalogMetadataPostgresTest {
     }
 
     @Test
+    void importsRecentMissingEpisodeTargetsOnlyAfterTheSeasonHasResources() throws Exception {
+        jdbc.update("""
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
+                values ('tv',42,1,100)
+                """);
+        LocalDate today = jdbc.queryForObject("select current_date", LocalDate.class);
+        var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", today.minusDays(30));
+        var episodes = List.of(
+                new AuthorityCatalogEvidence.Episode(1, 1001, "Episode 1", today.minusDays(20)),
+                new AuthorityCatalogEvidence.Episode(2, 1002, "Episode 2", today.minusDays(5)),
+                new AuthorityCatalogEvidence.Episode(3, 1003, "Episode 3", today.minusDays(4)),
+                new AuthorityCatalogEvidence.Episode(4, 1004, "Episode 4", today.minusDays(3)),
+                new AuthorityCatalogEvidence.Episode(5, 1005, "Episode 5", today.minusDays(2)),
+                new AuthorityCatalogEvidence.Episode(6, 1006, "Episode 6", today.plusDays(1)));
+        var evidence = new AuthorityCatalogEvidence("tv", 42, 1, today, "series", authorityFacts("Example Series"),
+                List.of(season), episodes, List.of());
+        var first = authority.claim().orElseThrow();
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(first, evidence))).isTrue();
+        assertThat(jdbc.queryForList("select target_episode from catalog_resource_discovery_jobs", Integer.class))
+                .containsExactly(0);
+
+        jdbc.update("""
+                insert into catalog_magnet_links(id,catalog_entry_id,provider_code,info_hash,magnet_uri,title,
+                        matched_external_id_type,matched_external_id_value,status)
+                select uuidv7(),id,'authority-test',repeat('A',40),'magnet:?xt=urn:btih:'||repeat('A',40),
+                       'Season fixture','TMDB','42','APPROVED' from catalog_entries
+                """);
+        jdbc.update("update catalog_authority_import_jobs set status='PENDING', next_attempt_at=now()");
+        var refreshed = authority.claim().orElseThrow();
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(refreshed, evidence))).isTrue();
+
+        assertThat(jdbc.queryForList("select target_episode from catalog_resource_discovery_jobs order by target_episode",
+                Integer.class)).containsExactly(0, 3, 4, 5);
+        assertThat(jdbc.queryForList("select distinct target_season from catalog_resource_discovery_jobs", Integer.class))
+                .containsExactly(1);
+
+        jdbc.update("update catalog_authority_import_jobs set status='PENDING', next_attempt_at=now()");
+        var repeated = authority.claim().orElseThrow();
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(repeated, evidence))).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from catalog_resource_discovery_jobs", Integer.class)).isEqualTo(4);
+
+        jdbc.update("update catalog_resource_discovery_jobs set status='SUBMITTED', fulfilled_at=now() where target_episode=5");
+        jdbc.update("update catalog_authority_import_jobs set status='PENDING', next_attempt_at=now()");
+        var afterCompletion = authority.claim().orElseThrow();
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(afterCompletion, evidence))).isTrue();
+        assertThat(jdbc.queryForList("select target_episode from catalog_resource_discovery_jobs order by target_episode",
+                Integer.class)).containsExactly(0, 2, 3, 4, 5);
+    }
+
+    @Test
     void oneSeasonAdultRejectionBlocksAnInFlightImportForTheSameWork() throws Exception {
         jdbc.update("""
                 insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)

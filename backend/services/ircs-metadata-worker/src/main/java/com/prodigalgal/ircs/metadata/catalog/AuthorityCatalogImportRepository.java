@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 class AuthorityCatalogImportRepository {
 
+    private static final int RECENT_EPISODE_LOOKBACK_DAYS = 14;
+    private static final int MAX_PENDING_EPISODE_TARGETS = 3;
     private static final String OWNED = """
             media_type=:type and tmdb_id=:tmdb and season_number=:requested
             and status='DISPATCHING' and lease_token=:token and lease_until>now()
@@ -203,14 +205,47 @@ class AuthorityCatalogImportRepository {
 
     private void scheduleResources(MapSqlParameterSource p) {
         jdbc.update("""
+                with eligible as materialized (
+                    select entry.id, entry.work_id, entry.season_id,
+                           catalog_has_target_resources(entry.id,greatest(:season,0),0) as has_resources
+                      from catalog_entries entry
+                     where entry.id=:video and :priority>=50 and :season<>0
+                       and entry.content_visibility='PUBLIC' and not entry.adult_restricted
+                       and lower(coalesce(entry.adult_assessment ->> 'adultRestricted','false'))='false'
+                       and upper(coalesce(entry.adult_assessment ->> 'level','SAFE'))<>'ADULT'
+                ), recent_targets as (
+                    select entry.id, episode.episode_number
+                      from eligible entry
+                      cross join lateral (
+                          select ep.episode_number
+                            from catalog_episodes ep
+                           where ep.work_id=entry.work_id and ep.season_id=entry.season_id
+                             and ep.episode_number>0
+                             and ep.aired_on between current_date-:lookbackDays and current_date
+                             and not exists (
+                                 select 1 from catalog_resource_discovery_jobs queued
+                                  where queued.catalog_entry_id=entry.id and queued.target_season=:season
+                                    and queued.target_episode=ep.episode_number
+                             )
+                             and not catalog_has_target_resources(entry.id,:season,ep.episode_number)
+                           order by ep.aired_on desc, ep.episode_number desc
+                           limit greatest(0,:episodeLimit-(
+                               select count(*) from catalog_resource_discovery_jobs pending
+                                where pending.catalog_entry_id=entry.id and pending.target_season=:season
+                                  and pending.target_episode>0 and pending.fulfilled_at is null
+                           ))
+                      ) episode
+                     where :season>0 and entry.has_resources
+                )
                 insert into catalog_resource_discovery_jobs(catalog_entry_id,target_season,target_episode,keyword,priority)
-                select :video,greatest(:season,0),0,left(:title,255),:priority/1000.0
-                 where :priority>=50 and :season<>0
-                   and exists(select 1 from catalog_entries where id=:video and content_visibility='PUBLIC'
-                       and not coalesce(adult_restricted,false))
-                   and not catalog_has_target_resources(:video,greatest(:season,0),0)
+                select id,greatest(:season,0),0,left(:title,255),:priority/1000.0
+                  from eligible where not has_resources
+                union all
+                select id,:season,episode_number,left(:title,255),:priority/1000.0
+                  from recent_targets
                 on conflict (catalog_entry_id,target_season,target_episode) do nothing
-                """, p);
+                """, p.addValue("lookbackDays", RECENT_EPISODE_LOOKBACK_DAYS)
+                        .addValue("episodeLimit", MAX_PENDING_EPISODE_TARGETS));
     }
 
     @Transactional(timeout = 15)

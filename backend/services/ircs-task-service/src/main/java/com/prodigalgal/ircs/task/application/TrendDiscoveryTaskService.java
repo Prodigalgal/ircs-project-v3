@@ -11,6 +11,7 @@ import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleRequest;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduleResponse;
 import com.prodigalgal.ircs.contracts.trend.TrendDiscoveryScheduledTask;
+import com.prodigalgal.ircs.task.config.CatalogDiscoveryConfigValues;
 import com.prodigalgal.ircs.task.domain.CollectionTaskDefaults;
 import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
@@ -49,6 +50,7 @@ public class TrendDiscoveryTaskService {
     private final TaskCommandService taskCommandService;
     private final TaskDistributedLockRunner lockRunner;
     private final ObjectMapper objectMapper;
+    private final CatalogDiscoveryConfigValues catalogDiscoveryConfig;
 
     @Value("${app.task.trend-discovery.enabled:true}")
     private boolean enabled;
@@ -90,7 +92,7 @@ public class TrendDiscoveryTaskService {
         boolean acquired = lockRunner.runExclusive("task:catalog-discovery:" + candidate.requestKey(), () -> {
             ownershipCheck.run();
             List<DataSourceSeedCandidate> sources = taskRepository.findCatalogDiscoveryDataSources(
-                    candidate.requestKey(), sourceLimit);
+                    candidate.requestKey(), sourceLimit, catalogDiscoveryConfig.sourceIds());
             sources = filterKeywordDisabledDataSources(sources);
             response.set(scheduleWithSources(new TrendDiscoveryScheduleRequest(keywords, 1, 1, 0, false, sourceLimit),
                     keywords, true, metadata, sources, ownershipCheck));

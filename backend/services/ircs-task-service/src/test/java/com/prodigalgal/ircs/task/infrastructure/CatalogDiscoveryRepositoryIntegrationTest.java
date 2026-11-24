@@ -283,25 +283,40 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     void catalogSourcesRespectOperatorOptOutAdultIsolationBusySourcesAndFailureCooldown() {
         UUID source = insertSource();
         UUID configuredTask = insertTask(source, "IDLE", true, "{}");
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 100)).extracting(DataSourceSeedCandidate::id)
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 100, List.of())).extracting(DataSourceSeedCandidate::id)
                 .containsExactly(source);
         jdbc.update("update collection_plans set enabled = false where id = ?", configuredTask);
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).isEmpty();
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of())).isEmpty();
         jdbc.update("update collection_plans set enabled = true where id = ?", configuredTask);
         jdbc.update("update collection_sources set adult_restricted = true");
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).isEmpty();
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of())).isEmpty();
         jdbc.update("update collection_sources set adult_restricted = false");
         UUID busy = insertTask(source, "RUNNING", true, "{}");
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).isEmpty();
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of())).isEmpty();
         setRunStatus(busy, "FAILED");
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).isEmpty();
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of())).isEmpty();
         jdbc.update("update collection_plans set updated_at=now()-interval '31 minutes' where id=?",busy);
         jdbc.update("update collection_runs set updated_at=now()-interval '31 minutes' where collection_plan_id=?",busy);
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).hasSize(1);
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of())).hasSize(1);
         jdbc.update("update collection_plans set headers = '{\"ircsCatalogDiscovery\":{\"requestKey\":\"request-key\"}}'::jsonb where id = ?", busy);
         setRunStatus(busy, "RUNNING");
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3)).hasSize(1);
-        assertThat(tasks.findCatalogDiscoveryDataSources("other-work", 3)).isEmpty();
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of())).hasSize(1);
+        assertThat(tasks.findCatalogDiscoveryDataSources("other-work", 3, List.of())).isEmpty();
+    }
+
+    @Test
+    void explicitAuthoritySourcesCanSearchWhilePeriodicPlansArePaused() {
+        UUID selected = insertSource();
+        UUID other = insertSource();
+        UUID selectedPlan = insertTask(selected, "IDLE", false, "{}");
+        insertTask(other, "IDLE", true, "{}");
+
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of(selected)))
+                .extracting(DataSourceSeedCandidate::id).containsExactly(selected);
+        assertThat(jdbc.queryForObject("select enabled from collection_plans where id=?", Boolean.class, selectedPlan))
+                .isFalse();
+        jdbc.update("update collection_sources set adult_restricted=true where id=?", selected);
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 3, List.of(selected))).isEmpty();
     }
 
     @Test
@@ -313,9 +328,9 @@ class CatalogDiscoveryRepositoryIntegrationTest {
         UUID attempt = insertTask(earlier, "COMPLETED", true, discoveryHeaders("request-key"));
         jdbc.update("update collection_runs set success_count = 10 where collection_plan_id = ?", attempt);
 
-        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 1)).extracting(DataSourceSeedCandidate::id)
+        assertThat(tasks.findCatalogDiscoveryDataSources("request-key", 1, List.of())).extracting(DataSourceSeedCandidate::id)
                 .containsExactly(untried);
-        assertThat(tasks.findCatalogDiscoveryDataSources("unrelated-request", 1)).extracting(DataSourceSeedCandidate::id)
+        assertThat(tasks.findCatalogDiscoveryDataSources("unrelated-request", 1, List.of())).extracting(DataSourceSeedCandidate::id)
                 .containsExactly(earlier);
     }
 
