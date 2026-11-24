@@ -188,10 +188,10 @@ class PromotionGuardTests(unittest.TestCase):
         artifact = {'name': 'affected-plan', 'id': 123, 'expired': False,
                     'workflow_run': {'id': 456, 'head_sha': self.revision}}
         with patch.object(verified, 'api', return_value={'artifacts': [artifact]}) as api, \
-                patch.object(verified.subprocess, 'check_output', return_value=self.archive()) as download:
+                patch.object(verified, 'api_bytes', return_value=self.archive()) as download:
             self.assertEqual(verified.load_plan(verified.CANONICAL_REPOSITORY, 456, self.revision), self.plan())
             self.assertIn('/actions/runs/456/artifacts?', api.call_args.args[0])
-            self.assertEqual(download.call_args.args[0][-1], f'repos/{verified.CANONICAL_REPOSITORY}/actions/artifacts/123/zip')
+            download.assert_called_once_with(f'repos/{verified.CANONICAL_REPOSITORY}/actions/artifacts/123/zip')
         for artifacts in ([{**artifact, 'expired': True}], [artifact, artifact],
                           [{**artifact, 'workflow_run': {'id': 999, 'head_sha': self.revision}}]):
             with patch.object(verified, 'api', return_value={'artifacts': artifacts}), self.assertRaises(ValueError):
@@ -243,7 +243,7 @@ class PromotionGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='ircs-publish-unit-') as temporary:
             output = Path(temporary)/'output'
             with patch.object(verified, 'git', side_effect=git), patch.object(verified, 'api', side_effect=api), \
-                    patch.object(verified.subprocess, 'run'), patch.object(verified.subprocess, 'check_output', return_value=self.archive()), \
+                    patch.object(verified.subprocess, 'run'), patch.object(verified, 'api_bytes', return_value=self.archive()), \
                     patch.dict(verified.os.environ, {'GITHUB_REPOSITORY': verified.CANONICAL_REPOSITORY, 'GITHUB_OUTPUT': str(output)}), \
                     patch('sys.argv', ['promote-verified.py', '--run-id', '456', '--source-revision', self.revision]):
                 verified.main()

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 from zipfile import ZipFile
 
 PUBLISH_JOB = 'Promote verified V3 images to GitOps'
@@ -22,8 +23,20 @@ def git(*args):
     return subprocess.check_output(['git', *args], text=True).strip()
 
 
+def api_bytes(path):
+    command = ['gh', 'api', path]
+    for attempt in range(3):
+        result = subprocess.run(command, capture_output=True, check=False, timeout=35)
+        if result.returncode == 0:
+            return result.stdout
+        if attempt == 2 or not re.search(rb'HTTP (429|500|502|503|504)\b', result.stderr):
+            raise subprocess.CalledProcessError(result.returncode, command, stderr=result.stderr)
+        time.sleep(2 ** attempt)
+    raise AssertionError('Unreachable retry state')
+
+
 def api(path):
-    return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+    return json.loads(api_bytes(path))
 
 
 def ci_only_path(path):
@@ -91,7 +104,7 @@ def load_plan(repository, run_id, revision):
     if (provenance.get('id', run_id) != run_id or provenance.get('head_sha', revision) != revision
             or not isinstance(artifact.get('id'), int) or artifact['id'] <= 0):
         raise ValueError('Affected-plan artifact provenance does not match the candidate run')
-    archive = subprocess.check_output(['gh', 'api', f'repos/{repository}/actions/artifacts/{artifact["id"]}/zip'])
+    archive = api_bytes(f'repos/{repository}/actions/artifacts/{artifact["id"]}/zip')
     return parse_plan_archive(archive, revision)
 
 
@@ -199,10 +212,11 @@ def main():
     if len(java_images) != 22:
         raise SystemExit('Recovery expects the reviewed 22-module Java deployment boundary')
     jobs = []
+    page_size = 25
     for page in range(1, 20):
-        result = api(f'repos/{repository}/actions/runs/{args.run_id}/jobs?filter=latest&per_page=100&page={page}')
+        result = api(f'repos/{repository}/actions/runs/{args.run_id}/jobs?filter=latest&per_page={page_size}&page={page}')
         jobs.extend(result['jobs'])
-        if len(result['jobs']) < 100:
+        if len(result['jobs']) < page_size:
             break
     else:
         raise ValueError('Job listing exceeds the reviewed pagination boundary')
