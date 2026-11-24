@@ -356,7 +356,7 @@ def ingestion_round_trip():
                 'bonusEpisode',count(*) filter (where p.name='Native fixture (2)' and e.name='Bonus'
                     and e.url='/episode/bonus.m3u8?quality=hd'))
               from source_records rv
-              join source_playlists p on p.video_id=rv.id
+              join source_playlists p on p.source_record_id=rv.id
               join source_playback_items e on e.playlist_id=p.id
               join source_origins sd on sd.id=e.source_origin_id
              where rv.source_hash='native-smoke-source' and sd.domain_value='https://media.example'

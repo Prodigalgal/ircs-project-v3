@@ -19,6 +19,9 @@ on:
       search_fixture_mirror:
         description: Optional project-owned mirror for the checksum-verified search fixture
         required: false
+      search_fixture_run_id:
+        description: Same-repository run whose search fixture should be reused
+        required: false
 
 permissions:
   contents: read
@@ -486,8 +489,22 @@ jobs:
     if: contains(fromJSON(needs.prepare.outputs.images), 'ircs-search-service') && !inputs.verify_only
     runs-on: ubuntu-24.04
     timeout-minutes: 22
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore previously downloaded search plugins
+        if: inputs.search_fixture_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXTURE_RUN_ID: ${{ inputs.search_fixture_run_id }}
+        run: |
+          [[ "$FIXTURE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          if ! gh run download "$FIXTURE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name native-search-plugins --dir "$RUNNER_TEMP/ircs-search-packages"; then
+            echo 'Prior fixture unavailable. The verification step will fetch the pinned packages.'
+          fi
       - name: Download verified Elasticsearch 9.1.4 plugins
         env:
           IRCS_CI_SEARCH_PLUGIN_MIRROR: ${{ inputs.search_fixture_mirror }}
