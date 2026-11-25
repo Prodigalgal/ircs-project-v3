@@ -320,21 +320,42 @@ class NativeRuntimeScopeTest(unittest.TestCase):
     def normalization_docker(self, title='国王的演讲'):
         def respond(*args):
             if 'HGET' in args:
+                if args[-2].startswith('ircs:work:v1:pipeline.enrich-metadata:task:'):
+                    return 'PENDING'
                 return 'SUCCESS' if args[-1] == 'status' else ''
-            if 'ZCARD' in args:
-                return '1'
+            if 'EXISTS' in args:
+                return '0'
             if args[-1].startswith('select json_build_object'):
                 return json.dumps({'status': 'READY', 'title': title, 'description': '音乐与繁体国语'})
             return ''
         return respond
 
-    def test_normalization_probe_requires_durable_conversion_and_both_handoffs(self):
+    def test_normalization_probe_requires_conversion_and_enrichment_before_aggregation(self):
         with patch.object(self.smoke, 'docker', side_effect=self.normalization_docker()) as runtime:
-            self.smoke.normalization_round_trip()
+            raw_id, aggregation_key = self.smoke.normalization_round_trip()
         args = [call.args for call in runtime.call_args_list]
-        self.assertTrue(any('HGET' in command for command in args))
-        for queue in ('pipeline.enrich-metadata', 'aggregation.raw-video'):
-            self.assertTrue(any(command[-1] == 'ircs:work:v1:' + queue + ':pending' for command in args))
+        enrichment_key = (
+            'ircs:work:v1:pipeline.enrich-metadata:task:pipeline.enrich-metadata:'
+            + raw_id + ':native-normalization-v1'
+        )
+        self.assertTrue(any(command[-3:] == ('HGET', enrichment_key, 'status') for command in args))
+        self.assertTrue(any(command[-2:] == ('EXISTS', aggregation_key) for command in args))
+
+    def test_authority_handoff_waits_for_terminal_source_only_status(self):
+        input_id = '00646ed0-329f-4584-8170-2b9b7608e5d6'
+        queue_key = 'ircs:work:v1:aggregation.raw-video:task:raw_video:' + input_id
+        database_status = iter(('FAILED', 'PERMANENT_FAILURE'))
+
+        def respond(*args):
+            if args[-3:] == ('HGET', queue_key, 'payload'):
+                return '{"reason":"metadata-immediate-finalized"}'
+            return next(database_status)
+
+        with patch.object(self.smoke, 'docker', side_effect=respond), \
+                patch.object(self.smoke, 'start'), patch.object(self.smoke, 'stop', return_value=[]), \
+                patch.object(self.smoke.time, 'sleep') as sleep:
+            self.smoke.authority_handoff_probe(input_id, queue_key)
+        sleep.assert_called_once()
 
     def test_normalization_probe_rejects_an_unconverted_native_title(self):
         with patch.object(self.smoke, 'docker', side_effect=self.normalization_docker('國王的演講')):
