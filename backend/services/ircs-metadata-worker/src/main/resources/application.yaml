@@ -49,6 +49,7 @@ app:
         enabled: ${APP_CATALOG_REFERENCE_IMDB_ENABLED:false}
         title-basics-url: ${APP_CATALOG_REFERENCE_IMDB_TITLE_BASICS_URL:https://datasets.imdbws.com/title.basics.tsv.gz}
         title-ratings-url: ${APP_CATALOG_REFERENCE_IMDB_TITLE_RATINGS_URL:https://datasets.imdbws.com/title.ratings.tsv.gz}
+        title-akas-url: ${APP_CATALOG_REFERENCE_IMDB_TITLE_AKAS_URL:https://datasets.imdbws.com/title.akas.tsv.gz}
       douban:
         enabled: ${APP_CATALOG_REFERENCE_DOUBAN_ENABLED:false}
     authority-first:

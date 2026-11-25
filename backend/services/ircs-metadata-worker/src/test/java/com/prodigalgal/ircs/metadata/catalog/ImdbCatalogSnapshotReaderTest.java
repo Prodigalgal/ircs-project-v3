@@ -9,6 +9,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +60,65 @@ class ImdbCatalogSnapshotReaderTest {
         assertThat(ImdbCatalogSnapshotReader.readTitles(gzip(data.toString()), id -> true, batch -> sizes.add(batch.size()))).isEqualTo(1001);
         assertThat(sizes).containsExactly(500, 500, 1);
         assertThat(ImdbCatalogSnapshotReader.readTitles(gzip(data.toString()), id -> false, batch -> { })).isZero();
+    }
+
+    @Test
+    void readsBoundedDistinctAliasesAndPreservesMissingMarkersAcrossInputOrder() throws Exception {
+        String header = "titleId\tordering\ttitle\tregion\tlanguage\ttypes\tattributes\tisOriginalTitle\n";
+        String rows = "tt0000002\t2\tSecond\t\\N\t\\N\t\\N\t\\N\t\\N\n"
+                + "tt0000001\t1\tA\tCN\tzh\t\\N\t\\N\t1\n"
+                + "tt0000001\t3\tA\tCN\tzh\t\\N\t\\N\t1\n"
+                + "tt0000001\t4\tOther\tUS\ten\t\\N\t\\N\t0\n"
+                + "tt0000001\t5\tLocal\tHK\tyue\t\\N\t\\N\t1\n"
+                + "tt0000001\t6\t" + "x".repeat(501) + "\tCN\tzh\t\\N\t\\N\t0\n"
+                + "tt0000001\t7\t\\N\tCN\tzh\t\\N\t\\N\t0\n"
+                + "tt0000003\t1\tUntracked\tCN\tzh\t\\N\t\\N\t1\n";
+        Map<String, List<ImdbCatalogSnapshotReader.Alias>> found = new HashMap<>();
+        int count = ImdbCatalogSnapshotReader.readAliases(gzip(header + rows), id -> !id.equals("tt0000003"), found::put);
+        assertThat(count).isEqualTo(4);
+        assertThat(found.get("tt0000001")).containsExactly(
+                new ImdbCatalogSnapshotReader.Alias("A", "CN", "zh", true),
+                new ImdbCatalogSnapshotReader.Alias("Local", "HK", "yue", true),
+                new ImdbCatalogSnapshotReader.Alias("Other", "US", "en", false));
+        assertThat(found.get("tt0000002")).containsExactly(
+                new ImdbCatalogSnapshotReader.Alias("Second", null, null, null));
+
+        List<String> lines = new ArrayList<>(Arrays.asList(rows.split("\n")));
+        Collections.reverse(lines);
+        Map<String, List<ImdbCatalogSnapshotReader.Alias>> reversed = new HashMap<>();
+        ImdbCatalogSnapshotReader.readAliases(gzip(header + String.join("\n", lines) + "\n"),
+                id -> !id.equals("tt0000003"), reversed::put);
+        assertThat(reversed).isEqualTo(found);
+    }
+
+    @Test
+    void retainsTopThirtyTwoAliasesDeterministicallyAndEmitsOnlyAfterGzipValidation() throws Exception {
+        String header = "titleId\tordering\ttitle\tregion\tlanguage\ttypes\tattributes\tisOriginalTitle\n";
+        StringBuilder rows = new StringBuilder(header);
+        for (int i = 39; i >= 0; i--) {
+            rows.append("tt0000001\t").append(i).append("\tAlias").append(String.format("%02d", i))
+                    .append("\tUS\ten\t\\N\t\\N\t0\n");
+        }
+        var first = new HashMap<String, List<ImdbCatalogSnapshotReader.Alias>>();
+        assertThat(ImdbCatalogSnapshotReader.readAliases(gzip(rows.toString()), id -> true, first::put)).isEqualTo(32);
+        assertThat(first.get("tt0000001")).hasSize(32);
+        assertThat(first.get("tt0000001").getFirst().title()).isEqualTo("Alias00");
+
+        StringBuilder reordered = new StringBuilder(header);
+        for (int i = 0; i < 40; i++) {
+            reordered.append("tt0000001\t").append(i).append("\tAlias").append(String.format("%02d", i))
+                    .append("\tUS\ten\t\\N\t\\N\t0\n");
+        }
+        var second = new HashMap<String, List<ImdbCatalogSnapshotReader.Alias>>();
+        ImdbCatalogSnapshotReader.readAliases(gzip(reordered.toString()), id -> true, second::put);
+        assertThat(second).isEqualTo(first);
+
+        byte[] valid = gzipBytes(header + "tt0000001\t1\tA\tUS\ten\t\\N\t\\N\t0\n");
+        var emitted = new ArrayList<String>();
+        assertThatThrownBy(() -> ImdbCatalogSnapshotReader.readAliases(
+                new ByteArrayInputStream(Arrays.copyOf(valid, valid.length - 4)), id -> true,
+                (id, aliases) -> emitted.add(id))).isInstanceOf(IOException.class);
+        assertThat(emitted).isEmpty();
     }
 
     private ByteArrayInputStream gzip(String text) throws IOException {

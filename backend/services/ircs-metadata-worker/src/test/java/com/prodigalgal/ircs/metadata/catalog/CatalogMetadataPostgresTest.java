@@ -12,6 +12,7 @@ import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.Credit;
 import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.CreditKind;
 import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.CreditSet;
 import com.prodigalgal.ircs.metadata.catalog.DoubanCatalogObservation.MatchBasis;
+import com.prodigalgal.ircs.metadata.catalog.ImdbCatalogSnapshotReader.Alias;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanProviderProperties;
 import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
@@ -21,6 +22,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -431,6 +433,45 @@ class CatalogMetadataPostgresTest {
                 "select facts->>'mainlandReleaseDate' from catalog_metadata_observations where provider='Douban'", String.class))
                 .isEqualTo("2000-01-14");
         assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("Canonical TMDB title");
+    }
+
+    @Test
+    void writesOnlyChangedImdbAliasSetsAndKeepsTheBasicsCheckpointIndependent() {
+        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
+        var job = authority.claim().orElseThrow();
+        var facts = authorityFacts("TMDB title");
+        facts.setImdbId("tt7605074");
+        var work = new AuthorityCatalogEvidence("movie", 42, -1, LocalDate.of(2019, 2, 5), "movie",
+                facts, List.of(), List.of(), List.of());
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, work))).isTrue();
+        var targets = references.imdbTargets();
+        var basics = references.claim("IMDb", "title-basics", Duration.ofMinutes(5)).orElseThrow();
+        var aliases = references.claim("IMDb", "title-akas", Duration.ofMinutes(5)).orElseThrow();
+        var title = new ImdbCatalogSnapshotReader.Title("tt7605074", "movie", "IMDb title", null, 2019, 125, List.of());
+        var aliasSnapshot = Map.of("tt7605074", List.of(new Alias("流浪地球", "CN", "zh", true)));
+        Map<String, List<Alias>> emptySnapshot = Map.of("tt7605074", List.of());
+
+        transactions.executeWithoutResult(status -> references.storeImdbTitles(basics, targets, List.of(title)));
+        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, emptySnapshot));
+        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, aliasSnapshot));
+        transactions.executeWithoutResult(status -> references.storeImdbTitles(basics, targets, List.of(title)));
+        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, aliasSnapshot));
+        assertThat(jdbc.queryForList("""
+                select coalesce(facts->>'dataset','title.basics') from catalog_metadata_observations
+                 where provider='IMDb' order by observed_at,id
+                """, String.class)).containsExactly("title.basics", "title.akas");
+        assertThat(jdbc.queryForObject("""
+                select facts->'aliases'->0->>'title' from catalog_metadata_observations
+                 where provider='IMDb' and facts->>'dataset'='title.akas'
+                """, String.class)).isEqualTo("流浪地球");
+
+        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, emptySnapshot));
+        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, emptySnapshot));
+        assertThat(jdbc.queryForList("""
+                select jsonb_array_length(facts->'aliases') from catalog_metadata_observations
+                 where provider='IMDb' and facts->>'dataset'='title.akas' order by observed_at,id
+                """, Integer.class)).containsExactly(1, 0);
+        assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("TMDB title");
     }
 
     @Test

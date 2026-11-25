@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.metadata.catalog;
 import com.prodigalgal.ircs.metadata.catalog.DoubanCatalogObservation.MatchBasis;
 import com.prodigalgal.ircs.metadata.catalog.DoubanWorkMatcher.TmdbCredit;
 import com.prodigalgal.ircs.metadata.catalog.DoubanWorkMatcher.TmdbWorkEvidence;
+import com.prodigalgal.ircs.metadata.catalog.ImdbCatalogSnapshotReader.Alias;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 @Repository
 @RequiredArgsConstructor
 class CatalogReferenceSyncRepository {
+    private static final String IMDB_ALIASES_DATASET = "title.akas";
     private static final String OWNED = """
             provider=:provider and feed=:feed and lease_token=:token and lease_until>now()
             """;
@@ -31,13 +33,14 @@ class CatalogReferenceSyncRepository {
                and work.imdb_id=identity.external_id
                and identity.external_id=:externalId and work.id=:work
             """;
-    private static final String CHANGED_FACTS = """
-            cast(:facts as jsonb) is distinct from (
-                select previous.facts from catalog_metadata_observations previous
-                 where previous.work_id=:work and previous.season_id is null
-                   and previous.provider=:provider and previous.external_id=:externalId
-                 order by previous.observed_at desc,previous.id desc limit 1)
+    private static final String PREVIOUS_FACTS = """
+            select previous.facts from catalog_metadata_observations previous
+             where previous.work_id=:work and previous.season_id is null
+               and previous.provider=:provider and previous.external_id=:externalId
+               and coalesce(previous.facts->>'dataset','')=:dataset
+             order by previous.observed_at desc,previous.id desc limit 1
             """;
+    private static final String CHANGED_FACTS = "cast(:facts as jsonb) is distinct from (" + PREVIOUS_FACTS + ")";
     private static final String UPSERT_CHANGED_RATING = """
             and not exists (
                 select 1 from (
@@ -115,6 +118,27 @@ class CatalogReferenceSyncRepository {
                     insert into catalog_metadata_observations(work_id,provider,external_id,facts)
                     select :work,:provider,:externalId,cast(:facts as jsonb) where exists (select 1
                     """ + IMDB_OWNER + ") and " + CHANGED_FACTS, batch.toArray(MapSqlParameterSource[]::new));
+        }
+    }
+
+    @Transactional(timeout = 20)
+    public void storeImdbAliases(Lease lease, Map<String, ImdbTarget> targets, Map<String, List<Alias>> aliasesById) {
+        requireLease(lease);
+        var batch = new ArrayList<MapSqlParameterSource>(aliasesById.size());
+        aliasesById.forEach((imdbId, aliases) -> {
+            ImdbTarget target = targets.get(imdbId);
+            if (target != null) {
+                var facts = Map.of("dataset", IMDB_ALIASES_DATASET, "aliases", aliases);
+                batch.add(observationParameters(lease, target.workId(), imdbId, facts)
+                        .addValue("dataset", IMDB_ALIASES_DATASET).addValue("hasAliases", !aliases.isEmpty()));
+            }
+        });
+        if (!batch.isEmpty()) {
+            jdbc.batchUpdate("""
+                    insert into catalog_metadata_observations(work_id,provider,external_id,facts)
+                    select :work,:provider,:externalId,cast(:facts as jsonb) where exists (select 1
+                    """ + IMDB_OWNER + ") and (:hasAliases or exists (" + PREVIOUS_FACTS + ")) and " + CHANGED_FACTS,
+                    batch.toArray(MapSqlParameterSource[]::new));
         }
     }
 
@@ -292,7 +316,8 @@ class CatalogReferenceSyncRepository {
 
     private MapSqlParameterSource observationParameters(Lease lease, UUID workId, String externalId, Object facts) {
         return new MapSqlParameterSource("provider", lease.provider()).addValue("work", workId)
-                .addValue("externalId", externalId).addValue("facts", mapper.writeValueAsString(facts));
+                .addValue("externalId", externalId).addValue("facts", mapper.writeValueAsString(facts))
+                .addValue("dataset", "");
     }
 
     private MapSqlParameterSource leaseParameters(Lease lease) {
