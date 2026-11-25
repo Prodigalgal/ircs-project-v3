@@ -324,7 +324,7 @@ function UnifiedVideoForm({ open, onClose, onSubmit, unifiedVideo }) {
                                     />
                                 )}
                             />
-                            <Box sx={{ border: '1px solid rgba(255, 255, 255, 0.12)', borderRadius: 1, mt: 2, maxHeight: 300, overflow: 'auto' }}>
+                            <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, mt: 2, maxHeight: 300, overflow: 'auto', bgcolor: 'background.paper' }}>
                                 <List dense>
                                     {formData.sourceVideos.length === 0 && (
                                         <ListItem><ListItemText primary="暂无关联视频" secondary="请在上方搜索框添加" /></ListItem>

@@ -365,11 +365,13 @@ function DlqList() {
                 }
             />
 
-            <Tabs value={tabIndex} onChange={(e, value) => setTabIndex(value)} sx={{ mb: 2 }}>
-                <Tab label="Valkey/DB 失败记录" />
-                <Tab label={`Rabbit DLQ${pendingRabbitCount ? ` (${pendingRabbitCount})` : ''}`} />
-                <Tab label={`Runtime DLQ${pendingRuntimeCount ? ` (${pendingRuntimeCount})` : ''}`} />
-            </Tabs>
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                <Tabs value={tabIndex} onChange={(e, value) => setTabIndex(value)} variant="scrollable" scrollButtons="auto">
+                    <Tab label="Valkey/DB 失败记录" />
+                    <Tab label={`Rabbit DLQ${pendingRabbitCount ? ` (${pendingRabbitCount})` : ''}`} />
+                    <Tab label={`Runtime DLQ${pendingRuntimeCount ? ` (${pendingRuntimeCount})` : ''}`} />
+                </Tabs>
+            </Box>
 
             {tabIndex === 0 ? (
                 <>

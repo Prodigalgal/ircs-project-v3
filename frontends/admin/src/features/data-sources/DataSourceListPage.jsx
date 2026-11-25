@@ -1,14 +1,14 @@
 // File: ircs-frontend/src/features/data-sources/DataSourceListPage.jsx
 import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Chip, IconButton, Tooltip, Typography, Stack } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
+import { Box, Chip, IconButton, Tooltip, Stack } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import { useDeleteDataSourceMutation, useGetDataSourcesQuery, useLazyGetDataSourceByIdQuery } from './dataSourcesApi';
 import { initializeWizardForEdit, resetWizard } from "./wizard/dataSourceWizardSlice";
 import DataSourceWizardPage from "./wizard/DataSourceWizardPage.jsx";
+import ListHeader from '../../components/common/ListHeader';
 import SmartTable from '../../components/common/SmartTable';
 import { useDispatch } from "react-redux";
 import { getTotalElements } from '../../utils/paginationUtils';
@@ -20,7 +20,7 @@ function DataSourceListPage() {
     const [pageSize, setPageSize] = useState(10);
     const [isWizardOpen, setIsWizardOpen] = useState(false);
 
-    const { data, isLoading } = useGetDataSourcesQuery({ page, size: pageSize });
+    const { data, isLoading, isFetching, refetch } = useGetDataSourcesQuery({ page, size: pageSize });
     const [deleteDataSource] = useDeleteDataSourceMutation();
     const [triggerGetById, { isFetching: isFetchingDetails }] = useLazyGetDataSourceByIdQuery();
 
@@ -96,16 +96,20 @@ function DataSourceListPage() {
 
     return (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h5">数据源管理</Typography>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={handleNewClick}>新建数据源</Button>
-            </Box>
+            <ListHeader
+                title="数据源管理"
+                subtitle="配置外部采集接口地址、字段映射规则与内容分级策略"
+                onAdd={handleNewClick}
+                addLabel="新建数据源"
+                onRefresh={refetch}
+                loading={isLoading || isFetching}
+            />
 
             <SmartTable
                 columns={columns}
                 data={data?.content || []}
                 total={getTotalElements(data)}
-                loading={isLoading}
+                loading={isLoading || isFetching}
                 page={page}
                 pageSize={pageSize}
                 onPageChange={setPage}

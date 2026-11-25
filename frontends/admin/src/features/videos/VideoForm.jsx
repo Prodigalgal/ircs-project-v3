@@ -537,10 +537,28 @@ function VideoForm({ open, onClose, onSubmit, video, isLoading }) {
 
                         {formData.rawMetadata && (
                             <TabPanel value={tabIndex} index={4}>
-                                <Paper variant="outlined" sx={{ bgcolor: '#1e1e1e', p: 2, maxHeight: 400, overflow: 'auto' }}>
-                                    <pre style={{ margin: 0, fontSize: '0.85rem', color: '#ffcc80', fontFamily: 'Consolas, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                <Paper
+                                    variant="outlined"
+                                    sx={(theme) => ({
+                                        bgcolor: theme.palette.surface.codeBg,
+                                        p: 2,
+                                        maxHeight: 400,
+                                        overflow: 'auto',
+                                    })}
+                                >
+                                    <Box
+                                        component="pre"
+                                        sx={(theme) => ({
+                                            m: 0,
+                                            fontSize: '0.82rem',
+                                            color: theme.palette.surface.codeText,
+                                            fontFamily: 'Consolas, monospace',
+                                            whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-all',
+                                        })}
+                                    >
                                         {prettyMetadata}
-                                    </pre>
+                                    </Box>
                                 </Paper>
                                 <Typography
                                     variant="caption"

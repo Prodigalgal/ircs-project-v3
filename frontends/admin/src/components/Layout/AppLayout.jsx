@@ -1,13 +1,55 @@
-// File: ircs-frontend/src/components/Layout/AppLayout.jsx
-import React, { lazy, Suspense, useState } from 'react';
+// File: frontends/admin/src/components/Layout/AppLayout.jsx
+import React, { lazy, Suspense, useMemo, useState } from 'react';
 import {
-    AppBar, Box, CssBaseline, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, Divider, Collapse, Button, GlobalStyles, IconButton, Tooltip
+    AppBar,
+    Box,
+    Button,
+    Collapse,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
+    Divider,
+    Drawer,
+    IconButton,
+    List,
+    ListItem,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Stack,
+    Toolbar,
+    Tooltip,
+    Typography,
+    useMediaQuery,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import {
-    Dns, Storage, Movie, Dashboard as DashboardIcon, Category, People, ExpandLess, ExpandMore, Settings, Tune, ViewModule, FeaturedPlayList, Link as LinkIcon, Search as SearchIcon, Image as ImageIcon, PlayCircle, Style, Logout as LogoutIcon, Warning as WarningIcon
+    Category,
+    ChevronLeft as ChevronLeftIcon,
+    ChevronRight as ChevronRightIcon,
+    Dashboard as DashboardIcon,
+    Dns,
+    ExpandLess,
+    ExpandMore,
+    FeaturedPlayList,
+    Image as ImageIcon,
+    Link as LinkIcon,
+    Logout as LogoutIcon,
+    Menu as MenuIcon,
+    Movie,
+    People,
+    PlayCircle,
+    Search as SearchIcon,
+    Settings,
+    Storage,
+    Style,
+    Tune,
+    ViewModule,
+    Warning as WarningIcon,
 } from '@mui/icons-material';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
 import TranslateIcon from '@mui/icons-material/Translate';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
@@ -16,271 +58,656 @@ import PublicIcon from '@mui/icons-material/Public';
 import FeedbackIcon from '@mui/icons-material/Feedback';
 import MovieCreationIcon from '@mui/icons-material/MovieCreation';
 import KeyIcon from '@mui/icons-material/Key';
-import TrafficIcon from '@mui/icons-material/Traffic'; // Added Icon
+import TrafficIcon from '@mui/icons-material/Traffic';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import CrisisAlertIcon from '@mui/icons-material/CrisisAlert';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
-const drawerWidth = 240;
+import ThemeModeToggle from '../common/ThemeModeToggle';
+import {
+    NAV_GROUPS,
+    PRIMARY_NAV_ITEMS,
+    isRouteActive,
+    resolveNavigationMeta,
+} from '../../routes/navigation';
+
+const DRAWER_WIDTH = 248;
+const MINI_DRAWER_WIDTH = 68;
+const HEADER_HEIGHT = 56;
+const SIDEBAR_STORAGE_KEY = 'ircs_admin_sidebar_collapsed';
+
 const ManualSearchDialog = lazy(() => import('../../features/scraper/ManualSearchDialog'));
 
-const scrollbarStyles = {
-    '*::-webkit-scrollbar': {
-        width: '8px',
-        height: '8px',
-    },
-    '*::-webkit-scrollbar-track': {
-        backgroundColor: '#1e1e1e',
-        borderRadius: '4px',
-    },
-    '*::-webkit-scrollbar-thumb': {
-        backgroundColor: '#555',
-        borderRadius: '4px',
-        border: '2px solid #1e1e1e',
-    },
-    '*::-webkit-scrollbar-thumb:hover': {
-        backgroundColor: '#777',
-    },
-    '*::-webkit-scrollbar-corner': {
-        backgroundColor: '#1e1e1e',
-    },
+const ICON_MAP = {
+    dashboard: <DashboardIcon />,
+    dataSources: <Dns />,
+    tasks: <Storage />,
+    videos: <Movie />,
+    contentGroup: <ViewModule />,
+    unifiedVideos: <ViewModule />,
+    magnets: <TravelExploreIcon />,
+    playlists: <FeaturedPlayList />,
+    images: <ImageIcon />,
+    categories: <Category />,
+    genres: <Style />,
+    resolvers: <PlayCircle />,
+    memberGroup: <People />,
+    members: <SupervisorAccountIcon />,
+    messages: <FeedbackIcon />,
+    mediaRequests: <MovieCreationIcon />,
+    opsGroup: <MonitorHeartIcon />,
+    traffic: <TrafficIcon />,
+    alertCenter: <CrisisAlertIcon />,
+    dlq: <WarningIcon />,
+    requestAudit: <ReceiptLongIcon />,
+    maintenance: <EngineeringIcon />,
+    settingsGroup: <Settings />,
+    systemConfig: <Tune />,
+    apiTokens: <VpnKeyIcon />,
+    credentials: <KeyIcon />,
+    domains: <LinkIcon />,
+    languages: <TranslateIcon />,
+    areas: <PublicIcon />,
 };
 
+function readInitialSidebarCollapsed() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+    try {
+        return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+}
+
+function BrandMark() {
+    return (
+        <Box
+            sx={(theme) => ({
+                width: 30,
+                height: 30,
+                borderRadius: '8px',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
+                color: '#FFFFFF',
+                fontWeight: 800,
+                fontSize: '0.78rem',
+                letterSpacing: '-0.04em',
+                boxShadow: `0 2px 8px ${alpha(theme.palette.primary.main, 0.35)}`,
+            })}
+        >
+            IR
+        </Box>
+    );
+}
+
 function AppLayout() {
+    const theme = useTheme();
+    const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
     const navigate = useNavigate();
-    const [contentOpen, setContentOpen] = useState(false);
-    const [settingsOpen, setSettingsOpen] = useState(false);
-    const [opsOpen, setOpsOpen] = useState(false);
+    const location = useLocation();
+
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(readInitialSidebarCollapsed);
+    const [mobileOpen, setMobileOpen] = useState(false);
+    const [groupOverrides, setGroupOverrides] = useState({});
     const [manualSearchOpen, setManualSearchOpen] = useState(false);
     const [manualSearchMounted, setManualSearchMounted] = useState(false);
-    const [memberOpen, setMemberOpen] = useState(false);
+    const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+
+    const navMeta = useMemo(
+        () => resolveNavigationMeta(location.pathname),
+        [location.pathname],
+    );
+
+    const isMini = isDesktop && sidebarCollapsed;
+    const activeDrawerWidth = isMini ? MINI_DRAWER_WIDTH : DRAWER_WIDTH;
+
+    const isGroupExpanded = (groupId) => {
+        if (groupId in groupOverrides) {
+            return groupOverrides[groupId];
+        }
+        return navMeta.groupId === groupId;
+    };
+
+    const handleToggleGroup = (groupId) => {
+        if (isMini) {
+            setSidebarCollapsed(false);
+            try {
+                window.localStorage.setItem(SIDEBAR_STORAGE_KEY, 'false');
+            } catch {
+                // Ignore storage errors.
+            }
+            setGroupOverrides((prev) => ({ ...prev, [groupId]: true }));
+            return;
+        }
+        setGroupOverrides((prev) => ({
+            ...prev,
+            [groupId]: !isGroupExpanded(groupId),
+        }));
+    };
+
+    const handleToggleCollapse = () => {
+        setSidebarCollapsed((prev) => {
+            const next = !prev;
+            try {
+                window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+            } catch {
+                // Ignore storage errors.
+            }
+            return next;
+        });
+    };
 
     const handleOpenManualSearch = () => {
         setManualSearchMounted(true);
         setManualSearchOpen(true);
     };
 
-    const handleLogout = () => {
-        if (window.confirm('确定要退出系统吗？')) {
-            localStorage.removeItem('ircs_token');
-            navigate('/login');
+    const handleConfirmLogout = () => {
+        setLogoutDialogOpen(false);
+        localStorage.removeItem('ircs_token');
+        navigate('/login');
+    };
+
+    const handleNavItemClick = () => {
+        if (!isDesktop) {
+            setMobileOpen(false);
         }
     };
 
-    const navItems = [
-        { text: '仪表盘', icon: <DashboardIcon />, path: '/' },
-        { text: '数据源管理', icon: <Dns />, path: '/data-sources' },
-        { text: '采集任务', icon: <Storage />, path: '/collection-tasks' },
-        { text: '源视频库', icon: <Movie />, path: '/videos' },
-    ];
-
-    const contentManagementItems = [
-        { text: '聚合视频', icon: <ViewModule />, path: '/content/unified-videos' },
-        { text: '磁链资源', icon: <TravelExploreIcon />, path: '/content/magnets' },
-        { text: '播放列表', icon: <FeaturedPlayList />, path: '/content/playlists' },
-        { text: '图片管理', icon: <ImageIcon />, path: '/content/images' },
-        { text: '分类管理', icon: <Category />, path: '/content/categories' },
-        { text: '题材管理', icon: <Style />, path: '/content/genres' },
-        { text: '解析源管理', icon: <PlayCircle />, path: '/content/resolvers' },
-    ];
-
-    const memberManagementItems = [
-        { text: '会员管理', icon: <SupervisorAccountIcon />, path: '/settings/members' },
-        { text: '留言反馈', icon: <FeedbackIcon />, path: '/settings/messages' },
-        { text: '求片任务', icon: <MovieCreationIcon />, path: '/settings/media-requests' },
-    ];
-
-    const settingsItems = [
-        { text: '系统参数', icon: <Tune />, path: '/settings/system' },
-        { text: 'API Token', icon: <VpnKeyIcon />, path: '/settings/api-tokens' },
-        { text: '凭证管理', icon: <KeyIcon />, path: '/settings/credentials' },
-        { text: '域名管理', icon: <LinkIcon />, path: '/settings/domains' },
-        { text: '语言管理', icon: <TranslateIcon />, path: '/settings/languages' },
-        { text: '地区管理', icon: <PublicIcon />, path: '/settings/areas' },
-    ];
-
-    const opsItems = [
-        { text: '流量治理', icon: <TrafficIcon />, path: '/ops/traffic' }, // New Item
-        { text: '告警与自愈', icon: <CrisisAlertIcon />, path: '/ops/alert-center' },
-        { text: '死信队列', icon: <WarningIcon />, path: '/ops/dlq' },
-        { text: '请求审计', icon: <ReceiptLongIcon />, path: '/ops/request-audit' },
-        { text: '系统维护', icon: <EngineeringIcon />, path: '/ops/maintenance' }
-    ];
-
-    return (
-        <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-            <CssBaseline />
-            <GlobalStyles styles={scrollbarStyles} />
-            <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-                <Toolbar variant="dense" sx={{ minHeight: 48 }}>
-                    <Typography variant="subtitle1" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
-                        “希望”智能资源采集系统 (Project Hope)
-                    </Typography>
-
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                            color="inherit"
-                            variant="outlined"
-                            startIcon={<SearchIcon />}
-                            onClick={handleOpenManualSearch}
-                            size="small"
-                            sx={{ borderColor: 'rgba(255,255,255,0.3)', mr: 2 }}
-                        >
-                            全网搜索采集
-                        </Button>
-
-                        <Tooltip title="退出登录">
-                            <IconButton color="inherit" onClick={handleLogout}>
-                                <LogoutIcon />
-                            </IconButton>
-                        </Tooltip>
-                    </Box>
-                </Toolbar>
-            </AppBar>
-            <Drawer
-                variant="permanent"
+    const renderNavButton = (item, nested = false) => {
+        const active = isRouteActive(location.pathname, item.path);
+        const button = (
+            <ListItemButton
+                component={Link}
+                to={item.path}
+                onClick={handleNavItemClick}
+                selected={active}
                 sx={{
-                    width: drawerWidth,
-                    flexShrink: 0,
-                    '& .MuiDrawer-paper': {
-                        width: drawerWidth,
-                        boxSizing: 'border-box',
-                        '& .MuiList-root': {
-                            py: 0.25
+                    minHeight: 36,
+                    mx: isMini ? 1 : 1.25,
+                    my: 0.25,
+                    px: isMini ? 1.25 : 1.5,
+                    pl: isMini ? 1.25 : (nested ? 3.5 : 1.5),
+                    borderRadius: '8px',
+                    position: 'relative',
+                    justifyContent: isMini ? 'center' : 'flex-start',
+                    color: active ? 'primary.main' : 'text.secondary',
+                    bgcolor: active ? alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.16 : 0.09) : 'transparent',
+                    '&:hover': {
+                        bgcolor: active
+                            ? alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.22 : 0.13)
+                            : 'action.hover',
+                        color: active ? 'primary.main' : 'text.primary',
+                    },
+                    '&.Mui-selected': {
+                        bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.16 : 0.09),
+                        '&:hover': {
+                            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.22 : 0.13),
                         },
-                        '& .MuiListItemButton-root': {
-                            minHeight: 36,
-                            py: 0.45,
-                            px: 1.75
-                        },
-                        '& .MuiListItemIcon-root': {
-                            minWidth: 36,
-                            '& svg': {
-                                fontSize: 20
-                            }
-                        },
-                        '& .MuiListItemText-primary': {
-                            fontSize: '0.82rem',
-                            fontWeight: 500,
-                            lineHeight: 1.25
+                    },
+                    '&::before': active
+                        ? {
+                            content: '""',
+                            position: 'absolute',
+                            left: 3,
+                            top: 8,
+                            bottom: 8,
+                            width: 3,
+                            borderRadius: '2px',
+                            bgcolor: 'primary.main',
                         }
-                    }
+                        : undefined,
                 }}
             >
-                <Toolbar />
-                <Box sx={{ overflow: 'auto' }}>
-                    <List>
-                        {navItems.map((item) => (
-                            <ListItem key={item.text} disablePadding>
-                                <ListItemButton component={Link} to={item.path}>
-                                    <ListItemIcon>{item.icon}</ListItemIcon>
-                                    <ListItemText primary={item.text} />
-                                </ListItemButton>
-                            </ListItem>
-                        ))}
-                    </List>
-                    <Divider />
+                <ListItemIcon
+                    sx={{
+                        minWidth: isMini ? 0 : 30,
+                        justifyContent: 'center',
+                        color: active ? 'primary.main' : 'inherit',
+                        '& svg': {
+                            fontSize: nested ? 17 : 19,
+                        },
+                    }}
+                >
+                    {ICON_MAP[item.iconKey]}
+                </ListItemIcon>
+                {!isMini && (
+                    <ListItemText
+                        primary={item.text}
+                        slotProps={{
+                            primary: {
+                                noWrap: true,
+                                sx: {
+                                    fontSize: nested ? '0.8rem' : '0.83rem',
+                                    fontWeight: active ? 600 : 500,
+                                    lineHeight: 1.3,
+                                },
+                            },
+                        }}
+                    />
+                )}
+            </ListItemButton>
+        );
 
-                    <List>
-                        <ListItemButton onClick={() => setContentOpen(!contentOpen)}>
-                            <ListItemIcon><Movie /></ListItemIcon>
-                            <ListItemText primary="内容管理" />
-                            {contentOpen ? <ExpandLess /> : <ExpandMore />}
-                        </ListItemButton>
-                        <Collapse in={contentOpen} timeout="auto" unmountOnExit>
-                            <List component="div" disablePadding>
-                                {contentManagementItems.map((item) => (
-                                    <ListItem key={item.text} disablePadding sx={{ pl: 4 }}>
-                                        <ListItemButton component={Link} to={item.path}>
-                                            <ListItemIcon>{item.icon}</ListItemIcon>
-                                            <ListItemText primary={item.text} />
-                                        </ListItemButton>
-                                    </ListItem>
-                                ))}
-                            </List>
-                        </Collapse>
-                    </List>
+        if (isMini) {
+            return (
+                <Tooltip key={item.id} title={item.text} placement="right" arrow>
+                    <ListItem disablePadding>{button}</ListItem>
+                </Tooltip>
+            );
+        }
 
-                    <Divider />
+        return (
+            <ListItem key={item.id} disablePadding>
+                {button}
+            </ListItem>
+        );
+    };
 
-                    <List>
-                        <ListItemButton onClick={() => setMemberOpen(!memberOpen)}>
-                            <ListItemIcon><People /></ListItemIcon>
-                            <ListItemText primary="会员与互动" />
-                            {memberOpen ? <ExpandLess /> : <ExpandMore />}
-                        </ListItemButton>
-                        <Collapse in={memberOpen} timeout="auto" unmountOnExit>
-                            <List component="div" disablePadding>
-                                {memberManagementItems.map((item) => (
-                                    <ListItem key={item.text} disablePadding sx={{ pl: 4 }}>
-                                        <ListItemButton component={Link} to={item.path}>
-                                            <ListItemIcon>{item.icon}</ListItemIcon>
-                                            <ListItemText primary={item.text} />
-                                        </ListItemButton>
-                                    </ListItem>
-                                ))}
-                            </List>
-                        </Collapse>
-                    </List>
-
-                    <Divider />
-
-                    <List>
-                        <ListItemButton onClick={() => setOpsOpen(!opsOpen)}>
-                            <ListItemIcon><MonitorHeartIcon /></ListItemIcon>
-                            <ListItemText primary="运维监控" />
-                            {opsOpen ? <ExpandLess /> : <ExpandMore />}
-                        </ListItemButton>
-                        <Collapse in={opsOpen} timeout="auto" unmountOnExit>
-                            <List component="div" disablePadding>
-                                {opsItems.map((item) => (
-                                    <ListItem key={item.text} disablePadding sx={{ pl: 4 }}>
-                                        <ListItemButton component={Link} to={item.path}>
-                                            <ListItemIcon>{item.icon}</ListItemIcon>
-                                            <ListItemText primary={item.text} />
-                                        </ListItemButton>
-                                    </ListItem>
-                                ))}
-                            </List>
-                        </Collapse>
-                    </List>
-
-                    <Divider />
-
-                    <List>
-                        <ListItemButton onClick={() => setSettingsOpen(!settingsOpen)}>
-                            <ListItemIcon><Settings /></ListItemIcon>
-                            <ListItemText primary="系统设置" />
-                            {settingsOpen ? <ExpandLess /> : <ExpandMore />}
-                        </ListItemButton>
-                        <Collapse in={settingsOpen} timeout="auto" unmountOnExit>
-                            <List component="div" disablePadding>
-                                {settingsItems.map((item) => (
-                                    <ListItem key={item.text} disablePadding sx={{ pl: 4 }}>
-                                        <ListItemButton component={Link} to={item.path}>
-                                            <ListItemIcon>{item.icon}</ListItemIcon>
-                                            <ListItemText primary={item.text} />
-                                        </ListItemButton>
-                                    </ListItem>
-                                ))}
-                            </List>
-                        </Collapse>
-                    </List>
+    const drawerContent = (
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            {/* Sidebar Brand Header */}
+            <Box
+                sx={{
+                    height: HEADER_HEIGHT,
+                    px: isMini ? 1.5 : 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: isMini ? 'center' : 'space-between',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    flexShrink: 0,
+                }}
+            >
+                <Box
+                    component={Link}
+                    to="/"
+                    onClick={handleNavItemClick}
+                    sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.25,
+                        textDecoration: 'none',
+                        color: 'inherit',
+                        minWidth: 0,
+                    }}
+                >
+                    <BrandMark />
+                    {!isMini && (
+                        <Box sx={{ minWidth: 0 }}>
+                            <Typography
+                                variant="subtitle2"
+                                noWrap
+                                sx={{ fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.2, color: 'text.primary' }}
+                            >
+                                IRCS 控制台
+                            </Typography>
+                            <Typography
+                                variant="caption"
+                                noWrap
+                                sx={{ display: 'block', fontSize: '0.68rem', color: 'text.secondary', lineHeight: 1.2 }}
+                            >
+                                Project Hope
+                            </Typography>
+                        </Box>
+                    )}
                 </Box>
-            </Drawer>
-            <Box component="main" sx={{
-                flexGrow: 1,
-                p: 2,
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden'
-            }}>
-                <Toolbar />
-                <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            </Box>
+
+            {/* Scrollable Navigation Tree */}
+            <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 1.25 }}>
+                {!isMini && (
+                    <Typography
+                        variant="overline"
+                        sx={{
+                            px: 2.25,
+                            pb: 0.5,
+                            display: 'block',
+                            color: 'text.disabled',
+                            fontSize: '0.66rem',
+                        }}
+                    >
+                        工作台
+                    </Typography>
+                )}
+                <List disablePadding>
+                    {PRIMARY_NAV_ITEMS.map((item) => renderNavButton(item, false))}
+                </List>
+
+                <Divider sx={{ my: 1.25, mx: isMini ? 1.5 : 2 }} />
+
+                {!isMini && (
+                    <Typography
+                        variant="overline"
+                        sx={{
+                            px: 2.25,
+                            pb: 0.5,
+                            display: 'block',
+                            color: 'text.disabled',
+                            fontSize: '0.66rem',
+                        }}
+                    >
+                        业务模块
+                    </Typography>
+                )}
+
+                {NAV_GROUPS.map((group) => {
+                    const expanded = isGroupExpanded(group.id);
+                    const hasActiveChild = group.items.some((item) => isRouteActive(location.pathname, item.path));
+
+                    const groupButton = (
+                        <ListItemButton
+                            onClick={() => handleToggleGroup(group.id)}
+                            sx={{
+                                minHeight: 36,
+                                mx: isMini ? 1 : 1.25,
+                                my: 0.25,
+                                px: isMini ? 1.25 : 1.5,
+                                borderRadius: '8px',
+                                justifyContent: isMini ? 'center' : 'flex-start',
+                                color: hasActiveChild ? 'primary.main' : 'text.primary',
+                                '&:hover': {
+                                    bgcolor: 'action.hover',
+                                },
+                            }}
+                        >
+                            <ListItemIcon
+                                sx={{
+                                    minWidth: isMini ? 0 : 30,
+                                    justifyContent: 'center',
+                                    color: hasActiveChild ? 'primary.main' : 'text.secondary',
+                                    '& svg': { fontSize: 19 },
+                                }}
+                            >
+                                {ICON_MAP[group.iconKey]}
+                            </ListItemIcon>
+                            {!isMini && (
+                                <>
+                                    <ListItemText
+                                        primary={group.title}
+                                        slotProps={{
+                                            primary: {
+                                                noWrap: true,
+                                                sx: {
+                                                    fontSize: '0.83rem',
+                                                    fontWeight: hasActiveChild ? 600 : 500,
+                                                },
+                                            },
+                                        }}
+                                    />
+                                    <Box sx={{ color: 'text.disabled', display: 'flex', alignItems: 'center' }}>
+                                        {expanded ? <ExpandLess sx={{ fontSize: 18 }} /> : <ExpandMore sx={{ fontSize: 18 }} />}
+                                    </Box>
+                                </>
+                            )}
+                        </ListItemButton>
+                    );
+
+                    return (
+                        <List key={group.id} disablePadding>
+                            {isMini ? (
+                                <Tooltip title={group.title} placement="right" arrow>
+                                    <ListItem disablePadding>{groupButton}</ListItem>
+                                </Tooltip>
+                            ) : (
+                                <ListItem disablePadding>{groupButton}</ListItem>
+                            )}
+                            {!isMini && (
+                                <Collapse in={expanded} timeout="auto" unmountOnExit>
+                                    <List component="div" disablePadding sx={{ pb: 0.5 }}>
+                                        {group.items.map((item) => renderNavButton(item, true))}
+                                    </List>
+                                </Collapse>
+                            )}
+                        </List>
+                    );
+                })}
+            </Box>
+
+            {/* Sidebar Footer */}
+            {isDesktop && (
+                <Box
+                    sx={{
+                        p: 1.25,
+                        borderTop: '1px solid',
+                        borderColor: 'divider',
+                        display: 'flex',
+                        justifyContent: isMini ? 'center' : 'flex-end',
+                    }}
+                >
+                    <Tooltip title={isMini ? '展开导航栏' : '收起导航栏'} placement="right">
+                        <IconButton
+                            size="small"
+                            onClick={handleToggleCollapse}
+                            aria-label={isMini ? '展开导航栏' : '收起导航栏'}
+                            sx={{
+                                color: 'text.secondary',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                width: 30,
+                                height: 30,
+                            }}
+                        >
+                            {isMini ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+            )}
+        </Box>
+    );
+
+    return (
+        <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
+            {/* Desktop Permanent Sidebar */}
+            {isDesktop ? (
+                <Drawer
+                    variant="permanent"
+                    sx={{
+                        width: activeDrawerWidth,
+                        flexShrink: 0,
+                        transition: theme.transitions.create('width', {
+                            easing: theme.transitions.easing.sharp,
+                            duration: 200,
+                        }),
+                        '& .MuiDrawer-paper': {
+                            width: activeDrawerWidth,
+                            boxSizing: 'border-box',
+                            overflowX: 'hidden',
+                            transition: theme.transitions.create('width', {
+                                easing: theme.transitions.easing.sharp,
+                                duration: 200,
+                            }),
+                        },
+                    }}
+                >
+                    {drawerContent}
+                </Drawer>
+            ) : (
+                <Drawer
+                    variant="temporary"
+                    open={mobileOpen}
+                    onClose={() => setMobileOpen(false)}
+                    ModalProps={{ keepMounted: true }}
+                    sx={{
+                        '& .MuiDrawer-paper': {
+                            width: DRAWER_WIDTH,
+                            boxSizing: 'border-box',
+                        },
+                    }}
+                >
+                    {drawerContent}
+                </Drawer>
+            )}
+
+            {/* Right Main Viewport */}
+            <Box
+                sx={{
+                    flexGrow: 1,
+                    minWidth: 0,
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                }}
+            >
+                <AppBar position="static" sx={{ flexShrink: 0 }}>
+                    <Toolbar
+                        sx={{
+                            minHeight: `${HEADER_HEIGHT}px !important`,
+                            px: { xs: 1.5, sm: 2.5 },
+                            gap: 1.5,
+                        }}
+                    >
+                        {!isDesktop && (
+                            <IconButton
+                                size="small"
+                                onClick={() => setMobileOpen(true)}
+                                aria-label="打开导航菜单"
+                                sx={{
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    color: 'text.primary',
+                                }}
+                            >
+                                <MenuIcon fontSize="small" />
+                            </IconButton>
+                        )}
+
+                        {/* Contextual Breadcrumb */}
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0, flexGrow: 1 }}>
+                            <Typography
+                                variant="caption"
+                                noWrap
+                                sx={{
+                                    color: 'text.secondary',
+                                    display: { xs: 'none', sm: 'block' },
+                                    fontWeight: 500,
+                                }}
+                            >
+                                {navMeta.groupTitle}
+                            </Typography>
+                            <Typography
+                                variant="caption"
+                                sx={{
+                                    color: 'text.disabled',
+                                    display: { xs: 'none', sm: 'block' },
+                                }}
+                            >
+                                /
+                            </Typography>
+                            <Typography
+                                variant="subtitle2"
+                                noWrap
+                                sx={{ fontWeight: 700, color: 'text.primary' }}
+                            >
+                                {navMeta.pageTitle}
+                            </Typography>
+                        </Stack>
+
+                        {/* Topbar Utility Controls */}
+                        <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center', flexShrink: 0 }}>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<SearchIcon sx={{ fontSize: '17px !important' }} />}
+                                onClick={handleOpenManualSearch}
+                                sx={{
+                                    borderColor: 'divider',
+                                    color: 'text.primary',
+                                    bgcolor: 'background.paper',
+                                    px: { xs: 1.25, sm: 1.5 },
+                                    height: 34,
+                                    '&:hover': {
+                                        borderColor: 'primary.main',
+                                        color: 'primary.main',
+                                    },
+                                }}
+                            >
+                                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                                    全网搜索采集
+                                </Box>
+                                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                                    搜索
+                                </Box>
+                            </Button>
+
+                            <Box sx={{ display: { xs: 'none', sm: 'flex' } }}>
+                                <ThemeModeToggle variant="segmented" />
+                            </Box>
+                            <Box sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                                <ThemeModeToggle variant="icon" />
+                            </Box>
+
+                            <Tooltip title="退出登录">
+                                <IconButton
+                                    size="small"
+                                    onClick={() => setLogoutDialogOpen(true)}
+                                    aria-label="退出登录"
+                                    sx={{
+                                        width: 34,
+                                        height: 34,
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        color: 'text.secondary',
+                                        bgcolor: 'background.paper',
+                                        '&:hover': {
+                                            color: 'error.main',
+                                            borderColor: 'error.main',
+                                            bgcolor: alpha(theme.palette.error.main, 0.08),
+                                        },
+                                    }}
+                                >
+                                    <LogoutIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                            </Tooltip>
+                        </Stack>
+                    </Toolbar>
+                </AppBar>
+
+                {/* Page Content Area */}
+                <Box
+                    component="main"
+                    sx={{
+                        flex: 1,
+                        minHeight: 0,
+                        p: { xs: 1.5, sm: 2.5 },
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden',
+                    }}
+                >
                     <Outlet />
                 </Box>
             </Box>
+
+            {/* Clean Logout Confirmation Dialog */}
+            <Dialog
+                open={logoutDialogOpen}
+                onClose={() => setLogoutDialogOpen(false)}
+                maxWidth="xs"
+                fullWidth
+            >
+                <DialogTitle>退出控制台</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        确定要退出当前管理员会话吗？退出后需要重新验证登录。
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setLogoutDialogOpen(false)} color="inherit">
+                        取消
+                    </Button>
+                    <Button onClick={handleConfirmLogout} variant="contained" color="error">
+                        确认退出
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {manualSearchMounted && (
                 <Suspense fallback={null}>
@@ -290,4 +717,5 @@ function AppLayout() {
         </Box>
     );
 }
+
 export default AppLayout;

@@ -1,10 +1,25 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ircs-ui</title>
+    <title>IRCS 管理台 · Project Hope</title>
+    <script>
+      (function () {
+        try {
+          var key = 'ircs_admin_theme_mode';
+          var stored = window.localStorage.getItem(key);
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var mode = (stored === 'light' || stored === 'dark') ? stored : (prefersDark ? 'dark' : 'light');
+          document.documentElement.dataset.colorScheme = mode;
+          document.documentElement.style.colorScheme = mode;
+          document.documentElement.style.backgroundColor = mode === 'dark' ? '#0A0D12' : '#F5F7FA';
+        } catch (e) {
+          document.documentElement.dataset.colorScheme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

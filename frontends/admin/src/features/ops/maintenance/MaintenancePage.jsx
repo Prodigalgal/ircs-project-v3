@@ -53,38 +53,65 @@ const TASK_NAME_MAP = {
     'aggregation-adult-assessment-backfill': 'adult_assessment_backfill'
 };
 
-function TaskCard({title, description, icon, btnLabel, btnColor, onClick, disabled, isRunning}) {
+function TaskCard({ title, description, icon, btnLabel, btnColor, onClick, disabled, isRunning }) {
     return (
-        <Paper variant="outlined" sx={{p: 3, height: '100%', display: 'flex', flexDirection: 'column'}}>
-            <Box sx={{display: 'flex', alignItems: 'center', mb: 2, color: 'text.secondary'}}>
-                {icon}
-                <Typography
-                    variant="subtitle1"
+        <Paper
+            variant="outlined"
+            sx={{
+                p: 2.5,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                bgcolor: 'background.paper',
+                transition: 'border-color 160ms ease',
+                '&:hover': {
+                    borderColor: 'surface.borderStrong',
+                },
+            }}
+        >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
+                <Box
                     sx={{
-                        fontWeight: "bold",
-                        ml: 1
-                    }}>{title}</Typography>
+                        width: 38,
+                        height: 38,
+                        borderRadius: 2,
+                        bgcolor: 'surface.subtle',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        '& svg': { fontSize: 20 },
+                    }}
+                >
+                    {icon}
+                </Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
+                    {title}
+                </Typography>
                 {isRunning && (
-                    <Chip label="运行中" color="success" size="small" sx={{ml: 'auto'}} variant="outlined"/>
+                    <Chip label="运行中" color="success" size="small" variant="outlined" />
                 )}
             </Box>
             <Typography
                 variant="body2"
                 sx={{
-                    color: "text.secondary",
-                    mb: 3,
-                    flex: 1
-                }}>
+                    color: 'text.secondary',
+                    mb: 2.5,
+                    flex: 1,
+                }}
+            >
                 {description}
             </Typography>
             <Button
-                variant={isRunning ? "outlined" : "contained"}
-                color={isRunning ? "success" : btnColor}
+                variant={isRunning ? 'outlined' : 'contained'}
+                color={isRunning ? 'success' : btnColor}
+                size="small"
                 onClick={onClick}
-                disabled={disabled && !isRunning} // Allow click if running (to resume view)
-                startIcon={isRunning ? <VisibilityIcon/> : <PlayArrowIcon/>}
+                disabled={disabled && !isRunning}
+                startIcon={isRunning ? <VisibilityIcon /> : <PlayArrowIcon />}
+                sx={{ alignSelf: 'flex-start', px: 2 }}
             >
-                {isRunning ? "查看实时监控" : btnLabel}
+                {isRunning ? '查看实时监控' : btnLabel}
             </Button>
         </Paper>
     );
@@ -324,42 +351,38 @@ function MaintenancePage() {
         });
 
     return (
-        <Container maxWidth="lg" sx={{pt: 4, pb: 4, height: '100%', display: 'flex', flexDirection: 'column'}}>
-            <Box sx={{mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+        <Container maxWidth="lg" sx={{ px: { xs: 0, sm: 1 }, pt: 0.5, pb: 4, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 1.5 }}>
                 <Box>
-                    <Typography variant="h4" gutterBottom sx={{
-                        fontWeight: "bold"
-                    }}>
+                    <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.015em' }}>
                         系统维护
                     </Typography>
-                    <Typography variant="body1" sx={{
-                        color: "text.secondary"
-                    }}>
-                        执行系统级的数据治理、重置与同步任务。
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.35 }}>
+                        执行系统级的数据治理、聚合重算、索引重建与同步任务
                     </Typography>
                 </Box>
                 {globalRunningId && (
-                    <Fade in={true}>
-                        <Alert severity="info" variant="outlined" sx={{alignItems: 'center'}}>
+                    <Fade in>
+                        <Alert severity="info" variant="outlined" sx={{ py: 0.25 }}>
                             有后台任务正在运行中，点击对应卡片可查看进度。
                         </Alert>
                     </Fade>
                 )}
             </Box>
 
-            <Box sx={{borderBottom: 1, borderColor: 'divider', mb: 3}}>
+            <Paper variant="outlined" sx={{ mb: 2.5, px: 1 }}>
                 <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} aria-label="maintenance tabs"
                       variant="scrollable" scrollButtons="auto">
-                    <Tab label="全部任务" icon={<DnsIcon/>} iconPosition="start"/>
-                    <Tab label="数据清洗" icon={<BuildIcon/>} iconPosition="start"/>
-                    <Tab label="核心重置" icon={<MergeTypeIcon/>} iconPosition="start"/>
-                    <Tab label="发现与同步" icon={<SyncIcon/>} iconPosition="start"/>
-                    <Tab label="搜索索引" icon={<ManageSearchIcon/>} iconPosition="start"/>
+                    <Tab label="全部任务" icon={<DnsIcon />} iconPosition="start" />
+                    <Tab label="数据清洗" icon={<BuildIcon />} iconPosition="start" />
+                    <Tab label="核心重置" icon={<MergeTypeIcon />} iconPosition="start" />
+                    <Tab label="发现与同步" icon={<SyncIcon />} iconPosition="start" />
+                    <Tab label="搜索索引" icon={<ManageSearchIcon />} iconPosition="start" />
                 </Tabs>
-            </Box>
+            </Paper>
 
-            <Box sx={{flex: 1, overflowY: 'auto', p: 1}}>
-                <Grid container spacing={3}>
+            <Box sx={{ flex: 1, overflowY: 'auto', pb: 2 }}>
+                <Grid container spacing={2.25}>
                     {filteredTasks.map((task) => (
                         <Grid size={{xs: 12, md: 6}} key={task.id}>
                             <Fade in={true} timeout={500}>

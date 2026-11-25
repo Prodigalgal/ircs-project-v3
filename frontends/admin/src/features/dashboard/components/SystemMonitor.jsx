@@ -54,28 +54,28 @@ function SystemMonitor({
             )}
             <TaskRuntimeOverview overview={taskRuntime} loading={taskRuntimeLoading} />
 
-            <Typography variant="overline" color="primary" sx={{ mb: 2, display: 'block', fontWeight: 'bold' }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', mb: 1.5, display: 'block' }}>
                 核心流水线速率 (RATE)
             </Typography>
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid size={{xs:12, sm:6, lg:2.4}}>
-                    <MetricCard title="PT 发现速率" value={formatNumber(stableRate(metrics?.pageDiscoveryRate))} unit="条/分" color="#8884d8" loading={loading} subtitle={rateSubtitle(metrics?.pageDiscoveryRate)} />
+            <Grid container spacing={2} sx={{ mb: 3.5 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}>
+                    <MetricCard title="PT 发现速率" value={formatNumber(stableRate(metrics?.pageDiscoveryRate))} unit="条/分" color="primary.main" loading={loading} subtitle={rateSubtitle(metrics?.pageDiscoveryRate)} />
                 </Grid>
-                <Grid size={{xs:12, sm:6, lg:2.4}}>
-                    <MetricCard title="DT 采集速率" value={formatNumber(stableRate(metrics?.detailCollectionRate))} unit="条/分" color="#38bdf8" loading={loading} subtitle={rateSubtitle(metrics?.detailCollectionRate)} />
+                <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}>
+                    <MetricCard title="DT 采集速率" value={formatNumber(stableRate(metrics?.detailCollectionRate))} unit="条/分" color="primary.main" loading={loading} subtitle={rateSubtitle(metrics?.detailCollectionRate)} />
                 </Grid>
-                <Grid size={{xs:12, sm:6, lg:2.4}}>
-                    <MetricCard title="清洗速率" value={formatNumber(stableRate(metrics?.normalizationRate))} unit="条/分" color="#82ca9d" loading={loading} subtitle={rateSubtitle(metrics?.normalizationRate)} />
+                <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}>
+                    <MetricCard title="清洗速率" value={formatNumber(stableRate(metrics?.normalizationRate))} unit="条/分" color="secondary.main" loading={loading} subtitle={rateSubtitle(metrics?.normalizationRate)} />
                 </Grid>
-                <Grid size={{xs:12, sm:6, lg:2.4}}>
-                    <MetricCard title="元数据速率" value={formatNumber(stableRate(metrics?.metadataRate))} unit="条/分" color="#00C49F" loading={loading} subtitle={rateSubtitle(metrics?.metadataRate)} />
+                <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}>
+                    <MetricCard title="元数据速率" value={formatNumber(stableRate(metrics?.metadataRate))} unit="条/分" color="secondary.main" loading={loading} subtitle={rateSubtitle(metrics?.metadataRate)} />
                 </Grid>
-                <Grid size={{xs:12, sm:6, lg:2.4}}>
+                <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}>
                     <MetricCard
                         title="Valkey 状态"
                         value={metrics?.redisMetric?.opsPerSec || 0}
                         unit="ops/s"
-                        color="#ff7300"
+                        color="text.primary"
                         loading={loading}
                         subtitle={`内存占用: ${formatBytes(metrics?.redisMetric?.usedMemoryBytes)}`}
                     />
@@ -85,21 +85,20 @@ function SystemMonitor({
             <Typography
                 variant="overline"
                 sx={{
-                    color: "warning.main",
-                    mb: 2,
+                    color: 'text.secondary',
+                    mb: 1.5,
                     display: 'block',
-                    fontWeight: 'bold'
                 }}>
                 Valkey 运行态与基础设施背压
             </Typography>
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid size={{xs:12, sm:4}}>
-                    <MetricCard title="Valkey Runtime Backlog" value={formatNumber(valkeyBacklog)} unit="" color="#2dd4bf" loading={loading} subtitle="统一 RuntimeWorkQueue" />
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                    <MetricCard title="Valkey Runtime Backlog" value={formatNumber(valkeyBacklog)} unit="" color="primary.main" loading={loading} subtitle="统一 RuntimeWorkQueue" />
                 </Grid>
-                <Grid size={{xs:12, sm:4}}>
-                    <MetricCard title="Rabbit Remaining" value={formatNumber(rabbitBacklog)} unit="" color="#a78bfa" loading={loading} subtitle="仅剩余 Rabbit 通道" />
+                <Grid size={{ xs: 12, sm: 4 }}>
+                    <MetricCard title="Rabbit Remaining" value={formatNumber(rabbitBacklog)} unit="" color="secondary.main" loading={loading} subtitle="仅剩余 Rabbit 通道" />
                 </Grid>
-                <Grid size={{xs:12, sm:4}}>
+                <Grid size={{ xs: 12, sm: 4 }}>
                     <MetricCard title="DLQ Backlog" value={formatNumber(dlqBacklog)} unit="" color={dlqBacklog > 0 ? 'error.main' : 'success.main'} loading={loading} subtitle="Valkey + Rabbit 死信" />
                 </Grid>
             </Grid>

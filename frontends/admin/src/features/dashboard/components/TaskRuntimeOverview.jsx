@@ -61,31 +61,41 @@ function percent(done, total) {
 
 function StatBlock({ label, value, sub, color = 'text.primary' }) {
     return (
-        <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
+        <Box
+            sx={{
+                p: 1.5,
+                height: '100%',
+                borderRadius: 2,
+                bgcolor: 'surface.subtle',
+                border: '1px solid',
+                borderColor: 'divider',
+            }}
+        >
             <Typography
                 variant="caption"
                 sx={{
-                    color: "text.secondary",
+                    color: 'text.secondary',
                     display: 'block',
-                    mb: 0.5
+                    mb: 0.5,
+                    fontWeight: 600,
                 }}>
                 {label}
             </Typography>
-            <Typography variant="h6" color={color} sx={{ fontWeight: 700, lineHeight: 1.1 }}>
+            <Typography variant="h6" color={color} sx={{ fontWeight: 700, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
                 {formatNumber(value)}
             </Typography>
             {sub && (
                 <Typography
                     variant="caption"
                     sx={{
-                        color: "text.disabled",
+                        color: 'text.secondary',
                         display: 'block',
-                        mt: 0.5
+                        mt: 0.5,
                     }}>
                     {sub}
                 </Typography>
             )}
-        </Paper>
+        </Box>
     );
 }
 

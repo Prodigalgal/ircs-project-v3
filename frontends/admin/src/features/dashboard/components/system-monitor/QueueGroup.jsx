@@ -68,21 +68,21 @@ const QueueBar = memo(function QueueBar({ queue, isDlqGroup, queueIndex, queueLa
                         <MuiTooltip title={blockedReason === 'CONSUMER_PROCESSING_STUCK'
                             ? `Worker 长时间停留在当前处理阶段：${laneText || blockedReasonLabel}`
                             : '队列疑似假死：有积压、有消费者，但后端未观察到领取或完成进展'}>
-                            <Typography variant="caption" sx={{ bgcolor: 'error.main', color: '#fff', px: 0.5, borderRadius: 0.5, fontSize: '0.65rem' }}>
+                            <Typography variant="caption" sx={{ bgcolor: 'error.main', color: 'error.contrastText', px: 0.75, py: 0.1, borderRadius: 1, fontSize: '0.65rem', fontWeight: 600 }}>
                                 STALLED
                             </Typography>
                         </MuiTooltip>
                     )}
                     {isProcessing && (
                         <MuiTooltip title={`Worker 正在处理：${laneText || blockedReasonLabel}`}>
-                            <Typography variant="caption" sx={{ bgcolor: 'success.main', color: '#111', px: 0.5, borderRadius: 0.5, fontSize: '0.65rem', fontWeight: 'bold' }}>
+                            <Typography variant="caption" sx={{ bgcolor: 'success.main', color: 'success.contrastText', px: 0.75, py: 0.1, borderRadius: 1, fontSize: '0.65rem', fontWeight: 600 }}>
                                 处理中
                             </Typography>
                         </MuiTooltip>
                     )}
                     {noConsumers && (
                         <MuiTooltip title={`队列有积压但当前未观察到活跃消费者：${blockedReasonLabel}`}>
-                            <Typography variant="caption" sx={{ bgcolor: 'warning.main', color: '#111', px: 0.5, borderRadius: 0.5, fontSize: '0.65rem', fontWeight: 'bold' }}>
+                            <Typography variant="caption" sx={{ bgcolor: 'warning.main', color: 'warning.contrastText', px: 0.75, py: 0.1, borderRadius: 1, fontSize: '0.65rem', fontWeight: 600 }}>
                                 {blockedReasonLabel}
                             </Typography>
                         </MuiTooltip>
@@ -90,32 +90,33 @@ const QueueBar = memo(function QueueBar({ queue, isDlqGroup, queueIndex, queueLa
                 </Box>
 
                 <Stack direction="row" spacing={1.5} sx={{
-                    alignItems: "center"
+                    alignItems: 'center',
                 }}>
                     <MuiTooltip
                         title={hasRate
                             ? `${rate.label || rateKindLabels[queue.rateKind]}：稳定 ${formatNumber(stableTpm)}/分，瞬时 ${formatNumber(instantTpm)}/分，窗口 ${formatNumber(rate.instantCount || 0)}/${rate.instantWindowSeconds || 60}s${laneText ? `；${laneText}` : ''}`
                             : `NONE：该队列没有可确认的事件桶速率${blockedReason ? `；${blockedReasonLabel}` : ''}${laneText ? `；${laneText}` : ''}`}
                     >
-                        <Box sx={{ display: 'flex', alignItems: 'center', color: isCritical ? 'error.main' : (hasRate ? 'success.main' : 'text.disabled'), opacity: rateActive || !hasRate ? 1 : 0.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', color: isCritical ? 'error.main' : (hasRate ? 'secondary.main' : 'text.disabled'), opacity: rateActive || !hasRate ? 1 : 0.55 }}>
                             <SpeedIcon sx={{ fontSize: 14, mr: 0.5 }} />
-                            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
                                 {hasRate ? `${rateKindLabels[queue.rateKind]} ${formatNumber(stableTpm)}/m` : 'NONE'}
                             </Typography>
                         </Box>
                     </MuiTooltip>
 
                     <Typography variant="caption" sx={{
-                        color: "text.disabled"
+                        color: 'text.disabled',
                     }}>|</Typography>
 
                     <Typography variant="caption" color={(isWarning || isCritical) ? 'error.main' : 'text.primary'} sx={{
-                        fontWeight: "bold"
+                        fontWeight: 600,
+                        fontVariantNumeric: 'tabular-nums',
                     }}>
                         {formatNumber(queue.messageCount)} msg
-                        <span style={{ fontWeight: 'normal', color: '#888', marginLeft: '4px' }}>
+                        <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary', ml: 0.5 }}>
                             / {queue.consumerCount} cons
-                        </span>
+                        </Box>
                     </Typography>
                 </Stack>
             </Box>
@@ -125,11 +126,10 @@ const QueueBar = memo(function QueueBar({ queue, isDlqGroup, queueIndex, queueLa
                 sx={{
                     height: 6,
                     borderRadius: 3,
-                    bgcolor: 'action.hover',
                     '& .MuiLinearProgress-bar': {
-                        bgcolor: isCritical ? 'error.main' : (isWarning ? 'warning.main' : queue.color),
-                        transition: 'transform 0.4s linear'
-                    }
+                        bgcolor: isCritical ? 'error.main' : (isWarning ? 'warning.main' : 'primary.main'),
+                        transition: 'transform 0.4s linear',
+                    },
                 }}
             />
         </Box>

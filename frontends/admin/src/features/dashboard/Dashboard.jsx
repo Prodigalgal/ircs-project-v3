@@ -304,46 +304,68 @@ function Dashboard() {
 
     return (
         <Box sx={{ height: '100%', overflow: 'auto' }}>
-            <Container maxWidth="xl" sx={{ pt: 3, pb: 4 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography variant="h4" sx={{ fontWeight: 'bold' }}>仪表盘</Typography>
+            <Container maxWidth="xl" sx={{ px: { xs: 0, sm: 1 }, pt: 0.5, pb: 4 }}>
+                <Box
+                    sx={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        justifyContent: 'space-between',
+                        alignItems: { xs: 'flex-start', sm: 'center' },
+                        gap: 1.5,
+                        mb: 2,
+                    }}
+                >
+                    <Box>
+                        <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.015em' }}>
+                            运营仪表盘
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>
+                            全局资产概览、流水线运行态监测与数据源健康分析
+                        </Typography>
+                    </Box>
 
-                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
                         {tabIndex === 0 && (
                             <FormControl size="small" variant="outlined" sx={{ minWidth: 120 }}>
                                 <InputLabel>时间范围</InputLabel>
                                 <Select value={days} label="时间范围" onChange={(e) => setDays(e.target.value)}>
-                                    {TIME_RANGES.map(opt => <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>)}
+                                    {TIME_RANGES.map((opt) => (
+                                        <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                                    ))}
                                 </Select>
                             </FormControl>
                         )}
                         <Button
                             variant="contained"
-                            startIcon={isCurrentTabLoading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
+                            size="small"
+                            startIcon={isCurrentTabLoading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon sx={{ fontSize: '17px !important' }} />}
                             onClick={handleGlobalRefresh}
                             disabled={isCurrentTabLoading}
+                            sx={{ height: 36, px: 1.75 }}
                         >
                             {isCurrentTabLoading ? '刷新中...' : '刷新数据'}
                         </Button>
                     </Box>
                 </Box>
 
-                <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                    <Tab icon={<DashboardIcon />} label="总览" iconPosition="start" />
-                    <Tab icon={<MonitorHeart />} label="系统监控" iconPosition="start" />
-                    <Tab icon={<Analytics />} label="源质量分析" iconPosition="start" />
-                </Tabs>
+                <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} variant="scrollable" scrollButtons="auto">
+                        <Tab icon={<DashboardIcon />} label="数据总览" iconPosition="start" />
+                        <Tab icon={<MonitorHeart />} label="系统监控" iconPosition="start" />
+                        <Tab icon={<Analytics />} label="源质量分析" iconPosition="start" />
+                    </Tabs>
+                </Box>
 
                 <TabPanel value={tabIndex} index={0}>
                     {/* Row 1: Stat Cards */}
-                    <Grid container spacing={3} sx={{ mb: 4 }}>
+                    <Grid container spacing={2.25} sx={{ mb: 3 }}>
                         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                             <StatCard
                                 title="源视频总数 (Raw)"
                                 value={stats?.rawCountDb?.toLocaleString() ?? '0'}
                                 subtitle={`ES 索引: ${stats?.rawCountEs?.toLocaleString() ?? '0'}`}
-                                icon={<Movie fontSize="large" />}
-                                color="#2196f3"
+                                icon={<Movie />}
+                                tone="primary"
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -351,16 +373,16 @@ function Dashboard() {
                                 title="聚合视频总数 (Unified)"
                                 value={stats?.unifiedCountDb?.toLocaleString() ?? '0'}
                                 subtitle={`ES 索引: ${stats?.unifiedCountEs?.toLocaleString() ?? '0'}`}
-                                icon={<ViewModule fontSize="large" />}
-                                color="#9c27b0"
+                                icon={<ViewModule />}
+                                tone="secondary"
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                             <StatCard
                                 title="待归一化 (Pending)"
                                 value={stats?.pendingNormalization?.toLocaleString() ?? '0'}
-                                icon={<DataObject fontSize="large" />}
-                                color="#ff9800"
+                                icon={<DataObject />}
+                                tone="warning"
                                 subtitle="等待字段映射清洗"
                             />
                         </Grid>
@@ -368,9 +390,9 @@ function Dashboard() {
                             <StatCard
                                 title="待搜刮元数据"
                                 value={stats?.pendingEnrichment?.toLocaleString() ?? '0'}
-                                icon={<Pending fontSize="large" />}
-                                color="#00bcd4"
-                                subtitle="等待爬虫抓取"
+                                icon={<Pending />}
+                                tone="info"
+                                subtitle="等待权威信息匹配"
                             />
                         </Grid>
                     </Grid>

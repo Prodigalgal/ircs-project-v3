@@ -1,5 +1,14 @@
+// File: frontends/admin/src/features/ops/maintenance/components/ConsoleViewer.jsx
 import React, { useEffect, useRef } from 'react';
 import { Box, Typography } from '@mui/material';
+import { MONO_FONT } from '../../../../theme/themeConfig';
+
+const LOG_COLORS = {
+    error: '#F87171',
+    warning: '#FBBF24',
+    success: '#34D399',
+    default: '#CBD5E1',
+};
 
 function ConsoleViewer({ logs, height = 300 }) {
     const endRef = useRef(null);
@@ -8,39 +17,38 @@ function ConsoleViewer({ logs, height = 300 }) {
         endRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [logs]);
 
-    const getColor = (type) => {
-        switch (type) {
-            case 'error': return '#ff5252';
-            case 'warning': return '#ffb74d';
-            case 'success': return '#69f0ae';
-            default: return '#b0bec5';
-        }
-    };
+    const getColor = (type) => LOG_COLORS[type] || LOG_COLORS.default;
 
     return (
-        <Box sx={{
-            bgcolor: '#000',
-            border: '1px solid #333',
-            borderRadius: 1,
-            p: 2,
-            height: height,
-            overflowY: 'auto',
-            fontFamily: 'Consolas, monospace',
-            fontSize: '0.8rem',
-            lineHeight: 1.6
-        }}>
+        <Box
+            sx={(theme) => ({
+                bgcolor: theme.palette.surface.consoleBg,
+                border: '1px solid',
+                borderColor: theme.palette.surface.consoleBorder,
+                borderRadius: 2,
+                p: 2,
+                height,
+                overflowY: 'auto',
+                fontFamily: MONO_FONT,
+                fontSize: '0.78rem',
+                lineHeight: 1.65,
+                color: theme.palette.surface.consoleText,
+            })}
+        >
             {logs.length === 0 && (
                 <Typography
-                    sx={{
-                        color: "text.disabled",
-                        fontStyle: 'italic'
-                    }}>
+                    sx={(theme) => ({
+                        color: theme.palette.surface.consoleMuted,
+                        fontStyle: 'italic',
+                        fontSize: '0.8rem',
+                    })}
+                >
                     等待任务启动...
                 </Typography>
             )}
             {logs.map((log, index) => (
                 <div key={index} style={{ color: getColor(log.type) }}>
-                    <span style={{ color: '#555', marginRight: 8 }}>
+                    <span style={{ color: '#64748B', marginRight: 8 }}>
                         [{new Date(log.time).toLocaleTimeString()}]
                     </span>
                     {log.msg}

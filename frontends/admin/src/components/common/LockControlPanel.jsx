@@ -7,7 +7,22 @@ import RuleIcon from '@mui/icons-material/Rule';
 
 function LockControlPanel({ lockedCount, totalCount, onLockAll, onUnlockAll }) {
     return (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
+        <Box
+            sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1.5,
+                mb: 2,
+                px: 1.75,
+                py: 1.25,
+                bgcolor: 'surface.subtle',
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+            }}
+        >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <RuleIcon color="primary" fontSize="small" />
                 <Typography variant="body2" sx={{

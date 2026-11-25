@@ -440,11 +440,11 @@ function QueueRuntimePanel({ runtime, loading }) {
                                     {formatNumber(pagePending(page))}
                                 </TableCell>
                                 <TableCell>
-                                    <Typography variant="caption" sx={{ color: '#66bb6a' }}>
+                                    <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>
                                         {formatNumber(page.detailSucceeded)}
                                     </Typography>
                                     <Typography variant="caption" sx={{ mx: 0.5, color: 'text.disabled' }}>/</Typography>
-                                    <Typography variant="caption" sx={{ color: page.detailFailed > 0 ? '#ef5350' : 'text.secondary' }}>
+                                    <Typography variant="caption" sx={{ color: page.detailFailed > 0 ? 'error.main' : 'text.secondary', fontWeight: page.detailFailed > 0 ? 600 : 400 }}>
                                         {formatNumber(page.detailFailed)}
                                     </Typography>
                                 </TableCell>
@@ -557,18 +557,18 @@ function TaskDetailDialog({ open, onClose, taskId }) {
             return new Date(task.statEndTime).toLocaleString();
         }
         if (['RUNNING', 'QUEUED', 'PAUSED', 'STOPPING'].includes(task?.status)) {
-            return <span style={{ color: '#4caf50', fontStyle: 'italic' }}>执行中...</span>;
+            return <Box component="span" sx={{ color: 'success.main', fontStyle: 'italic' }}>执行中...</Box>;
         }
         return '-';
     };
 
     const getLogColor = (level) => {
         switch (level) {
-            case 'ERROR': return '#ff5252';
-            case 'WARN': return '#ffb74d';
-            case 'SKIP': return '#ffa726';
-            case 'INFO': return '#69f0ae';
-            default: return '#b0bec5';
+            case 'ERROR': return '#F87171';
+            case 'WARN': return '#FBBF24';
+            case 'SKIP': return '#F59E0B';
+            case 'INFO': return '#34D399';
+            default: return '#CBD5E1';
         }
     };
 
@@ -630,10 +630,10 @@ function TaskDetailDialog({ open, onClose, taskId }) {
                                         当前进度 (页码)
                                     </Typography>
                                     <Typography variant="body2" sx={{
-                                        fontWeight: "bold"
+                                        fontWeight: 700,
                                     }}>
                                         {progress.currentPage} / {pageEndDisplay}
-                                        <span style={{ color: '#888' }}> ({progress.progressPercent}%)</span>
+                                        <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}> ({progress.progressPercent}%)</Box>
                                     </Typography>
                                 </Box>
                             </Box>
@@ -697,18 +697,18 @@ function TaskDetailDialog({ open, onClose, taskId }) {
                                 }}>
                                 入库结果分布 (Insert / Update / Ignore / Fail)
                             </Typography>
-                            <Box sx={{ display: 'flex', height: 24, borderRadius: 1, overflow: 'hidden', bgcolor: 'action.disabledBackground', mt: 1 }}>
+                            <Box sx={{ display: 'flex', height: 22, borderRadius: 1.5, overflow: 'hidden', bgcolor: 'action.disabledBackground', mt: 1 }}>
                                 <Tooltip title={`新增: ${progress.inserted}`}>
-                                    <Box sx={{ width: `${progress.distribution.ins}%`, bgcolor: '#66bb6a', transition: 'width 0.5s' }} />
+                                    <Box sx={{ width: `${progress.distribution.ins}%`, bgcolor: 'success.main', transition: 'width 0.5s' }} />
                                 </Tooltip>
                                 <Tooltip title={`更新: ${progress.updated}`}>
-                                    <Box sx={{ width: `${progress.distribution.upd}%`, bgcolor: '#42a5f5', transition: 'width 0.5s' }} />
+                                    <Box sx={{ width: `${progress.distribution.upd}%`, bgcolor: 'primary.main', transition: 'width 0.5s' }} />
                                 </Tooltip>
                                 <Tooltip title={`跳过: ${progress.ignored}`}>
-                                    <Box sx={{ width: `${progress.distribution.ign}%`, bgcolor: '#ffa726', transition: 'width 0.5s' }} />
+                                    <Box sx={{ width: `${progress.distribution.ign}%`, bgcolor: 'warning.main', transition: 'width 0.5s' }} />
                                 </Tooltip>
                                 <Tooltip title={`失败: ${progress.failed}`}>
-                                    <Box sx={{ width: `${progress.distribution.fail}%`, bgcolor: '#ef5350', transition: 'width 0.5s' }} />
+                                    <Box sx={{ width: `${progress.distribution.fail}%`, bgcolor: 'error.main', transition: 'width 0.5s' }} />
                                 </Tooltip>
                             </Box>
                             <Stack
@@ -716,40 +716,47 @@ function TaskDetailDialog({ open, onClose, taskId }) {
                                 spacing={2}
                                 useFlexGap
                                 sx={{
-                                    flexWrap: "wrap",
-                                    mt: 0.75
+                                    flexWrap: 'wrap',
+                                    mt: 0.75,
                                 }}>
-                                <Typography variant="caption" sx={{ color: '#66bb6a' }}>新增: {formatNumber(progress.inserted)}</Typography>
-                                <Typography variant="caption" sx={{ color: '#42a5f5' }}>更新: {formatNumber(progress.updated)}</Typography>
-                                <Typography variant="caption" sx={{ color: '#ffa726' }}>跳过: {formatNumber(progress.ignored)}</Typography>
-                                <Typography variant="caption" sx={{ color: '#ef5350' }}>失败: {formatNumber(progress.failed)}</Typography>
+                                <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 500 }}>新增: {formatNumber(progress.inserted)}</Typography>
+                                <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 500 }}>更新: {formatNumber(progress.updated)}</Typography>
+                                <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 500 }}>跳过: {formatNumber(progress.ignored)}</Typography>
+                                <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 500 }}>失败: {formatNumber(progress.failed)}</Typography>
                             </Stack>
                         </Paper>
 
                         <QueueRuntimePanel runtime={runtime} loading={isRuntimeLoading} />
 
                         {task.lastErrorMessage && (
-                            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'rgba(244,67,54,0.05)' }}>
+                            <Paper
+                                variant="outlined"
+                                sx={(theme) => ({
+                                    p: 2,
+                                    bgcolor: theme.palette.surface.codeBg,
+                                    borderColor: 'error.main',
+                                })}
+                            >
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
                                     <Typography variant="subtitle2" color="error">最近一次致命错误</Typography>
                                     <Button
                                         size="small"
                                         startIcon={<ContentCopyIcon />}
                                         onClick={handleCopyError}
-                                        sx={{ fontSize: '0.7rem' }}
+                                        sx={{ fontSize: '0.72rem' }}
                                     >
                                         复制日志
                                     </Button>
                                 </Box>
                                 <Box
                                     sx={{
-                                        color: '#ff8a80',
+                                        color: 'error.main',
                                         fontFamily: 'monospace',
                                         fontSize: '0.75rem',
                                         maxHeight: 120,
                                         overflow: 'auto',
                                         whiteSpace: 'pre-wrap',
-                                        wordBreak: 'break-all'
+                                        wordBreak: 'break-all',
                                     }}
                                 >
                                     {task.lastErrorMessage}
@@ -758,41 +765,45 @@ function TaskDetailDialog({ open, onClose, taskId }) {
                         )}
 
                         <Box>
-                            <Typography variant="caption" sx={{ fontWeight: 'bold', mb: 1, color: 'text.secondary', display: 'block' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, color: 'text.secondary', display: 'block' }}>
                                 实时运行审计日志 (Redis Top 200)
                             </Typography>
-                            <Box sx={{
-                                bgcolor: '#000',
-                                border: '1px solid #333',
-                                borderRadius: 1,
-                                p: 1.5,
-                                overflowY: 'auto',
-                                minHeight: 260,
-                                maxHeight: 360,
-                                fontFamily: 'Consolas, monospace',
-                                fontSize: '0.75rem',
-                                lineHeight: 1.6
-                            }}>
+                            <Box
+                                sx={(theme) => ({
+                                    bgcolor: theme.palette.surface.consoleBg,
+                                    border: '1px solid',
+                                    borderColor: theme.palette.surface.consoleBorder,
+                                    borderRadius: 2,
+                                    p: 1.5,
+                                    overflowY: 'auto',
+                                    minHeight: 260,
+                                    maxHeight: 360,
+                                    fontFamily: 'Consolas, monospace',
+                                    fontSize: '0.75rem',
+                                    lineHeight: 1.65,
+                                    color: theme.palette.surface.consoleText,
+                                })}
+                            >
                                 {logs.length === 0 && (
                                     <Typography
-                                        sx={{
-                                            color: "text.disabled",
+                                        sx={(theme) => ({
+                                            color: theme.palette.surface.consoleMuted,
                                             fontStyle: 'italic',
                                             textAlign: 'center',
-                                            mt: 8
-                                        }}>
+                                            mt: 8,
+                                        })}>
                                         暂无日志数据，等待任务执行...
                                     </Typography>
                                 )}
                                 {logs.slice().reverse().map((log, index) => (
                                     <div key={index} style={{ color: getLogColor(log.level) }}>
-                                        <span style={{ color: '#555', marginRight: 8 }}>
+                                        <span style={{ color: '#64748B', marginRight: 8 }}>
                                             [{new Date(log.timestamp).toLocaleTimeString()}]
                                         </span>
-                                        <span style={{ display: 'inline-block', width: 40, fontWeight: 'bold' }}>
+                                        <span style={{ display: 'inline-block', width: 42, fontWeight: 600 }}>
                                             {log.level}
                                         </span>
-                                        <span style={{ color: '#00bcd4', marginRight: 8 }}>
+                                        <span style={{ color: '#38BDF8', marginRight: 8 }}>
                                             [{log.sourceVid || 'SYSTEM'}]
                                         </span>
                                         {log.message}

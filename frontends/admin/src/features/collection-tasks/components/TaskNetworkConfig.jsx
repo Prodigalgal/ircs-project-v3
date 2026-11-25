@@ -37,7 +37,7 @@ function TaskNetworkConfig({ formData, errors, handleChange, handleNumberChange,
             </Grid>
 
             <Grid size={{ xs: 12 }}>
-                <Box sx={{ border: '1px solid rgba(255, 255, 255, 0.23)', borderRadius: 1, p: 2 }}>
+                <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2, bgcolor: 'background.paper' }}>
                     <Typography variant="caption" sx={{
                         color: "text.secondary"
                     }}>代理设置</Typography>

@@ -1,33 +1,65 @@
+// File: frontends/admin/src/features/dashboard/components/system-monitor/MetricCard.jsx
 import React, { memo } from 'react';
-import { LinearProgress, Paper, Typography } from '@mui/material';
+import { Box, LinearProgress, Paper, Typography } from '@mui/material';
 
 function MetricCard({ title, value, unit, color = 'primary.main', loading, subtitle }) {
     return (
-        <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-            {loading && <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, width: '100%' }} />}
+        <Paper
+            variant="outlined"
+            sx={{
+                p: 2.25,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+                bgcolor: 'background.paper',
+            }}
+        >
+            {loading && <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 2 }} />}
             <Typography
-                variant="body2"
-                gutterBottom
+                variant="caption"
                 sx={{
-                    color: "text.secondary",
-                    fontSize: '0.75rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '1px'
-                }}>
+                    color: 'text.secondary',
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    letterSpacing: '0.02em',
+                    mb: 1,
+                }}
+            >
                 {title}
             </Typography>
-            <Typography variant="h4" color={color} sx={{
-                fontWeight: "500"
-            }}>
-                {value} <span style={{ fontSize: '0.9rem', color: '#666', fontWeight: 'normal' }}>{unit}</span>
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
+                <Typography
+                    variant="h4"
+                    color={color}
+                    sx={{
+                        fontWeight: 700,
+                        fontSize: '1.55rem',
+                        letterSpacing: '-0.02em',
+                        fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1.15,
+                    }}
+                >
+                    {value}
+                </Typography>
+                {unit && (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                        {unit}
+                    </Typography>
+                )}
+            </Box>
             {subtitle && (
                 <Typography
                     variant="caption"
+                    noWrap
                     sx={{
-                        color: "text.disabled",
-                        mt: 1
-                    }}>
+                        color: 'text.secondary',
+                        mt: 1,
+                        fontSize: '0.72rem',
+                    }}
+                >
                     {subtitle}
                 </Typography>
             )}

@@ -1,4 +1,4 @@
-// File: ircs-frontend/src/features/settings/SystemConfigList.jsx
+// File: frontends/admin/src/features/settings/SystemConfigList.jsx
 import React, { useState } from 'react';
 import {
     Box,
@@ -9,7 +9,7 @@ import {
     CircularProgress,
     Button,
     Paper,
-    Stack
+    Stack,
 } from '@mui/material';
 import KeyIcon from '@mui/icons-material/Key';
 
@@ -33,24 +33,17 @@ function SystemConfigList() {
 
     return (
         <Box sx={{ height: '100%', overflow: 'auto' }}>
-            <Container maxWidth="lg" sx={{ pb: 8, pt: 2 }}>
-                <Box sx={{ mb: 4 }}>
-                    <Typography variant="h4" gutterBottom sx={{
-                        fontWeight: "900"
-                    }}>
-                        SYSTEM_SETTINGS
+            <Container maxWidth="lg" sx={{ px: { xs: 0, sm: 1 }, pb: 6, pt: 0.5 }}>
+                <Box sx={{ mb: 2.5 }}>
+                    <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.015em' }}>
+                        系统参数设置
                     </Typography>
-                    <Typography
-                        variant="body1"
-                        sx={{
-                            color: "text.secondary",
-                            fontFamily: 'monospace'
-                        }}>
-                        Global configurations for IRCS Terminal nodes.
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.35 }}>
+                        全局运行参数、调度策略、AI 引擎与安全认证配置
                     </Typography>
                 </Box>
 
-                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                <Paper variant="outlined" sx={{ mb: 2.5, px: 1 }}>
                     <Tabs
                         value={currentTab}
                         onChange={handleTabChange}
@@ -65,26 +58,22 @@ function SystemConfigList() {
                                 label={group.title}
                                 icon={group.icon}
                                 iconPosition="start"
-                                sx={{
-                                    minHeight: 60,
-                                    fontWeight: 'bold',
-                                    fontSize: '0.85rem'
-                                }}
+                                sx={{ minHeight: 48 }}
                             />
                         ))}
                     </Tabs>
-                </Box>
+                </Paper>
 
                 {isLoading ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-                        <CircularProgress color="inherit" />
+                        <CircularProgress size={28} />
                     </Box>
                 ) : (
                     <Box>
                         {CONFIG_GROUPS.map((group, index) => (
                             <div key={group.id} role="tabpanel" hidden={currentTab !== index}>
                                 {currentTab === index && (
-                                    <Stack spacing={3}>
+                                    <Stack spacing={2.5}>
                                         <ConfigTabPanel
                                             group={group}
                                             allConfigs={configsMap}
@@ -94,13 +83,21 @@ function SystemConfigList() {
 
                                         {/* 仅在安全设置页签额外显示密码修改入口 */}
                                         {group.id === 'security' && (
-                                            <Paper variant="outlined" sx={{ p: 4, bgcolor: '#050505', border: '1px solid #333' }}>
-                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper' }}>
+                                                <Box
+                                                    sx={{
+                                                        display: 'flex',
+                                                        flexWrap: 'wrap',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        gap: 2,
+                                                    }}
+                                                >
                                                     <Box>
-                                                        <Typography variant="h6" sx={{ color: '#fff' }}>认证管理</Typography>
-                                                        <Typography variant="body2" sx={{
-                                                            color: "text.secondary"
-                                                        }}>
+                                                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                                            管理员认证安全
+                                                        </Typography>
+                                                        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
                                                             修改管理员登录密码。操作成功后将执行全局令牌失效逻辑，强制注销所有当前在线会话。
                                                         </Typography>
                                                     </Box>
@@ -109,7 +106,6 @@ function SystemConfigList() {
                                                         color="error"
                                                         startIcon={<KeyIcon />}
                                                         onClick={() => setIsPwdDialogOpen(true)}
-                                                        sx={{ borderRadius: '2px', borderWidth: '1px', '&:hover': { borderWidth: '1px' } }}
                                                     >
                                                         修改管理密码
                                                     </Button>

@@ -38,15 +38,15 @@ function SourceQualityTable({ data, loading }) {
     }
 
     return (
-        <Box sx={{ mt: 3, position: 'relative' }}>
-            {loading && <LinearProgress sx={{ position: 'absolute', top: -4, left: 0, right: 0, zIndex: 1 }} />}
-            <TableContainer component={Paper} variant="outlined">
+        <Box sx={{ mt: 1, position: 'relative' }}>
+            {loading && <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, zIndex: 1 }} />}
+            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                 <Table size="small">
                     <TableHead>
                         <TableRow>
                             <TableCell>数据源名称</TableCell>
                             <TableCell align="right">总视频数</TableCell>
-                            <TableCell align="right" sx={{ width: 150 }}>健康度评分</TableCell>
+                            <TableCell align="right" sx={{ width: 160 }}>健康度评分</TableCell>
                             <TableCell align="right">完美匹配 (Done)</TableCell>
                             <TableCell align="right">ID缺失 (No ID)</TableCell>
                             <TableCell align="right">归一化失败 (Parse Err)</TableCell>
@@ -55,16 +55,16 @@ function SourceQualityTable({ data, loading }) {
                     </TableHead>
                     <TableBody>
                         {data.map((row) => (
-                            <TableRow key={row.dataSourceId}>
-                                <TableCell component="th" scope="row" sx={{ fontWeight: 'bold' }}>{row.dataSourceName}</TableCell>
+                            <TableRow key={row.dataSourceId} hover>
+                                <TableCell component="th" scope="row" sx={{ fontWeight: 600 }}>{row.dataSourceName}</TableCell>
                                 <TableCell align="right">{row.totalCount}</TableCell>
                                 <TableCell align="right">
                                     <QualityScore score={row.qualityScore} />
                                 </TableCell>
-                                <TableCell align="right" sx={{ color: 'success.main' }}>{row.perfectCount}</TableCell>
-                                <TableCell align="right" sx={{ color: 'warning.main' }}>{row.missingDoubanCount + row.missingTmdbCount}</TableCell>
-                                <TableCell align="right" sx={{ color: 'error.main' }}>{row.normalizeFailedCount}</TableCell>
-                                <TableCell align="right" sx={{ color: 'error.main' }}>{row.imageErrorCount}</TableCell>
+                                <TableCell align="right" sx={{ color: 'success.main', fontWeight: 600 }}>{row.perfectCount}</TableCell>
+                                <TableCell align="right" sx={{ color: 'warning.main', fontWeight: 600 }}>{row.missingDoubanCount + row.missingTmdbCount}</TableCell>
+                                <TableCell align="right" sx={{ color: 'error.main', fontWeight: 600 }}>{row.normalizeFailedCount}</TableCell>
+                                <TableCell align="right" sx={{ color: 'error.main', fontWeight: 600 }}>{row.imageErrorCount}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>

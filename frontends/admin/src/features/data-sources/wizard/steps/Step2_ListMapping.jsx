@@ -56,11 +56,24 @@ function Step2_ListMapping() {
                     <Button variant="contained" onClick={handleFetchSample} disabled={isLoading || !formData.baseUrl || !formData.listPath} sx={{ mt: 1 }}>
                         {isLoading ? <CircularProgress size={24} /> : '获取示例数据'}
                     </Button>
-                    <Paper variant="outlined" sx={{ p: 2, mt: 2, minHeight: 250, backgroundColor: '#222', overflow: 'auto', maxHeight: '40vh' }}>
-                        <Typography variant="subtitle2" sx={{color: 'text.secondary', mb: 1}}>API 响应预览</Typography>
-                        {/* We can keep local error display if we want specific context, or rely on global snackbar */}
+                    <Paper
+                        variant="outlined"
+                        sx={(theme) => ({
+                            p: 2,
+                            mt: 2,
+                            minHeight: 250,
+                            bgcolor: theme.palette.surface.codeBg,
+                            overflow: 'auto',
+                            maxHeight: '40vh',
+                        })}
+                    >
+                        <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 1 }}>API 响应预览</Typography>
                         {error && <Alert severity="error">请求失败 (详情见右上角通知)</Alert>}
-                        {sampleJsonResponse && <pre style={{ color: '#eee', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{JSON.stringify(sampleJsonResponse, null, 2)}</pre>}
+                        {sampleJsonResponse && (
+                            <pre style={{ color: 'inherit', margin: 0, fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                {JSON.stringify(sampleJsonResponse, null, 2)}
+                            </pre>
+                        )}
                     </Paper>
                 </Grid>
 

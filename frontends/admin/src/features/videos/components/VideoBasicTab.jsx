@@ -149,7 +149,7 @@ function VideoBasicTab({ formData, handleChange, isLocked, handleLockChange }) {
             <Grid size={{ xs: 12, md: 4 }}>
                 <Card variant="outlined" sx={{
                     height: '100%', minHeight: 350, display: 'flex', flexDirection: 'column',
-                    alignItems: 'center', bgcolor: '#000', position: 'relative', p: 1
+                    alignItems: 'center', bgcolor: 'surface.subtle', position: 'relative', p: 1.5,
                 }}>
                     <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                         <CardMedia

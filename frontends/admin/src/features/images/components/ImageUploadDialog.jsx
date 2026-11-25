@@ -57,7 +57,7 @@ function ImageUploadDialog({ open, onClose }) {
                             component="img"
                             src={preview}
                             alt="preview"
-                            sx={{ maxHeight: 200, maxWidth: '100%', borderRadius: 1, border: '1px solid #444' }}
+                            sx={{ maxHeight: 200, maxWidth: '100%', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}
                         />
                     )}
                     {isLoading && <LinearProgress sx={{ width: '100%' }} />}

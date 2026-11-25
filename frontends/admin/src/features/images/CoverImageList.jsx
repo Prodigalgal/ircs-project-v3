@@ -78,7 +78,7 @@ function CoverImageList() {
                     // 修正点 1: 始终使用 resolvedUrl
                     src={row.resolvedUrl}
                     alt="thumb"
-                    sx={{ width: 40, height: 60, objectFit: 'cover', borderRadius: 0.5, bgcolor: '#000', cursor: 'pointer' }}
+                    sx={{ width: 40, height: 60, objectFit: 'cover', borderRadius: 1, bgcolor: 'surface.subtle', border: '1px solid', borderColor: 'divider', cursor: 'pointer' }}
                     onError={(e) => e.target.src = 'https://via.placeholder.com/40x60?text=Err'}
                     referrerPolicy="no-referrer"
                     onClick={() => window.open(row.resolvedUrl, '_blank')}

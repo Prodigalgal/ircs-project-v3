@@ -40,18 +40,34 @@ function Step4_Preview() {
             <Grid container spacing={2} sx={{ mt: 2 }}>
                 <Grid size={{ xs: 12, md: 6 }}>
                     <Typography variant="subtitle1" gutterBottom>映射配置 (摘要)</Typography>
-                    <Paper variant="outlined" sx={{ p: 2, backgroundColor: '#222', overflow: 'auto', height: '50vh' }}>
-                         <pre style={{ color: '#eee', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                             {JSON.stringify(formData.fieldMapping, null, 2)}
-                         </pre>
+                    <Paper
+                        variant="outlined"
+                        sx={(theme) => ({
+                            p: 2,
+                            bgcolor: theme.palette.surface.codeBg,
+                            overflow: 'auto',
+                            height: '50vh',
+                        })}
+                    >
+                        <pre style={{ color: 'inherit', margin: 0, fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                            {JSON.stringify(formData.fieldMapping, null, 2)}
+                        </pre>
                     </Paper>
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
                     <Typography variant="subtitle1" gutterBottom>生成的视频对象预览</Typography>
-                    <Paper variant="outlined" sx={{ p: 2, backgroundColor: '#222', overflow: 'auto', height: '50vh' }}>
-                         <pre style={{ color: '#eee', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                             {JSON.stringify(previewResult, null, 2)}
-                         </pre>
+                    <Paper
+                        variant="outlined"
+                        sx={(theme) => ({
+                            p: 2,
+                            bgcolor: theme.palette.surface.codeBg,
+                            overflow: 'auto',
+                            height: '50vh',
+                        })}
+                    >
+                        <pre style={{ color: 'inherit', margin: 0, fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                            {JSON.stringify(previewResult, null, 2)}
+                        </pre>
                     </Paper>
                 </Grid>
             </Grid>

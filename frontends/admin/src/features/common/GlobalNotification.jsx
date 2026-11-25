@@ -26,7 +26,17 @@ function GlobalNotification() {
             onClose={handleClose}
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
-            <Alert onClose={handleClose} severity={severity} variant="filled" sx={{ width: '100%' }}>
+            <Alert
+                onClose={handleClose}
+                severity={severity}
+                variant="filled"
+                sx={{
+                    width: '100%',
+                    borderRadius: 2.5,
+                    boxShadow: 4,
+                    fontWeight: 500,
+                }}
+            >
                 {message}
             </Alert>
         </Snackbar>

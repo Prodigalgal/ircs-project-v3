@@ -318,11 +318,11 @@ function UnifiedVideoList() {
             renderCell: ({row}) => (
                 <Box>
                     <Typography variant="body2" noWrap sx={{
-                        fontWeight: "500"
+                        fontWeight: 500,
                     }}>
                         {row.title}
-                        {row.season && <span style={{ color: '#4caf50', marginLeft: 4 }}> S{row.season}</span>}
-                        {row.subtitle && <span style={{ color: '#90a4ae' }}> · {row.subtitle}</span>}
+                        {row.season && <Box component="span" sx={{ color: 'secondary.main', fontWeight: 600, ml: 0.5 }}>S{row.season}</Box>}
+                        {row.subtitle && <Box component="span" sx={{ color: 'text.secondary' }}> · {row.subtitle}</Box>}
                     </Typography>
                     {row.aliasTitle && <Typography
                         variant="caption"

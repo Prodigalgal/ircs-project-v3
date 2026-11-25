@@ -132,7 +132,7 @@ function TaskProgressCell({ task }) {
                         variant={progressVariant}
                         value={progressPercent}
                         color={barColor}
-                        sx={{ height: 6, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.08)' }}
+                        sx={{ height: 6, borderRadius: 1 }}
                     />
                 </Box>
                 {progressVariant === 'determinate' && (
@@ -147,16 +147,16 @@ function TaskProgressCell({ task }) {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
                 {hasBreakdownStats ? (
                     <Stack direction="row" spacing={1.5}>
-                        <Typography variant="caption" sx={{ color: '#66bb6a', fontSize: '0.7rem' }} title="新增数">
+                        <Typography variant="caption" sx={{ color: 'success.main', fontSize: '0.7rem', fontWeight: 500 }} title="新增数">
                             +{inserted}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#42a5f5', fontSize: '0.7rem' }} title="更新数">
+                        <Typography variant="caption" sx={{ color: 'primary.main', fontSize: '0.7rem', fontWeight: 500 }} title="更新数">
                             ~{updated}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#ffa726', fontSize: '0.7rem' }} title="跳过数">
+                        <Typography variant="caption" sx={{ color: 'warning.main', fontSize: '0.7rem', fontWeight: 500 }} title="跳过数">
                             -{ignored}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#ef5350', fontSize: '0.7rem', fontWeight: failed > 0 ? 'bold' : 'normal' }} title="失败数">
+                        <Typography variant="caption" sx={{ color: 'error.main', fontSize: '0.7rem', fontWeight: failed > 0 ? 700 : 500 }} title="失败数">
                             !{failed}
                         </Typography>
                     </Stack>

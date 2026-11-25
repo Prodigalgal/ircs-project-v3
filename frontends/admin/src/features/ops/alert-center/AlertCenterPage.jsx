@@ -488,7 +488,7 @@ function AlertCenterPage() {
                 </Grid>
             </Grid>
 
-            <Paper sx={{ mb: 2 }}>
+            <Paper variant="outlined" sx={{ mb: 2, px: 1 }}>
                 <Tabs value={tab} onChange={(event, value) => setTab(value)} variant="scrollable" scrollButtons="auto">
                     <Tab icon={<WarningAmberIcon />} label="事件聚合" iconPosition="start" />
                     <Tab icon={<HistoryIcon />} label="事件明细" iconPosition="start" />

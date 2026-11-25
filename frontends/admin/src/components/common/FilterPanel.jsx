@@ -1,6 +1,7 @@
-// ircs-frontend/src/components/common/FilterPanel.jsx
-import React, { useState } from 'react';
-import { Box, Button, Collapse, Grid, TextField, MenuItem, Paper } from '@mui/material';
+// File: frontends/admin/src/components/common/FilterPanel.jsx
+import React, { useMemo, useState } from 'react';
+import { Box, Button, Chip, Collapse, Grid, MenuItem, Paper, Stack, TextField } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -13,13 +14,18 @@ function cleanFilterValues(rawValues) {
             if (value === null || value === undefined) return false;
             if (typeof value === 'string') return value.trim() !== '';
             return true;
-        })
+        }),
     );
 }
 
 function FilterPanel({ fields, onSearch, onReset, initialValues = {}, defaultExpanded = false }) {
     const [expanded, setExpanded] = useState(defaultExpanded);
     const [values, setValues] = useState(initialValues);
+
+    const activeCount = useMemo(
+        () => Object.keys(cleanFilterValues(values)).length,
+        [values],
+    );
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -87,7 +93,7 @@ function FilterPanel({ fields, onSearch, onReset, initialValues = {}, defaultExp
                 placeholder={field.placeholder || ''}
                 type={['number', 'date', 'datetime-local'].includes(field.type) ? field.type : 'text'}
                 slotProps={{
-                    inputLabel: field.type === 'date' || field.type === 'datetime-local' ? { shrink: true } : undefined
+                    inputLabel: field.type === 'date' || field.type === 'datetime-local' ? { shrink: true } : undefined,
                 }}
             />
         );
@@ -96,49 +102,77 @@ function FilterPanel({ fields, onSearch, onReset, initialValues = {}, defaultExp
     if (!fields || fields.length === 0) return null;
 
     return (
-        <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+        <Box sx={{ mb: 1.75 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: expanded ? 1.25 : 0 }}>
                 <Button
-                    startIcon={<FilterListIcon />}
-                    endIcon={expanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-                    onClick={() => setExpanded(!expanded)}
+                    startIcon={<FilterListIcon sx={{ fontSize: '17px !important' }} />}
+                    endIcon={expanded ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
+                    onClick={() => setExpanded((prev) => !prev)}
                     size="small"
-                    variant="text"
+                    variant="outlined"
                     color="inherit"
+                    sx={(theme) => ({
+                        borderColor: activeCount > 0 ? alpha(theme.palette.primary.main, 0.45) : 'divider',
+                        bgcolor: activeCount > 0 ? alpha(theme.palette.primary.main, 0.06) : 'background.paper',
+                        color: activeCount > 0 ? 'primary.main' : 'text.secondary',
+                        px: 1.5,
+                        '&:hover': {
+                            borderColor: 'primary.main',
+                            color: 'primary.main',
+                        },
+                    })}
                 >
-                    {expanded ? '隐藏筛选条件' : '显示筛选条件'}
+                    {expanded ? '收起筛选' : '筛选条件'}
                 </Button>
-            </Box>
+
+                {activeCount > 0 && (
+                    <Chip
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                        label={`已选 ${activeCount} 项`}
+                        onDelete={handleReset}
+                        sx={{ height: 26, fontSize: '0.74rem' }}
+                    />
+                )}
+            </Stack>
 
             <Collapse in={expanded}>
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
-                    <Grid container spacing={2} sx={{
-                        alignItems: "center"
-                    }}>
+                <Paper
+                    variant="outlined"
+                    sx={{
+                        p: 2,
+                        bgcolor: 'background.paper',
+                    }}
+                >
+                    <Grid container spacing={1.75} sx={{ alignItems: 'center' }}>
                         {fields.map((field) => (
                             <Grid key={field.name} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                                 {renderField(field)}
                             </Grid>
                         ))}
                         <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                            <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Stack direction="row" spacing={1}>
                                 <Button
                                     variant="contained"
-                                    startIcon={<SearchIcon />}
+                                    startIcon={<SearchIcon sx={{ fontSize: '17px !important' }} />}
                                     onClick={handleSearch}
-                                    size="medium"
+                                    size="small"
+                                    sx={{ px: 2, height: 38 }}
                                 >
                                     查询
                                 </Button>
                                 <Button
                                     variant="outlined"
-                                    startIcon={<ClearIcon />}
+                                    color="inherit"
+                                    startIcon={<ClearIcon sx={{ fontSize: '17px !important' }} />}
                                     onClick={handleReset}
-                                    size="medium"
+                                    size="small"
+                                    sx={{ px: 1.75, height: 38, borderColor: 'divider', color: 'text.secondary' }}
                                 >
                                     重置
                                 </Button>
-                            </Box>
+                            </Stack>
                         </Grid>
                     </Grid>
                 </Paper>

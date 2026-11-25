@@ -13,17 +13,19 @@ const ScraperVideoCard = ({ data }) => (
     <Box
         sx={{
             display: 'flex',
-            p: 1,
-            bgcolor: '#1e1e1e',
-            borderRadius: 1,
-            borderLeft: `4px solid`,
-            borderColor: data.errorMessage ? 'error.main' : (data.status === 'INSERTED' ? 'success.main' : 'info.main'),
-            boxShadow: 1,
-            transition: 'transform 0.2s',
+            p: 1.25,
+            bgcolor: 'background.paper',
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderLeftWidth: 3,
+            borderLeftColor: data.errorMessage ? 'error.main' : (data.status === 'INSERTED' ? 'success.main' : 'primary.main'),
+            transition: 'border-color 160ms ease, transform 160ms ease',
             '&:hover': {
-                transform: 'translateY(-2px)',
-                boxShadow: 3
-            }
+                transform: 'translateY(-1px)',
+                borderColor: 'surface.borderStrong',
+                borderLeftColor: data.errorMessage ? 'error.main' : (data.status === 'INSERTED' ? 'success.main' : 'primary.main'),
+            },
         }}
     >
         <Box
@@ -31,7 +33,7 @@ const ScraperVideoCard = ({ data }) => (
             src={data.coverImageUrl}
             loading="lazy"
             decoding="async"
-            sx={{ width: 70, height: 105, objectFit: 'cover', borderRadius: 1, bgcolor: '#000', flexShrink: 0 }}
+            sx={{ width: 68, height: 102, objectFit: 'cover', borderRadius: 1.5, bgcolor: 'surface.subtle', border: '1px solid', borderColor: 'divider', flexShrink: 0 }}
             alt="cover"
             onError={(e) => e.target.src = 'https://via.placeholder.com/70x105?text=No+Img'}
             referrerPolicy="no-referrer"
@@ -73,7 +75,7 @@ const ScraperVideoCard = ({ data }) => (
                         label={data.sourceName}
                         size="small"
                         variant="outlined"
-                        sx={{ height: 18, fontSize: '0.6rem', borderColor: 'rgba(255,255,255,0.2)' }}
+                        sx={{ height: 20, fontSize: '0.65rem' }}
                     />
                     {data.detailUrl && (
                         <Tooltip title="查看源站 API 原始响应">

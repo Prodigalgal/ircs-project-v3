@@ -63,26 +63,29 @@ function Step3_DetailMapping() {
                             sx={{mt: 1}}>
                         {isLoading ? <CircularProgress size={24}/> : '获取示例详情数据'}
                     </Button>
-                    <Paper variant="outlined" sx={{
-                        p: 2,
-                        mt: 2,
-                        minHeight: 250,
-                        backgroundColor: '#222',
-                        overflow: 'auto',
-                        maxHeight: '40vh'
-                    }}>
-                        <Typography variant="subtitle2" sx={{color: 'text.secondary', mb: 1}}>API 响应预览</Typography>
+                    <Paper
+                        variant="outlined"
+                        sx={(theme) => ({
+                            p: 2,
+                            mt: 2,
+                            minHeight: 250,
+                            bgcolor: theme.palette.surface.codeBg,
+                            overflow: 'auto',
+                            maxHeight: '40vh',
+                        })}
+                    >
+                        <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 1 }}>API 响应预览</Typography>
                         {error && <Alert severity="error">请求失败 (详情见右上角通知)</Alert>}
-                        {sampleJsonResponse && <pre style={{
-                            color: '#eee',
-                            margin: 0,
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-all'
-                        }}>{JSON.stringify(sampleJsonResponse, null, 2)}</pre>}
-                        {!sampleJsonResponse && !isLoading &&
-                            <Typography variant="body2" sx={{
-                                color: "text.secondary"
-                            }}>点击上方按钮以获取数据。</Typography>}
+                        {sampleJsonResponse && (
+                            <pre style={{ color: 'inherit', margin: 0, fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                {JSON.stringify(sampleJsonResponse, null, 2)}
+                            </pre>
+                        )}
+                        {!sampleJsonResponse && !isLoading && (
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                点击上方按钮以获取数据。
+                            </Typography>
+                        )}
                     </Paper>
                 </Grid>
 

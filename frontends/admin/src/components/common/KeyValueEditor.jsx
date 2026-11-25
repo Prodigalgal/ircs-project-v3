@@ -60,8 +60,8 @@ function KeyValueEditor({ value, onChange, label = "HTTP Headers" }) {
     };
 
     return (
-        <Box sx={{ border: '1px solid rgba(255, 255, 255, 0.23)', borderRadius: 1, p: 2, mt: 1 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2, mt: 1, bgcolor: 'background.paper' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25 }}>
                 <Typography variant="caption" sx={{
                     color: "text.secondary"
                 }}>{label}</Typography>

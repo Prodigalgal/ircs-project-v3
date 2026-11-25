@@ -1,6 +1,7 @@
-// File: ircs-frontend/src/routes/AppRouter.jsx
+// File: frontends/admin/src/routes/AppRouter.jsx
 import React, { lazy, Suspense } from 'react';
 import { Route, Routes, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Box, LinearProgress, Typography } from '@mui/material';
 import RouteErrorBoundary from '../components/common/RouteErrorBoundary.jsx';
 
 const AppLayout = lazy(() => import('../components/Layout/AppLayout.jsx'));
@@ -29,12 +30,16 @@ const CredentialList = lazy(() => import('../features/credential/CredentialList.
 const TrafficDashboard = lazy(() => import('../features/ops/traffic/TrafficDashboard.jsx'));
 const RequestAuditPage = lazy(() => import('../features/ops/request-audit/RequestAuditPage.jsx'));
 const AlertCenterPage = lazy(() => import('../features/ops/alert-center/AlertCenterPage.jsx'));
+const AreaList = lazy(() => import('../features/areas/AreaList.jsx'));
 
 function PageFallback() {
     return (
-        <div style={{ padding: 24, color: 'rgba(255,255,255,0.72)' }}>
-            加载中...
-        </div>
+        <Box sx={{ width: '100%', p: 3 }}>
+            <LinearProgress sx={{ borderRadius: 999, mb: 1.5, maxWidth: 320 }} />
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                正在加载页面...
+            </Typography>
+        </Box>
     );
 }
 
@@ -92,4 +97,3 @@ function AppRouter() {
 }
 
 export default AppRouter;
-const AreaList = lazy(() => import('../features/areas/AreaList.jsx'));

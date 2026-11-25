@@ -186,8 +186,8 @@ function TrafficDashboard() {
     };
 
     return (
-        <Box sx={{height: '100%', overflow: 'auto', display: 'flex', flexDirection: 'column'}}>
-            <Container maxWidth="xl" sx={{pt: 3, pb: 6}}>
+        <Box sx={{ height: '100%', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <Container maxWidth="xl" sx={{ px: { xs: 0, sm: 1 }, pt: 0.5, pb: 5 }}>
                 <ListHeader
                     title="流量治理监控台 (Traffic Control)"
                     subtitle="实时监控分布式限流器状态。红色代表触发熔断拒绝，橙色代表高负载。"

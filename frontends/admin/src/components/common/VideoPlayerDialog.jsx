@@ -29,10 +29,10 @@ const PlaylistSidebar = ({ playlists, currentUrl, onSelectEpisode, loading, tabI
     if (loading) {
         return (
             <Box sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <Skeleton variant="rectangular" height={48} sx={{ mb: 2, bgcolor: 'rgba(255,255,255,0.1)' }} />
+                <Skeleton variant="rounded" height={40} sx={{ mb: 2 }} />
                 <Stack spacing={1}>
                     {[...Array(6)].map((_, i) => (
-                        <Skeleton key={i} variant="rounded" height={32} sx={{ bgcolor: 'rgba(255,255,255,0.05)' }} />
+                        <Skeleton key={i} variant="rounded" height={32} />
                     ))}
                 </Stack>
             </Box>
@@ -187,16 +187,27 @@ function VideoPlayerDialog({ open, onClose, videoId, videoTitle, type = 'SOURCE'
                         maxHeight: 800,
                         display: 'flex',
                         flexDirection: 'column',
-                        bgcolor: '#000',
-                        backgroundImage: 'none'
-                    }
-                }
+                        bgcolor: 'background.paper',
+                        backgroundImage: 'none',
+                        overflow: 'hidden',
+                    },
+                },
             }}
         >
-            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#1e1e1e', py: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Typography variant="subtitle1" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <PlayCircleOutlineIcon color="primary" />
+            <DialogTitle
+                sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    bgcolor: 'surface.subtle',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    py: 1.25,
+                }}
+            >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+                    <Typography variant="subtitle1" component="div" noWrap sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600 }}>
+                        <PlayCircleOutlineIcon color="primary" fontSize="small" />
                         {videoTitle}
                     </Typography>
 
@@ -221,16 +232,16 @@ function VideoPlayerDialog({ open, onClose, videoId, videoTitle, type = 'SOURCE'
                         </ToggleButtonGroup>
                     )}
                 </Box>
-                <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
+                <IconButton onClick={onClose} size="small" aria-label="关闭播放器"><CloseIcon fontSize="small" /></IconButton>
             </DialogTitle>
 
             <DialogContent sx={{ p: 0, overflow: 'hidden', display: 'flex', flex: 1 }}>
                 <Grid container sx={{ height: '100%', width: '100%' }}>
                     <Grid size={{ xs: 12, md: 9 }} sx={{
-                        bgcolor: '#000',
+                        bgcolor: '#05070B',
                         display: 'block',
                         position: 'relative',
-                        height: '100%'
+                        height: '100%',
                     }}>
                         {loading ? (
                             <Skeleton variant="rectangular" width="100%" height="100%" sx={{ position: 'absolute' }} />
@@ -255,24 +266,24 @@ function VideoPlayerDialog({ open, onClose, videoId, videoTitle, type = 'SOURCE'
                                         width="100%"
                                         height="100%"
                                         allowFullScreen
-                                        style={{ backgroundColor: '#000', border: 0 }}
+                                        style={{ backgroundColor: '#05070B', border: 0 }}
                                     />
                                 )}
                             </Box>
                         ) : (
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                                <Typography sx={{
-                                    color: "text.secondary"
-                                }}>请选择播放源</Typography>
+                                <Typography sx={{ color: 'rgba(241, 245, 249, 0.7)' }}>请选择播放源</Typography>
                             </Box>
                         )}
                     </Grid>
 
                     <Grid size={{ xs: 12, md: 3 }} sx={{
-                        bgcolor: '#121212',
-                        borderLeft: '1px solid rgba(255,255,255,0.1)',
+                        bgcolor: 'background.paper',
+                        borderLeft: { md: '1px solid' },
+                        borderTop: { xs: '1px solid', md: 'none' },
+                        borderColor: 'divider',
                         display: 'flex',
-                        flexDirection: 'column'
+                        flexDirection: 'column',
                     }}>
                         <PlaylistSidebar
                             playlists={playlists}

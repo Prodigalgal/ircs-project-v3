@@ -219,9 +219,9 @@ function VideoList() {
                     <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>
                         {row.title}
                         {(row.season !== null && row.season !== undefined) && (
-                            <span style={{ color: '#4caf50', marginLeft: 4 }}> S{row.season}</span>
+                            <Box component="span" sx={{ color: 'secondary.main', fontWeight: 600, ml: 0.5 }}>S{row.season}</Box>
                         )}
-                        {row.subtitle && <span style={{ color: '#90a4ae' }}> · {row.subtitle}</span>}
+                        {row.subtitle && <Box component="span" sx={{ color: 'text.secondary' }}> · {row.subtitle}</Box>}
                     </Typography>
                     {row.aliasTitle && (
                         <Typography
