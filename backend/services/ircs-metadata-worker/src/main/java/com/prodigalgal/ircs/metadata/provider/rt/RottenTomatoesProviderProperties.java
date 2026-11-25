@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.metadata.provider.rt;
 
+import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
 import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -12,5 +13,5 @@ public class RottenTomatoesProviderProperties {
 
     private String searchUrl = "https://www.rottentomatoes.com/search";
     private Duration requestTimeout = Duration.ofSeconds(10);
-    private String defaultUserAgent = "IRCS-Metadata-RT/0.1";
+    private String defaultUserAgent = OutboundUserAgents.defaultBrowser();
 }

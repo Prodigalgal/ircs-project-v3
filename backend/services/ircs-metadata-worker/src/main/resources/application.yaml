@@ -99,16 +99,16 @@ app:
       suggest-url: ${APP_METADATA_DOUBAN_SUGGEST_URL:https://movie.douban.com/j/subject_suggest}
       subject-base-url: ${APP_METADATA_DOUBAN_SUBJECT_BASE_URL:https://movie.douban.com/subject/}
       request-timeout: ${APP_METADATA_DOUBAN_REQUEST_TIMEOUT:10s}
-      default-user-agent: ${APP_METADATA_DOUBAN_USER_AGENT:IRCS-Metadata-Douban/0.1}
+      default-user-agent: ${APP_METADATA_DOUBAN_USER_AGENT:}
     imdb:
       suggestion-base-url: ${APP_METADATA_IMDB_SUGGESTION_BASE_URL:https://v3.sg.media-imdb.com/suggestion/x}
       detail-base-url: ${APP_METADATA_IMDB_DETAIL_BASE_URL:https://www.imdb.com/title}
       request-timeout: ${APP_METADATA_IMDB_REQUEST_TIMEOUT:10s}
-      user-agent: ${APP_METADATA_IMDB_USER_AGENT:IRCS-Metadata-IMDb/1.0}
+      user-agent: ${APP_METADATA_IMDB_USER_AGENT:}
     rt:
       search-url: ${APP_METADATA_RT_SEARCH_URL:https://www.rottentomatoes.com/search}
       request-timeout: ${APP_METADATA_RT_REQUEST_TIMEOUT:10s}
-      default-user-agent: ${APP_METADATA_RT_USER_AGENT:IRCS-Metadata-RT/0.1}
+      default-user-agent: ${APP_METADATA_RT_USER_AGENT:}
 
 management:
   opentelemetry:

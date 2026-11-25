@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.metadata.provider.douban;
 
+import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
 import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -13,5 +14,5 @@ public class DoubanProviderProperties {
     private String suggestUrl = "https://movie.douban.com/j/subject_suggest";
     private String subjectBaseUrl = "https://movie.douban.com/subject/";
     private Duration requestTimeout = Duration.ofSeconds(10);
-    private String defaultUserAgent = "IRCS-Metadata-Douban/0.1";
+    private String defaultUserAgent = OutboundUserAgents.defaultBrowser();
 }

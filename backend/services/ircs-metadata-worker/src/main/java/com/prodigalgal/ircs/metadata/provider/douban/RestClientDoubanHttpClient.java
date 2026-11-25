@@ -88,7 +88,8 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
                             .map(DoubanCredential::userAgent)
                             .filter(StringUtils::hasText)
                             .orElse(properties.getDefaultUserAgent()));
-            OutboundHttpRequest request = OutboundHttpRequest.get(uri, policy);
+            boolean json = java.util.Objects.equals(uri.getPath(), URI.create(properties.getSuggestUrl()).getPath());
+            OutboundHttpRequest request = MetadataOutboundHttp.browserGet(uri, policy, json);
             if (credential.isPresent() && StringUtils.hasText(credential.get().cookie())) {
                 request = request.withHeader("Cookie", credential.get().cookie());
             }

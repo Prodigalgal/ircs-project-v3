@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.metadata.provider.imdb;
 
+import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
 import java.time.Duration;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -12,5 +13,5 @@ public class ImdbProviderProperties {
     private String suggestionBaseUrl = "https://v3.sg.media-imdb.com/suggestion/x";
     private String detailBaseUrl = "https://www.imdb.com/title";
     private Duration requestTimeout = Duration.ofSeconds(10);
-    private String userAgent = "IRCS-Metadata-IMDb/1.0";
+    private String userAgent = OutboundUserAgents.defaultBrowser();
 }

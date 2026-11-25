@@ -56,6 +56,7 @@ class RestClientDoubanHttpClientTest {
         assertThat(transport.requests).hasSize(3);
         assertThat(transport.requests.getFirst().headers())
                 .containsEntry("User-Agent", "ircs-test-douban")
+                .containsEntry("Accept", "application/json, text/plain, */*")
                 .containsEntry("Accept-Encoding", "gzip, deflate");
     }
 

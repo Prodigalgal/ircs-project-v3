@@ -2,7 +2,6 @@ package com.prodigalgal.ircs.metadata.provider.imdb;
 
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
-import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import com.prodigalgal.ircs.metadata.provider.application.MetadataOutboundHttp;
@@ -41,8 +40,7 @@ class ImdbHttpClient {
             var policy = OutboundHttpPolicy.publicFetch(properties.getRequestTimeout())
                     .withUserAgent(properties.getUserAgent())
                     .withProxy(proxyPool == null ? OutboundProxy.disabled() : proxyPool.customProxy("app.metadata.imdb"));
-            var response = client.execute(OutboundHttpRequest.get(uri, policy)
-                    .withHeader("Accept", details ? "text/html" : "application/json"));
+            var response = client.execute(MetadataOutboundHttp.browserGet(uri, policy, !details));
             int status = response.statusCode();
             if (status == 404 || status == 410) {
                 return Optional.empty();

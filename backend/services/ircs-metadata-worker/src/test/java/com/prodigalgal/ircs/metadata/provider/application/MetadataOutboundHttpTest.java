@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.metadata.provider.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -10,10 +11,25 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.OutboundTransport;
+import java.net.URI;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class MetadataOutboundHttpTest {
+    @Test
+    void separatesBrowserDocumentAndJsonHeaders() {
+        var policy = OutboundHttpPolicy.publicFetch(Duration.ofSeconds(5));
+        var html = MetadataOutboundHttp.browserGet(URI.create("https://movie.douban.com/subject/1291843/"), policy, false);
+        var json = MetadataOutboundHttp.browserGet(URI.create("https://movie.douban.com/j/subject_suggest?q=Matrix"), policy, true);
+
+        assertThat(html.headers()).containsEntry("Upgrade-Insecure-Requests", "1")
+                .containsKey("Accept-Language");
+        assertThat(html.headers().get("Accept")).startsWith("text/html");
+        assertThat(json.headers()).doesNotContainKey("Upgrade-Insecure-Requests");
+        assertThat(json.headers().get("Accept")).startsWith("application/json");
+        assertThat(json.policy().userAgent()).startsWith("Mozilla/");
+    }
+
     @Test
     void rejectsDirectConnectionAtTheTransportBoundary() throws Exception {
         var transport = mock(OutboundTransport.class);

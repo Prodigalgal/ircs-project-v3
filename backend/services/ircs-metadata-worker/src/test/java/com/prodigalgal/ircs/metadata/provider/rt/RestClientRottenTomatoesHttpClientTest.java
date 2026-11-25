@@ -57,8 +57,9 @@ class RestClientRottenTomatoesHttpClientTest {
         assertThat(transport.requests).hasSize(3);
         assertThat(transport.requests.getFirst().headers())
                 .containsEntry("User-Agent", "ircs-test-rt")
-                .containsEntry("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .containsEntry("Upgrade-Insecure-Requests", "1")
                 .containsEntry("Accept-Encoding", "gzip, deflate");
+        assertThat(transport.requests.getFirst().headers().get("Accept")).startsWith("text/html");
     }
 
     @Test

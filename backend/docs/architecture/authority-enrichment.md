@@ -13,4 +13,6 @@ IMDb 或豆瓣的详情访问受限时，唯一且验证通过的候选可补充
 
 代理请求复用集群公共出站代理及其冷却和重试路径。代理不可用时请求失败并按原有策略重试。
 
+公开网页请求使用浏览器的页面导航 `Accept`，结构化搜索请求使用 JSON `Accept`。两类请求使用项目默认的浏览器 `User-Agent` 和中文优先的语言偏好，可沿用凭据中已配置的 `User-Agent`。
+
 生产在 metadata worker 启用 `APP_METADATA_TMDB_ENABLED`、`APP_METADATA_IMDB_ENABLED` 和 `APP_METADATA_DOUBAN_ENABLED`。生产定时采集计划独立于这些开关。

@@ -5,11 +5,15 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import org.springframework.stereotype.Component;
 
 @Component
 class TrendProviderHttpClient {
+    private static final String PAGE_ACCEPT =
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
+    private static final String JSON_ACCEPT = "application/json, text/plain, */*";
 
     private final OutboundHttpClient httpClient;
     private final ScraperTrendConfigValues configValues;
@@ -26,12 +30,17 @@ class TrendProviderHttpClient {
             throw new TrendProviderFetchException("FETCH_INTERRUPTED");
         }
         try {
+            URI uri = URI.create(url);
+            boolean json = uri.getPath().startsWith("/j/") || "api.themoviedb.org".equalsIgnoreCase(uri.getHost());
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(configValues.providerTimeout())
                     .withUserAgent(OutboundUserAgents.defaultBrowser())
                     .withCallerCircuitBreakerKey("scraper-trend-provider");
-            OutboundHttpRequest request = OutboundHttpRequest.get(url, policy)
-                    .withHeader("Accept", "text/html,application/json")
+            OutboundHttpRequest request = OutboundHttpRequest.get(uri, policy)
+                    .withHeader("Accept", json ? JSON_ACCEPT : PAGE_ACCEPT)
                     .withHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6");
+            if (!json) {
+                request = request.withHeader("Upgrade-Insecure-Requests", "1");
+            }
             OutboundHttpResponse response = httpClient.execute(request);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new TrendProviderFetchException("HTTP_" + response.statusCode());

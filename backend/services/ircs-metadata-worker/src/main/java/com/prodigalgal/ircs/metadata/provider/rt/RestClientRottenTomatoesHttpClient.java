@@ -88,8 +88,7 @@ public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpCli
                             .map(RottenTomatoesCredential::userAgent)
                             .filter(StringUtils::hasText)
                             .orElse(properties.getDefaultUserAgent()));
-            OutboundHttpRequest request = OutboundHttpRequest.get(uri, policy)
-                    .withHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            OutboundHttpRequest request = MetadataOutboundHttp.browserGet(uri, policy, false);
             if (credential.isPresent() && StringUtils.hasText(credential.get().cookie())) {
                 request = request.withHeader("Cookie", credential.get().cookie());
             }
