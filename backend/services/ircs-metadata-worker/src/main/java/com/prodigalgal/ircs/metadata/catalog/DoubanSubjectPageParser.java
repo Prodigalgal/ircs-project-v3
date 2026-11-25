@@ -28,6 +28,9 @@ final class DoubanSubjectPageParser {
             "(?<!\\d)([1-9]\\d{3})[-年](\\d{1,2})[-月](\\d{1,2})日?\\s*"
                     + "(?:\\(\\s*中国大陆\\s*\\)|（\\s*中国大陆\\s*）)(?!\\s*[（(]?\\s*重映)");
     private static final Pattern VOTE_COUNT = Pattern.compile("(?:\\d+|[1-9]\\d{0,2}(?:,\\d{3})+)");
+    private static final Pattern EPISODE_COUNT = Pattern.compile("([1-9]\\d*)\\s*集?");
+    private static final Pattern DOUBAN_TITLE_SUFFIX = Pattern.compile(
+            "\\s*(?:(?:[-–—|·]\\s*)?(?:[（(](?:豆瓣|豆瓣电影)[）)]|豆瓣(?:电影)?))\\s*$");
 
     private DoubanSubjectPageParser() { }
 
@@ -55,9 +58,15 @@ final class DoubanSubjectPageParser {
         Element ogTitle = document.selectFirst("meta[property=\"og:title\"]");
         if (title == null && ogTitle != null) title = clean(ogTitle.attr("content"));
         if (title == null) throw invalidResponse();
+        String localizedTitle = localizedTitle(ogTitle, title);
 
         String originalTitle = null;
         List<String> aliases = List.of();
+        List<String> directors = List.of();
+        List<String> actors = List.of();
+        Integer episodeCount = null;
+        boolean tvSignal = false;
+        boolean movieSignal = hasMovieType(document.select("[typeof]"));
         Set<String> imdbIds = new LinkedHashSet<>();
         LocalDate mainlandReleaseDate = null;
         Element yearElement = document.selectFirst("h1 .year");
@@ -78,10 +87,21 @@ final class DoubanSubjectPageParser {
                 } else if ("上映日期".equals(name) || "首播".equals(name)) {
                     String releaseText = fieldText(fieldNodes(label));
                     if (year == null) year = firstYear(releaseText);
+                    if ("上映日期".equals(name) && releaseText != null) movieSignal = true;
+                    if ("首播".equals(name)) tvSignal = true;
                     LocalDate candidate = firstMainlandReleaseDate(releaseText);
                     if (candidate != null && (mainlandReleaseDate == null || candidate.isBefore(mainlandReleaseDate))) {
                         mainlandReleaseDate = candidate;
                     }
+                } else if ("导演".equals(name) && directors.isEmpty()) {
+                    directors = readPeople(fieldNodes(label));
+                } else if ("主演".equals(name) && actors.isEmpty()) {
+                    actors = readPeople(fieldNodes(label));
+                } else if ("集数".equals(name)) {
+                    tvSignal = true;
+                    if (episodeCount == null) episodeCount = readEpisodeCount(fieldText(fieldNodes(label)));
+                } else if ("单集片长".equals(name)) {
+                    tvSignal = true;
                 }
             }
         }
@@ -89,7 +109,9 @@ final class DoubanSubjectPageParser {
         String imdbId = imdbIds.stream().findFirst().orElse(null);
         BigDecimal score = readScore(document.selectFirst("[property=\"v:average\"]"));
         Long voteCount = readVoteCount(document.selectFirst("[property=\"v:votes\"]"));
-        return new Subject(id, imdbId, title, originalTitle, year, score, aliases, mainlandReleaseDate, voteCount);
+        String mediaType = tvSignal == movieSignal ? null : tvSignal ? "tv" : "movie";
+        return new Subject(id, imdbId, title, originalTitle, year, score, aliases, mainlandReleaseDate, voteCount,
+                localizedTitle, mediaType, directors, actors, episodeCount);
     }
 
     private static void addSubjectId(Set<String> ids, String rawUrl) {
@@ -127,7 +149,8 @@ final class DoubanSubjectPageParser {
             if (node instanceof TextNode text) value.append(' ').append(text.text());
             else if (node instanceof Element element) value.append(' ').append(element.text());
         }
-        return clean(value.toString());
+        String text = clean(value.toString());
+        return text == null ? null : text.replaceFirst("^[:：]\\s*", "").strip();
     }
 
     private static void readImdbIds(List<Node> nodes, Set<String> ids) {
@@ -173,6 +196,49 @@ final class DoubanSubjectPageParser {
             if (cleaned != null) aliases.add(cleaned);
         }
         return List.copyOf(aliases);
+    }
+
+    private static List<String> readPeople(List<Node> nodes) {
+        Set<String> people = new LinkedHashSet<>();
+        for (Node node : nodes) {
+            if (!(node instanceof Element element)) continue;
+            if ("a".equals(element.normalName())) addPerson(people, element.text());
+            for (Element link : element.select("a")) addPerson(people, link.text());
+        }
+        return List.copyOf(people);
+    }
+
+    private static void addPerson(Set<String> people, String name) {
+        String cleaned = clean(name);
+        if (cleaned != null) people.add(cleaned);
+    }
+
+    private static Integer readEpisodeCount(String value) {
+        String cleaned = clean(value);
+        if (cleaned == null) return null;
+        Matcher matcher = EPISODE_COUNT.matcher(cleaned);
+        if (!matcher.matches()) return null;
+        try {
+            return Integer.valueOf(matcher.group(1));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static String localizedTitle(Element ogTitle, String fallback) {
+        String value = ogTitle == null ? null : clean(ogTitle.attr("content"));
+        if (value == null) return fallback;
+        value = DOUBAN_TITLE_SUFFIX.matcher(value).replaceFirst("").strip();
+        return value.isEmpty() ? fallback : value;
+    }
+
+    private static boolean hasMovieType(List<Element> typedElements) {
+        for (Element element : typedElements) {
+            for (String type : element.attr("typeof").split("\\s+")) {
+                if ("v:Movie".equalsIgnoreCase(type)) return true;
+            }
+        }
+        return false;
     }
 
     private static LocalDate firstMainlandReleaseDate(String value) {
@@ -224,5 +290,6 @@ final class DoubanSubjectPageParser {
     }
 
     record Subject(String id, String imdbId, String title, String originalTitle, String year, BigDecimal score,
-                   List<String> aliases, LocalDate mainlandReleaseDate, Long voteCount) { }
+                   List<String> aliases, LocalDate mainlandReleaseDate, Long voteCount, String localizedTitle,
+                   String mediaType, List<String> directors, List<String> actors, Integer episodeCount) { }
 }

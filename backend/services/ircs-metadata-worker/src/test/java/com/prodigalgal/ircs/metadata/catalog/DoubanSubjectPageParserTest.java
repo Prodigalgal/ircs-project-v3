@@ -127,6 +127,76 @@ class DoubanSubjectPageParserTest {
         assertThat(subject.voteCount()).isNull();
     }
 
+    @Test
+    void readsMovieTitleTypeAndRoleSeparatedPeopleFromDoubanMarkup() {
+        String html = """
+                <html><head>
+                  <link rel="canonical" href="https://movie.douban.com/subject/100/">
+                  <meta property="og:url" content="https://movie.douban.com/subject/100/">
+                  <meta property="og:title" content="寄生虫 - 豆瓣电影">
+                </head><body>
+                  <div typeof="v:Movie"><h1><span property="v:itemreviewed">寄生虫</span><span class="year">(2019)</span></h1></div>
+                  <div id="info">
+                    <span class="pl">导演</span>: <a href="/celebrity/1/">奉俊昊</a> / <a href="/celebrity/1/">奉俊昊</a><br>
+                    <span class="pl">主演</span>: <a href="/celebrity/2/">宋康昊</a> / <a href="/celebrity/3/">李善均</a><br>
+                    <span class="pl">上映日期</span>: 2019-05-30(韩国)<br>
+                  </div>
+                </body></html>
+                """;
+
+        var subject = DoubanSubjectPageParser.read(html, "100");
+
+        assertThat(subject.localizedTitle()).isEqualTo("寄生虫");
+        assertThat(subject.mediaType()).isEqualTo("movie");
+        assertThat(subject.directors()).isEqualTo(List.of("奉俊昊"));
+        assertThat(subject.actors()).isEqualTo(List.of("宋康昊", "李善均"));
+        assertThat(subject.episodeCount()).isNull();
+        assertThat(subject.year()).isEqualTo("2019");
+    }
+
+    @Test
+    void readsTvSignalsAndPositiveEpisodeCountWithoutMixingPeopleRoles() {
+        String html = page("101", "101", "剧集标题").replace("</body>", """
+                <meta property="og:title" content="剧集标题 (豆瓣)">
+                <div id="info">
+                  <span class="pl">首播</span>: 2020-01-02(美国)<br>
+                  <span class="pl">集数</span>: 12集<br>
+                  <span class="pl">单集片长</span>: 45分钟<br>
+                  <span class="pl">导演</span>: <a href="/celebrity/4/">导演甲</a><br>
+                  <span class="pl">主演</span>: <a href="/celebrity/5/">演员乙</a><br>
+                </div></body>
+                """);
+
+        var subject = DoubanSubjectPageParser.read(html, "101");
+
+        assertThat(subject.localizedTitle()).isEqualTo("剧集标题");
+        assertThat(subject.mediaType()).isEqualTo("tv");
+        assertThat(subject.episodeCount()).isEqualTo(12);
+        assertThat(subject.directors()).isEqualTo(List.of("导演甲"));
+        assertThat(subject.actors()).isEqualTo(List.of("演员乙"));
+    }
+
+    @Test
+    void leavesMediaTypeNullForMissingOrConflictingSignalsAndEpisodeCountForInvalidValues() {
+        var missing = DoubanSubjectPageParser.read(page("102", "102", "作品"), "102");
+        assertThat(missing.mediaType()).isNull();
+        assertThat(missing.localizedTitle()).isEqualTo("作品");
+
+        String conflicting = page("103", "103", "作品").replace("</body>", """
+                <div id="info"><span class="pl">上映日期</span>: 2019-03-01<br>
+                <span class="pl">首播</span>: 2020-03-01<br>
+                <span class="pl">集数</span>: 0<br></div></body>
+                """);
+        var subject = DoubanSubjectPageParser.read(conflicting, "103");
+        assertThat(subject.mediaType()).isNull();
+        assertThat(subject.episodeCount()).isNull();
+
+        String overflow = page("104", "104", "作品").replace("</body>", """
+                <div id="info"><span class="pl">集数</span>: 999999999999999999999<br></div></body>
+                """);
+        assertThat(DoubanSubjectPageParser.read(overflow, "104").episodeCount()).isNull();
+    }
+
     private static String page(String canonicalId, String ogId, String title) {
         return "<html><head><link rel='canonical' href='https://movie.douban.com/subject/" + canonicalId
                 + "/'><meta property='og:url' content='https://movie.douban.com/subject/" + ogId

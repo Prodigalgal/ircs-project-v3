@@ -70,7 +70,11 @@ class DoubanCatalogSyncWorker {
 
     private boolean syncTarget(Lease lease, DoubanTarget target) {
         try {
-            var observation = source.fetch(target.title(), target.doubanId(), target.imdbId());
+            if (target.doubanId() == null && target.imdbId() == null && target.releaseYear() == null) {
+                repository.deferDoubanTarget(lease, target, UNMATCHED_REFRESH, "TMDB_DETAILS_INCOMPLETE");
+                return true;
+            }
+            var observation = source.fetch(target, () -> repository.tmdbWorkEvidence(target));
             if (observation.isPresent()) {
                 repository.storeDouban(lease, target, observation.orElseThrow(), WORK_REFRESH);
             } else {

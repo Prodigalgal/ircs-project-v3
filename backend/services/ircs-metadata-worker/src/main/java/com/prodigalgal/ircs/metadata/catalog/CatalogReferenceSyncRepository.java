@@ -1,6 +1,10 @@
 package com.prodigalgal.ircs.metadata.catalog;
 
+import com.prodigalgal.ircs.metadata.catalog.DoubanCatalogObservation.MatchBasis;
+import com.prodigalgal.ircs.metadata.catalog.DoubanWorkMatcher.TmdbCredit;
+import com.prodigalgal.ircs.metadata.catalog.DoubanWorkMatcher.TmdbWorkEvidence;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -137,7 +141,8 @@ class CatalogReferenceSyncRepository {
 
     List<DoubanTarget> dueDoubanTargets(String provider, int limit) {
         return jdbc.query("""
-                select work.id,work.media_type,work.title,imdb.external_id,douban.external_id
+                select work.id,work.tmdb_id,work.media_type,work.title,work.original_title,work.release_year,
+                       work.regular_season_count,work.last_verified_at,imdb.external_id,douban.external_id
                   from catalog_works work
                   left join catalog_reference_work_refreshes refresh on refresh.work_id=work.id and refresh.provider=:provider
                   left join catalog_external_ids imdb on imdb.work_id=work.id and imdb.provider='IMDb'
@@ -149,13 +154,41 @@ class CatalogReferenceSyncRepository {
                        and id.media_type=work.media_type and id.verified_at is not null
                     having count(*)=1
                   ) douban on true
-                 where work.identity_status='VERIFIED' and (refresh.next_attempt_at is null or refresh.next_attempt_at<=now())
-                   and (imdb.external_id is not null or douban.external_id is not null)
+                 where work.identity_status='VERIFIED' and (
+                     refresh.next_attempt_at is null or refresh.next_attempt_at<=now()
+                     or (refresh.last_result in ('NO_IDENTITY_MATCH','TMDB_DETAILS_INCOMPLETE')
+                         and work.last_verified_at>refresh.last_checked_at))
+                   and work.tmdb_id is not null
                    and exists (select from catalog_entries entry where entry.work_id=work.id
                        and entry.content_visibility='PUBLIC' and not entry.adult_restricted)
-                 order by refresh.next_attempt_at nulls first,work.id limit :limit
+                 order by refresh.next_attempt_at nulls first,
+                     (imdb.external_id is not null or douban.external_id is not null),work.id limit :limit
                 """, Map.of("provider", provider, "limit", limit), (rs, row) -> new DoubanTarget(
-                rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5)));
+                rs.getObject(1, UUID.class), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getString(5),
+                rs.getObject(6, Integer.class), rs.getInt(7), rs.getObject(8, OffsetDateTime.class), rs.getString(9),
+                rs.getString(10)));
+    }
+
+    TmdbWorkEvidence tmdbWorkEvidence(DoubanTarget target) {
+        var p = Map.of("work", target.workId(), "singleSeason", target.regularSeasonCount() == 1);
+        var credits = jdbc.query("""
+                select credit.person_id,credit.job='Director' as director,credit.credited_name,person.original_name
+                  from catalog_person_credits credit join catalog_people person on person.id=credit.person_id
+                 where credit.work_id=:work and credit.provider='TMDB' and credit.episode_number is null
+                   and (credit.season_number is null or (:singleSeason and credit.season_number>0))
+                   and (credit.credit_kind='CAST' or (credit.credit_kind='CREW' and credit.job='Director'))
+                 order by director desc,credit.season_number nulls first,credit.billing_order nulls last,
+                     credit.source_order,credit.external_credit_id limit 80
+                """, p, (rs, row) -> new TmdbCredit(rs.getObject(1, UUID.class), rs.getBoolean(2),
+                rs.getString(3), rs.getString(4)));
+        int episodes = 0;
+        if ("tv".equals(target.mediaType()) && target.regularSeasonCount() == 1) {
+            episodes = jdbc.queryForObject("""
+                    select count(*) from catalog_episodes
+                     where work_id=:work and season_number>0 and tmdb_episode_id is not null
+                    """, p, Integer.class);
+        }
+        return new TmdbWorkEvidence(credits, episodes);
     }
 
     @Transactional(timeout = 10)
@@ -163,20 +196,34 @@ class CatalogReferenceSyncRepository {
         requireLease(lease);
         var facts = observation.facts();
         var p = observationParameters(lease, target.workId(), facts.doubanId(), facts)
-                .addValue("mediaType", target.mediaType()).addValue("pageImdbId", facts.imdbId());
+                .addValue("mediaType", target.mediaType()).addValue("tmdbId", target.tmdbId())
+                .addValue("tmdbVerifiedAt", target.tmdbVerifiedAt()).addValue("pageImdbId", facts.imdbId())
+                .addValue("matchedByDetails", observation.matchBasis() == MatchBasis.TMDB_DETAILS);
         int linked = jdbc.update("""
-                insert into catalog_external_ids(provider,media_type,target_kind,external_id,work_id,verified_at)
-                select :provider,:mediaType,'WORK',:externalId,work.id,now()
-                  from catalog_works work where work.id=:work and work.media_type=:mediaType
+                with owner as (
+                select work.id from catalog_works work
+                 where work.id=:work and work.media_type=:mediaType and work.tmdb_id=:tmdbId
                    and work.identity_status='VERIFIED'
                    and (cast(:pageImdbId as text) is null or work.imdb_id is null or work.imdb_id=:pageImdbId)
                    and exists (select from catalog_external_ids proof where proof.work_id=work.id
                        and proof.media_type=work.media_type and proof.target_kind='WORK' and proof.verified_at is not null
                        and ((proof.provider=:provider and proof.external_id=:externalId)
-                            or (proof.provider='IMDb' and proof.external_id=:pageImdbId and work.imdb_id=proof.external_id)))
-                   and not exists (select from catalog_external_ids other where other.work_id=work.id
-                       and other.provider=:provider and other.target_kind='WORK' and other.external_id<>:externalId
-                       and other.verified_at is not null)
+                            or (proof.provider='IMDb' and proof.external_id=:pageImdbId and work.imdb_id=proof.external_id)
+                            or (proof.provider='TMDB' and proof.external_id=cast(:tmdbId as text)
+                                and :matchedByDetails and work.last_verified_at=:tmdbVerifiedAt)))
+                   and exists (select from catalog_entries entry where entry.work_id=work.id
+                       and entry.content_visibility='PUBLIC' and not entry.adult_restricted)
+                   and not exists (select from catalog_external_ids other where other.target_kind='WORK'
+                       and other.verified_at is not null and (
+                           (other.provider=:provider and ((other.work_id=work.id and other.external_id<>:externalId)
+                               or (other.work_id<>work.id and other.external_id=:externalId)))
+                           or (other.provider='IMDb' and (
+                               (other.external_id=:pageImdbId and other.work_id<>work.id)
+                               or (work.imdb_id is null and other.work_id=work.id and other.external_id<>:pageImdbId)))))
+                 for update of work
+                )
+                insert into catalog_external_ids(provider,media_type,target_kind,external_id,work_id,verified_at)
+                select :provider,:mediaType,'WORK',:externalId,owner.id,now() from owner
                 on conflict (provider,media_type,target_kind,external_id) do update set verified_at=excluded.verified_at
                  where catalog_external_ids.work_id=excluded.work_id
                 """, p);
@@ -184,6 +231,7 @@ class CatalogReferenceSyncRepository {
             recordDoubanResult(lease.provider(), target.workId(), nextCheck, "IDENTITY_CONFLICT");
             return false;
         }
+        if (facts.imdbId() != null) fillImdbFromDouban(p);
         jdbc.update("""
                 insert into catalog_metadata_observations(work_id,provider,external_id,facts)
                 select :work,:provider,:externalId,cast(:facts as jsonb) where
@@ -196,8 +244,27 @@ class CatalogReferenceSyncRepository {
                     """ + UPSERT_CHANGED_RATING, p.addValue("rating", observation.rating())
                     .addValue("votes", observation.voteCount()));
         }
-        recordDoubanResult(lease.provider(), target.workId(), nextCheck, "MATCHED");
+        recordDoubanResult(lease.provider(), target.workId(), nextCheck,
+                observation.matchBasis() == MatchBasis.TMDB_DETAILS ? "MATCHED_BY_TMDB_DETAILS" : "MATCHED");
         return true;
+    }
+
+    private void fillImdbFromDouban(MapSqlParameterSource p) {
+        jdbc.update("""
+                with linked as (
+                    insert into catalog_external_ids(provider,media_type,target_kind,external_id,work_id,verified_at)
+                    select 'IMDb',work.media_type,'WORK',:pageImdbId,work.id,now() from catalog_works work
+                     where work.id=:work and work.imdb_id is null
+                       and not exists (select from catalog_external_ids other where other.provider='IMDb'
+                           and other.target_kind='WORK' and other.external_id=:pageImdbId
+                           and other.work_id<>work.id and other.verified_at is not null)
+                    on conflict (provider,media_type,target_kind,external_id) do update set verified_at=excluded.verified_at
+                     where catalog_external_ids.work_id=excluded.work_id
+                    returning work_id
+                )
+                update catalog_works work set imdb_id=:pageImdbId from linked
+                 where work.id=linked.work_id and work.imdb_id is null
+                """, p);
     }
 
     @Transactional(timeout = 10)
@@ -235,5 +302,6 @@ class CatalogReferenceSyncRepository {
 
     record Lease(String provider, String feed, UUID token, String fingerprint, String etag, String lastModified) { }
     record ImdbTarget(UUID workId, String mediaType) { }
-    record DoubanTarget(UUID workId, String mediaType, String title, String imdbId, String doubanId) { }
+    record DoubanTarget(UUID workId, long tmdbId, String mediaType, String title, String originalTitle, Integer releaseYear,
+                       int regularSeasonCount, OffsetDateTime tmdbVerifiedAt, String imdbId, String doubanId) { }
 }

@@ -53,6 +53,17 @@ class CatalogTmdbMetadataSourceTest {
         assertThat(facts.metadata().getDirectorNames()).containsExactly("Director");
     }
     @Test
+    void readsAnAvailableTopLevelImdbIdWhenTheExternalIdIsAPlaceholder() {
+        var source = source();
+        when(http.getJson(any())).thenReturn(Optional.of("""
+                {"id":42,"title":"Film","release_date":"2026-11-01",
+                 "imdb_id":"tt7605074","external_ids":{"imdb_id":"tt0000000"}}
+                """));
+
+        assertThat(source.fetchAuthority("movie", 42, -1).metadata().getImdbId()).isEqualTo("tt7605074");
+    }
+
+    @Test
     void seasonIsVerifiedAgainstShowSeasonsAndReturnedSeasonId() {
         var source=source();
         when(http.getJson(any())).thenAnswer(call-> ((java.net.URI)call.getArgument(0)).getPath().contains("/season/")

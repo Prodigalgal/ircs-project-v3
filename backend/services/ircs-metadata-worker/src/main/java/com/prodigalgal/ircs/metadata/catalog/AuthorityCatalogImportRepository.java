@@ -1,10 +1,9 @@
 package com.prodigalgal.ircs.metadata.catalog;
 
 import com.prodigalgal.ircs.common.id.IrcsUuidGenerators;
-import java.text.Normalizer;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,11 +59,11 @@ class AuthorityCatalogImportRepository {
             throw new CatalogMetadataUnavailableException("CATALOG_IDENTITY_MISMATCH");
         }
         var facts = evidence.metadata();
-        String title = titleKey(facts.getTitle());
+        String title = CatalogTitleKey.of(facts.getTitle());
         if (title.isBlank()) throw new CatalogMetadataUnavailableException("CATALOG_TITLE_UNVERIFIED");
         MapSqlParameterSource p = params(job).addValue("id", IrcsUuidGenerators.nextId())
                 .addValue("title", facts.getTitle()).addValue("titleKey", title)
-                .addValue("original", facts.getOriginalTitle()).addValue("originalKey", titleKey(facts.getOriginalTitle()))
+                .addValue("original", facts.getOriginalTitle()).addValue("originalKey", CatalogTitleKey.of(facts.getOriginalTitle()))
                 .addValue("year", evidence.releasedOn() == null ? null : evidence.releasedOn().getYear())
                 .addValue("released", evidence.releasedOn()).addValue("imdb", facts.getImdbId())
                 .addValue("season", evidence.seasonNumber())
@@ -312,6 +311,27 @@ class AuthorityCatalogImportRepository {
                 """, Map.of("type", type, "cap", cap));
     }
 
+    int queueMissingImdbDetails(String type, int limit, Duration recheckAfter) {
+        return jdbc.update("""
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
+                select work.media_type,work.tmdb_id,-1,20 from catalog_works work
+                  left join catalog_authority_import_jobs job on job.media_type=work.media_type
+                   and job.tmdb_id=work.tmdb_id and job.season_number=-1
+                 where work.identity_status='VERIFIED' and work.media_type=:type and work.imdb_id is null
+                   and work.last_verified_at<=now()-(:seconds*interval '1 second')
+                   and (job.tmdb_id is null or (job.status='SUCCESS'
+                       and coalesce(job.last_success_at,job.updated_at)<=now()-(:seconds*interval '1 second')))
+                   and exists (select from catalog_entries entry where entry.work_id=work.id
+                       and entry.content_visibility='PUBLIC' and not entry.adult_restricted)
+                 order by work.last_verified_at,work.tmdb_id limit :limit
+                on conflict (media_type,tmdb_id,season_number) do update set status='PENDING',next_attempt_at=now(),
+                    refresh_generation=catalog_authority_import_jobs.refresh_generation+1,updated_at=now()
+                where catalog_authority_import_jobs.status='SUCCESS'
+                  and coalesce(catalog_authority_import_jobs.last_success_at,catalog_authority_import_jobs.updated_at)
+                      <=now()-(:seconds*interval '1 second')
+                """, Map.of("type", type, "limit", limit, "seconds", recheckAfter.toSeconds()));
+    }
+
     ChangeCursor cursor(String type, LocalDate firstDay) {
         var p = Map.of("type", type, "day", firstDay);
         jdbc.update("""
@@ -392,11 +412,6 @@ class AuthorityCatalogImportRepository {
     private void lockWork(Import job) {
         jdbc.query("select pg_advisory_xact_lock(hashtextextended(:key,0))",
                 Map.of("key", "authority-work:" + job.mediaType() + ":" + job.tmdbId()), rs -> { });
-    }
-
-    private static String titleKey(String value) {
-        return value == null ? "" : Normalizer.normalize(value, Normalizer.Form.NFKC)
-                .toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\p{Z}\\s]+", "");
     }
 
     record Import(String mediaType, long tmdbId, int seasonNumber, int priority, int attempts, UUID token,

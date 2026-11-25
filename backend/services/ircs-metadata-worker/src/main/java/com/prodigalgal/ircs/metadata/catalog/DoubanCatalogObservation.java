@@ -5,7 +5,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-record DoubanCatalogObservation(Facts facts, BigDecimal rating, Long voteCount) {
+record DoubanCatalogObservation(Facts facts, BigDecimal rating, Long voteCount, MatchBasis matchBasis) {
+    enum MatchBasis { EXTERNAL_ID, TMDB_DETAILS }
+
     record Facts(String doubanId, String imdbId, String title, String originalTitle, String year,
                  List<String> aliases, @JsonFormat(shape = JsonFormat.Shape.STRING) LocalDate mainlandReleaseDate) {
         Facts {

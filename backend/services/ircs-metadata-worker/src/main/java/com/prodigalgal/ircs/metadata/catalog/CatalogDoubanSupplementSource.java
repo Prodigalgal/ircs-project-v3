@@ -1,15 +1,22 @@
 package com.prodigalgal.ircs.metadata.catalog;
 
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
+import com.prodigalgal.ircs.metadata.catalog.CatalogReferenceSyncRepository.DoubanTarget;
+import com.prodigalgal.ircs.metadata.catalog.DoubanCatalogObservation.MatchBasis;
+import com.prodigalgal.ircs.metadata.catalog.DoubanSubjectPageParser.Subject;
+import com.prodigalgal.ircs.metadata.catalog.DoubanWorkMatcher.TmdbWorkEvidence;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanProviderProperties;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -32,27 +39,59 @@ final class CatalogDoubanSupplementSource {
     private final ObjectMapper mapper;
     private final DoubanProviderProperties properties;
 
-    Optional<DoubanCatalogObservation> fetch(String queryTitle, String verifiedDoubanId, String verifiedImdbId) {
-        String knownDouban = AuthoritativeIds.normalizeDouban(verifiedDoubanId);
-        String knownImdb = AuthoritativeIds.normalizeImdb(verifiedImdbId);
+    Optional<DoubanCatalogObservation> fetch(DoubanTarget target, Supplier<TmdbWorkEvidence> loadEvidence) {
+        String knownDouban = AuthoritativeIds.normalizeDouban(target.doubanId());
+        String knownImdb = AuthoritativeIds.normalizeImdb(target.imdbId());
         if (knownDouban != null) {
             return subject(knownDouban).map(page -> {
-                if (knownImdb != null && page.imdbId() != null && !knownImdb.equals(page.imdbId())) {
+                if (!compatibleType(target, page) || conflictsWithImdb(page, knownImdb)) {
                     throw unavailable(IDENTITY_CONFLICT);
                 }
-                return observation(page);
+                return observation(page, MatchBasis.EXTERNAL_ID);
             });
         }
-        if (knownImdb == null || !StringUtils.hasText(queryTitle)) return Optional.empty();
+        if (knownImdb == null && target.releaseYear() == null) return Optional.empty();
 
-        DoubanSubjectPageParser.Subject matching = null;
-        for (String candidateId : search(queryTitle.strip())) {
-            var page = subject(candidateId);
-            if (page.isEmpty() || !knownImdb.equals(page.get().imdbId())) continue;
-            if (matching != null) throw unavailable(IDENTITY_CONFLICT);
-            matching = page.get();
+        var candidates = new ArrayList<Subject>();
+        var visited = new LinkedHashSet<String>();
+        readCandidates(target.title(), visited, candidates);
+        var exact = idMatches(target, candidates, knownImdb);
+        if (exact.isEmpty() && !CatalogTitleKey.of(target.title()).equals(CatalogTitleKey.of(target.originalTitle()))) {
+            readCandidates(target.originalTitle(), visited, candidates);
+            exact = idMatches(target, candidates, knownImdb);
         }
-        return Optional.ofNullable(matching).map(CatalogDoubanSupplementSource::observation);
+        if (!exact.isEmpty()) return uniqueObservation(exact, MatchBasis.EXTERNAL_ID);
+        if (candidates.isEmpty()) return Optional.empty();
+
+        TmdbWorkEvidence evidence = loadEvidence.get();
+        return uniqueObservation(candidates.stream()
+                .filter(page -> !conflictsWithImdb(page, knownImdb))
+                .filter(page -> DoubanWorkMatcher.matches(target, page, evidence)).toList(), MatchBasis.TMDB_DETAILS);
+    }
+
+    private void readCandidates(String title, Set<String> visited, List<Subject> candidates) {
+        if (!StringUtils.hasText(title)) return;
+        for (String candidateId : search(title.strip())) {
+            if (visited.add(candidateId)) subject(candidateId).ifPresent(candidates::add);
+        }
+    }
+
+    private static List<Subject> idMatches(DoubanTarget target, List<Subject> candidates, String knownImdb) {
+        if (knownImdb == null) return List.of();
+        return candidates.stream().filter(page -> knownImdb.equals(page.imdbId()) && compatibleType(target, page)).toList();
+    }
+
+    private static boolean compatibleType(DoubanTarget target, Subject page) {
+        return page.mediaType() == null || target.mediaType().equals(page.mediaType());
+    }
+
+    private static boolean conflictsWithImdb(Subject page, String knownImdb) {
+        return knownImdb != null && page.imdbId() != null && !knownImdb.equals(page.imdbId());
+    }
+
+    private static Optional<DoubanCatalogObservation> uniqueObservation(List<Subject> matches, MatchBasis basis) {
+        if (matches.size() > 1) throw unavailable(IDENTITY_CONFLICT);
+        return matches.stream().findFirst().map(page -> observation(page, basis));
     }
 
     private List<String> search(String title) {
@@ -76,7 +115,7 @@ final class CatalogDoubanSupplementSource {
         return List.copyOf(ids);
     }
 
-    private Optional<DoubanSubjectPageParser.Subject> subject(String id) {
+    private Optional<Subject> subject(String id) {
         URI uri = URI.create(SUBJECT_ROOT + id + "/");
         return fetchPage(uri, "text/html", MAX_SUBJECT_BYTES).map(body -> DoubanSubjectPageParser.read(body, id));
     }
@@ -96,10 +135,10 @@ final class CatalogDoubanSupplementSource {
         return response;
     }
 
-    private static DoubanCatalogObservation observation(DoubanSubjectPageParser.Subject subject) {
+    private static DoubanCatalogObservation observation(Subject subject, MatchBasis basis) {
         var facts = new DoubanCatalogObservation.Facts(subject.id(), subject.imdbId(), subject.title(),
                 subject.originalTitle(), subject.year(), subject.aliases(), subject.mainlandReleaseDate());
-        return new DoubanCatalogObservation(facts, subject.score(), subject.voteCount());
+        return new DoubanCatalogObservation(facts, subject.score(), subject.voteCount(), basis);
     }
 
     private static CatalogMetadataUnavailableException unavailable(String code) {

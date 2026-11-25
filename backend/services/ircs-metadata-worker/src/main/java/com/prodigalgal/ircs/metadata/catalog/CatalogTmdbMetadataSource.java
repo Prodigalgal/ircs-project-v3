@@ -187,8 +187,9 @@ public class CatalogTmdbMetadataSource implements CatalogMetadataSource {
     private EnrichedMetadataDTO metadata(JsonNode root, JsonNode scoped, String actualId, boolean movie) {
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
         metadata.setTmdbId(actualId);
-        metadata.setImdbId(AuthoritativeIds.normalizeImdb(root.path("external_ids").path("imdb_id").asText(
-                root.path("imdb_id").asText(null))));
+        String externalImdbId = AuthoritativeIds.normalizeImdb(root.path("external_ids").path("imdb_id").asText(null));
+        metadata.setImdbId(externalImdbId == null ? AuthoritativeIds.normalizeImdb(root.path("imdb_id").asText(null))
+                : externalImdbId);
         metadata.setTitle(text(root.path(movie ? "title" : "name")));
         metadata.setOriginalTitle(text(root.path(movie ? "original_title" : "original_name")));
         metadata.setDescription(firstText(scoped.path("overview"), root.path("overview")));

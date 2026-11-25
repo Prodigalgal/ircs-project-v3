@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.metadata.catalog;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -21,6 +22,7 @@ class AuthorityCatalogImportWorker {
 
     private static final List<String> TYPES = List.of("movie", "tv");
     private static final int COMPLETED_DAYS_IN_CHANGE_WINDOW = 13;
+    private static final Duration MISSING_IMDB_RECHECK = Duration.ofDays(7);
     private final AuthorityCatalogImportRepository repository;
     private final CatalogTmdbMetadataSource source;
     private final RuntimeConfigService config;
@@ -42,6 +44,18 @@ class AuthorityCatalogImportWorker {
     void syncChanges() {
         ScheduledTriggers.submit(executor, () -> runIfAvailable(syncing, this::runChanges),
                 log, "catalog.authority.changes");
+    }
+
+    @Scheduled(initialDelayString = "${app.catalog.authority-first.initial-sync-delay-ms:105000}",
+            fixedDelayString = "${app.catalog.authority-first.missing-imdb-recheck-delay-ms:900000}")
+    void recheckMissingImdbDetails() {
+        if (!enabled) return;
+        ScheduledTriggers.submit(executor, () -> {
+            int limit = config.boundedIntValue("app.catalog.authority-first.missing-imdb-per-type", 2, 0, 8);
+            if (limit > 0) {
+                for (String type : TYPES) repository.queueMissingImdbDetails(type, limit, MISSING_IMDB_RECHECK);
+            }
+        }, log, "catalog.authority.missing-imdb");
     }
 
     private void runIfAvailable(AtomicBoolean running, Runnable action) {

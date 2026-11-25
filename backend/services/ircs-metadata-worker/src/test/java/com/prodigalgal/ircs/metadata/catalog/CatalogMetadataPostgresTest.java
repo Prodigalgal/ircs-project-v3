@@ -2,14 +2,26 @@ package com.prodigalgal.ircs.metadata.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
+import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.Credit;
+import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.CreditKind;
+import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.CreditSet;
+import com.prodigalgal.ircs.metadata.catalog.DoubanCatalogObservation.MatchBasis;
+import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
+import com.prodigalgal.ircs.metadata.provider.douban.DoubanProviderProperties;
 import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -388,13 +400,13 @@ class CatalogMetadataPostgresTest {
         var target = references.dueDoubanTargets("Douban", 5).getFirst();
         var mismatchedFacts = new DoubanCatalogObservation.Facts("1291843", "tt7605074", "同名作品",
                 null, "1999", List.of(), null);
-        var mismatched = new DoubanCatalogObservation(mismatchedFacts, null, null);
+        var mismatched = new DoubanCatalogObservation(mismatchedFacts, null, null, MatchBasis.EXTERNAL_ID);
         assertThat(transactions.<Boolean>execute(
                 status -> references.storeDouban(douban, target, mismatched, Duration.ofDays(1)))).isFalse();
         var doubanFacts = new DoubanCatalogObservation.Facts("1291843", "tt0133093", "豆瓣译名",
                 null, "1999", List.of("豆瓣别名"), LocalDate.of(2000, 1, 14));
         var doubanScore = new BigDecimal("9.1");
-        var supplement = new DoubanCatalogObservation(doubanFacts, doubanScore, 1000L);
+        var supplement = new DoubanCatalogObservation(doubanFacts, doubanScore, 1000L, MatchBasis.EXTERNAL_ID);
         assertThat(transactions.<Boolean>execute(
                 status -> references.storeDouban(douban, target, supplement, Duration.ofDays(1)))).isTrue();
         jdbc.update("update catalog_rating_observations set observed_on=observed_on-1 where provider='Douban'");
@@ -402,8 +414,8 @@ class CatalogMetadataPostgresTest {
         assertThat(jdbc.queryForList(
                 "select vote_count from catalog_rating_observations where provider='Douban' order by observed_on", Long.class))
                 .containsExactly(1000L);
-        var updatedVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, 1003L);
-        var missingVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, null);
+        var updatedVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, 1003L, MatchBasis.EXTERNAL_ID);
+        var missingVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, null, MatchBasis.EXTERNAL_ID);
         transactions.executeWithoutResult(status -> references.storeDouban(douban, target, updatedVotes, Duration.ofDays(1)));
         transactions.executeWithoutResult(status -> references.storeDouban(douban, target, missingVotes, Duration.ofDays(1)));
         assertThat(jdbc.queryForList(
@@ -419,6 +431,87 @@ class CatalogMetadataPostgresTest {
                 "select facts->>'mainlandReleaseDate' from catalog_metadata_observations where provider='Douban'", String.class))
                 .isEqualTo("2000-01-14");
         assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("Canonical TMDB title");
+    }
+
+    @Test
+    void discoversDoubanAndImdbForAnImportedWorkWithOnlyTmdbIdentity() {
+        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
+        var cast = new CreditSet(null, null, CreditKind.CAST, true,
+                List.of(new Credit("101", "actor", "吴京", "Wu Jing", "Acting", "Actor", "刘培强", 0, 0)));
+        var crew = new CreditSet(null, null, CreditKind.CREW, true,
+                List.of(new Credit("102", "director", "郭帆", "Frant Gwo", "Directing", "Director", null, null, 0)));
+        var job = authority.claim().orElseThrow();
+        var imported = new AuthorityCatalogEvidence("movie", 42, -1, LocalDate.of(2019, 2, 5), "movie",
+                authorityFacts("流浪地球"), List.of(), List.of(), List.of(cast, crew));
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, imported))).isTrue();
+        var target = references.dueDoubanTargets("Douban", 1).getFirst();
+        assertThat(target.imdbId()).isNull();
+        assertThat(target.doubanId()).isNull();
+
+        DoubanHttpClient http = mock(DoubanHttpClient.class);
+        when(http.getPublicPage(argThat(uri -> uri.getPath().equals("/j/subject_suggest")), eq("application/json")))
+                .thenReturn(Optional.of("[{\"id\":\"26266893\"}]"));
+        when(http.getPublicPage(URI.create("https://movie.douban.com/subject/26266893/"), "text/html"))
+                .thenReturn(Optional.of("""
+                        <link rel="canonical" href="https://movie.douban.com/subject/26266893/">
+                        <h1><span property="v:itemreviewed">流浪地球</span><span class="year">(2019)</span></h1>
+                        <div id="info">
+                          <span class="pl">导演:</span><a property="v:directedBy">郭帆</a><br>
+                          <span class="pl">主演:</span><a property="v:starring">吴京</a><br>
+                          <span class="pl">上映日期:</span><span property="v:initialReleaseDate">2019-02-05(中国大陆)</span><br>
+                          <span class="pl">IMDb:</span>tt7605074
+                        </div><strong property="v:average">7.9</strong><span property="v:votes">1000</span>
+                        """));
+        var source = new CatalogDoubanSupplementSource(http, JsonMapper.builder().build(), new DoubanProviderProperties());
+        var observation = source.fetch(target, () -> references.tmdbWorkEvidence(target)).orElseThrow();
+        assertThat(observation.matchBasis()).isEqualTo(MatchBasis.TMDB_DETAILS);
+
+        var lease = references.claim("Douban", "work-metadata", Duration.ofMinutes(5)).orElseThrow();
+        transactions.executeWithoutResult(status -> references.deferDoubanTarget(
+                lease, target, Duration.ofDays(7), "NO_IDENTITY_MATCH"));
+        assertThat(references.dueDoubanTargets("Douban", 1)).isEmpty();
+        jdbc.update("update catalog_works set last_verified_at=now()+interval '1 second' where id=?", target.workId());
+        assertThat(references.dueDoubanTargets("Douban", 1)).hasSize(1);
+        assertThat(transactions.<Boolean>execute(
+                status -> references.storeDouban(lease, target, observation, Duration.ZERO))).isFalse();
+        assertThat(references.imdbTargets()).isEmpty();
+        var refreshed = references.dueDoubanTargets("Douban", 1).getFirst();
+        var refreshedObservation = source.fetch(refreshed, () -> references.tmdbWorkEvidence(refreshed)).orElseThrow();
+        assertThat(transactions.<Boolean>execute(
+                status -> references.storeDouban(lease, refreshed, refreshedObservation, Duration.ofDays(1)))).isTrue();
+
+        assertThat(references.imdbTargets()).containsOnlyKeys("tt7605074");
+        assertThat(jdbc.queryForObject("select external_id from catalog_external_ids where provider='Douban'", String.class))
+                .isEqualTo("26266893");
+        assertThat(jdbc.queryForObject("select last_result from catalog_reference_work_refreshes", String.class))
+                .isEqualTo("MATCHED_BY_TMDB_DETAILS");
+        assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("流浪地球");
+    }
+
+    @Test
+    void requeuesAnAgedTmdbDetailWithoutImdbAndStopsWhenTheIdArrives() {
+        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
+        var initial = authority.claim().orElseThrow();
+        var released = LocalDate.of(2019, 2, 5);
+        var original = new AuthorityCatalogEvidence("movie", 42, -1, released, "movie",
+                authorityFacts("Canonical title"), List.of(), List.of(), List.of());
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(initial, original))).isTrue();
+        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isZero();
+
+        jdbc.update("update catalog_works set last_verified_at=now()-interval '8 days'");
+        jdbc.update("update catalog_authority_import_jobs set last_success_at=now()-interval '8 days'");
+        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isOne();
+        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isZero();
+        var refresh = authority.claim().orElseThrow();
+        assertThat(refresh.tmdbId()).isEqualTo(initial.tmdbId());
+        var updatedFacts = authorityFacts("Canonical title");
+        updatedFacts.setImdbId("tt7605074");
+        var refreshed = new AuthorityCatalogEvidence("movie", 42, -1, released, "movie", updatedFacts,
+                List.of(), List.of(), List.of());
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, refreshed))).isTrue();
+        assertThat(references.imdbTargets()).containsOnlyKeys("tt7605074");
+        assertThat(jdbc.queryForObject("select count(*) from catalog_works", Integer.class)).isOne();
+        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isZero();
     }
 
     private EnrichedMetadataDTO authorityFacts(String title) {
