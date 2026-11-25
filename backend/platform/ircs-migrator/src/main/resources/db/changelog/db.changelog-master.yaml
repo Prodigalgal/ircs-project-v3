@@ -271,3 +271,9 @@ databaseChangeLog:
             tag: 5.0.0
   - include:
       file: db/changelog/2026/11/25-01-catalog-reference-sync.sql
+  - changeSet:
+      id: 1795556400002-tag-5.1.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 5.1.0
