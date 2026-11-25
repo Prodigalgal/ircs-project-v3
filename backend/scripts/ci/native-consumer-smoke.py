@@ -232,6 +232,8 @@ def gateway_forwarding_probe(backend):
                 assert error.code == 401
             else:
                 raise AssertionError('Query credentials must not authenticate an API request')
+            if 'ircs-api-gateway' in selected_services:
+                gateway_mcp_probe()
         else:
             for path in ('/api/v1/auth/pow', '/api/portal/auth/pow'):
                 challenge = request(path)
@@ -241,6 +243,55 @@ def gateway_forwarding_probe(backend):
         failures = stop('ircs-native-gateway')
         current_service, current_port = backend, 18080
         assert not failures, failures
+
+
+def gateway_mcp_probe():
+    endpoint = f'http://127.0.0.1:{current_port}/api/v1/mcp'
+    protocol = '2025-11-25'
+
+    def rpc(message, token=None, origin=None):
+        headers = {'Accept': 'application/json, text/event-stream', 'Content-Type': 'application/json',
+                   'MCP-Protocol-Version': protocol}
+        if token:
+            headers['Authorization'] = 'Bearer ' + token
+        if origin:
+            headers['Origin'] = origin
+        payload = json.dumps({'jsonrpc': '2.0', **message}).encode()
+        try:
+            with urlopen(Request(endpoint, data=payload, headers=headers), timeout=8) as response:
+                body = response.read()
+                return response.status, json.loads(body) if body else None
+        except HTTPError as error:
+            return error.code, None
+
+    init = {'id': 1, 'method': 'initialize', 'params': {'protocolVersion': protocol, 'capabilities': {},
+                                                      'clientInfo': {'name': 'native-smoke', 'version': '1'}}}
+    assert rpc(init)[0] == 401, 'MCP initialize requires an admin credential'
+    token = request('/api/v1/auth/api-tokens', {'name': 'native-mcp-smoke'}, authenticated=True)
+    try:
+        secret = token['token']
+        assert rpc(init, secret, 'https://untrusted.example.invalid')[0] == 403, 'MCP must check Origin'
+        status, initialized = rpc(init, secret)
+        assert status == 200 and initialized['result']['serverInfo']['name'] == 'ircs-admin'
+        assert initialized['result']['protocolVersion'] == protocol
+        assert rpc({'method': 'notifications/initialized'}, secret)[0] == 202
+        status, listed = rpc({'id': 2, 'method': 'tools/list'}, secret)
+        names = {tool['name'] for tool in listed['result']['tools']}
+        assert status == 200 and {'ircs_runtime_dlq_list', 'ircs_raw_video_reenrich',
+                                  'ircs_collection_task_start'} <= names, 'MCP should expose site operations'
+        status, response = rpc({'id': 3, 'method': 'tools/call', 'params': {
+            'name': 'ircs_runtime_dlq_list', 'arguments': {'query': {'sampleLimit': 0}}}}, secret)
+        assert status == 200, 'MCP tool transport must return a JSON-RPC response'
+        result = response['result']
+        assert not result.get('isError', False) and result['structuredContent']['status'] == 200
+        assert isinstance(result['structuredContent']['data'], list), 'MCP tool must reach the real ops backend'
+    finally:
+        revoke = Request(f'http://127.0.0.1:{current_port}/api/v1/auth/api-tokens/{token["id"]}',
+                         method='DELETE', headers={'Authorization': admin_authorization})
+        with urlopen(revoke, timeout=5) as response:
+            assert response.status == 204
+    assert rpc(init, secret)[0] == 401, 'A revoked PAT must stop working for MCP'
+    print('Native MCP initialize, authorization, tool listing and signed admin requests verified.', flush=True)
 
 
 def runtime_queue_buffer_probe():

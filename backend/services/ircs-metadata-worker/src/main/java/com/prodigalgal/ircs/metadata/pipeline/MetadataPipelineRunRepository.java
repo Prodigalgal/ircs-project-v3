@@ -17,7 +17,6 @@ import org.springframework.util.StringUtils;
 public class MetadataPipelineRunRepository {
 
     private static final String STEP = "ENRICH_METADATA";
-    private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_SUCCESS = "SUCCESS";
     private static final String STATUS_FAILED = "FAILED";
     private static final String STATUS_PERMANENT_FAILURE = "PERMANENT_FAILURE";
@@ -30,47 +29,41 @@ public class MetadataPipelineRunRepository {
             return List.of();
         }
         String version = normalizeVersion(pipelineVersion);
+        List<String> providerNames = providers.stream().map(Enum::name).distinct().sorted().toList();
+        var parameters = new MapSqlParameterSource()
+                .addValue("rawVideoId", rawVideoId)
+                .addValue("pipelineVersion", version)
+                .addValue("step", STEP)
+                .addValue("providers", providerNames);
+        // A new provider can become applicable to an already-dispatched revision. Only durable
+        // additions increase the expected count, and callbacks cannot observe an uncounted provider.
         jdbcTemplate.update(
                 """
+                with added as (
+                    insert into raw_video_enrichment_provider_runs (
+                        raw_video_id, pipeline_version, provider_type, status,
+                        attempt_count, dispatched_at, created_at, updated_at
+                    )
+                    select :rawVideoId, :pipelineVersion, provider_type, 'PENDING', 0, now(), now(), now()
+                    from unnest(cast(array[:providers] as varchar[])) as provider(provider_type)
+                    order by provider_type
+                    on conflict (raw_video_id, pipeline_version, provider_type) do nothing
+                    returning 1
+                )
                 insert into raw_video_pipeline_runs (
                     raw_video_id, pipeline_version, step, status, expected_count,
                     completed_count, success_count, failure_count,
                     retryable_failure_count, permanent_failure_count,
                     created_at, updated_at
                 )
-                values (
-                    :rawVideoId, :pipelineVersion, :step, :status, :expectedCount,
-                    0, 0, 0, 0, 0, now(), now()
-                )
-                on conflict (raw_video_id, pipeline_version, step) do nothing
+                select :rawVideoId, :pipelineVersion, :step, 'PENDING', count(*),
+                       0, 0, 0, 0, 0, now(), now()
+                from added having count(*) > 0
+                on conflict (raw_video_id, pipeline_version, step) do update
+                set expected_count=raw_video_pipeline_runs.expected_count+excluded.expected_count,
+                    status='PENDING', updated_at=now()
                 """,
-                new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
-                        .addValue("pipelineVersion", version)
-                        .addValue("step", STEP)
-                        .addValue("status", STATUS_PENDING)
-                        .addValue("expectedCount", providers.size()));
-
-        MapSqlParameterSource[] batch = providers.stream()
-                .map(provider -> new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
-                        .addValue("pipelineVersion", version)
-                        .addValue("providerType", provider.name())
-                        .addValue("status", STATUS_PENDING))
-                .toArray(MapSqlParameterSource[]::new);
-        jdbcTemplate.batchUpdate(
-                """
-                insert into raw_video_enrichment_provider_runs (
-                    raw_video_id, pipeline_version, provider_type, status,
-                    attempt_count, dispatched_at, created_at, updated_at
-                )
-                values (
-                    :rawVideoId, :pipelineVersion, :providerType, :status,
-                    0, now(), now(), now()
-                )
-                on conflict (raw_video_id, pipeline_version, provider_type) do nothing
-                """,
-                batch);
+                parameters);
 
         // Reset only retryable failures. Deduct their previous terminal contribution so a
         // successful retry can finish the same durable run without stale failure counters.
@@ -96,11 +89,7 @@ public class MetadataPipelineRunRepository {
                 where raw_video_id = :rawVideoId and pipeline_version = :pipelineVersion
                   and step = :step and exists (select 1 from retried)
                 """,
-                new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
-                        .addValue("pipelineVersion", version)
-                        .addValue("step", STEP)
-                        .addValue("providers", providers.stream().map(Enum::name).toList()));
+                parameters);
 
         List<String> pendingProviderNames = jdbcTemplate.queryForList(
                 """
@@ -111,12 +100,9 @@ public class MetadataPipelineRunRepository {
                   and provider_type in (:providers)
                   and status = 'PENDING'
                 """,
-                new MapSqlParameterSource()
-                        .addValue("rawVideoId", rawVideoId)
-                        .addValue("pipelineVersion", version)
-                        .addValue("providers", providers.stream().map(Enum::name).toList()),
+                parameters,
                 String.class);
-        return providers.stream()
+        return providers.stream().distinct()
                 .filter(provider -> pendingProviderNames.contains(provider.name()))
                 .toList();
     }

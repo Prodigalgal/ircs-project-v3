@@ -234,6 +234,26 @@ class MetadataResultCollectorServiceTest {
     }
 
     @Test
+    void aKnownIdStillRetriesWhenDetailFetchHasNoSuccessfulProvider() {
+        UUID id = UUID.randomUUID();
+        RawVideoMetadataRecord existing = record(id);
+        existing.setTmdbId("106");
+        when(repository.findById(id)).thenReturn(Optional.of(existing));
+        when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
+        when(repository.save(any())).thenReturn(1);
+        when(configValues.retryDelay()).thenReturn(Duration.ofMinutes(5));
+        var failure = EnrichmentResultMsg.builder().videoId(id).pipelineVersion("hash-v1")
+                .providerType(ProviderType.TMDB).success(false).retryable(true).build();
+
+        var result = newService(completedRetryableFailure()).process(failure, 0);
+
+        assertEquals("FAILED", result.enrichmentStatus());
+        assertEquals("106", existing.getTmdbId());
+        assertEquals(1, existing.getEnrichmentRetryCount());
+        verify(metadataEnrichPublisher).publish(id, "hash-v1", Duration.ofMinutes(5));
+    }
+
+    @Test
     void terminalFailureMovesToPermanentFailureAndPublishesSearchSync() {
         UUID id = UUID.randomUUID();
         RawVideoMetadataRecord existing = record(id);
@@ -366,6 +386,27 @@ class MetadataResultCollectorServiceTest {
         assertEquals("SUCCESS", record.getValue().getEnrichmentStatus());
         verify(pipelineRunRepository).markRunFinished(id, "hash-v1", "SUCCESS");
         verify(searchSyncPublisher).publishIndex(id);
+    }
+
+    @Test
+    void lastProviderFailureStillRefreshesBindingWhenEarlierProviderSavedFacts() {
+        UUID id = UUID.randomUUID();
+        RawVideoMetadataRecord existing = record(id);
+        existing.setTmdbId("106");
+        existing.setDescription("此前核实的 TMDB 简介");
+        when(repository.findById(id)).thenReturn(Optional.of(existing));
+        when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
+        when(repository.save(any())).thenReturn(1);
+
+        var completedWithOneSuccess = ProviderCompletion.tracked(true, 2, 2, 1, 1, 0, 1);
+        var result = newService(completedWithOneSuccess).process(EnrichmentResultMsg.builder()
+                .videoId(id).pipelineVersion("hash-v1").providerType(ProviderType.DOUBAN)
+                .success(false).retryable(false).build(), 0);
+
+        assertEquals("SUCCESS", result.enrichmentStatus());
+        assertEquals("PENDING", existing.getAggregationStatus());
+        assertEquals("此前核实的 TMDB 简介", existing.getDescription());
+        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "metadata-finalized");
     }
 
     @Test
@@ -558,14 +599,14 @@ class MetadataResultCollectorServiceTest {
         record.setTmdbId("0");
         when(pipelineRunRepository.findCompletionForUpdate(id, "hash-v1")).thenReturn(Optional.of(completedSuccess()));
         when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(record));
-        when(repository.updateEnrichmentStatusIfPending(id, "hash-v1", "PERMANENT_FAILURE", 0)).thenReturn(1);
+        when(repository.updateEnrichmentStatusIfPending(id, "hash-v1", "PERMANENT_FAILURE", 0, false)).thenReturn(1);
 
         assertEquals("PERMANENT_FAILURE", newService().reconcileCompletedRun(id, "hash-v1").enrichmentStatus());
 
         var order = org.mockito.Mockito.inOrder(pipelineRunRepository, repository);
         order.verify(pipelineRunRepository).findCompletionForUpdate(id, "hash-v1");
         order.verify(repository).findByIdForUpdate(id);
-        order.verify(repository).updateEnrichmentStatusIfPending(id, "hash-v1", "PERMANENT_FAILURE", 0);
+        order.verify(repository).updateEnrichmentStatusIfPending(id, "hash-v1", "PERMANENT_FAILURE", 0, false);
         verify(repository, never()).findById(id);
         verify(repository, never()).save(any());
     }

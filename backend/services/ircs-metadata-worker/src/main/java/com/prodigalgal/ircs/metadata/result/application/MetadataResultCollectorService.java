@@ -62,13 +62,15 @@ public class MetadataResultCollectorService {
             return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
         }
         finalizeVideoStatus(record, completion, false);
+        boolean refreshAggregate = completion.successCount() > 0 && "PENDING".equals(record.getAggregationStatus());
         if (repository.updateEnrichmentStatusIfPending(videoId, record.getDataHash(), record.getEnrichmentStatus(),
-                record.getEnrichmentRetryCount()) != 1) {
+                record.getEnrichmentRetryCount(), refreshAggregate) != 1) {
             return new MetadataResultProcessingResult(videoId, true, "STALE");
         }
         pipelineRunRepository.markRunFinished(videoId, record.getDataHash(), record.getEnrichmentStatus());
         searchSyncPublisher.publishIndex(videoId);
         aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-completed-run-reconciled");
+        scheduleRetryIfNeeded(record);
         return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
     }
 
@@ -363,10 +365,12 @@ public class MetadataResultCollectorService {
             RawVideoMetadataRecord record,
             ProviderCompletion completion,
             boolean metadataUpdated) {
-        if (record.hasAuthoritativeId()) {
+        boolean hasIdentity = record.hasAuthoritativeId();
+        if (hasIdentity && (completion.successCount() > 0 || completion.retryableFailureCount() <= 0)) {
             record.setEnrichmentStatus("SUCCESS");
             record.setEnrichmentRetryCount(0);
-            if (metadataUpdated) {
+            // A prior provider can have saved facts while the remaining providers were pending.
+            if (metadataUpdated || completion.successCount() > 0 && "BOUND".equals(record.getAggregationStatus())) {
                 record.setAggregationStatus("PENDING");
             }
             return;
@@ -379,7 +383,7 @@ public class MetadataResultCollectorService {
 
         int nextRetry = (record.getEnrichmentRetryCount() == null ? 0 : record.getEnrichmentRetryCount()) + 1;
         if (nextRetry >= MAX_ENRICHMENT_RETRIES) {
-            record.setEnrichmentStatus("PERMANENT_FAILURE");
+            record.setEnrichmentStatus(hasIdentity ? "SUCCESS" : "PERMANENT_FAILURE");
             return;
         }
 

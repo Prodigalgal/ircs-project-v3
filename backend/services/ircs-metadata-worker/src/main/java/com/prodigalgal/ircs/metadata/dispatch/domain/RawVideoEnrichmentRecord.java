@@ -23,6 +23,7 @@ public class RawVideoEnrichmentRecord {
     private String enrichmentStatus;
     private Integer enrichmentRetryCount;
     private String dataHash;
+    private boolean coreMetadataIncomplete;
 
     public boolean hasAuthoritativeId() {
         return AuthoritativeIds.normalizeDouban(doubanId) != null

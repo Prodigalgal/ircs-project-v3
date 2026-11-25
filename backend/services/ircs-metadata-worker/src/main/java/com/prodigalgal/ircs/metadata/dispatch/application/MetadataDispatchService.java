@@ -98,7 +98,7 @@ public class MetadataDispatchService {
                 && MetadataEnrichmentPolicy.supports(context, ProviderType.DOUBAN)) {
             providers.add(ProviderType.DOUBAN);
         }
-        if (configValues.tmdbEnabled() && AuthoritativeIds.normalizeTmdb(record.getTmdbId()) == null
+        if (configValues.tmdbEnabled() && (context.getTmdbId() == null || record.isCoreMetadataIncomplete())
                 && MetadataEnrichmentPolicy.supports(context, ProviderType.TMDB)) {
             providers.add(ProviderType.TMDB);
         }

@@ -56,7 +56,7 @@ class ApiGatewayProxyController {
                     authenticator.requireRoleAndPermission(
                             request,
                             IrcsPermissions.ROLE_ADMIN,
-                            adminPermissionFor(request)));
+                            adminPermissionFor(request.getRequestURI(), request.getMethod())));
             return;
         }
         authenticator.authenticateIfPresent(request)
@@ -98,9 +98,7 @@ class ApiGatewayProxyController {
         return Optional.empty();
     }
 
-    private static String adminPermissionFor(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        String method = request.getMethod();
+    static String adminPermissionFor(String path, String method) {
         if (path.startsWith("/api/v1/auth/change-password")) {
             return IrcsPermissions.ADMIN_AUTH_CHANGE_PASSWORD;
         }

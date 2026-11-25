@@ -8,6 +8,20 @@ spring:
       enabled: true
   application:
     name: ircs-api-gateway
+  ai:
+    mcp:
+      server:
+        enabled: ${APP_GATEWAY_MCP_ENABLED:true}
+        name: ircs-admin
+        version: ${APP_VERSION:3.13.0}
+        protocol: STATELESS
+        annotation-scanner:
+          enabled: false
+        tool-callback-converter: false
+        capabilities:
+          resource: false
+          prompt: false
+          completion: false
   servlet:
     multipart:
       enabled: false
@@ -30,6 +44,8 @@ management:
 
 app:
   gateway:
+    mcp:
+      allowed-origin: ${APP_GATEWAY_MCP_ALLOWED_ORIGIN:https://admin.mnnu.eu.org}
     audit:
       enabled: ${APP_GATEWAY_AUDIT_ENABLED:true}
     api-token:

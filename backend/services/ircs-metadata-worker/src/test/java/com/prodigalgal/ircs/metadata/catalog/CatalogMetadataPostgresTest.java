@@ -58,7 +58,8 @@ class CatalogMetadataPostgresTest {
                 insert into standard_areas values('CN','中国大陆');
                 insert into standard_languages values('zh','中文','Chinese','中文');
                 insert into standard_genre values('action','动作');
-                create table source_domains(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,domain_value text unique);
+                create table source_domains(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
+                    domain_hash varchar(64) not null unique,domain_value varchar(255) not null);
                 create table cover_images(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
                     storage_type text,original_url text,source_domain_id uuid,status text,retry_count integer,next_retry_time timestamptz,
                     unique(original_url,source_domain_id));
@@ -83,6 +84,12 @@ class CatalogMetadataPostgresTest {
         assertThat(jdbc.queryForObject("select actor_names::text from unified_videos where id=?",String.class,id)).contains("Actor");
         assertThat(jdbc.queryForObject("select genre_codes::text from unified_videos where id=?",String.class,id)).contains("action");
         assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("SYNCED");
+        assertThat(jdbc.queryForObject("""
+                select length(domain_hash) from source_domains domain
+                join cover_images image on image.source_domain_id=domain.id
+                join unified_videos video on video.cover_image_id=image.id
+                where video.id=?
+                """,Integer.class,id)).isEqualTo(64);
         assertThat(jdbc.queryForObject("select to_regclass('raw_videos') is null",Boolean.class)).isTrue();
         assertThat(repository.pendingIndexes()).hasSize(1);
     }

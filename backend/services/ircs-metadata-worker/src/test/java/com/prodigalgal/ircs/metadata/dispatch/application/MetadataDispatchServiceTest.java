@@ -229,6 +229,24 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
+    void dispatchesKnownTmdbIdToCompleteMissingCoreMetadata() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord raw = record(id);
+        raw.setTmdbId("101");
+        raw.setCoreMetadataIncomplete(true);
+        when(repository.findById(id)).thenReturn(Optional.of(raw));
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB)))
+                .thenReturn(List.of(ProviderType.TMDB));
+
+        MetadataDispatchResult result = newService(true).dispatch(id, "hash-v1");
+
+        assertEquals(List.of(ProviderType.TMDB), result.providers());
+        ArgumentCaptor<MetadataSearchContext> context = ArgumentCaptor.forClass(MetadataSearchContext.class);
+        verify(providerTaskPublisher).publish(org.mockito.Mockito.eq(ProviderType.TMDB), context.capture());
+        assertEquals("101", context.getValue().getTmdbId());
+    }
+
+    @Test
     void noAvailableProviderEndsWithoutMeaninglessRetry() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
@@ -379,6 +397,7 @@ class MetadataDispatchServiceTest {
                 null,
                 "PENDING",
                 0,
-                "hash-v1");
+                "hash-v1",
+                false);
     }
 }

@@ -37,7 +37,8 @@ class MetadataPipelineRunRepositoryTest {
         assertEquals(List.of(ProviderType.TMDB), pending);
         org.mockito.Mockito.verify(jdbcTemplate).update(
                 argThat(sql -> sql.contains("raw_video_pipeline_runs")
-                        && sql.contains("on conflict (raw_video_id, pipeline_version, step) do nothing")),
+                        && sql.contains("on conflict (raw_video_id, pipeline_version, provider_type) do nothing")
+                        && sql.contains("raw_video_pipeline_runs.expected_count+excluded.expected_count")),
                 any(MapSqlParameterSource.class));
         org.mockito.Mockito.verify(jdbcTemplate).update(
                 argThat(sql -> sql.contains("with retried as")
@@ -45,10 +46,6 @@ class MetadataPipelineRunRepositoryTest {
                         && sql.contains("completed_count - (select count(*) from retried)")
                         && sql.contains("failure_count - (select count(*) from retried)")),
                 any(MapSqlParameterSource.class));
-        org.mockito.Mockito.verify(jdbcTemplate).batchUpdate(
-                argThat(sql -> sql.contains("raw_video_enrichment_provider_runs")
-                        && sql.contains("on conflict (raw_video_id, pipeline_version, provider_type) do nothing")),
-                any(MapSqlParameterSource[].class));
     }
 
     @Test

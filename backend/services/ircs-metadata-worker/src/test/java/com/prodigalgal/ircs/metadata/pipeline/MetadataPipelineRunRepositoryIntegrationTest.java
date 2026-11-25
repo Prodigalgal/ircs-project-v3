@@ -171,6 +171,24 @@ class MetadataPipelineRunRepositoryIntegrationTest {
     }
 
     @Test
+    void addingAProviderToAnExistingRevisionCountsItOnceAndWaitsForItsResult() {
+        UUID id = raw("hash-v1", "12345");
+        prepare(id, ProviderType.DOUBAN);
+        transaction.execute(ignored -> repository.completeProvider(id, "hash-v1", ProviderType.DOUBAN,
+                false, false, "NOT_FOUND", "No match", 0));
+
+        assertThat(prepare(id, ProviderType.TMDB, ProviderType.DOUBAN)).containsExactly(ProviderType.TMDB);
+        assertThat(prepare(id, ProviderType.TMDB, ProviderType.DOUBAN)).containsExactly(ProviderType.TMDB);
+        assertThat(pipeline(id).get("expected_count")).isEqualTo(2);
+        assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("PENDING");
+
+        var completion = transaction.execute(ignored -> repository.completeProvider(id, "hash-v1", ProviderType.TMDB,
+                true, false, null, null, 0));
+        assertThat(completion.allCompleted()).isTrue();
+        assertThat(completion.successCount()).isEqualTo(1);
+    }
+
+    @Test
     void failedLocalHandoffRollsBackBothRawFinalizationAndRunStatus() {
         UUID id = raw("hash-v1", "12345");
         complete(id, true);

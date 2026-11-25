@@ -80,11 +80,14 @@ public class RawVideoMetadataRepository {
         });
     }
 
-    public int updateEnrichmentStatusIfPending(UUID id, String dataHash, String status, Integer retryCount) {
+    public int updateEnrichmentStatusIfPending(UUID id, String dataHash, String status, Integer retryCount,
+            boolean refreshAggregate) {
         return jdbcTemplate.update("""
-                update raw_videos set enrichment_status=?, enrichment_retry_count=?, updated_at=now()
+                update raw_videos set enrichment_status=?, enrichment_retry_count=?,
+                    aggregation_status=case when ? and aggregation_status='BOUND' then 'PENDING' else aggregation_status end,
+                    updated_at=now()
                 where id=? and data_hash is not distinct from ? and enrichment_status='PENDING'
-                """, status, retryCount, id, dataHash);
+                """, status, retryCount, refreshAggregate, id, dataHash);
     }
 
     public int save(RawVideoMetadataRecord record) {

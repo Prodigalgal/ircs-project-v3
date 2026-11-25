@@ -70,6 +70,7 @@ class TmdbMetadataProviderTest {
                 """));
         when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(Optional.of("""
                 {
+                  "id":603,
                   "title":"The Matrix",
                   "original_title":"The Matrix",
                   "overview":"A hacker discovers reality.",
@@ -103,6 +104,75 @@ class TmdbMetadataProviderTest {
     }
 
     @Test
+    void knownMovieIdentifierUsesOneVerifiedDetailRequest() {
+        var context = MetadataSearchContext.builder().title("The Matrix").categorySlug("movie")
+                .year("1999").tmdbId("603").imdbId("tt0133093").build();
+        when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
+        when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(Optional.of("""
+                {"id":603,"title":"The Matrix","release_date":"1999-03-31","overview":"Verified synopsis",
+                 "external_ids":{"imdb_id":"tt0133093"}}
+                """));
+
+        assertEquals("Verified synopsis", provider.enrich(context).orElseThrow().getDescription());
+        verify(httpClient, times(1)).getJson(any(URI.class));
+        verify(rateLimiter, times(1)).acquire(credential);
+    }
+
+    @Test
+    void knownIdentifierRejectsConflictingDetailsWithoutSubstitutingAnotherTitle() {
+        var context = MetadataSearchContext.builder().title("The Matrix").categorySlug("movie")
+                .tmdbId("603").imdbId("tt0133093").build();
+        when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
+        when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(
+                Optional.of("""
+                        {"id":604,"title":"The Matrix"}
+                        """),
+                Optional.of("""
+                        {"id":603,"name":"The Matrix","first_air_date":"1999-03-31","media_type":"tv"}
+                        """),
+                Optional.of("""
+                        {"id":603,"title":"Different Movie"}
+                        """),
+                Optional.of("""
+                        {"id":603,"title":"The Matrix","external_ids":{"imdb_id":"tt0000007"}}
+                        """));
+
+        for (int request = 0; request < 4; request++) {
+            assertTrue(provider.enrich(context).isEmpty());
+        }
+        verify(httpClient, times(4)).getJson(argThat(this::isMovieDetailUri));
+        verify(httpClient, times(4)).getJson(any(URI.class));
+    }
+
+    @Test
+    void knownSeriesUsesVerifiedSeasonFactsAndRejectsAnEpisodeFromAnotherShow() {
+        var context = MetadataSearchContext.builder().title("Example").categorySlug("series")
+                .tmdbId("101").season(5).year("2026").build();
+        when(credentialRepository.findEnabled()).thenReturn(List.of(credential));
+        when(httpClient.getJson(argThat(uri -> uri != null && uri.getPath().endsWith("/tv/101"))))
+                .thenReturn(Optional.of("""
+                        {"id":101,"name":"Example","first_air_date":"2019-01-01","overview":"Series overview",
+                         "seasons":[{"id":505,"season_number":5}],"credits":{"cast":[{"name":"Original Actor"}]}}
+                        """));
+        when(httpClient.getJson(argThat(uri -> uri != null && uri.getPath().endsWith("/tv/101/season/5")
+                && uri.getQuery().contains("append_to_response=credits")))).thenReturn(
+                Optional.of("""
+                        {"id":505,"season_number":5,"air_date":"2026-05-12","overview":"Season overview",
+                         "poster_path":"/season-5.jpg","credits":{"cast":[{"name":"Season Actor"}]},
+                         "episodes":[{"show_id":101}]}
+                        """),
+                Optional.of("""
+                        {"id":505,"season_number":5,"air_date":"2026-05-12","episodes":[{"show_id":102}]}
+                        """));
+
+        var matched = provider.enrich(context).orElseThrow();
+        assertEquals("Season overview", matched.getDescription());
+        assertTrue(matched.getPosterUrl().endsWith("/season-5.jpg"));
+        assertEquals(java.util.Set.of("Season Actor"), matched.getActorNames());
+        assertTrue(provider.enrich(context).isEmpty());
+    }
+
+    @Test
     void explicitMovieWithLegacySeasonStillSearchesMovieAndNeverFetchesTelevisionSeason() {
         MetadataSearchContext context = MetadataSearchContext.builder().title("叶问2")
                 .categorySlug("movie").season(2).year("2010").build();
@@ -111,7 +181,7 @@ class TmdbMetadataProviderTest {
                 {"results":[{"id":603,"title":"叶问2","release_date":"2010-04-29"}]}
                 """));
         when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(Optional.of("""
-                {"title":"叶问2","release_date":"2010-04-29"}
+                {"id":603,"title":"叶问2","release_date":"2010-04-29"}
                 """));
 
         assertEquals("603", provider.enrich(context).orElseThrow().getTmdbId());
@@ -214,7 +284,8 @@ class TmdbMetadataProviderTest {
                   {"title":"The Matrix"}, {"id":2,"title":"The Matrix Reloaded"},
                   {"id":603,"title":"The Matrix"}]}
                 """));
-        when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(Optional.of("{\"title\":\"The Matrix\"}"));
+        when(httpClient.getJson(argThat(this::isMovieDetailUri))).thenReturn(
+                Optional.of("{\"id\":603,\"title\":\"The Matrix\"}"));
 
         assertEquals("603", provider.enrich(context).orElseThrow().getTmdbId());
         verify(httpClient, times(2)).getJson(any(URI.class));
@@ -276,7 +347,7 @@ class TmdbMetadataProviderTest {
                 ]}
                 """));
         when(httpClient.getJson(argThat(uri -> uri != null && uri.getPath().endsWith("/movie/102")))).thenReturn(Optional.of("""
-                {"title":"夜曲","original_title":"Notturno","release_date":"2020-09-08",
+                {"id":102,"title":"夜曲","original_title":"Notturno","release_date":"2020-09-08",
                  "genres":[{"id":99,"name":"Documentary"}]}
                 """));
 
@@ -349,7 +420,7 @@ class TmdbMetadataProviderTest {
             if (path.contains("/season/")) {
                 return Optional.of("{\"season_number\":5}");
             }
-            return Optional.of("{\"name\":\"Example\",\"first_air_date\":\"2026-01-01\"}");
+            return Optional.of(tvDetails(path));
         });
 
         assertTrue(provider.enrich(context).isEmpty());
@@ -374,7 +445,7 @@ class TmdbMetadataProviderTest {
             if (path.endsWith("/102/season/5")) {
                 return Optional.of("{\"season_number\":5,\"air_date\":\"2026-01-01\"}");
             }
-            return Optional.of("{\"name\":\"Example\",\"first_air_date\":\"2019-01-01\"}");
+            return Optional.of(tvDetails(path));
         });
 
         assertEquals("102", provider.enrich(context).orElseThrow().getTmdbId());
@@ -397,7 +468,7 @@ class TmdbMetadataProviderTest {
             if (uri.getPath().contains("/season/")) {
                 return Optional.of("{\"season_number\":5,\"air_date\":\"2020-01-01\"}");
             }
-            return Optional.of("{\"name\":\"Example\",\"first_air_date\":\"2019-01-01\"}");
+            return Optional.of(tvDetails(uri.getPath()));
         });
 
         var failure = assertThrows(MetadataProviderRetryableException.class, () -> provider.enrich(context));
@@ -425,7 +496,7 @@ class TmdbMetadataProviderTest {
             if (uri.getPath().contains("/season/")) {
                 return Optional.of("{\"season_number\":5}");
             }
-            return Optional.of("{\"name\":\"Example\"}");
+            return Optional.of(tvDetails(uri.getPath()));
         });
 
         var failure = assertThrows(MetadataProviderRetryableException.class, () -> provider.enrich(context));
@@ -446,8 +517,15 @@ class TmdbMetadataProviderTest {
             if (path.contains("/season/")) {
                 return Optional.of(seasonResponse);
             }
-            return Optional.of("{\"name\":\"Example\",\"first_air_date\":\"2019-01-01\"}");
+            return Optional.of(tvDetails(path));
         }).when(httpClient).getJson(any(URI.class));
+    }
+
+    private String tvDetails(String path) {
+        int id = Integer.parseInt(path.substring(path.lastIndexOf('/') + 1));
+        return """
+                {"id":%d,"name":"Example","first_air_date":"2019-01-01"}
+                """.formatted(id);
     }
 
     private boolean isMovieSearchUri(URI uri) {

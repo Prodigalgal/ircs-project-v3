@@ -111,6 +111,25 @@ class GatewayProxyClient {
     }
 
     void proxy(HttpServletRequest request, HttpServletResponse response, GatewayRouteTable routes) throws IOException {
+        exchange(request, routes, null, upstream -> {
+            writeResponse(upstream, response);
+            return null;
+        });
+    }
+
+    AdminOperationResponse invokeAdminOperation(
+            HttpServletRequest request, GatewayRouteTable routes, byte[] body, int responseLimit) throws IOException {
+        return exchange(request, routes, body, upstream -> {
+            byte[] result = upstream.body().readNBytes(responseLimit + 1);
+            if (result.length > responseLimit) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Admin operation response exceeds the MCP limit");
+            }
+            return new AdminOperationResponse(upstream.statusCode(), result);
+        });
+    }
+
+    private <T> T exchange(
+            HttpServletRequest request, GatewayRouteTable routes, byte[] body, UpstreamHandler<T> handler) throws IOException {
         Instant startedAt = Instant.now();
         int statusCode = HttpStatus.INTERNAL_SERVER_ERROR.value();
         String errorMessage = null;
@@ -118,10 +137,10 @@ class GatewayProxyClient {
             ResolvedRoute route = routes.resolve(request.getRequestURI())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
             URI target = targetUri(route, request);
-            OutboundHttpRequest outbound = outboundRequest(request, target);
+            OutboundHttpRequest outbound = outboundRequest(request, target, body);
             try (OutboundStreamingHttpResponse upstream = openUpstream(outbound)) {
                 statusCode = upstream.statusCode();
-                writeResponse(upstream, response);
+                return handler.read(upstream);
             }
         } catch (ResponseStatusException ex) {
             statusCode = ex.getStatusCode().value();
@@ -208,7 +227,7 @@ class GatewayProxyClient {
         }
     }
 
-    private OutboundHttpRequest outboundRequest(HttpServletRequest request, URI target) throws IOException {
+    private OutboundHttpRequest outboundRequest(HttpServletRequest request, URI target, byte[] suppliedBody) throws IOException {
         Map<String, String> headers = requestHeaders(request);
         String targetPath = target.getRawPath() + (target.getRawQuery() == null ? "" : "?" + target.getRawQuery());
         GatewayIdentitySignature.sign(headers, request.getMethod(), targetPath,
@@ -220,8 +239,15 @@ class GatewayProxyClient {
         if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method) || "OPTIONS".equalsIgnoreCase(method)) {
             return new OutboundHttpRequest(target, method, headers, policy, new byte[0]);
         }
-        byte[] body = request.getInputStream().readAllBytes();
+        byte[] body = suppliedBody == null ? request.getInputStream().readAllBytes() : suppliedBody;
         return new OutboundHttpRequest(target, method, headers, policy, body);
+    }
+
+    record AdminOperationResponse(int status, byte[] body) {}
+
+    @FunctionalInterface
+    private interface UpstreamHandler<T> {
+        T read(OutboundStreamingHttpResponse upstream) throws IOException;
     }
 
     private Map<String, String> requestHeaders(HttpServletRequest request) {

@@ -185,10 +185,13 @@ public class CatalogMetadataRepository {
         URI uri;
         try { uri = URI.create(poster); } catch (IllegalArgumentException ex) { return null; }
         if (uri.getHost() == null || uri.getUserInfo() != null || !Set.of("https","http").contains(uri.getScheme())) return null;
+        String domainValue = uri.getScheme() + "://" + uri.getHost() + (uri.getPort() < 0 ? "" : ":" + uri.getPort());
+        if (domainValue.length() > 255 || poster.length() > 2048) return null;
         UUID domain = jdbc.queryForObject("""
-                insert into source_domains(id,created_at,updated_at,version,domain_value)
-                values(:id,now(),now(),0,:domain) on conflict(domain_value) do update set domain_value=excluded.domain_value returning id
-                """, Map.of("id", IrcsUuidGenerators.nextId(), "domain", uri.getScheme()+"://"+uri.getHost()), UUID.class);
+                insert into source_domains(id,created_at,updated_at,version,domain_hash,domain_value)
+                values(:id,now(),now(),0,encode(sha256(convert_to(:domain,'UTF8')),'hex'),:domain)
+                on conflict(domain_hash) do update set domain_value=excluded.domain_value returning id
+                """, Map.of("id", IrcsUuidGenerators.nextId(), "domain", domainValue), UUID.class);
         return jdbc.queryForObject("""
                 insert into cover_images(id,created_at,updated_at,version,storage_type,original_url,source_domain_id,status,retry_count,next_retry_time)
                 values(:id,now(),now(),0,'EXTERNAL',:url,:domain,'UNPROCESSED',0,now())
