@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
 class AuthorityCatalogImportWorker {
 
     private static final List<String> TYPES = List.of("movie", "tv");
+    private static final int COMPLETED_DAYS_IN_CHANGE_WINDOW = 13;
     private final AuthorityCatalogImportRepository repository;
     private final CatalogTmdbMetadataSource source;
     private final RuntimeConfigService config;
@@ -67,7 +68,7 @@ class AuthorityCatalogImportWorker {
         } catch (CatalogMetadataUnavailableException ex) {
             String reason = ex.getMessage();
             boolean credentialUnavailable = "CREDENTIAL_UNAVAILABLE".equals(reason);
-            repository.defer(job, reason, !credentialUnavailable);
+            repository.defer(job, reason, "ADULT_SOURCE_RECORD".equals(reason));
             return !credentialUnavailable;
         } catch (RuntimeException ex) {
             repository.defer(job, "SOURCE_OR_WRITE_FAILED", false);
@@ -79,17 +80,33 @@ class AuthorityCatalogImportWorker {
 
     private void runChanges() {
         int warmup = config.boundedIntValue("app.catalog.authority-first.warmup-per-type", 400, 0, 10000);
+        int newWorkLimit = config.boundedIntValue("app.catalog.authority-first.new-works-per-change-page", 3, 0, 20);
+        int pageBudget = config.boundedIntValue("app.catalog.authority-first.change-pages-per-run", 4, 1, 8);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate earliest = today.minusDays(COMPLETED_DAYS_IN_CHANGE_WINDOW);
         for (String type : TYPES) {
             if (warmup > 0) repository.seed(type, warmup);
-            var cursor = repository.cursor(type, today.minusDays(2));
-            if (!cursor.day().isBefore(today)) continue;
-            try {
-                repository.saveChanges(cursor, TmdbChangePage.from(source.changes(type, cursor.day(), cursor.page()), cursor.page()));
-            } catch (RuntimeException ex) {
-                log.warn("Authority change page deferred, type={}, day={}, page={}, errorType={}",
-                        type, cursor.day(), cursor.page(), ex.getClass().getSimpleName());
+            syncType(type, today, earliest, pageBudget, newWorkLimit);
+        }
+    }
+
+    private void syncType(String type, LocalDate today, LocalDate earliest, int pageBudget, int newWorkLimit) {
+        var cursor = repository.cursor(type, today.minusDays(2));
+        try {
+            if (cursor.day().isBefore(earliest)) {
+                repository.recoverExpiredCursor(cursor, earliest);
+                log.info("TMDB change window expired; scheduled a refresh of tracked works, type={}, since={}", type, earliest);
+                return;
             }
+            for (int page = 0; page < pageBudget && cursor.day().isBefore(today)
+                    && !Thread.currentThread().isInterrupted(); page++) {
+                var changes = TmdbChangePage.from(source.changes(type, cursor.day(), cursor.page()), cursor.page());
+                if (!repository.saveChanges(cursor, changes, newWorkLimit)) return;
+                cursor = cursor.next(changes);
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Authority change page deferred, type={}, day={}, page={}, errorType={}",
+                    type, cursor.day(), cursor.page(), ex.getClass().getSimpleName());
         }
     }
 

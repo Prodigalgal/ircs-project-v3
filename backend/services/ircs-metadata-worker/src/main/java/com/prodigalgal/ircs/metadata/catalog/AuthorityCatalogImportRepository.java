@@ -46,10 +46,11 @@ class AuthorityCatalogImportRepository {
                        credits_backfill_at=case when due.backfill then j.credits_backfill_at end,
                        lease_until=now()+interval '5 minutes',attempts=least(attempts+1,1000000),updated_at=now()
                   from due where (j.media_type,j.tmdb_id,j.season_number)=(due.media_type,due.tmdb_id,due.season_number)
-                returning j.media_type,j.tmdb_id,j.season_number,j.priority,j.attempts,j.lease_token,due.backfill
+                returning j.media_type,j.tmdb_id,j.season_number,j.priority,j.attempts,j.lease_token,due.backfill,
+                          j.refresh_generation
                 """, Map.of("token", UUID.randomUUID()),
                 (rs, row) -> new Import(rs.getString(1), rs.getLong(2), rs.getInt(3), rs.getInt(4),
-                        rs.getInt(5), rs.getObject(6, UUID.class), rs.getBoolean(7))).stream().findFirst();
+                        rs.getInt(5), rs.getObject(6, UUID.class), rs.getBoolean(7), rs.getLong(8))).stream().findFirst();
     }
 
     @Transactional(timeout = 20)
@@ -120,12 +121,30 @@ class AuthorityCatalogImportRepository {
         p.addValue("video", video);
         storeAuthorityIdentities(p);
         projectionRepository.recordMetadataObservation(video, "TMDB", Long.toString(evidence.tmdbId()), facts);
+        scheduleRemainingSeason(p);
         scheduleResources(p);
         jdbc.update("""
-                update catalog_authority_import_jobs set status='SUCCESS',lease_token=null,lease_until=null,
-                    attempts=0,last_success_at=now(),last_error=null,credits_backfill_at=null,updated_at=now() where
+                update catalog_authority_import_jobs
+                   set status=case when refresh_generation=:generation then 'SUCCESS' else 'PENDING' end,
+                       next_attempt_at=now(),lease_token=null,lease_until=null,attempts=0,last_success_at=now(),
+                       last_error=null,credits_backfill_at=null,updated_at=now() where
                 """ + OWNED, p);
         return true;
+    }
+
+    private void scheduleRemainingSeason(MapSqlParameterSource p) {
+        jdbc.update("""
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
+                select :type,:tmdb,scope.season_number,greatest(0,:priority-1)
+                  from catalog_seasons scope
+                 where :type='tv' and scope.work_id=:work and scope.season_number>0
+                   and scope.tmdb_season_id is not null and scope.verified_at is null
+                   and not exists(select from catalog_authority_import_jobs job
+                       where job.media_type=:type and job.tmdb_id=:tmdb and job.season_number=scope.season_number)
+                 order by scope.season_number
+                 limit 1
+                on conflict (media_type,tmdb_id,season_number) do nothing
+                """, p);
     }
 
     private void replaceSeasonFacts(UUID work, AuthorityCatalogEvidence evidence) {
@@ -256,8 +275,11 @@ class AuthorityCatalogImportRepository {
                 .addValue("status", keepPublished ? "SUCCESS" : unavailable ? "UNAVAILABLE" : "RETRY")
                 .addValue("seconds", unavailable ? 86400 : Math.min(21600, 60L << Math.min(9, job.attempts() - 1)));
         int retained = jdbc.update("""
-                update catalog_authority_import_jobs set status=:status,lease_token=null,lease_until=null,
-                    credits_backfill_at=case when :keepPublished then now()+(:seconds*interval '1 second') end,
+                update catalog_authority_import_jobs
+                   set status=case when :keepPublished and refresh_generation<>:generation then 'RETRY' else :status end,
+                    lease_token=null,lease_until=null,
+                    credits_backfill_at=case when :keepPublished and refresh_generation=:generation
+                        then now()+(:seconds*interval '1 second') end,
                     next_attempt_at=now()+(:seconds*interval '1 second'),last_error=:reason,updated_at=now() where
                 """ + OWNED, p);
         if (retained == 1 && adult) {
@@ -283,7 +305,7 @@ class AuthorityCatalogImportRepository {
                              where j.media_type=entry.media_type and j.tmdb_id=entry.tmdb_id and j.season_number=-1)
                        order by entry.popularity desc,entry.tmdb_id
                        limit (select greatest(0,:cap-count(*))
-                              from catalog_authority_import_jobs where media_type=:type and priority>=50)
+                              from catalog_authority_import_jobs where media_type=:type and season_number=-1 and priority>=50)
                   ) selected
                  where s.media_type=:type and s.snapshot_date is not null
                 on conflict do nothing
@@ -301,21 +323,61 @@ class AuthorityCatalogImportRepository {
     }
 
     @Transactional(timeout = 10)
-    public boolean saveChanges(ChangeCursor cursor, TmdbChangePage changes) {
+    public void recoverExpiredCursor(ChangeCursor cursor, LocalDate earliest) {
+        var p = new MapSqlParameterSource("type", cursor.type()).addValue("day", cursor.day())
+                .addValue("page", cursor.page()).addValue("earliest", earliest);
+        if (jdbc.update("""
+                update provider_catalog_sync_cursors set change_day=:earliest,next_page=1,updated_at=now()
+                where media_type=:type and change_day=:day and next_page=:page and change_day<:earliest
+                """, p) != 1) return;
+        jdbc.update("""
+                update catalog_authority_import_jobs
+                   set status=case when status='DISPATCHING' then status else 'PENDING' end,
+                       next_attempt_at=case when status='DISPATCHING' then next_attempt_at else now() end,
+                       refresh_generation=refresh_generation+1,updated_at=now()
+                 where media_type=:type
+                   and (status in ('SUCCESS','DISPATCHING') or (status='UNAVAILABLE' and next_attempt_at<=now()))
+                   and last_error is distinct from 'ADULT_SOURCE_RECORD'
+                """, p);
+    }
+
+    @Transactional(timeout = 10)
+    public boolean saveChanges(ChangeCursor cursor, TmdbChangePage changes, int newWorkLimit) {
+        ChangeCursor next = cursor.next(changes);
         var p = new MapSqlParameterSource("type", cursor.type()).addValue("day", cursor.day()).addValue("page", cursor.page())
-                .addValue("nextDay", changes.last() ? cursor.day().plusDays(1) : cursor.day())
-                .addValue("nextPage", changes.last() ? 1 : cursor.page() + 1);
+                .addValue("nextDay", next.day()).addValue("nextPage", next.page());
         if (jdbc.update("""
                 update provider_catalog_sync_cursors set change_day=:nextDay,next_page=:nextPage,updated_at=now()
                 where media_type=:type and change_day=:day and next_page=:page
                 """, p) != 1) return false;
         if (!changes.ids().isEmpty()) {
+            p.addValue("ids", changes.ids()).addValue("newWorkLimit", newWorkLimit);
             jdbc.update("""
-                    update catalog_authority_import_jobs set status='PENDING',next_attempt_at=now(),updated_at=now()
+                    update catalog_authority_import_jobs
+                       set status=case when status='DISPATCHING' then status else 'PENDING' end,
+                           next_attempt_at=case when status='DISPATCHING' then next_attempt_at else now() end,
+                           refresh_generation=refresh_generation+1,updated_at=now()
                     where media_type=:type and tmdb_id in (:ids)
-                      and (status='SUCCESS' and last_success_at < cast(:day as date) + interval '1 day'
-                          or status='UNAVAILABLE' and last_error is distinct from 'ADULT_SOURCE_RECORD' and next_attempt_at<=now())
-                    """, p.addValue("ids", changes.ids()));
+                      and last_error is distinct from 'ADULT_SOURCE_RECORD'
+                      and (status='DISPATCHING'
+                          or status='SUCCESS' and last_success_at < (cast(:day as date) + interval '1 day') at time zone 'UTC'
+                          or status='UNAVAILABLE' and next_attempt_at<=now())
+                    """, p);
+            if (newWorkLimit > 0) {
+                jdbc.update("""
+                        insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
+                        select inventory.media_type,inventory.tmdb_id,-1,20
+                          from provider_catalog_snapshot_states snapshot
+                          join provider_catalog_snapshot_items inventory on inventory.media_type=snapshot.media_type
+                              and inventory.slot=snapshot.active_slot
+                         where snapshot.media_type=:type and snapshot.snapshot_date is not null
+                           and inventory.tmdb_id in (:ids) and not inventory.video
+                           and not exists (select from catalog_authority_import_jobs job
+                                where job.media_type=:type and job.tmdb_id=inventory.tmdb_id)
+                         order by inventory.popularity desc,inventory.tmdb_id limit :newWorkLimit
+                        on conflict (media_type,tmdb_id,season_number) do nothing
+                        """, p);
+            }
         }
         return true;
     }
@@ -323,7 +385,8 @@ class AuthorityCatalogImportRepository {
 
     private MapSqlParameterSource params(Import job) {
         return new MapSqlParameterSource("type", job.mediaType()).addValue("tmdb", job.tmdbId())
-                .addValue("requested", job.seasonNumber()).addValue("token", job.token());
+                .addValue("requested", job.seasonNumber()).addValue("token", job.token())
+                .addValue("generation", job.refreshGeneration());
     }
 
     private void lockWork(Import job) {
@@ -337,7 +400,11 @@ class AuthorityCatalogImportRepository {
     }
 
     record Import(String mediaType, long tmdbId, int seasonNumber, int priority, int attempts, UUID token,
-            boolean creditBackfill) { }
-    record ChangeCursor(String type, LocalDate day, int page) { }
+            boolean creditBackfill, long refreshGeneration) { }
+    record ChangeCursor(String type, LocalDate day, int page) {
+        ChangeCursor next(TmdbChangePage changes) {
+            return changes.last() ? new ChangeCursor(type, day.plusDays(1), 1) : new ChangeCursor(type, day, page + 1);
+        }
+    }
     private record PreviousWork(String title, String originalTitle) { }
 }

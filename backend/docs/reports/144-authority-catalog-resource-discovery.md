@@ -26,6 +26,16 @@ flowchart LR
 
 TMDB 的每日文件提供 ID 和少量筛选字段。完整详情按需获取。变更接口默认覆盖 24 小时，查询窗口可扩至 14 天。同步任务先提交本页变更再移动游标，恢复后从最近成功页继续。超过变更窗口时按 ID 快照补差集。[TMDB 每日 ID 导出](https://developer.themoviedb.org/docs/daily-id-exports) · [TMDB 变更接口](https://developer.themoviedb.org/docs/tracking-content-changes) · [IMDb 官方数据说明](https://data.imdb.com/non-commercial-datasets/)
 
+## 三方数据增量同步
+
+TMDB 建立目录作品与规范季集。变更接口按 UTC 日期和页码推进。处理中收到变更时保留下一次刷新，续跑超过变更窗口时重新排队已跟踪作品。新变更 ID 必须出现在当前生效的公开库存，每页最多加入配置上限内的作品，默认 3 部。新增目录同步任务使用独立低优先级。剧集导入时按已验证的季清单递进补齐其他常规季，特别篇需要明确的季任务。
+
+IMDb 用已验证的 IMDb ID 与当前目录对齐。按独立的 `title.basics`、`title.ratings` 数据源记录标题、原名、年份、片长、题材、评分和票数。下载通过代理池，使用 ETag 或 Last-Modified 条件请求。目录关联或输入地址变更后重新扫描。完整读完才能推进快照检查点，分批写入可重放，同样的事实和评分不重复追加。IMDb 评分单独记录，目录仍使用现有主评分。IMDb 公开 TSV 适用个人和非商业许可，使用符合项目场景的地址。 [IMDb 数据说明](https://data.imdb.com/non-commercial-datasets/)
+
+豆瓣按已验证目录作品滚动刷新。以已验证豆瓣 ID 或本次响应返回的精确 IMDb ID 作为对齐证据。标题搜索用于召回候选，遇到同名或证据不足等待下一次刷新。译名、原名、年份和可用评分作为豆瓣来源事实保存。接入地址须允许项目使用。 [豆瓣法律声明](https://www.douban.com/about/legal)
+
+IMDb 和豆瓣的目录同步默认关闭，分别由 `APP_CATALOG_REFERENCE_IMDB_ENABLED` 和 `APP_CATALOG_REFERENCE_DOUBAN_ENABLED` 控制。IMDb 基础资料和评分的输入地址分别用 `APP_CATALOG_REFERENCE_IMDB_TITLE_BASICS_URL` 和 `APP_CATALOG_REFERENCE_IMDB_TITLE_RATINGS_URL` 配置。三家凭各自的来源记录同步，目录资源发现仍由独立的派单开关控制。
+
 ## 资源站发现与调度
 
 1. 权威导入复用 `catalog_works`、`catalog_seasons`、`catalog_episodes` 和 `catalog_external_ids`。以提供方、类型和 ID 校验身份。未知权威 ID 保持空值。来源记录和每次输入版本分别保存在 `source_records` 与 `source_record_versions`。

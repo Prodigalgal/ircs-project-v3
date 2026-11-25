@@ -269,3 +269,5 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 5.0.0
+  - include:
+      file: db/changelog/2026/11/25-01-catalog-reference-sync.sql

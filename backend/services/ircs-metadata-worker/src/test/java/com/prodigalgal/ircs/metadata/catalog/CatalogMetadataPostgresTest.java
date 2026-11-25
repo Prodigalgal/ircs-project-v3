@@ -7,6 +7,7 @@ import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
@@ -31,6 +32,7 @@ class CatalogMetadataPostgresTest {
     private TransactionTemplate transactions;
     private CatalogMetadataRepository repository;
     private AuthorityCatalogImportRepository authority;
+    private CatalogReferenceSyncRepository references;
 
     @BeforeEach
     void setup() throws Exception {
@@ -46,6 +48,7 @@ class CatalogMetadataPostgresTest {
         var mapper = JsonMapper.builder().findAndAddModules().build();
         repository = new CatalogMetadataRepository(named, mapper);
         authority = new AuthorityCatalogImportRepository(named, repository, new CatalogPeopleRepository(named, mapper));
+        references = new CatalogReferenceSyncRepository(named, mapper);
         jdbc.execute("""
                 insert into catalog_regions(id,created_at,updated_at,code,name)
                     values(uuidv7(),now(),now(),'CN','中国大陆') on conflict do nothing;
@@ -299,6 +302,100 @@ class CatalogMetadataPostgresTest {
         assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, latest))).isTrue();
         assertThat(jdbc.queryForList("select external_credit_id from catalog_person_credits order by external_credit_id", String.class))
                 .containsExactly("guest", "main");
+    }
+
+    @Test
+    void preservesAnInFlightTmdbChangeAndQueuesVerifiedRegularSeasons() {
+        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority) values ('tv',42,-1,100)");
+        var job = authority.claim().orElseThrow();
+        var premiere = LocalDate.of(2026, 4, 15);
+        var cursor = authority.cursor("tv", premiere);
+        assertThat(transactions.<Boolean>execute(
+                status -> authority.saveChanges(cursor, new TmdbChangePage(List.of(42L), true), 0))).isTrue();
+        var evidence = new AuthorityCatalogEvidence("tv", 42, 1, premiere, "series", authorityFacts("Example Series"),
+                List.of(new AuthorityCatalogEvidence.Season(0, 200, "Specials", null),
+                        new AuthorityCatalogEvidence.Season(1, 201, "Season 1", premiere),
+                        new AuthorityCatalogEvidence.Season(2, 202, "Season 2", null)), List.of(), List.of());
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, evidence))).isTrue();
+        assertThat(jdbc.queryForList("select season_number from catalog_authority_import_jobs order by season_number", Integer.class))
+                .containsExactly(-1, 2);
+        assertThat(jdbc.queryForObject("select status from catalog_authority_import_jobs where season_number=-1", String.class))
+                .isEqualTo("PENDING");
+        var refresh = authority.claim().orElseThrow();
+        assertThat(refresh.refreshGeneration()).isEqualTo(job.refreshGeneration() + 1);
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, evidence))).isTrue();
+        assertThat(authority.claim().orElseThrow().seasonNumber()).isEqualTo(2);
+    }
+
+    @Test
+    void expiredChangeCursorRefreshesTrackedWorksAndAdmitsOnlyActiveSnapshotMatches() {
+        var day = LocalDate.of(2026, 4, 15);
+        jdbc.update("""
+                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,status,last_success_at,last_error)
+                values ('movie',42,-1,'SUCCESS',now(),null),('movie',43,-1,'UNAVAILABLE',null,'ADULT_SOURCE_RECORD')
+                """);
+        var cursor = authority.cursor("movie", day);
+        transactions.executeWithoutResult(status -> authority.recoverExpiredCursor(cursor, day.plusDays(30)));
+        assertThat(jdbc.queryForList("select status from catalog_authority_import_jobs order by tmdb_id", String.class))
+                .containsExactly("PENDING", "UNAVAILABLE");
+        var recovered = authority.cursor("movie", day);
+        assertThat(recovered.day()).isEqualTo(day.plusDays(30));
+        assertThat(recovered.page()).isEqualTo(1);
+
+        jdbc.update("update provider_catalog_snapshot_states set snapshot_date=?, active_slot=1, row_count=3 where media_type='movie'",
+                recovered.day());
+        jdbc.update("""
+                insert into provider_catalog_snapshot_items(media_type,slot,tmdb_id,title,popularity,video)
+                values ('movie',1,51,'New detail',15,false),('movie',1,52,'Another detail',14,false),
+                       ('movie',1,53,'Trailer',20,true),('movie',0,54,'Obsolete slot',21,false)
+                """);
+        assertThat(transactions.<Boolean>execute(status -> authority.saveChanges(recovered,
+                new TmdbChangePage(List.of(43L, 51L, 52L, 53L, 54L, 55L), true), 1))).isTrue();
+        assertThat(jdbc.queryForList("select tmdb_id from catalog_authority_import_jobs order by tmdb_id", Long.class))
+                .containsExactly(42L, 43L, 51L);
+    }
+
+    @Test
+    void keepsProviderFactsSeparateAndDeduplicatesReplayedReferenceSnapshots() {
+        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
+        var facts = authorityFacts("Canonical TMDB title");
+        facts.setImdbId("tt0133093");
+        var job = authority.claim().orElseThrow();
+        var evidence = new AuthorityCatalogEvidence("movie", 42, -1, LocalDate.of(1999, 3, 31), "movie",
+                facts, List.of(), List.of(), List.of());
+        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, evidence))).isTrue();
+        var targets = references.imdbTargets();
+        assertThat(targets.keySet()).containsExactly("tt0133093");
+        var titles = references.claim("IMDb", "title-basics", Duration.ofMinutes(5)).orElseThrow();
+        assertThat(references.claim("IMDb", "title-basics", Duration.ofMinutes(5))).isEmpty();
+        var title = new ImdbCatalogSnapshotReader.Title("tt0133093", "movie", "IMDb facts", null, 1999, 136, List.of("Action"));
+        var conflictingTitle = new ImdbCatalogSnapshotReader.Title("tt0133093", "tv", "Wrong shape", null, 1999, 136, List.of());
+        transactions.executeWithoutResult(status -> references.storeImdbTitles(titles, targets, List.of(conflictingTitle)));
+        for (int replay = 0; replay < 2; replay++) {
+            transactions.executeWithoutResult(status -> references.storeImdbTitles(titles, targets, List.of(title)));
+        }
+        assertThat(references.complete(titles, Duration.ofHours(1), "fingerprint", "\"etag\"", null)).isTrue();
+        assertThatThrownBy(() -> transactions.executeWithoutResult(
+                status -> references.storeImdbTitles(titles, targets, List.of(title))))
+                .isInstanceOf(IllegalStateException.class).hasMessage("REFERENCE_SYNC_LEASE_LOST");
+        var ratings = references.claim("IMDb", "title-ratings", Duration.ofMinutes(5)).orElseThrow();
+        var rating = new ImdbCatalogSnapshotReader.Rating("tt0133093", new BigDecimal("8.5"), 12345);
+        transactions.executeWithoutResult(status -> references.storeImdbRatings(ratings, targets, List.of(rating)));
+        assertThat(jdbc.queryForObject("select vote_count from catalog_rating_observations where provider='IMDb'", Long.class))
+                .isEqualTo(12345L);
+
+        var douban = references.claim("Douban", "work-metadata", Duration.ofMinutes(5)).orElseThrow();
+        var target = references.dueDoubanTargets("Douban", 5).getFirst();
+        var supplement = new EnrichedMetadataDTO();
+        supplement.setDoubanId("1291843");
+        supplement.setImdbId("tt0133093");
+        supplement.setTitle("豆瓣译名");
+        assertThat(transactions.<Boolean>execute(
+                status -> references.storeDouban(douban, target, supplement, Duration.ofDays(1)))).isTrue();
+        assertThat(references.dueDoubanTargets("Douban", 5)).isEmpty();
+        assertThat(jdbc.queryForList("select provider from catalog_metadata_observations order by provider", String.class))
+                .containsExactly("Douban", "IMDb", "TMDB");
+        assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("Canonical TMDB title");
     }
 
     private EnrichedMetadataDTO authorityFacts(String title) {

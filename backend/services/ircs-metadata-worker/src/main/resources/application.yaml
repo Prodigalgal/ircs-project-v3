@@ -44,6 +44,13 @@ spring:
 
 app:
   catalog:
+    reference:
+      imdb:
+        enabled: ${APP_CATALOG_REFERENCE_IMDB_ENABLED:false}
+        title-basics-url: ${APP_CATALOG_REFERENCE_IMDB_TITLE_BASICS_URL:}
+        title-ratings-url: ${APP_CATALOG_REFERENCE_IMDB_TITLE_RATINGS_URL:}
+      douban:
+        enabled: ${APP_CATALOG_REFERENCE_DOUBAN_ENABLED:false}
     authority-first:
       enabled: ${APP_CATALOG_AUTHORITY_FIRST_ENABLED:false}
   worker:

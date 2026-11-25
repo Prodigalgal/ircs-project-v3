@@ -3,7 +3,7 @@ package com.prodigalgal.ircs.metadata.inventory;
 import com.prodigalgal.ircs.common.scheduling.ScheduledTriggers;
 import com.prodigalgal.ircs.metadata.inventory.TmdbInventoryRepository.Claim;
 import com.prodigalgal.ircs.metadata.inventory.TmdbInventoryRepository.LeaseLost;
-import com.prodigalgal.ircs.metadata.inventory.TmdbInventorySnapshotSource.SnapshotStatusException;
+import com.prodigalgal.ircs.metadata.inventory.CatalogSnapshotHttpClient.SnapshotStatusException;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.time.Instant;
@@ -77,7 +77,8 @@ class TmdbInventoryScheduler {
             }
         } catch (SnapshotStatusException exception) {
             recordFailure(claim, exception.getMessage(), null);
-            return exception.notAvailable();
+            // The official host responds 403 for a not-yet-published export.
+            return exception.status() == 403 || exception.status() == 404;
         } catch (InterruptedException exception) {
             recordFailure(claim, "SNAPSHOT_INTERRUPTED", exception);
             Thread.currentThread().interrupt();
