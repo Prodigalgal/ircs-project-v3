@@ -39,7 +39,7 @@ class ImdbCatalogSnapshotReaderTest {
 
     @Test
     void rejectsWrongHeaderHeaderOnlyAndTruncatedGzip() throws Exception {
-        byte[] valid = gzip("tconst\ttitleType\tprimaryTitle\toriginalTitle\tisAdult\tstartYear\tendYear\truntimeMinutes\tgenres\n"
+        byte[] valid = gzipBytes("tconst\ttitleType\tprimaryTitle\toriginalTitle\tisAdult\tstartYear\tendYear\truntimeMinutes\tgenres\n"
                 + "tt0000001\tmovie\tFilm\tFilm\t0\t2000\t\\N\t90\tDrama\n");
         assertThatThrownBy(() -> ImdbCatalogSnapshotReader.readTitles(gzip("wrong\nrow\n"), id -> true, rows -> { })).isInstanceOf(IOException.class);
         assertThatThrownBy(() -> ImdbCatalogSnapshotReader.readTitles(gzip("tconst\ttitleType\tprimaryTitle\toriginalTitle\tisAdult\tstartYear\tendYear\truntimeMinutes\tgenres\n"), id -> true, rows -> { }))
@@ -58,9 +58,15 @@ class ImdbCatalogSnapshotReaderTest {
         assertThat(ImdbCatalogSnapshotReader.readTitles(gzip(data.toString()), id -> false, batch -> { })).isZero();
     }
 
-    private byte[] gzip(String text) throws IOException {
+    private ByteArrayInputStream gzip(String text) throws IOException {
+        return new ByteArrayInputStream(gzipBytes(text));
+    }
+
+    private byte[] gzipBytes(String text) throws IOException {
         var out = new ByteArrayOutputStream();
-        try (var gzip = new GZIPOutputStream(out)) { gzip.write(text.getBytes(StandardCharsets.UTF_8)); }
+        try (var gzip = new GZIPOutputStream(out)) {
+            gzip.write(text.getBytes(StandardCharsets.UTF_8));
+        }
         return out.toByteArray();
     }
 }
