@@ -1,34 +1,29 @@
 // File: ircs-frontend/src/app/middleware/errorMiddleware.js
 import { isRejectedWithValue } from '@reduxjs/toolkit';
-import { showNotification } from '../../features/common/notificationSlice';
+import { showNotification } from '../../features/common/notificationSlice.js';
+
+const INVALID_SESSION_CODES = new Set(['auth.token.expired', 'auth.token.invalid', 'auth.token.stale']);
 
 export const rtkQueryErrorLogger = (api) => (next) => (action) => {
+    const result = next(action);
     if (isRejectedWithValue(action)) {
         console.warn('RTK Query Middleware caught an error:', action.error, action.payload);
 
         const { payload } = action;
 
-        if (payload?.status === 401) {
-            if (window.location.pathname.includes('/login')) {
-                const loginMessage =
-                    payload.data?.message ||
-                    payload.data?.detail ||
-                    '登录失败，请检查用户名和密码';
+        if (payload?.status === 401 && INVALID_SESSION_CODES.has(payload.data?.code)) {
+            const token = localStorage.getItem('ircs_token');
+            const request = action.meta.baseQueryMeta?.request;
+            // A delayed response from a previous login cannot invalidate the current session.
+            if (token && request?.headers.get('Authorization') === `Bearer ${token}`) {
+                localStorage.removeItem('ircs_token');
                 api.dispatch(showNotification({
-                    message: loginMessage,
-                    severity: 'error'
+                    message: '会话已失效，请重新登录',
+                    severity: 'warning'
                 }));
-                return;
+                window.location.replace('/login');
             }
-
-            localStorage.removeItem('ircs_token');
-            api.dispatch(showNotification({
-                message: '会话已过期，请重新登录',
-                severity: 'warning'
-            }));
-
-            window.location.href = '/login';
-            return;
+            return result;
         }
 
         let errorMessage = '发生未知错误';
@@ -71,5 +66,5 @@ export const rtkQueryErrorLogger = (api) => (next) => (action) => {
         }));
     }
 
-    return next(action);
+    return result;
 };

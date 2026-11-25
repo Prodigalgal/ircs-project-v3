@@ -38,7 +38,10 @@ export const apiSlice = createApi({
     keepUnusedDataFor: 180,
     baseQuery: fetchBaseQuery({
         baseUrl: '/api/v1',
-        prepareHeaders: (headers) => {
+        prepareHeaders: (headers, { endpoint }) => {
+            if (endpoint === 'login' || endpoint === 'getPoWChallenge') {
+                return headers;
+            }
             const token = localStorage.getItem('ircs_token');
             if (token) {
                 headers.set('Authorization', `Bearer ${token}`);

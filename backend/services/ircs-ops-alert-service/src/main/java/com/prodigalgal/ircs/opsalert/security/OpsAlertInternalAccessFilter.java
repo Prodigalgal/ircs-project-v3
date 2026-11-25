@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,6 +25,7 @@ class OpsAlertInternalAccessFilter extends OncePerRequestFilter {
     static final String RUN_SCOPE_KEY = "app.ops-alert.internal-access.run-scope";
 
     private final RuntimeConfigService runtimeConfig;
+    private final Environment environment;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -33,7 +35,7 @@ class OpsAlertInternalAccessFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String configuredToken = runtimeConfig.stringValue(TOKEN_KEY, "");
+        String configuredToken = resolveAccessSetting(TOKEN_KEY, "");
         try {
             InternalServiceAccessPolicy.require(
                     "Ops alert",
@@ -56,11 +58,17 @@ class OpsAlertInternalAccessFilter extends OncePerRequestFilter {
 
     private String requiredScope(String method) {
         if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) {
-            return runtimeConfig.stringValue(READ_SCOPE_KEY, "ops-alert:read");
+            return resolveAccessSetting(READ_SCOPE_KEY, "ops-alert:read");
         }
         if ("OPTIONS".equalsIgnoreCase(method)) {
             return null;
         }
-        return runtimeConfig.stringValue(RUN_SCOPE_KEY, "ops-alert:run");
+        return resolveAccessSetting(RUN_SCOPE_KEY, "ops-alert:run");
+    }
+
+    private String resolveAccessSetting(String key, String fallback) {
+        // RuntimeConfigService can read the raw value from a YAML property source.
+        String resolved = environment.resolvePlaceholders(runtimeConfig.stringValue(key, fallback)).trim();
+        return resolved.isEmpty() ? fallback : resolved;
     }
 }

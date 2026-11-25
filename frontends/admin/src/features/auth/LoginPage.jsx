@@ -73,7 +73,6 @@ function LoginPage() {
     }, [dispatch, fetchChallenge]);
 
     useEffect(() => {
-        localStorage.removeItem('ircs_token');
         void refreshChallenge();
     }, [refreshChallenge]);
 
@@ -105,7 +104,7 @@ function LoginPage() {
             const res = await login(loginPayload).unwrap();
             localStorage.setItem('ircs_token', res.token);
             dispatch(showNotification({ message: '登录成功，正在进入控制台', severity: 'success' }));
-            navigate('/');
+            navigate('/', { replace: true });
         } catch (err) {
             console.error('Login failed:', err);
             setStatus('IDLE');
