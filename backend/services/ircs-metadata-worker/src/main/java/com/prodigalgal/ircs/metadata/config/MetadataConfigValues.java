@@ -12,6 +12,7 @@ public class MetadataConfigValues {
 
     static final String TMDB_ENABLED_KEY = "app.metadata.tmdb.enabled";
     static final String DOUBAN_ENABLED_KEY = "app.metadata.douban.enabled";
+    static final String IMDB_ENABLED_KEY = "app.metadata.imdb.enabled";
     static final String RT_ENABLED_KEY = "app.metadata.rotten-tomatoes.enabled";
     static final boolean DEFAULT_PROVIDER_ENABLED = true;
     static final Duration DEFAULT_RETRY_DELAY = Duration.ofMinutes(5);
@@ -42,6 +43,14 @@ public class MetadataConfigValues {
                 "app.metadata.providers.tmdb-enabled");
     }
 
+    public boolean imdbEnabled() {
+        return booleanValue(
+                DEFAULT_PROVIDER_ENABLED,
+                IMDB_ENABLED_KEY,
+                "APP_METADATA_IMDB_ENABLED",
+                "app.metadata.providers.imdb-enabled");
+    }
+
     public boolean rottenTomatoesEnabled() {
         return booleanValue(
                 DEFAULT_PROVIDER_ENABLED,
@@ -54,6 +63,7 @@ public class MetadataConfigValues {
         return switch (providerType) {
             case DOUBAN -> doubanEnabled();
             case TMDB -> tmdbEnabled();
+            case IMDB -> imdbEnabled();
             case ROTTEN_TOMATOES -> rottenTomatoesEnabled();
             default -> false;
         };

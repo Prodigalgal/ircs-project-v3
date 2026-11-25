@@ -481,11 +481,40 @@ def normalization_round_trip():
     assert row['status'] == 'READY', 'Native normalization did not persist READY'
     assert row['title'] == '国王的演讲', 'Native title conversion did not use the expected dictionaries'
     assert '音乐' in row['description'], 'Native Japanese variant conversion failed'
-    assert int(docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZCARD',
-                      'ircs:work:v1:pipeline.enrich-metadata:pending')) > 0, 'Metadata handoff was not persisted'
-    assert int(docker('exec', 'ircs-native-key-value', 'valkey-cli', 'ZCARD',
-                      'ircs:work:v1:aggregation.raw-video:pending')) > 0, 'Aggregation handoff was not persisted'
-    print('Native normalization: actual text conversion, durable task completion and downstream handoff verified.', flush=True)
+    enrich_key = 'ircs:work:v1:pipeline.enrich-metadata:task:pipeline.enrich-metadata:' + raw_id + ':' + version
+    aggregation_key = 'ircs:work:v1:aggregation.raw-video:task:raw_video:' + raw_id
+    assert docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HGET', enrich_key, 'status') == 'PENDING', (
+        'Normalization must hand off this version to authority enrichment')
+    assert docker('exec', 'ircs-native-key-value', 'valkey-cli', 'EXISTS', aggregation_key) == '0', (
+        'Normalization must wait for the authority decision before aggregation')
+    print('Native normalization: text conversion and exclusive authority handoff verified.', flush=True)
+    return raw_id, aggregation_key
+
+
+def authority_handoff_probe(raw_id, aggregation_key):
+    global current_service, current_port
+    try:
+        start('ircs-metadata-worker', {
+            'APP_METADATA_TMDB_ENABLED': 'false', 'APP_METADATA_IMDB_ENABLED': 'false',
+            'APP_METADATA_DOUBAN_ENABLED': 'false', 'APP_METADATA_RT_ENABLED': 'false',
+        }, container_name='ircs-native-metadata-handoff', listen_port=18081)
+
+        def finalized():
+            queued = docker('exec', 'ircs-native-key-value', 'valkey-cli', 'HGET', aggregation_key, 'payload')
+            if not queued:
+                return False
+            payload = json.loads(queued)
+            assert payload['reason'] == 'metadata-immediate-finalized'
+            status = docker('exec', 'ircs-native-postgres', 'psql', '-U', 'ircs', '-d', 'ircs', '-Atc',
+                            "select enrichment_status from raw_videos where id='" + raw_id + "'")
+            return status == 'PERMANENT_FAILURE'
+
+        wait_for('Native authority decision precedes aggregation', finalized)
+        print('Native authority stage: terminal source-only decision triggered aggregation after normalization.', flush=True)
+    finally:
+        failures = stop('ircs-native-metadata-handoff')
+        current_service, current_port = 'ircs-normalization-worker', 18080
+        assert not failures, failures
 
 
 def aggregation_evaluation_probe():
@@ -715,7 +744,9 @@ def main():
                 if service == 'ircs-aggregation-worker':
                     aggregation_evaluation_probe()
                 if service == 'ircs-normalization-worker':
-                    normalization_round_trip()
+                    authority_input = normalization_round_trip()
+                    if 'ircs-metadata-worker' in selected_services:
+                        authority_handoff_probe(*authority_input)
                 if service == 'ircs-magnet-service':
                     magnet_search_round_trip()
                 if service == 'ircs-ops-service':

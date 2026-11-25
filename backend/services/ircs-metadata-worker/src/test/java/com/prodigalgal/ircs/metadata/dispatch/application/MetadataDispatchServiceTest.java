@@ -150,6 +150,17 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
+    void doesNotDispatchOrAggregateBeforeNormalizationIsReady() {
+        UUID id = UUID.randomUUID();
+        RawVideoEnrichmentRecord raw = record(id);
+        raw.setNormalizationStatus("PENDING");
+        when(repository.findById(id)).thenReturn(Optional.of(raw));
+
+        assertEquals("WAITING_NORMALIZATION", newService(false).dispatch(id, "hash-v1").status());
+        org.mockito.Mockito.verifyNoInteractions(providerTaskPublisher, pipelineRunRepository, aggregationWorkPublisher);
+    }
+
+    @Test
     void fanOutUsesProviderConfigAndPublishesProviderTasksThroughValkey() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
@@ -158,12 +169,13 @@ class MetadataDispatchServiceTest {
         MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, new ObjectMapper());
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
+        when(configValues.imdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
+        var providers = List.of(ProviderType.TMDB, ProviderType.DOUBAN, ProviderType.IMDB, ProviderType.ROTTEN_TOMATOES);
         when(pipelineRunRepository.prepareDispatch(
                         id,
                         "hash-v1",
-                        List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES)))
-                .thenReturn(List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES));
+                        providers)).thenReturn(providers);
         MetadataDispatchService service = new MetadataDispatchService(
                 repository,
                 configValues,
@@ -176,15 +188,17 @@ class MetadataDispatchServiceTest {
         MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
         assertEquals("DISPATCHED", result.status());
-        assertEquals(List.of(ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES), result.providers());
+        assertEquals(providers, result.providers());
         ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
-        verify(workQueue, org.mockito.Mockito.times(3)).submitAfterCommit(requestCaptor.capture());
+        verify(workQueue, org.mockito.Mockito.times(4)).submitAfterCommit(requestCaptor.capture());
         assertEquals(List.of(
-                PipelineRuntimeWorkTypes.providerTaskId("DOUBAN", id, "hash-v1"),
                 PipelineRuntimeWorkTypes.providerTaskId("TMDB", id, "hash-v1"),
+                PipelineRuntimeWorkTypes.providerTaskId("DOUBAN", id, "hash-v1"),
+                PipelineRuntimeWorkTypes.providerTaskId("IMDB", id, "hash-v1"),
                 PipelineRuntimeWorkTypes.providerTaskId("ROTTEN_TOMATOES", id, "hash-v1")),
                 requestCaptor.getAllValues().stream().map(RuntimeWorkItemRequest::taskId).toList());
         assertEquals(List.of(
+                PipelineRuntimeWorkTypes.METADATA_PROVIDER,
                 PipelineRuntimeWorkTypes.METADATA_PROVIDER,
                 PipelineRuntimeWorkTypes.METADATA_PROVIDER,
                 PipelineRuntimeWorkTypes.METADATA_PROVIDER),
@@ -193,7 +207,7 @@ class MetadataDispatchServiceTest {
     }
 
     @Test
-    void skipsProviderWhenAuthoritativeProviderIdAlreadyExists() {
+    void dispatchesForVerificationWhenSourceSuppliesAnAuthoritativeId() {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("101");
@@ -206,8 +220,8 @@ class MetadataDispatchServiceTest {
         when(pipelineRunRepository.prepareDispatch(
                         id,
                         "hash-v1",
-                        List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES)))
-                .thenReturn(List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES));
+                        List.of(ProviderType.TMDB, ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES)))
+                .thenReturn(List.of(ProviderType.TMDB, ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES));
         MetadataDispatchService service = new MetadataDispatchService(
                 repository,
                 configValues,
@@ -220,12 +234,12 @@ class MetadataDispatchServiceTest {
         MetadataDispatchResult result = service.dispatch(id, "hash-v1");
 
         assertEquals("DISPATCHED", result.status());
-        assertEquals(List.of(ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES), result.providers());
+        assertEquals(List.of(ProviderType.TMDB, ProviderType.DOUBAN, ProviderType.ROTTEN_TOMATOES), result.providers());
         ArgumentCaptor<RuntimeWorkItemRequest> requestCaptor = ArgumentCaptor.forClass(RuntimeWorkItemRequest.class);
-        verify(workQueue, org.mockito.Mockito.times(2)).submitAfterCommit(requestCaptor.capture());
+        verify(workQueue, org.mockito.Mockito.times(3)).submitAfterCommit(requestCaptor.capture());
         org.assertj.core.api.Assertions.assertThat(requestCaptor.getAllValues())
                 .extracting(RuntimeWorkItemRequest::taskId)
-                .noneMatch(taskId -> taskId.toString().contains("TMDB"));
+                .anyMatch(taskId -> taskId.contains("TMDB"));
     }
 
     @Test
@@ -233,7 +247,6 @@ class MetadataDispatchServiceTest {
         UUID id = UUID.randomUUID();
         RawVideoEnrichmentRecord raw = record(id);
         raw.setTmdbId("101");
-        raw.setCoreMetadataIncomplete(true);
         when(repository.findById(id)).thenReturn(Optional.of(raw));
         when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB)))
                 .thenReturn(List.of(ProviderType.TMDB));
@@ -304,12 +317,12 @@ class MetadataDispatchServiceTest {
         when(configValues.doubanEnabled()).thenReturn(true);
         when(configValues.tmdbEnabled()).thenReturn(true);
         when(configValues.rottenTomatoesEnabled()).thenReturn(true);
-        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.DOUBAN, ProviderType.TMDB)))
-                .thenReturn(List.of(ProviderType.DOUBAN, ProviderType.TMDB));
+        when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB, ProviderType.DOUBAN)))
+                .thenReturn(List.of(ProviderType.TMDB, ProviderType.DOUBAN));
 
         var result = newService(false).dispatch(id, "hash-v1");
 
-        assertEquals(List.of(ProviderType.DOUBAN, ProviderType.TMDB), result.providers());
+        assertEquals(List.of(ProviderType.TMDB, ProviderType.DOUBAN), result.providers());
         ArgumentCaptor<MetadataSearchContext> context = ArgumentCaptor.forClass(MetadataSearchContext.class);
         verify(providerTaskPublisher).publish(org.mockito.ArgumentMatchers.eq(ProviderType.TMDB), context.capture());
         assertEquals("被家族抛弃 我觉醒九亿属性点", context.getValue().getFullTitle());
@@ -398,6 +411,6 @@ class MetadataDispatchServiceTest {
                 "PENDING",
                 0,
                 "hash-v1",
-                false);
+                "READY");
     }
 }

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.zaxxer.hikari.HikariDataSource;
 import java.util.Set;
 import java.util.UUID;
@@ -141,10 +140,9 @@ class RawVideoNormalizationRepositoryIntegrationTest {
         var mapper = JsonMapper.builder().build();
         var search = mock(RawSearchSyncPublisher.class);
         var enrich = mock(MetadataEnrichPublisher.class);
-        var aggregation = mock(AggregationWorkPublisher.class);
         var service = new RawVideoNormalizationService(repository,
                 new RawVideoTextNormalizer(mapper, new DescriptionMetadataExtractor(), new RawRelationAliasPolicy()),
-                search, enrich, aggregation, mock(NormalizeVideoPublisher.class), mapper,
+                search, enrich, mock(NormalizeVideoPublisher.class), mapper,
                 mock(NormalizationConfigValues.class));
         var proxy = new ProxyFactory(service);
         proxy.setProxyTargetClass(true);
@@ -156,7 +154,6 @@ class RawVideoNormalizationRepositoryIntegrationTest {
         assertReady();
         verify(search).publishIndex(id);
         verify(enrich).publish(id, "normalization-integration-v1");
-        verify(aggregation).enqueue(id, "normalization-integration-v1", "normalization-ready");
         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
     }
 

@@ -13,13 +13,16 @@ class RawVideoAggregationRecordTest {
     @Test
     void eligibleWhenNormalizedAndEnrichmentFinished() {
         assertTrue(record("READY", "SUCCESS", "PENDING", "Codex").isAggregationEligible());
-        assertTrue(record("READY", "FAILED", "PROCESSING", "Codex").isAggregationEligible());
+        assertTrue(record("READY", "PERMANENT_FAILURE", "PROCESSING", "Codex").isAggregationEligible());
     }
 
     @Test
     void ineligibleWhenLifecyclePrerequisitesAreMissing() {
         assertFalse(record("PENDING", "SUCCESS", "PENDING", "Codex").isAggregationEligible());
         assertFalse(record("READY", "PENDING", "PENDING", "Codex").isAggregationEligible());
+        assertFalse(record("READY", "FAILED", "PENDING", "Codex").isAggregationEligible());
+        assertFalse(record("READY", null, "PENDING", "Codex").isAggregationEligible());
+        assertFalse(record("READY", "UNKNOWN", "PENDING", "Codex").isAggregationEligible());
         assertFalse(record("READY", "SUCCESS", "BOUND", "Codex").isAggregationEligible());
         assertFalse(record("READY", "SUCCESS", "PENDING", "").isAggregationEligible());
     }

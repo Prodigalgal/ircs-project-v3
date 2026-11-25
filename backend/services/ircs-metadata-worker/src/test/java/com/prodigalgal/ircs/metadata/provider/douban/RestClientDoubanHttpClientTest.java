@@ -10,7 +10,6 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
-import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
@@ -48,12 +47,12 @@ class RestClientDoubanHttpClientTest {
         transport.enqueue(response(200, " "));
         transport.enqueue(response(404, "missing"));
 
-        assertThat(client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=The%20Matrix"), Optional.empty()))
-                .contains("[{\"id\":\"1291843\"}]");
-        assertThat(client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=empty"), Optional.empty()))
-                .isEmpty();
-        assertThat(client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=missing"), Optional.empty()))
-                .isEmpty();
+        assertThat(client.getText(URI.create("https://movie.douban.com/j/subject_suggest?q=The%20Matrix"), Optional.empty()))
+                .isEqualTo(new DoubanHttpResponse(200, "[{\"id\":\"1291843\"}]"));
+        assertThat(client.getText(URI.create("https://movie.douban.com/j/subject_suggest?q=empty"), Optional.empty()))
+                .isEqualTo(new DoubanHttpResponse(200, ""));
+        assertThat(client.getText(URI.create("https://movie.douban.com/j/subject_suggest?q=missing"), Optional.empty()))
+                .isEqualTo(new DoubanHttpResponse(404, "missing"));
         assertThat(transport.requests).hasSize(3);
         assertThat(transport.requests.getFirst().headers())
                 .containsEntry("User-Agent", "ircs-test-douban")
@@ -71,9 +70,9 @@ class RestClientDoubanHttpClientTest {
                 "MINUTE",
                 0);
 
-        assertThat(client.getJson(
+        assertThat(client.getText(
                 URI.create("https://movie.douban.com/j/subject_suggest?q=The%20Matrix"),
-                Optional.of(credential))).contains("[]");
+                Optional.of(credential))).isEqualTo(new DoubanHttpResponse(200, "[]"));
 
         assertThat(transport.requests.getFirst().headers())
                 .containsEntry("User-Agent", "credential-ua")
@@ -85,7 +84,7 @@ class RestClientDoubanHttpClientTest {
         transport.enqueue(response(429, "rate"));
         transport.enqueue(response(429, "rate"));
         transport.enqueue(response(429, "rate"));
-        assertThatThrownBy(() -> client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=rate"), Optional.empty()))
+        assertThatThrownBy(() -> client.getText(URI.create("https://movie.douban.com/j/subject_suggest?q=rate"), Optional.empty()))
                 .isInstanceOf(MetadataProviderRetryableException.class)
                 .extracting("errorCode")
                 .isEqualTo("RATE_LIMITED");
@@ -93,23 +92,21 @@ class RestClientDoubanHttpClientTest {
         transport.enqueue(response(503, "down"));
         transport.enqueue(response(503, "down"));
         transport.enqueue(response(503, "down"));
-        assertThatThrownBy(() -> client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=down"), Optional.empty()))
+        assertThatThrownBy(() -> client.getText(URI.create("https://movie.douban.com/j/subject_suggest?q=down"), Optional.empty()))
                 .isInstanceOf(MetadataProviderRetryableException.class)
                 .extracting("errorCode")
                 .isEqualTo("UPSTREAM_UNAVAILABLE");
 
         transport.enqueue(response(403, "forbidden"));
-        assertThatThrownBy(() -> client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=blocked"), Optional.empty()))
-                .isInstanceOf(MetadataProviderTerminalException.class)
-                .extracting("errorCode")
-                .isEqualTo("DOUBAN_FORBIDDEN");
+        assertThat(client.getText(URI.create("https://movie.douban.com/subject/1291843/"), Optional.empty()))
+                .isEqualTo(new DoubanHttpResponse(403, "forbidden"));
     }
 
     @Test
     void blocksPrivateDoubanUrlBeforeTransport() {
         resolver.address = "169.254.169.254";
 
-        assertThatThrownBy(() -> client.getJson(URI.create("https://movie.douban.com/j/subject_suggest?q=blocked"), Optional.empty()))
+        assertThatThrownBy(() -> client.getText(URI.create("https://movie.douban.com/j/subject_suggest?q=blocked"), Optional.empty()))
                 .isInstanceOf(MetadataProviderRetryableException.class)
                 .extracting("errorCode")
                 .isEqualTo("DOUBAN_OUTBOUND_UNAVAILABLE");

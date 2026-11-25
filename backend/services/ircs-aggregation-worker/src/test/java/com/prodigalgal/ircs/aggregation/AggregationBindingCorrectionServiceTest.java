@@ -79,8 +79,10 @@ class AggregationBindingCorrectionServiceTest {
     void previewBlocksPendingDependenciesAndInProgressWork() {
         when(repository.findRawVideos(List.of(rawId))).thenReturn(
                 List.of(raw(rawId, "PENDING", "PENDING")),
-                List.of(raw(rawId, "SUCCESS", "PROCESSING")));
+                List.of(raw(rawId, "SUCCESS", "PROCESSING")),
+                List.of(raw(rawId, "FAILED", "BOUND")));
 
+        assertThat(service.preview(sourceId, targetId, List.of(rawId)).status()).isEqualTo("SOURCE_INPUT_NOT_READY");
         assertThat(service.preview(sourceId, targetId, List.of(rawId)).status()).isEqualTo("SOURCE_INPUT_NOT_READY");
         assertThat(service.preview(sourceId, targetId, List.of(rawId)).status()).isEqualTo("SOURCE_INPUT_NOT_READY");
         verifyNoInteractions(matcher, publisher);

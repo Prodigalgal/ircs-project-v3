@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 public class DoubanProviderProperties {
 
     private String suggestUrl = "https://movie.douban.com/j/subject_suggest";
+    private String subjectBaseUrl = "https://movie.douban.com/subject/";
     private Duration requestTimeout = Duration.ofSeconds(10);
     private String defaultUserAgent = "IRCS-Metadata-Douban/0.1";
 }

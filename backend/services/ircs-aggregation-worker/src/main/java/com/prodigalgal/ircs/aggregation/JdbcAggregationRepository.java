@@ -261,7 +261,7 @@ public class JdbcAggregationRepository {
                 from raw_videos rv
                 where rv.aggregation_status = 'PENDING'
                   and rv.normalization_status = 'READY'
-                  and rv.enrichment_status is distinct from 'PENDING'
+                  and rv.enrichment_status in ('SUCCESS', 'PERMANENT_FAILURE')
                   and nullif(trim(rv.title), '') is not null
                 order by rv.aggregation_status_updated_at asc nulls first, rv.updated_at asc nulls first, rv.id
                 limit :limit

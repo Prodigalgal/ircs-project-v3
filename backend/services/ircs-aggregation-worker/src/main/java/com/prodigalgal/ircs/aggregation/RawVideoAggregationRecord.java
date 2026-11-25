@@ -190,7 +190,7 @@ public record RawVideoAggregationRecord(
     public boolean isAggregationEligible() {
         return StringUtils.hasText(title)
                 && "READY".equals(normalizationStatus)
-                && !"PENDING".equals(enrichmentStatus)
+                && ("SUCCESS".equals(enrichmentStatus) || "PERMANENT_FAILURE".equals(enrichmentStatus))
                 && ("PENDING".equals(aggregationStatus) || "PROCESSING".equals(aggregationStatus));
     }
 

@@ -17,15 +17,11 @@ public final class MetadataEnrichmentPolicy {
         if (context == null || provider == null || !StringUtils.hasText(context.getFullTitle())) {
             return false;
         }
-        if (provider != ProviderType.DOUBAN && provider != ProviderType.TMDB && provider != ProviderType.ROTTEN_TOMATOES) {
-            return false;
-        }
         String category = category(context);
         if (SOURCE_ONLY.contains(category)) {
             return false;
         }
-        // Domestic short-form dramas have no general RT coverage; exact TV/title/season validation
-        // remains the responsibility of the TMDB and Douban adapters.
+        // Short-form dramas use proof of title or season from the same lookup adapters as TV series.
         return !"short-drama".equals(category) || provider != ProviderType.ROTTEN_TOMATOES;
     }
 

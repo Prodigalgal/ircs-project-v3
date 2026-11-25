@@ -9,7 +9,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import tools.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.normalization.NormalizationMaintenanceRunResponse;
 import java.util.List;
 import java.util.Optional;
@@ -35,9 +34,6 @@ class RawVideoNormalizationServiceTest {
     private MetadataEnrichPublisher metadataEnrichPublisher;
 
     @Mock
-    private AggregationWorkPublisher aggregationWorkPublisher;
-
-    @Mock
     private NormalizeVideoPublisher normalizeVideoPublisher;
 
     @Mock
@@ -56,7 +52,6 @@ class RawVideoNormalizationServiceTest {
                         new RawRelationAliasPolicy()),
                 searchSyncPublisher,
                 metadataEnrichPublisher,
-                aggregationWorkPublisher,
                 normalizeVideoPublisher,
                 objectMapper,
                 configValues);
@@ -127,7 +122,21 @@ class RawVideoNormalizationServiceTest {
         assertEquals("电影", patch.getValue().rawCategorySourceName());
         verify(searchSyncPublisher).publishIndex(id);
         verify(metadataEnrichPublisher).publish(id, "hash-v1");
-        verify(aggregationWorkPublisher).enqueue(id, "hash-v1", "normalization-ready");
+    }
+
+    @Test
+    void alreadyReadyVideoOnlyHandsOffToMetadataEnrichment() {
+        UUID id = UUID.randomUUID();
+        when(repository.findById(id)).thenReturn(Optional.of(new RawVideoRecord(
+                id, "READY", 0, "{}", "[]", "Title", null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, "hash-v1")));
+
+        RawVideoNormalizationService.NormalizationResult result = service.normalize(id, "hash-v1");
+
+        assertEquals("SKIPPED", result.status());
+        verify(metadataEnrichPublisher).publish(id, "hash-v1");
+        verify(repository, never()).markReady(eq(id), any());
+        verifyNoInteractions(searchSyncPublisher, normalizeVideoPublisher);
     }
 
     @Test

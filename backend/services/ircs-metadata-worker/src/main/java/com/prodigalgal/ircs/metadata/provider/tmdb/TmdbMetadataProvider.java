@@ -95,17 +95,20 @@ public class TmdbMetadataProvider implements MetadataProvider {
             }
             return fetchDetails(context, evidence, credential, knownId, searchType, requiredGenre(context), false);
         }
-        int maxPages = "multi".equals(searchType) ? properties.getMaxMultiPages() : 1;
-        for (int page = 1; page <= maxPages; page++) {
-            Optional<String> response = getJson(credential,
-                    buildSearchUri(searchType, credential.apiKey(), context, evidence, page));
-            if (response.isEmpty()) {
-                return Optional.empty();
-            }
-            Optional<EnrichedMetadataDTO> match = findMatch(context, evidence, credential, searchType,
-                    response.get(), seasonBudget);
-            if (match.isPresent()) {
-                return match;
+        var queries = MetadataCandidateTitles.searchQueries(context);
+        for (int index = 0; index < queries.size(); index++) {
+            int maxPages = index == 0 && "multi".equals(searchType) ? properties.getMaxMultiPages() : 1;
+            for (int page = 1; page <= maxPages; page++) {
+                Optional<String> response = getJson(credential,
+                        buildSearchUri(searchType, credential.apiKey(), context, evidence, page, queries.get(index)));
+                if (response.isEmpty()) {
+                    break;
+                }
+                Optional<EnrichedMetadataDTO> match = findMatch(context, evidence, credential, searchType,
+                        response.get(), seasonBudget);
+                if (match.isPresent()) {
+                    return match;
+                }
             }
         }
         return Optional.empty();
@@ -396,10 +399,10 @@ public class TmdbMetadataProvider implements MetadataProvider {
     }
 
     private URI buildSearchUri(String searchType, String apiKey, MetadataSearchContext context,
-            MetadataSourceEvidence evidence, int page) {
+            MetadataSourceEvidence evidence, int page, String query) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(properties.getBaseUrl() + "/search/" + searchType)
                 .queryParam("api_key", apiKey)
-                .queryParam("query", context.getFullTitle())
+                .queryParam("query", "{title}")
                 .queryParam("language", properties.getLanguage())
                 .queryParam("include_adult", properties.isIncludeAdult())
                 .queryParam("page", page);
@@ -410,7 +413,7 @@ public class TmdbMetadataProvider implements MetadataProvider {
         if (StringUtils.hasText(year) && !"multi".equals(searchType)) {
             builder.queryParam("year", year);
         }
-        return builder.build().encode().toUri();
+        return builder.encode().buildAndExpand(query).toUri();
     }
 
     private String extractMediaType(JsonNode candidate, String searchType) {

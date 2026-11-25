@@ -17,11 +17,7 @@ public class RawVideoEnrichmentRepository {
             select v.id, v.title, v.alias_title, v.subtitle, v.season, v.year,
                    c.slug as category_slug,
                    v.douban_id, v.tmdb_id, v.imdb_id, v.rotten_tomatoes_id,
-                   v.enrichment_status, v.enrichment_retry_count, v.data_hash,
-                   (nullif(btrim(v.description), '') is null
-                        or v.cover_image_id is null
-                        or coalesce(v.actor_names, '[]'::jsonb) = '[]'::jsonb
-                        or coalesce(v.director_names, '[]'::jsonb) = '[]'::jsonb) as core_metadata_incomplete
+                   v.enrichment_status, v.enrichment_retry_count, v.data_hash, v.normalization_status
             from raw_videos v
             left join standard_category c on c.slug = v.category_code
             where v.id = ?
@@ -68,6 +64,6 @@ public class RawVideoEnrichmentRepository {
                 rs.getString("enrichment_status"),
                 (Integer) rs.getObject("enrichment_retry_count"),
                 rs.getString("data_hash"),
-                rs.getBoolean("core_metadata_incomplete"));
+                rs.getString("normalization_status"));
     }
 }

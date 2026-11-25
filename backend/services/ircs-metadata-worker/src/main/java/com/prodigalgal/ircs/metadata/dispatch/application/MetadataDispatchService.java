@@ -46,6 +46,9 @@ public class MetadataDispatchService {
         if (isStale(pipelineVersion, record.getDataHash())) {
             return new MetadataDispatchResult(videoId, true, "STALE", List.of());
         }
+        if (!"READY".equals(record.getNormalizationStatus())) {
+            return new MetadataDispatchResult(videoId, true, "WAITING_NORMALIZATION", List.of());
+        }
 
         if (("SUCCESS".equals(record.getEnrichmentStatus()) && record.hasAuthoritativeId())
                 || "PERMANENT_FAILURE".equals(record.getEnrichmentStatus())) {
@@ -94,13 +97,14 @@ public class MetadataDispatchService {
     private List<ProviderType> providersFor(RawVideoEnrichmentRecord record) {
         List<ProviderType> providers = new ArrayList<>();
         MetadataSearchContext context = toContext(record);
-        if (configValues.doubanEnabled() && AuthoritativeIds.normalizeDouban(record.getDoubanId()) == null
-                && MetadataEnrichmentPolicy.supports(context, ProviderType.DOUBAN)) {
+        if (configValues.tmdbEnabled() && MetadataEnrichmentPolicy.supports(context, ProviderType.TMDB)) {
+            providers.add(ProviderType.TMDB);
+        }
+        if (configValues.doubanEnabled() && MetadataEnrichmentPolicy.supports(context, ProviderType.DOUBAN)) {
             providers.add(ProviderType.DOUBAN);
         }
-        if (configValues.tmdbEnabled() && (context.getTmdbId() == null || record.isCoreMetadataIncomplete())
-                && MetadataEnrichmentPolicy.supports(context, ProviderType.TMDB)) {
-            providers.add(ProviderType.TMDB);
+        if (configValues.imdbEnabled() && MetadataEnrichmentPolicy.supports(context, ProviderType.IMDB)) {
+            providers.add(ProviderType.IMDB);
         }
         if (configValues.rottenTomatoesEnabled() && AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()) == null
                 && MetadataEnrichmentPolicy.supports(context, ProviderType.ROTTEN_TOMATOES)) {

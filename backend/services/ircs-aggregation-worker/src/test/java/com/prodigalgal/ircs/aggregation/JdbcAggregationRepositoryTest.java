@@ -571,7 +571,7 @@ class JdbcAggregationRepositoryTest {
         assertTrue(sqlCaptor.getValue().contains("from raw_videos rv"));
         assertTrue(sqlCaptor.getValue().contains("where rv.aggregation_status = 'PENDING'"));
         assertTrue(sqlCaptor.getValue().contains("rv.normalization_status = 'READY'"));
-        assertTrue(sqlCaptor.getValue().contains("rv.enrichment_status is distinct from 'PENDING'"));
+        assertTrue(sqlCaptor.getValue().contains("rv.enrichment_status in ('SUCCESS', 'PERMANENT_FAILURE')"));
         assertTrue(sqlCaptor.getValue().contains("nullif(trim(rv.title), '') is not null"));
         assertEquals(25, paramsCaptor.getValue().getValue("limit"));
     }

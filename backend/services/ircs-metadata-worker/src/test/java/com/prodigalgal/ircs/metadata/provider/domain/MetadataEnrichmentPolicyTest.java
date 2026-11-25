@@ -23,17 +23,17 @@ class MetadataEnrichmentPolicyTest {
     @ParameterizedTest
     @ValueSource(strings = {"movie", "series", "anime", "variety", "documentary"})
     void filmAndTelevisionCategoriesSupportConfiguredAuthorities(String category) {
-        for (ProviderType provider : new ProviderType[]{ProviderType.DOUBAN, ProviderType.TMDB, ProviderType.ROTTEN_TOMATOES}) {
+        for (ProviderType provider : ProviderType.values()) {
             assertTrue(MetadataEnrichmentPolicy.supports(context(category, null), provider));
         }
     }
 
     @Test
-    void shortDramaOnlyUsesDoubanAndTmdb() {
+    void shortDramaUsesTitleAndSeasonAuthorities() {
         assertTrue(MetadataEnrichmentPolicy.supports(context("short-drama", null), ProviderType.DOUBAN));
         assertTrue(MetadataEnrichmentPolicy.supports(context("short-drama", null), ProviderType.TMDB));
         assertFalse(MetadataEnrichmentPolicy.supports(context("short-drama", null), ProviderType.ROTTEN_TOMATOES));
-        assertFalse(MetadataEnrichmentPolicy.supports(context("short-drama", null), ProviderType.IMDB));
+        assertTrue(MetadataEnrichmentPolicy.supports(context("short-drama", null), ProviderType.IMDB));
     }
 
     @ParameterizedTest

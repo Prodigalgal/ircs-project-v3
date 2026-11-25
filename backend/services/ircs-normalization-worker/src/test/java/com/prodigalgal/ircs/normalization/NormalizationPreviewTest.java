@@ -20,13 +20,11 @@ class NormalizationPreviewTest {
     private final RawVideoNormalizationRepository repository = mock(RawVideoNormalizationRepository.class);
     private final RawSearchSyncPublisher search = mock(RawSearchSyncPublisher.class);
     private final MetadataEnrichPublisher metadata = mock(MetadataEnrichPublisher.class);
-    private final com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher aggregation =
-            mock(com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher.class);
     private final NormalizeVideoPublisher normalize = mock(NormalizeVideoPublisher.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final RawVideoNormalizationService service = new RawVideoNormalizationService(repository,
             new RawVideoTextNormalizer(mapper, new DescriptionMetadataExtractor(), new RawRelationAliasPolicy()),
-            search, metadata, aggregation, normalize, mapper, mock(NormalizationConfigValues.class));
+            search, metadata, normalize, mapper, mock(NormalizationConfigValues.class));
 
     @Test
     void previewsUseTheRealNormalizerWithoutAnyPersistenceOrQueueOperation() {
@@ -42,7 +40,7 @@ class NormalizationPreviewTest {
         assertEquals(java.util.Set.of("罗予彤", "孙乾钊"), preview.patch().actorValues());
         verify(repository).findById(id);
         verifyNoMoreInteractions(repository);
-        verifyNoInteractions(search, metadata, aggregation, normalize);
+        verifyNoInteractions(search, metadata, normalize);
     }
 
     @Test
@@ -60,6 +58,6 @@ class NormalizationPreviewTest {
                 new NormalizationMaintenanceInternalController.PreviewRequest(List.of(id)), "auditor", "wrong", "normalization:maintenance"));
         assertThrows(ResponseStatusException.class, () -> controller.preview(
                 new NormalizationMaintenanceInternalController.PreviewRequest(List.of(id)), "auditor", "test-only-token", "wrong-scope"));
-        verifyNoInteractions(repository, search, metadata, aggregation, normalize);
+        verifyNoInteractions(repository, search, metadata, normalize);
     }
 }

@@ -68,9 +68,7 @@ public class MetadataResultCollectorService {
             return new MetadataResultProcessingResult(videoId, true, "STALE");
         }
         pipelineRunRepository.markRunFinished(videoId, record.getDataHash(), record.getEnrichmentStatus());
-        searchSyncPublisher.publishIndex(videoId);
-        aggregationWorkPublisher.enqueue(videoId, record.getDataHash(), "metadata-completed-run-reconciled");
-        scheduleRetryIfNeeded(record);
+        advanceAfterEnrichment(record, "metadata-completed-run-reconciled");
         return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
     }
 
@@ -129,7 +127,8 @@ public class MetadataResultCollectorService {
             return new MetadataResultProcessingResult(record.getId(), true, "STALE");
         }
         normalizeIdentifiers(record);
-        boolean metadataUpdated = validResult && applyMetadata(record, message.getMetadata());
+        boolean metadataUpdated = validResult && !conflictsWithAuthority(record, message.getMetadata())
+                && applyMetadata(record, message.getMetadata(), message.getProviderType());
         if (!completion.allCompleted()) {
             saveCurrent(record);
             return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
@@ -138,9 +137,7 @@ public class MetadataResultCollectorService {
         finalizeVideoStatus(record, completion, metadataUpdated);
         saveCurrent(record);
         pipelineRunRepository.markRunFinished(record.getId(), record.getDataHash(), record.getEnrichmentStatus());
-        searchSyncPublisher.publishIndex(record.getId());
-        aggregationWorkPublisher.enqueue(record.getId(), record.getDataHash(), "metadata-finalized");
-        scheduleRetryIfNeeded(record);
+        advanceAfterEnrichment(record, "metadata-finalized");
 
         return new MetadataResultProcessingResult(record.getId(), true, record.getEnrichmentStatus());
     }
@@ -158,6 +155,7 @@ public class MetadataResultCollectorService {
         return switch (provider) {
             case DOUBAN -> AuthoritativeIds.normalizeDouban(metadata.getDoubanId()) != null;
             case TMDB -> AuthoritativeIds.normalizeTmdb(metadata.getTmdbId()) != null;
+            case IMDB -> AuthoritativeIds.normalizeImdb(metadata.getImdbId()) != null;
             case ROTTEN_TOMATOES -> AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()) != null;
             default -> false;
         };
@@ -171,8 +169,10 @@ public class MetadataResultCollectorService {
                 AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()));
     }
 
-    private void scheduleRetryIfNeeded(RawVideoMetadataRecord record) {
+    private void advanceAfterEnrichment(RawVideoMetadataRecord record, String reason) {
         if (!"FAILED".equals(record.getEnrichmentStatus())) {
+            searchSyncPublisher.publishIndex(record.getId());
+            aggregationWorkPublisher.enqueue(record.getId(), record.getDataHash(), reason);
             return;
         }
         try {
@@ -194,7 +194,22 @@ public class MetadataResultCollectorService {
         return StringUtils.hasText(pipelineVersion);
     }
 
-    private boolean applyMetadata(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata) {
+    private boolean conflictsWithAuthority(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata) {
+        return differentIds(AuthoritativeIds.normalizeImdb(record.getImdbId()),
+                    AuthoritativeIds.normalizeImdb(metadata.getImdbId()))
+                || differentIds(AuthoritativeIds.normalizeTmdb(record.getTmdbId()),
+                    AuthoritativeIds.normalizeTmdb(metadata.getTmdbId()))
+                || differentIds(AuthoritativeIds.normalizeDouban(record.getDoubanId()),
+                    AuthoritativeIds.normalizeDouban(metadata.getDoubanId()))
+                || differentIds(AuthoritativeIds.normalizeRottenTomatoes(record.getRottenTomatoesId()),
+                    AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()));
+    }
+
+    private static boolean differentIds(String existing, String received) {
+        return existing != null && received != null && !existing.equals(received);
+    }
+
+    private boolean applyMetadata(RawVideoMetadataRecord record, EnrichedMetadataDTO metadata, ProviderType provider) {
         boolean updated = false;
         updated |= !record.isFieldLocked("doubanId") && fillAuthoritativeId(record::getDoubanId, record::setDoubanId,
                 AuthoritativeIds.normalizeDouban(metadata.getDoubanId()));
@@ -207,15 +222,18 @@ public class MetadataResultCollectorService {
                 record::setRottenTomatoesId,
                 AuthoritativeIds.normalizeRottenTomatoes(metadata.getRottenTomatoesId()));
 
-        if (!record.isFieldLocked("description") && RawVideoMetadataRecord.hasText(metadata.getDescription())) {
+        boolean fillMissing = provider == ProviderType.IMDB;
+        if (!record.isFieldLocked("description") && RawVideoMetadataRecord.hasText(metadata.getDescription())
+                && (!fillMissing || !RawVideoMetadataRecord.hasText(record.getDescription()))) {
             record.setDescription(metadata.getDescription());
             updated = true;
         }
-        if (!record.isFieldLocked("score") && metadata.getScore() != null) {
+        if (!record.isFieldLocked("score") && metadata.getScore() != null && (!fillMissing || record.getScore() == null)) {
             record.setScore(metadata.getScore());
             updated = true;
         }
-        if (!record.isFieldLocked("year") && RawVideoMetadataRecord.hasText(metadata.getYear())) {
+        if (!record.isFieldLocked("year") && RawVideoMetadataRecord.hasText(metadata.getYear())
+                && (!fillMissing || !RawVideoMetadataRecord.hasText(record.getYear()))) {
             record.setYear(metadata.getYear());
             updated = true;
         }
@@ -365,29 +383,23 @@ public class MetadataResultCollectorService {
             RawVideoMetadataRecord record,
             ProviderCompletion completion,
             boolean metadataUpdated) {
-        boolean hasIdentity = record.hasAuthoritativeId();
-        if (hasIdentity && (completion.successCount() > 0 || completion.retryableFailureCount() <= 0)) {
-            record.setEnrichmentStatus("SUCCESS");
-            record.setEnrichmentRetryCount(0);
-            // A prior provider can have saved facts while the remaining providers were pending.
-            if (metadataUpdated || completion.successCount() > 0 && "BOUND".equals(record.getAggregationStatus())) {
-                record.setAggregationStatus("PENDING");
+        if (completion.retryableFailureCount() > 0) {
+            int nextRetry = (record.getEnrichmentRetryCount() == null ? 0 : record.getEnrichmentRetryCount()) + 1;
+            if (nextRetry < MAX_ENRICHMENT_RETRIES) {
+                record.setEnrichmentStatus("FAILED");
+                record.setEnrichmentRetryCount(nextRetry);
+                return;
             }
-            return;
         }
 
-        if (completion.retryableFailureCount() <= 0) {
-            record.setEnrichmentStatus("PERMANENT_FAILURE");
-            return;
+        boolean hasIdentity = record.hasAuthoritativeId();
+        record.setEnrichmentStatus(hasIdentity ? "SUCCESS" : "PERMANENT_FAILURE");
+        if (hasIdentity) {
+            record.setEnrichmentRetryCount(0);
         }
-
-        int nextRetry = (record.getEnrichmentRetryCount() == null ? 0 : record.getEnrichmentRetryCount()) + 1;
-        if (nextRetry >= MAX_ENRICHMENT_RETRIES) {
-            record.setEnrichmentStatus(hasIdentity ? "SUCCESS" : "PERMANENT_FAILURE");
-            return;
+        // Earlier callbacks can have committed usable facts before a later provider settled.
+        if (metadataUpdated || completion.successCount() > 0 && "BOUND".equals(record.getAggregationStatus())) {
+            record.setAggregationStatus("PENDING");
         }
-
-        record.setEnrichmentStatus("FAILED");
-        record.setEnrichmentRetryCount(nextRetry);
     }
 }

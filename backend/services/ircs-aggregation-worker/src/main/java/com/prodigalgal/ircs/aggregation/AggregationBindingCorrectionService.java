@@ -103,7 +103,7 @@ class AggregationBindingCorrectionService {
         // Older refreshes may have parked an existing association in PENDING. Its exact
         // membership and version are still checked by the same preview and commit guards.
         return "BOUND".equals(raw.aggregationStatus()) && "READY".equals(raw.normalizationStatus())
-                && !"PENDING".equals(raw.enrichmentStatus())
+                && ("SUCCESS".equals(raw.enrichmentStatus()) || "PERMANENT_FAILURE".equals(raw.enrichmentStatus()))
                 || "PENDING".equals(raw.aggregationStatus()) && raw.isAggregationEligible();
     }
 

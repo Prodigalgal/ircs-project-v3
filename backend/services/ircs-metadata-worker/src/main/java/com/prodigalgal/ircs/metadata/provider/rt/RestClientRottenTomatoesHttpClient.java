@@ -1,14 +1,12 @@
 package com.prodigalgal.ircs.metadata.provider.rt;
 
-import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
-import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
-import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.metadata.provider.application.MetadataOutboundHttp;
 import com.prodigalgal.ircs.metadata.provider.application.MetadataProviderTrafficLimiter;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
@@ -33,9 +31,7 @@ public class RestClientRottenTomatoesHttpClient implements RottenTomatoesHttpCli
             ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider,
             ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
         this.proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
-        this.httpClient = new OutboundHttpClient(
-                new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new JdkOutboundTransport(properties.getRequestTimeout()), proxyPool);
+        this.httpClient = MetadataOutboundHttp.proxyOnly(properties.getRequestTimeout(), proxyPool);
         this.properties = properties;
         this.trafficLimiter = resolveTrafficLimiter(trafficLimiterProvider);
     }

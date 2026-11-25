@@ -231,6 +231,7 @@ class MetadataResultCollectorServiceTest {
         assertEquals("FAILED", result.enrichmentStatus());
         assertEquals(2, record.getValue().getEnrichmentRetryCount());
         verify(metadataEnrichPublisher).publish(id, "hash-v1", Duration.ofMinutes(5));
+        org.mockito.Mockito.verifyNoInteractions(aggregationWorkPublisher);
     }
 
     @Test
@@ -251,6 +252,26 @@ class MetadataResultCollectorServiceTest {
         assertEquals("106", existing.getTmdbId());
         assertEquals(1, existing.getEnrichmentRetryCount());
         verify(metadataEnrichPublisher).publish(id, "hash-v1", Duration.ofMinutes(5));
+    }
+
+    @Test
+    void successfulTmdbDoesNotReleaseAggregationWhileOtherAuthorityRetries() {
+        UUID id = UUID.randomUUID();
+        RawVideoMetadataRecord existing = record(id);
+        existing.setTmdbId("106");
+        when(repository.findById(id)).thenReturn(Optional.of(existing));
+        when(repository.findByIdForUpdate(id)).thenReturn(Optional.of(existing));
+        when(repository.save(any())).thenReturn(1);
+        when(configValues.retryDelay()).thenReturn(Duration.ofMinutes(5));
+        var completion = ProviderCompletion.tracked(true, 3, 3, 1, 2, 1, 1);
+
+        var result = newService(completion).process(EnrichmentResultMsg.builder()
+                .videoId(id).pipelineVersion("hash-v1").providerType(ProviderType.IMDB)
+                .success(false).retryable(true).build(), 0);
+
+        assertEquals("FAILED", result.enrichmentStatus());
+        verify(metadataEnrichPublisher).publish(id, "hash-v1", Duration.ofMinutes(5));
+        org.mockito.Mockito.verifyNoInteractions(aggregationWorkPublisher);
     }
 
     @Test

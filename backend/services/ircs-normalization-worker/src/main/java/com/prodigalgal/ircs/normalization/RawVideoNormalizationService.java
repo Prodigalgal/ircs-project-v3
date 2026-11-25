@@ -2,7 +2,6 @@ package com.prodigalgal.ircs.normalization;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.contracts.normalization.NormalizationMaintenanceRunResponse;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +29,6 @@ public class RawVideoNormalizationService {
     private final RawVideoTextNormalizer textNormalizer;
     private final RawSearchSyncPublisher searchSyncPublisher;
     private final MetadataEnrichPublisher metadataEnrichPublisher;
-    private final AggregationWorkPublisher aggregationWorkPublisher;
     private final NormalizeVideoPublisher normalizeVideoPublisher;
     private final ObjectMapper objectMapper;
     private final NormalizationConfigValues configValues;
@@ -94,7 +92,6 @@ public class RawVideoNormalizationService {
 
         if ("READY".equals(record.normalizationStatus())) {
             metadataEnrichPublisher.publish(rawVideoId, record.dataHash());
-            enqueueAggregation(rawVideoId, record.dataHash(), "normalization-already-ready");
             return NormalizationResult.skipped(rawVideoId);
         }
 
@@ -118,12 +115,7 @@ public class RawVideoNormalizationService {
         repository.markReady(rawVideoId, patch);
         searchSyncPublisher.publishIndex(rawVideoId);
         metadataEnrichPublisher.publish(rawVideoId, record.dataHash());
-        enqueueAggregation(rawVideoId, record.dataHash(), "normalization-ready");
         return NormalizationResult.ready(rawVideoId);
-    }
-
-    private void enqueueAggregation(UUID rawVideoId, String pipelineVersion, String reason) {
-        aggregationWorkPublisher.enqueue(rawVideoId, pipelineVersion, reason);
     }
 
     private boolean isStale(String pipelineVersion, String currentDataHash) {

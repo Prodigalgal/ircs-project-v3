@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.metadata.provider.domain;
 import com.prodigalgal.ircs.contracts.metadata.MetadataSearchContext;
 import java.text.Normalizer;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -20,6 +21,21 @@ public final class MetadataCandidateTitles {
     private static final int MAX_ALIAS_KEYS = 8;
 
     private MetadataCandidateTitles() {}
+
+    public static List<String> searchQueries(MetadataSearchContext source) {
+        Set<String> keys = new LinkedHashSet<>();
+        return sourceTitles(source).stream()
+                .filter(title -> title != null && !title.isBlank() && title.length() <= 200)
+                .map(String::strip)
+                .filter(title -> !title.matches(".*[/|;；].*") || title.equals(source.getFullTitle()))
+                .filter(title -> keys.add(normalize(title)))
+                .limit(3)
+                .toList();
+    }
+
+    public static boolean identifiesSeason(String title, int expectedSeason) {
+        return Integer.valueOf(expectedSeason).equals(season(title));
+    }
 
     public static boolean matches(MetadataSearchContext source, String... candidateTitles) {
         Integer expectedSeason = source.getSeason();
