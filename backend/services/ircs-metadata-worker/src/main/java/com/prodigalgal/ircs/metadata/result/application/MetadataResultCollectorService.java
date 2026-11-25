@@ -62,7 +62,8 @@ public class MetadataResultCollectorService {
             return new MetadataResultProcessingResult(videoId, true, record.getEnrichmentStatus());
         }
         finalizeVideoStatus(record, completion, false);
-        boolean refreshAggregate = completion.successCount() > 0 && "PENDING".equals(record.getAggregationStatus());
+        boolean refreshAggregate = record.hasAuthoritativeId() && completion.successCount() > 0
+                && "PENDING".equals(record.getAggregationStatus());
         if (repository.updateEnrichmentStatusIfPending(videoId, record.getDataHash(), record.getEnrichmentStatus(),
                 record.getEnrichmentRetryCount(), refreshAggregate) != 1) {
             return new MetadataResultProcessingResult(videoId, true, "STALE");
@@ -398,7 +399,7 @@ public class MetadataResultCollectorService {
             record.setEnrichmentRetryCount(0);
         }
         // Earlier callbacks can have committed usable facts before a later provider settled.
-        if (metadataUpdated || completion.successCount() > 0 && "BOUND".equals(record.getAggregationStatus())) {
+        if (hasIdentity && (metadataUpdated || completion.successCount() > 0 && "BOUND".equals(record.getAggregationStatus()))) {
             record.setAggregationStatus("PENDING");
         }
     }

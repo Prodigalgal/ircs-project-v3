@@ -35,6 +35,8 @@ public class DoubanMetadataProvider implements MetadataProvider {
     private static final Pattern IMDB_ID = Pattern.compile("(?i)\\btt\\d{7,10}\\b");
     private static final Pattern SEASON = Pattern.compile("第\\s*([0-9一二三四五六七八九十两]+)\\s*季|(?:\\bseason\\s*|\\bs)(\\d+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern SUBJECT_PATH = Pattern.compile("^/subject/([0-9]+)/?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SITE_TITLE_SUFFIX = Pattern.compile(
+            "\\s*(?:[-–—|·]\\s*)?(?:[（(]豆瓣(?:电影)?[）)]|豆瓣(?:电影)?)\\s*$");
 
     private final DoubanCredentialRepository credentialRepository;
     private final DoubanHttpClient httpClient;
@@ -423,7 +425,7 @@ public class DoubanMetadataProvider implements MetadataProvider {
     }
 
     private String stripDoubanTitle(String value) {
-        return value == null ? null : value.replaceFirst("\\s*(?:[-|·]\\s*)?(?:豆瓣(?:电影)?)\\s*$", "");
+        return value == null ? null : SITE_TITLE_SUFFIX.matcher(value).replaceFirst("");
     }
 
     private String cleanYear(String value) {
