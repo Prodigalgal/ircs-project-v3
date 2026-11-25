@@ -12,6 +12,7 @@ import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -67,8 +68,12 @@ class OpsAlertInternalAccessFilter extends OncePerRequestFilter {
     }
 
     private String resolveAccessSetting(String key, String fallback) {
+        String configured = runtimeConfig.stringValue(key, fallback);
+        if (!StringUtils.hasText(configured)) {
+            return fallback;
+        }
         // RuntimeConfigService can read the raw value from a YAML property source.
-        String resolved = environment.resolvePlaceholders(runtimeConfig.stringValue(key, fallback)).trim();
+        String resolved = environment.resolvePlaceholders(configured).trim();
         return resolved.isEmpty() ? fallback : resolved;
     }
 }
