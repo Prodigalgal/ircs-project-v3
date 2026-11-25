@@ -24,6 +24,7 @@ class DoubanCatalogSyncWorker {
     private static final Duration WORK_REFRESH = Duration.ofDays(1);
     private static final Duration UNMATCHED_REFRESH = Duration.ofDays(7);
     private static final Duration RETRY_DELAY = Duration.ofMinutes(30);
+    private static final Duration BATCH_DELAY = Duration.ofMinutes(2);
 
     private final CatalogReferenceSyncRepository repository;
     private final CatalogDoubanSupplementSource source;
@@ -51,7 +52,7 @@ class DoubanCatalogSyncWorker {
 
     private void sync(Lease lease) {
         try {
-            int limit = config.boundedIntValue("app.catalog.reference.douban.batch-size", 8, 1, 20);
+            int limit = config.boundedIntValue("app.catalog.reference.douban.batch-size", 2, 1, 8);
             var targets = repository.dueDoubanTargets(PROVIDER, limit);
             for (DoubanTarget target : targets) {
                 if (Thread.currentThread().isInterrupted()) {
@@ -60,7 +61,7 @@ class DoubanCatalogSyncWorker {
                 }
                 if (!syncTarget(lease, target)) return;
             }
-            repository.complete(lease, targets.isEmpty() ? RETRY_DELAY : Duration.ofMinutes(1), null, null, null);
+            repository.complete(lease, targets.isEmpty() ? RETRY_DELAY : BATCH_DELAY, null, null, null);
         } catch (RuntimeException ex) {
             repository.fail(lease, RETRY_DELAY, "SUPPLEMENT_WRITE_FAILED");
             log.warn("Douban catalog sync deferred, errorType={}", ex.getClass().getSimpleName());
@@ -77,13 +78,19 @@ class DoubanCatalogSyncWorker {
             }
             return true;
         } catch (CatalogMetadataUnavailableException ex) {
-            if ("DOUBAN_SUPPLEMENT_IDENTITY_CONFLICT".equals(ex.getMessage())) {
+            String reason = ex.getMessage();
+            if (CatalogDoubanSupplementSource.IDENTITY_CONFLICT.equals(reason)) {
                 repository.deferDoubanTarget(lease, target, UNMATCHED_REFRESH, "IDENTITY_CONFLICT");
                 return true;
             }
-            repository.deferDoubanTarget(lease, target, RETRY_DELAY, "SOURCE_RETRY");
-            repository.fail(lease, RETRY_DELAY, ex.getMessage());
-            log.warn("Douban catalog source deferred, reason={}", ex.getMessage());
+            Duration delay = switch (reason) {
+                case CatalogDoubanSupplementSource.RATE_LIMITED -> Duration.ofHours(1);
+                case CatalogDoubanSupplementSource.ACCESS_DENIED -> Duration.ofHours(12);
+                default -> RETRY_DELAY;
+            };
+            repository.deferDoubanTarget(lease, target, delay, "SOURCE_RETRY");
+            repository.fail(lease, delay, reason);
+            log.warn("Douban catalog source deferred, reason={}", reason);
             return false;
         }
     }

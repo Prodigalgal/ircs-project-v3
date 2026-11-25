@@ -6,4 +6,6 @@ import java.util.Optional;
 public interface DoubanHttpClient {
 
     Optional<String> getJson(URI uri, Optional<DoubanCredential> credential);
+
+    Optional<String> getPublicPage(URI uri, String accept);
 }

@@ -2,72 +2,125 @@ package com.prodigalgal.ircs.metadata.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import com.prodigalgal.ircs.metadata.provider.douban.DoubanCredentialRepository;
+import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanProviderProperties;
+import java.net.URI;
 import java.util.Optional;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 class CatalogDoubanSupplementSourceTest {
-    private final DoubanCredentialRepository credentials = mock(DoubanCredentialRepository.class);
+    private static final String MATCHED_ID = "26266893";
+    private static final String OTHER_ID = "1291843";
+    private static final String IMDB_ID = "tt7605074";
+
     private final DoubanHttpClient http = mock(DoubanHttpClient.class);
-    private CatalogDoubanSupplementSource source;
-
-    @BeforeEach
-    void setUp() { source = new CatalogDoubanSupplementSource(credentials, http, JsonMapper.builder().build(), new DoubanProviderProperties()); }
+    private final CatalogDoubanSupplementSource source = new CatalogDoubanSupplementSource(
+            http, JsonMapper.builder().build(), new DoubanProviderProperties());
 
     @Test
-    void knownDoubanIdSelectsExactCandidateAndMapsOnlyPresentFields() {
-        when(http.getJson(any(), any())).thenReturn(Optional.of("""
-                [{"id":"88","title":"wrong"},{"id":"1291843","title":"黑客帝国","sub_title":"原名：The Matrix","year":"1999","rating":"8.7","imdb_id":"tt0133093"}]
-                """));
-        var result = source.fetch("Matrix query", "1291843", "tt0133093").orElseThrow();
-        assertThat(result.getDoubanId()).isEqualTo("1291843");
-        assertThat(result.getTitle()).isEqualTo("黑客帝国");
-        assertThat(result.getOriginalTitle()).isEqualTo("The Matrix");
-        assertThat(result.getYear()).isEqualTo("1999");
-        assertThat(result.getScore()).isEqualByComparingTo("8.7");
-        assertThat(result.getImdbId()).isEqualTo("tt0133093");
-        verify(http).getJson(argThat(uri -> uri.toString().contains("q=Matrix%20query")), argThat(Optional::isEmpty));
+    void refreshesTheKnownSubjectWithoutSearchingByTitle() {
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html")).thenReturn(Optional.of(page(MATCHED_ID, IMDB_ID)));
+
+        var result = source.fetch(null, MATCHED_ID, IMDB_ID).orElseThrow();
+
+        assertThat(result.getDoubanId()).isEqualTo(MATCHED_ID);
+        assertThat(result.getTitle()).isEqualTo("流浪地球");
+        assertThat(result.getOriginalTitle()).isEqualTo("The Wandering Earth");
+        assertThat(result.getYear()).isEqualTo("2019");
+        assertThat(result.getScore()).isEqualByComparingTo("7.9");
+        assertThat(result.getImdbId()).isEqualTo(IMDB_ID);
+        verify(http).getPublicPage(subject(MATCHED_ID), "text/html");
+        verifyNoMoreInteractions(http);
     }
 
     @Test
-    void requiresExactReturnedImdbWhenDoubanIdIsNotKnownAndRejectsAmbiguousMatches() {
-        when(http.getJson(any(), any())).thenReturn(Optional.of("""
-                [{"id":"1291843","title":"Anything","imdb_id":"tt0133093"}]
-                """));
-        assertThat(source.fetch("query title", null, "tt0133093")).isPresent();
-        when(http.getJson(any(), any())).thenReturn(Optional.of("""
-                [{"id":"1291843","imdb_id":"tt0133093"},{"id":"1291844","imdb_id":"tt0133093"}]
-                """));
-        assertThat(source.fetch("query title", null, "tt0133093")).isEmpty();
+    void verifiesCandidatesAgainstTheImdbIdOnTheirDetailPages() {
+        when(http.getPublicPage(argThat(uri -> uri.getPath().equals("/j/subject_suggest")), eq("application/json")))
+                .thenReturn(Optional.of("""
+                        [{"id":"1291843","imdb_id":"tt7605074"}, {"id":"26266893"}, {"id":"26266893"}]
+                        """));
+        when(http.getPublicPage(subject(OTHER_ID), "text/html")).thenReturn(Optional.of(page(OTHER_ID, "tt0133093")));
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html")).thenReturn(Optional.of(page(MATCHED_ID, IMDB_ID)));
+
+        var result = source.fetch("A&B + C", null, IMDB_ID).orElseThrow();
+
+        assertThat(result.getDoubanId()).isEqualTo(MATCHED_ID);
+        verify(http).getPublicPage(argThat(uri -> "q=A%26B%20%2B%20C".equals(uri.getRawQuery())), eq("application/json"));
+        verify(http).getPublicPage(subject(OTHER_ID), "text/html");
+        verify(http).getPublicPage(subject(MATCHED_ID), "text/html");
+        verifyNoMoreInteractions(http);
     }
 
     @Test
-    void rejectsExplicitIdentityConflictAndMalformedHtmlInsteadOfNoMatch() {
-        when(http.getJson(any(), any())).thenReturn(Optional.of("""
-                [{"id":"1291843","imdb_id":"tt9999999"}]
-                """));
-        assertThatThrownBy(() -> source.fetch("query", "1291843", "tt0133093"))
-                .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage("DOUBAN_SUPPLEMENT_IDENTITY_CONFLICT");
-        when(http.getJson(any(), any())).thenReturn(Optional.of("<html>blocked</html>"));
-        assertThatThrownBy(() -> source.fetch("query", "1291843", null))
-                .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage("DOUBAN_SUPPLEMENT_INVALID_RESPONSE");
+    void rejectsMultipleVerifiedCandidatesAndConflictingKnownSubjects() {
+        when(http.getPublicPage(argThat(uri -> uri.getPath().equals("/j/subject_suggest")), eq("application/json")))
+                .thenReturn(Optional.of("""
+                        [{"id":"1291843"}, {"id":"26266893"}]
+                        """));
+        when(http.getPublicPage(subject(OTHER_ID), "text/html")).thenReturn(Optional.of(page(OTHER_ID, IMDB_ID)));
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html")).thenReturn(Optional.of(page(MATCHED_ID, IMDB_ID)));
+        assertThatThrownBy(() -> source.fetch("query", null, IMDB_ID))
+                .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage(CatalogDoubanSupplementSource.IDENTITY_CONFLICT);
+
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html")).thenReturn(Optional.of(page(MATCHED_ID, "tt0133093")));
+        assertThatThrownBy(() -> source.fetch("query", MATCHED_ID, IMDB_ID))
+                .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage(CatalogDoubanSupplementSource.IDENTITY_CONFLICT);
     }
 
     @Test
-    void doesNotFetchWithoutVerifiedIdentityAndRejectsOversizedResponse() {
+    void capsUnverifiedCandidatesAndRejectsAccessDenialsAsUpstreamFailures() {
+        when(http.getPublicPage(argThat(uri -> uri.getPath().equals("/j/subject_suggest")), eq("application/json")))
+                .thenReturn(Optional.of("""
+                        [{"id":"1"}, {"id":"2"}, {"id":"3"}, {"id":"4"}]
+                        """));
+        for (String id : new String[]{"1", "2", "3"}) {
+            when(http.getPublicPage(subject(id), "text/html")).thenReturn(Optional.empty());
+        }
+        assertThat(source.fetch("query", null, IMDB_ID)).isEmpty();
+        verify(http).getPublicPage(argThat(uri -> uri.getPath().equals("/j/subject_suggest")), eq("application/json"));
+        for (String id : new String[]{"1", "2", "3"}) verify(http).getPublicPage(subject(id), "text/html");
+        verifyNoMoreInteractions(http);
+
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html"))
+                .thenThrow(new MetadataProviderTerminalException("DOUBAN_FORBIDDEN", "test"));
+        assertThatThrownBy(() -> source.fetch(null, MATCHED_ID, IMDB_ID))
+                .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage(CatalogDoubanSupplementSource.ACCESS_DENIED);
+    }
+
+    @Test
+    void doesNotFetchWithoutIdentityAndRejectsMalformedAndOversizedDetailPages() {
         assertThat(source.fetch("query", null, null)).isEmpty();
-        when(http.getJson(any(), any())).thenReturn(Optional.of(" ".repeat(512 * 1024 + 1)));
-        assertThatThrownBy(() -> source.fetch("query", "1291843", null))
+        verifyNoInteractions(http);
+
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html")).thenReturn(Optional.of("<html>blocked</html>"));
+        assertThatThrownBy(() -> source.fetch(null, MATCHED_ID, null))
+                .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage(CatalogDoubanSupplementSource.INVALID_RESPONSE);
+        when(http.getPublicPage(subject(MATCHED_ID), "text/html")).thenReturn(Optional.of(" ".repeat(1024 * 1024 + 1)));
+        assertThatThrownBy(() -> source.fetch(null, MATCHED_ID, null))
                 .isInstanceOf(CatalogMetadataUnavailableException.class).hasMessage("DOUBAN_SUPPLEMENT_RESPONSE_TOO_LARGE");
+    }
+
+    private static URI subject(String id) {
+        return URI.create("https://movie.douban.com/subject/" + id + "/");
+    }
+
+    private static String page(String id, String imdbId) {
+        return """
+                <link rel="canonical" href="https://movie.douban.com/subject/%s/">
+                <h1><span property="v:itemreviewed">流浪地球</span><span class="year">(2019)</span></h1>
+                <div id="info"><span class="pl">原名:</span>The Wandering Earth<br>
+                <span class="pl">IMDb:</span>%s<br></div>
+                <strong property="v:average">7.9</strong>
+                """.formatted(id, imdbId);
     }
 }

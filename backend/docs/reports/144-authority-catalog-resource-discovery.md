@@ -34,9 +34,9 @@ TMDB 建立目录作品与规范季集。变更接口按 UTC 日期和页码推�
 
 IMDb 用已验证的 IMDb ID 与当前目录对齐。按独立的 `title.basics`、`title.ratings` 数据源记录标题、原名、年份、片长、题材、评分和票数。下载通过代理池，使用 ETag 或 Last-Modified 条件请求。目录关联或输入地址变更后重新扫描。完整读完才能推进快照检查点，分批写入可重放，同样的事实和评分不重复追加。IMDb 评分单独记录，目录仍使用现有主评分。IMDb 公开 TSV 适用个人和非商业许可，使用符合项目场景的地址。 [IMDb 数据说明](https://data.imdb.com/non-commercial-datasets/)
 
-豆瓣按已验证目录作品滚动刷新。以已验证豆瓣 ID 或本次响应返回的精确 IMDb ID 作为对齐证据。标题搜索用于召回候选，遇到同名或证据不足等待下一次刷新。译名、原名、年份和可用评分作为豆瓣来源事实保存。接入地址须允许项目使用。 [豆瓣法律声明](https://www.douban.com/about/legal)
+豆瓣按已验证目录作品滚动刷新。已有豆瓣 ID 时直接读取公开详情页。首次对齐最多检查三个不同的搜索候选，必须在详情页的 IMDb 字段中确认已有的 IMDb ID。冲突、缺少证据和请求受限分别记录为不同结果。译名、明确标注的原名、年份和可用评分作为豆瓣来源事实保存。拒绝访问或限流时暂停本轮调度并延后检查。 [豆瓣法律声明](https://www.douban.com/about/legal)
 
-IMDb 和豆瓣的目录同步默认关闭，分别由 `APP_CATALOG_REFERENCE_IMDB_ENABLED` 和 `APP_CATALOG_REFERENCE_DOUBAN_ENABLED` 控制。IMDb 基础资料和评分的输入地址分别用 `APP_CATALOG_REFERENCE_IMDB_TITLE_BASICS_URL` 和 `APP_CATALOG_REFERENCE_IMDB_TITLE_RATINGS_URL` 配置。三家凭各自的来源记录同步，目录资源发现仍由独立的派单开关控制。
+IMDb 和豆瓣的目录同步默认关闭，分别由 `APP_CATALOG_REFERENCE_IMDB_ENABLED` 和 `APP_CATALOG_REFERENCE_DOUBAN_ENABLED` 控制。启用 IMDb 后默认读取官方个人非商业 TSV，两个地址可分别用 `APP_CATALOG_REFERENCE_IMDB_TITLE_BASICS_URL` 和 `APP_CATALOG_REFERENCE_IMDB_TITLE_RATINGS_URL` 配置。个人研究应使用仅本人可访问的实例。三家凭各自的来源记录同步，目录资源发现仍由独立的派单开关控制。
 
 ## 资源站发现与调度
 
