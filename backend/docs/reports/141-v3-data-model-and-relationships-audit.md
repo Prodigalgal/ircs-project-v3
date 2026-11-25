@@ -73,4 +73,4 @@ flowchart LR
 - R2 旧封面删除另行完成。活动生产库对旧前缀的封面和头像引用均为 0。R2 在 `ircs/covers/` 确认删除 39,133 个对象，共 4,499,344,739 字节，重新列举为 0。当前 `catalog-v3-covers/` 代表对象删除前后均验证可读。数据库和其他对象前缀不属于此次清理范围。
 - 应用验收由 GitHub Actions 对改动模块执行。生产发布以通过验证的不可变镜像为准，观察迁移 tag、权威绑定差异、人物和角色数量、回填队列消化、数据库写入和必要的公开路径。回滚使用上一组不可变镜像。播放证据 SQL 与门禁需一起复核，人物和域名关系表优先保留供重新启用时使用。
 - 首个 4.1.0 候选在 Java 测试门禁发现一项入库断言对不上 SQL，存储代理测试仍调用已移除的逐对象删除入口。4.1.1 修正这两个测试，并用单批关系写入覆盖采集消息携带既有域名 ID 的情况。 [4.1.0 门禁结果](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/45145794727)
-- 4.1.1 已发布到生产空库，GitHub Actions 对七个模块执行 660 项 Java 用例，构建六个组件的双架构 Native 镜像。按停采要求初始化关系表后保持 0 条业务数据。旧目录清理、停采开关和上线验收见空库切换报告。 [4.1.1 发布门禁](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/45146888167) [空库切换报告](142-v3-empty-catalog-reset.md)
+- 4.1.1 已发布到生产空库，GitHub Actions 对七个模块执行 660 项 Java 用例，构建六个组件的双架构 Native 镜像。按停采要求初始化关系表后保持 0 条业务数据。旧目录清理、停采开关和上线验收见空库切换报告。 [4.1.1 发布门禁](https://github.com/Prodigalgal/ircs-project-v3/actions/runs/45146888167) [空库切换报告](../architecture/142-v3-empty-catalog-reset.md)
