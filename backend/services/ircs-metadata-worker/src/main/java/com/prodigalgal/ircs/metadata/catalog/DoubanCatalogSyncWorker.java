@@ -70,9 +70,9 @@ class DoubanCatalogSyncWorker {
 
     private boolean syncTarget(Lease lease, DoubanTarget target) {
         try {
-            var facts = source.fetch(target.title(), target.doubanId(), target.imdbId());
-            if (facts.isPresent()) {
-                repository.storeDouban(lease, target, facts.orElseThrow(), WORK_REFRESH);
+            var observation = source.fetch(target.title(), target.doubanId(), target.imdbId());
+            if (observation.isPresent()) {
+                repository.storeDouban(lease, target, observation.orElseThrow(), WORK_REFRESH);
             } else {
                 repository.deferDoubanTarget(lease, target, UNMATCHED_REFRESH, "NO_IDENTITY_MATCH");
             }

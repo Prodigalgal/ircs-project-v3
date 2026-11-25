@@ -14,6 +14,7 @@ import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalExc
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanProviderProperties;
 import java.net.URI;
+import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -33,12 +34,15 @@ class CatalogDoubanSupplementSourceTest {
 
         var result = source.fetch(null, MATCHED_ID, IMDB_ID).orElseThrow();
 
-        assertThat(result.getDoubanId()).isEqualTo(MATCHED_ID);
-        assertThat(result.getTitle()).isEqualTo("流浪地球");
-        assertThat(result.getOriginalTitle()).isEqualTo("The Wandering Earth");
-        assertThat(result.getYear()).isEqualTo("2019");
-        assertThat(result.getScore()).isEqualByComparingTo("7.9");
-        assertThat(result.getImdbId()).isEqualTo(IMDB_ID);
+        assertThat(result.facts().doubanId()).isEqualTo(MATCHED_ID);
+        assertThat(result.facts().title()).isEqualTo("流浪地球");
+        assertThat(result.facts().originalTitle()).isEqualTo("The Wandering Earth");
+        assertThat(result.facts().year()).isEqualTo("2019");
+        assertThat(result.facts().imdbId()).isEqualTo(IMDB_ID);
+        assertThat(result.facts().aliases()).containsExactly("流浪地球1", "The Wandering Earth");
+        assertThat(result.facts().mainlandReleaseDate()).isEqualTo(LocalDate.of(2019, 2, 5));
+        assertThat(result.rating()).isEqualByComparingTo("7.9");
+        assertThat(result.voteCount()).isEqualTo(2062586L);
         verify(http).getPublicPage(subject(MATCHED_ID), "text/html");
         verifyNoMoreInteractions(http);
     }
@@ -54,7 +58,7 @@ class CatalogDoubanSupplementSourceTest {
 
         var result = source.fetch("A&B + C", null, IMDB_ID).orElseThrow();
 
-        assertThat(result.getDoubanId()).isEqualTo(MATCHED_ID);
+        assertThat(result.facts().doubanId()).isEqualTo(MATCHED_ID);
         verify(http).getPublicPage(argThat(uri -> "q=A%26B%20%2B%20C".equals(uri.getRawQuery())), eq("application/json"));
         verify(http).getPublicPage(subject(OTHER_ID), "text/html");
         verify(http).getPublicPage(subject(MATCHED_ID), "text/html");
@@ -119,8 +123,11 @@ class CatalogDoubanSupplementSourceTest {
                 <link rel="canonical" href="https://movie.douban.com/subject/%s/">
                 <h1><span property="v:itemreviewed">流浪地球</span><span class="year">(2019)</span></h1>
                 <div id="info"><span class="pl">原名:</span>The Wandering Earth<br>
+                <span class="pl">又名:</span>流浪地球1 / The Wandering Earth<br>
+                <span class="pl">上映日期:</span><span property="v:initialReleaseDate">2019-02-05(中国大陆)</span><br>
                 <span class="pl">IMDb:</span>%s<br></div>
                 <strong property="v:average">7.9</strong>
+                <span property="v:votes">2062586</span>
                 """.formatted(id, imdbId);
     }
 }

@@ -3,10 +3,13 @@ package com.prodigalgal.ircs.metadata.catalog;
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Element;
@@ -20,6 +23,11 @@ final class DoubanSubjectPageParser {
     private static final Pattern IMDB_PATH = Pattern.compile("(?i)^/title/(tt\\d{7,10})/?$");
     private static final Pattern YEAR = Pattern.compile("(?:^|\\D)(\\d{4})(?:\\D|$)");
     private static final Pattern FIELD_LABEL = Pattern.compile("^([^:：]{1,20})[:：]$");
+    private static final Pattern ALIAS_SEPARATOR = Pattern.compile("\\s+/\\s+");
+    private static final Pattern MAINLAND_RELEASE = Pattern.compile(
+            "(?<!\\d)([1-9]\\d{3})[-年](\\d{1,2})[-月](\\d{1,2})日?\\s*"
+                    + "(?:\\(\\s*中国大陆\\s*\\)|（\\s*中国大陆\\s*）)(?!\\s*[（(]?\\s*重映)");
+    private static final Pattern VOTE_COUNT = Pattern.compile("(?:\\d+|[1-9]\\d{0,2}(?:,\\d{3})+)");
 
     private DoubanSubjectPageParser() { }
 
@@ -49,7 +57,9 @@ final class DoubanSubjectPageParser {
         if (title == null) throw invalidResponse();
 
         String originalTitle = null;
+        List<String> aliases = List.of();
         Set<String> imdbIds = new LinkedHashSet<>();
+        LocalDate mainlandReleaseDate = null;
         Element yearElement = document.selectFirst("h1 .year");
         String year = yearElement == null ? null : firstYear(yearElement.text());
         Element info = document.selectFirst("#info");
@@ -63,15 +73,23 @@ final class DoubanSubjectPageParser {
                     readImdbIds(fieldNodes(label), imdbIds);
                 } else if ("原名".equals(name) && originalTitle == null) {
                     originalTitle = fieldText(fieldNodes(label));
-                } else if (year == null && ("上映日期".equals(name) || "首播".equals(name))) {
-                    year = firstYear(fieldText(fieldNodes(label)));
+                } else if ("又名".equals(name) && aliases.isEmpty()) {
+                    aliases = readAliases(fieldText(fieldNodes(label)));
+                } else if ("上映日期".equals(name) || "首播".equals(name)) {
+                    String releaseText = fieldText(fieldNodes(label));
+                    if (year == null) year = firstYear(releaseText);
+                    LocalDate candidate = firstMainlandReleaseDate(releaseText);
+                    if (candidate != null && (mainlandReleaseDate == null || candidate.isBefore(mainlandReleaseDate))) {
+                        mainlandReleaseDate = candidate;
+                    }
                 }
             }
         }
         if (imdbIds.size() > 1) throw identityConflict();
         String imdbId = imdbIds.stream().findFirst().orElse(null);
         BigDecimal score = readScore(document.selectFirst("[property=\"v:average\"]"));
-        return new Subject(id, imdbId, title, originalTitle, year, score);
+        Long voteCount = readVoteCount(document.selectFirst("[property=\"v:votes\"]"));
+        return new Subject(id, imdbId, title, originalTitle, year, score, aliases, mainlandReleaseDate, voteCount);
     }
 
     private static void addSubjectId(Set<String> ids, String rawUrl) {
@@ -147,6 +165,44 @@ final class DoubanSubjectPageParser {
         }
     }
 
+    private static List<String> readAliases(String value) {
+        if (value == null) return List.of();
+        Set<String> aliases = new LinkedHashSet<>();
+        for (String alias : ALIAS_SEPARATOR.split(value)) {
+            String cleaned = clean(alias);
+            if (cleaned != null) aliases.add(cleaned);
+        }
+        return List.copyOf(aliases);
+    }
+
+    private static LocalDate firstMainlandReleaseDate(String value) {
+        if (value == null) return null;
+        Matcher matcher = MAINLAND_RELEASE.matcher(value);
+        LocalDate earliest = null;
+        while (matcher.find()) {
+            try {
+                LocalDate date = LocalDate.of(Integer.parseInt(matcher.group(1)),
+                        Integer.parseInt(matcher.group(2)), Integer.parseInt(matcher.group(3)));
+                if (earliest == null || date.isBefore(earliest)) earliest = date;
+            } catch (DateTimeException ignored) {
+                // Invalid or out-of-range dates are not usable release evidence.
+            }
+        }
+        return earliest;
+    }
+
+    private static Long readVoteCount(Element element) {
+        if (element == null) return null;
+        String value = clean(element.attr("content"));
+        if (value == null) value = clean(element.text());
+        if (value == null || !VOTE_COUNT.matcher(value).matches()) return null;
+        try {
+            return Long.parseLong(value.replace(",", ""));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     private static String firstYear(String value) {
         if (value == null) return null;
         var matcher = YEAR.matcher(value);
@@ -167,5 +223,6 @@ final class DoubanSubjectPageParser {
         return new CatalogMetadataUnavailableException(CatalogDoubanSupplementSource.IDENTITY_CONFLICT);
     }
 
-    record Subject(String id, String imdbId, String title, String originalTitle, String year, BigDecimal score) { }
+    record Subject(String id, String imdbId, String title, String originalTitle, String year, BigDecimal score,
+                   List<String> aliases, LocalDate mainlandReleaseDate, Long voteCount) { }
 }

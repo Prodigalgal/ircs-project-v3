@@ -1,7 +1,6 @@
 package com.prodigalgal.ircs.metadata.catalog;
 
 import com.prodigalgal.ircs.contentmetadata.AuthoritativeIds;
-import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
 import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
@@ -33,7 +32,7 @@ final class CatalogDoubanSupplementSource {
     private final ObjectMapper mapper;
     private final DoubanProviderProperties properties;
 
-    Optional<EnrichedMetadataDTO> fetch(String queryTitle, String verifiedDoubanId, String verifiedImdbId) {
+    Optional<DoubanCatalogObservation> fetch(String queryTitle, String verifiedDoubanId, String verifiedImdbId) {
         String knownDouban = AuthoritativeIds.normalizeDouban(verifiedDoubanId);
         String knownImdb = AuthoritativeIds.normalizeImdb(verifiedImdbId);
         if (knownDouban != null) {
@@ -41,7 +40,7 @@ final class CatalogDoubanSupplementSource {
                 if (knownImdb != null && page.imdbId() != null && !knownImdb.equals(page.imdbId())) {
                     throw unavailable(IDENTITY_CONFLICT);
                 }
-                return metadata(page);
+                return observation(page);
             });
         }
         if (knownImdb == null || !StringUtils.hasText(queryTitle)) return Optional.empty();
@@ -53,7 +52,7 @@ final class CatalogDoubanSupplementSource {
             if (matching != null) throw unavailable(IDENTITY_CONFLICT);
             matching = page.get();
         }
-        return Optional.ofNullable(matching).map(this::metadata);
+        return Optional.ofNullable(matching).map(CatalogDoubanSupplementSource::observation);
     }
 
     private List<String> search(String title) {
@@ -97,15 +96,10 @@ final class CatalogDoubanSupplementSource {
         return response;
     }
 
-    private EnrichedMetadataDTO metadata(DoubanSubjectPageParser.Subject subject) {
-        EnrichedMetadataDTO result = new EnrichedMetadataDTO();
-        result.setDoubanId(subject.id());
-        result.setImdbId(subject.imdbId());
-        result.setTitle(subject.title());
-        result.setOriginalTitle(subject.originalTitle());
-        result.setYear(subject.year());
-        result.setScore(subject.score());
-        return result;
+    private static DoubanCatalogObservation observation(DoubanSubjectPageParser.Subject subject) {
+        var facts = new DoubanCatalogObservation.Facts(subject.id(), subject.imdbId(), subject.title(),
+                subject.originalTitle(), subject.year(), subject.aliases(), subject.mainlandReleaseDate());
+        return new DoubanCatalogObservation(facts, subject.score(), subject.voteCount());
     }
 
     private static CatalogMetadataUnavailableException unavailable(String code) {

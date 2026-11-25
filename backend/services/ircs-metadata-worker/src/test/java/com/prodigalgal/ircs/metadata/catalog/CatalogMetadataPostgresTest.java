@@ -386,15 +386,38 @@ class CatalogMetadataPostgresTest {
 
         var douban = references.claim("Douban", "work-metadata", Duration.ofMinutes(5)).orElseThrow();
         var target = references.dueDoubanTargets("Douban", 5).getFirst();
-        var supplement = new EnrichedMetadataDTO();
-        supplement.setDoubanId("1291843");
-        supplement.setImdbId("tt0133093");
-        supplement.setTitle("豆瓣译名");
+        var mismatchedFacts = new DoubanCatalogObservation.Facts("1291843", "tt7605074", "同名作品",
+                null, "1999", List.of(), null);
+        var mismatched = new DoubanCatalogObservation(mismatchedFacts, null, null);
+        assertThat(transactions.<Boolean>execute(
+                status -> references.storeDouban(douban, target, mismatched, Duration.ofDays(1)))).isFalse();
+        var doubanFacts = new DoubanCatalogObservation.Facts("1291843", "tt0133093", "豆瓣译名",
+                null, "1999", List.of("豆瓣别名"), LocalDate.of(2000, 1, 14));
+        var doubanScore = new BigDecimal("9.1");
+        var supplement = new DoubanCatalogObservation(doubanFacts, doubanScore, 1000L);
         assertThat(transactions.<Boolean>execute(
                 status -> references.storeDouban(douban, target, supplement, Duration.ofDays(1)))).isTrue();
+        jdbc.update("update catalog_rating_observations set observed_on=observed_on-1 where provider='Douban'");
+        transactions.executeWithoutResult(status -> references.storeDouban(douban, target, supplement, Duration.ofDays(1)));
+        assertThat(jdbc.queryForList(
+                "select vote_count from catalog_rating_observations where provider='Douban' order by observed_on", Long.class))
+                .containsExactly(1000L);
+        var updatedVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, 1003L);
+        var missingVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, null);
+        transactions.executeWithoutResult(status -> references.storeDouban(douban, target, updatedVotes, Duration.ofDays(1)));
+        transactions.executeWithoutResult(status -> references.storeDouban(douban, target, missingVotes, Duration.ofDays(1)));
+        assertThat(jdbc.queryForList(
+                "select vote_count from catalog_rating_observations where provider='Douban' order by observed_on", Long.class))
+                .containsExactly(1000L, 1003L);
         assertThat(references.dueDoubanTargets("Douban", 5)).isEmpty();
         assertThat(jdbc.queryForList("select provider from catalog_metadata_observations order by provider", String.class))
                 .containsExactly("Douban", "IMDb", "TMDB");
+        assertThat(jdbc.queryForObject(
+                "select facts->'aliases'->>0 from catalog_metadata_observations where provider='Douban'", String.class))
+                .isEqualTo("豆瓣别名");
+        assertThat(jdbc.queryForObject(
+                "select facts->>'mainlandReleaseDate' from catalog_metadata_observations where provider='Douban'", String.class))
+                .isEqualTo("2000-01-14");
         assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("Canonical TMDB title");
     }
 

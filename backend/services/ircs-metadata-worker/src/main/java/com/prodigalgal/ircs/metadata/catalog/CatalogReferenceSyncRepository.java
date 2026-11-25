@@ -1,6 +1,5 @@
 package com.prodigalgal.ircs.metadata.catalog;
 
-import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -34,6 +33,18 @@ class CatalogReferenceSyncRepository {
                  where previous.work_id=:work and previous.season_id is null
                    and previous.provider=:provider and previous.external_id=:externalId
                  order by previous.observed_at desc,previous.id desc limit 1)
+            """;
+    private static final String UPSERT_CHANGED_RATING = """
+            and not exists (
+                select 1 from (
+                    select rating,vote_count from catalog_rating_observations
+                     where work_id=:work and provider=:provider and season_id is null
+                     order by observed_on desc limit 1
+                ) latest where latest.rating=:rating
+                  and (cast(:votes as bigint) is null or latest.vote_count is not distinct from cast(:votes as bigint))
+            )
+            on conflict (work_id,season_id,provider,observed_on) do update
+              set rating=excluded.rating,vote_count=excluded.vote_count
             """;
     private final NamedParameterJdbcTemplate jdbc;
     private final ObjectMapper mapper;
@@ -120,18 +131,7 @@ class CatalogReferenceSyncRepository {
                     insert into catalog_rating_observations(work_id,provider,rating,vote_count,observed_on)
                     select :work,:provider,:rating,:votes,(now() at time zone 'UTC')::date
                     where exists (select 1
-                    """ + IMDB_OWNER + """
-                    )
-                    and not exists (
-                        select 1 from (
-                            select rating,vote_count from catalog_rating_observations
-                             where work_id=:work and provider=:provider and season_id is null
-                             order by observed_on desc limit 1
-                        ) latest where latest.rating=:rating and latest.vote_count=:votes
-                    )
-                    on conflict (work_id,season_id,provider,observed_on) do update
-                      set rating=excluded.rating,vote_count=excluded.vote_count
-                    """, batch.toArray(MapSqlParameterSource[]::new));
+                    """ + IMDB_OWNER + ")\n" + UPSERT_CHANGED_RATING, batch.toArray(MapSqlParameterSource[]::new));
         }
     }
 
@@ -159,20 +159,21 @@ class CatalogReferenceSyncRepository {
     }
 
     @Transactional(timeout = 10)
-    public boolean storeDouban(Lease lease, DoubanTarget target, EnrichedMetadataDTO facts, Duration nextCheck) {
+    public boolean storeDouban(Lease lease, DoubanTarget target, DoubanCatalogObservation observation, Duration nextCheck) {
         requireLease(lease);
-        var p = observationParameters(lease, target.workId(), facts.getDoubanId(), facts)
-                .addValue("mediaType", target.mediaType()).addValue("imdbId", target.imdbId())
-                .addValue("knownDoubanId", target.doubanId());
+        var facts = observation.facts();
+        var p = observationParameters(lease, target.workId(), facts.doubanId(), facts)
+                .addValue("mediaType", target.mediaType()).addValue("pageImdbId", facts.imdbId());
         int linked = jdbc.update("""
                 insert into catalog_external_ids(provider,media_type,target_kind,external_id,work_id,verified_at)
                 select :provider,:mediaType,'WORK',:externalId,work.id,now()
                   from catalog_works work where work.id=:work and work.media_type=:mediaType
                    and work.identity_status='VERIFIED'
+                   and (cast(:pageImdbId as text) is null or work.imdb_id is null or work.imdb_id=:pageImdbId)
                    and exists (select from catalog_external_ids proof where proof.work_id=work.id
                        and proof.media_type=work.media_type and proof.target_kind='WORK' and proof.verified_at is not null
-                       and ((proof.provider=:provider and proof.external_id=:knownDoubanId)
-                            or (proof.provider='IMDb' and proof.external_id=:imdbId and work.imdb_id=proof.external_id)))
+                       and ((proof.provider=:provider and proof.external_id=:externalId)
+                            or (proof.provider='IMDb' and proof.external_id=:pageImdbId and work.imdb_id=proof.external_id)))
                    and not exists (select from catalog_external_ids other where other.work_id=work.id
                        and other.provider=:provider and other.target_kind='WORK' and other.external_id<>:externalId
                        and other.verified_at is not null)
@@ -187,16 +188,13 @@ class CatalogReferenceSyncRepository {
                 insert into catalog_metadata_observations(work_id,provider,external_id,facts)
                 select :work,:provider,:externalId,cast(:facts as jsonb) where
                 """ + CHANGED_FACTS, p);
-        if (facts.getScore() != null) {
+        if (observation.rating() != null) {
             jdbc.update("""
-                    insert into catalog_rating_observations(work_id,provider,rating,observed_on)
-                    select :work,:provider,:rating,(now() at time zone 'UTC')::date
-                    where cast(:rating as numeric) between 0 and 10 and cast(:rating as numeric) is distinct from (
-                        select rating from catalog_rating_observations where work_id=:work and provider=:provider
-                         and season_id is null order by observed_on desc limit 1
-                    )
-                    on conflict (work_id,season_id,provider,observed_on) do update set rating=excluded.rating
-                    """, p.addValue("rating", facts.getScore()));
+                    insert into catalog_rating_observations(work_id,provider,rating,vote_count,observed_on)
+                    select :work,:provider,:rating,:votes,(now() at time zone 'UTC')::date
+                    where cast(:rating as numeric) between 0 and 10
+                    """ + UPSERT_CHANGED_RATING, p.addValue("rating", observation.rating())
+                    .addValue("votes", observation.voteCount()));
         }
         recordDoubanResult(lease.provider(), target.workId(), nextCheck, "MATCHED");
         return true;
