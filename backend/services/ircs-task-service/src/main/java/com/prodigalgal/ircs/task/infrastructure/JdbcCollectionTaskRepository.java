@@ -524,7 +524,7 @@ public class JdbcCollectionTaskRepository {
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, cast(? as jsonb), ?
+                    ?, ?, cast(? as jsonb), ?
                 )
                 """,
                 id,

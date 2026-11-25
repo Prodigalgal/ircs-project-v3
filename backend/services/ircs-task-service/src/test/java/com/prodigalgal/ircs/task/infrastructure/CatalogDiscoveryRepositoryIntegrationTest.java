@@ -3,6 +3,7 @@ package com.prodigalgal.ircs.task.infrastructure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
+import com.prodigalgal.ircs.task.domain.ValidatedCreateTask;
 import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.time.Duration;
@@ -19,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @EnabledIfEnvironmentVariable(named = "IRCS_TEST_POSTGRES_URL", matches = ".+")
 class CatalogDiscoveryRepositoryIntegrationTest {
@@ -53,6 +56,35 @@ class CatalogDiscoveryRepositoryIntegrationTest {
     void tearDown() {
         if (pool != null) pool.close();
         if (database != null) database.close();
+    }
+
+    @Test
+    void persistsAndQueuesAPlanForAClaimedCatalogDiscovery() {
+        insertRequest();
+        CatalogDiscoveryCandidate candidate = requests.claimDue(1, LEASE).getFirst();
+        UUID source = insertSource();
+
+        UUID plan = tasks.create(new ValidatedCreateTask(
+                "Catalog discovery fixture", source, "BY_PAGE", true, null, "UTC", 1, 1,
+                null, null, "Fixture", "RANDOM", 0, 1000, 3000, 10000, 1, null,
+                true, false, null, null, null, null, null, discoveryHeaders(candidate.requestKey())));
+
+        var expected = tasks.findRuntimeState(plan).orElseThrow();
+        var transactions = new TransactionTemplate(new DataSourceTransactionManager(pool));
+        UUID run = transactions.execute(status -> tasks.queueRun(expected, false, true).orElseThrow());
+
+        assertThat(jdbc.queryForMap("""
+                select r.collection_source_id,r.status,r.exclusive_source,
+                       r.execution_parameters->>'filter_keywords' as keyword,
+                       p.headers->'ircsCatalogDiscovery'->>'requestKey' as request_key
+                  from collection_runs r join collection_plans p on p.current_run_id=r.id
+                 where r.id=?
+                """, run)).containsEntry("collection_source_id", source)
+                .containsEntry("status", "QUEUED")
+                .containsEntry("exclusive_source", true)
+                .containsEntry("keyword", "Fixture")
+                .containsEntry("request_key", candidate.requestKey());
+        assertThat(requests.hasActiveTasks(candidate)).isTrue();
     }
 
     @Test
