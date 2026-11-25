@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="IRCS Adult Classifier Service",
-    version=os.getenv("APP_VERSION", "5.3.0"),
+    version=os.getenv("APP_VERSION", "3.12.1"),
     lifespan=lifespan,
 )
 

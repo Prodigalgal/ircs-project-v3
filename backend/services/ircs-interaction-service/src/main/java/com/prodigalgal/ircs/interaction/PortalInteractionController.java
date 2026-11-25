@@ -24,20 +24,20 @@ public class PortalInteractionController {
     private final InteractionCommandService commandService;
     private final MemberTokenService memberTokenService;
 
-    @PostMapping("/favorites/{catalogEntryId}")
+    @PostMapping("/favorites/{unifiedVideoId}")
     public Map<String, Boolean> toggleFavorite(
             @RequestHeader(value = "Authorization", required = false) String authorization,
-            @PathVariable UUID catalogEntryId) {
+            @PathVariable UUID unifiedVideoId) {
         UUID memberId = memberTokenService.requireMemberId(authorization);
-        return Map.of("favorited", commandService.toggleFavorite(memberId, catalogEntryId));
+        return Map.of("favorited", commandService.toggleFavorite(memberId, unifiedVideoId));
     }
 
-    @GetMapping("/favorites/{catalogEntryId}/status")
+    @GetMapping("/favorites/{unifiedVideoId}/status")
     public Map<String, Boolean> favoriteStatus(
             @RequestHeader(value = "Authorization", required = false) String authorization,
-            @PathVariable UUID catalogEntryId) {
+            @PathVariable UUID unifiedVideoId) {
         UUID memberId = memberTokenService.requireMemberId(authorization);
-        return Map.of("favorited", commandService.favoriteStatus(memberId, catalogEntryId));
+        return Map.of("favorited", commandService.favoriteStatus(memberId, unifiedVideoId));
     }
 
     @GetMapping("/history")

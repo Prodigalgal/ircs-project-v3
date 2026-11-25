@@ -66,7 +66,7 @@ public class CatalogDiscoveryService {
                 repository.retry(candidate, delay, failureCode);
                 // External exception text can contain source URLs and credentials; persist only a stable code.
                 log.warn("Catalog discovery deferred: videoId={}, season={}, episode={}, failureType={}",
-                        candidate.catalogEntryId(), candidate.targetSeason(), candidate.targetEpisode(),
+                        candidate.unifiedVideoId(), candidate.targetSeason(), candidate.targetEpisode(),
                         ex.getClass().getSimpleName());
             }
         }

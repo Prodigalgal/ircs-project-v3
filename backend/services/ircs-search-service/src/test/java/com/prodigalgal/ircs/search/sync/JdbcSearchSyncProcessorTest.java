@@ -7,8 +7,7 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.contracts.search.SearchSyncMessage;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
-import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
-import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
+import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
 import com.prodigalgal.ircs.search.index.SearchIndexService;
 import com.prodigalgal.ircs.search.repository.SearchDocumentJdbcRepository;
 import java.util.Optional;
@@ -28,40 +27,38 @@ class JdbcSearchSyncProcessorTest {
     private SearchIndexService searchIndexService;
 
     @Test
-    void indexesSourceRecordWhenDocumentExists() {
+    void indexesRawVideoWhenDocumentExists() {
         UUID id = UUID.randomUUID();
-        SourceRecordSearchDocument document = new SourceRecordSearchDocument();
+        RawVideoSearchDocument document = new RawVideoSearchDocument();
         document.setId(id);
-        when(documentRepository.findSourceRecord(id)).thenReturn(Optional.of(document));
+        when(documentRepository.findRawVideo(id)).thenReturn(Optional.of(document));
 
         JdbcSearchSyncProcessor processor = new JdbcSearchSyncProcessor(documentRepository, searchIndexService);
-        processor.process(new SearchSyncMessage(id, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX));
+        processor.process(new SearchSyncMessage(id, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX));
 
         verify(searchIndexService).saveRaw(document);
-        verify(searchIndexService, never()).delete(id, SearchEntityType.SOURCE_RECORD);
+        verify(searchIndexService, never()).delete(id, SearchEntityType.RAW_VIDEO);
     }
 
     @Test
-    void deletesSourceRecordWhenIndexMessageReferencesMissingEntity() {
+    void deletesRawVideoWhenIndexMessageReferencesMissingEntity() {
         UUID id = UUID.randomUUID();
-        when(documentRepository.findSourceRecord(id)).thenReturn(Optional.empty());
+        when(documentRepository.findRawVideo(id)).thenReturn(Optional.empty());
 
         JdbcSearchSyncProcessor processor = new JdbcSearchSyncProcessor(documentRepository, searchIndexService);
-        processor.process(new SearchSyncMessage(id, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX));
+        processor.process(new SearchSyncMessage(id, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX));
 
-        verify(searchIndexService).delete(id, SearchEntityType.SOURCE_RECORD);
+        verify(searchIndexService).delete(id, SearchEntityType.RAW_VIDEO);
     }
 
     @Test
-    void aStaleCatalogDeleteReconcilesTheCurrentPublication() {
+    void deleteOperationDoesNotReadDatabase() {
         UUID id = UUID.randomUUID();
-        CatalogEntrySearchDocument current = new CatalogEntrySearchDocument();
-        current.setId(id);
-        when(documentRepository.findCatalogEntry(id)).thenReturn(Optional.of(current));
-        JdbcSearchSyncProcessor processor = new JdbcSearchSyncProcessor(documentRepository, searchIndexService);
-        processor.process(new SearchSyncMessage(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.DELETE));
 
-        verify(searchIndexService).saveUnified(current);
-        verify(searchIndexService, never()).delete(id, SearchEntityType.CATALOG_ENTRY);
+        JdbcSearchSyncProcessor processor = new JdbcSearchSyncProcessor(documentRepository, searchIndexService);
+        processor.process(new SearchSyncMessage(id, SearchEntityType.UNIFIED_VIDEO, SyncOperation.DELETE));
+
+        verify(documentRepository, never()).findUnifiedVideo(id);
+        verify(searchIndexService).delete(id, SearchEntityType.UNIFIED_VIDEO);
     }
 }

@@ -58,11 +58,11 @@ public class InternalContentClients {
         }, requestTimeout);
     }
 
-    public void refetchSourceRecord(UUID sourceRecordId) {
+    public void refetchRawVideo(UUID rawVideoId) {
         try {
             OutboundHttpPolicy policy = OutboundHttpPolicy.internalService(requestTimeout)
                     .withCallerCircuitBreakerKey("content-refetch-scraper");
-            OutboundHttpResponse response = httpClient.execute(OutboundHttpRequest.post(refetchUri(sourceRecordId), policy));
+            OutboundHttpResponse response = httpClient.execute(OutboundHttpRequest.post(refetchUri(rawVideoId), policy));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new ContentApiException(HttpStatus.BAD_GATEWAY,
                         "Failed to dispatch raw video refetch: upstream status " + response.statusCode());
@@ -78,10 +78,10 @@ public class InternalContentClients {
         }
     }
 
-    private URI refetchUri(UUID sourceRecordId) {
+    private URI refetchUri(UUID rawVideoId) {
         String baseUrl = configValues.scraperBaseUrl();
         String normalizedBase = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        return URI.create(normalizedBase + "/internal/v1/scraper/raw-videos/" + sourceRecordId + "/refetch");
+        return URI.create(normalizedBase + "/internal/v1/scraper/raw-videos/" + rawVideoId + "/refetch");
     }
 
     private static OutboundHttpClient defaultHttpClient() {

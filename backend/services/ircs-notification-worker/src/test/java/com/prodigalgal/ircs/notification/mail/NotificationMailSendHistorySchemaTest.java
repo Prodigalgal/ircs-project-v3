@@ -31,7 +31,7 @@ class NotificationMailSendHistorySchemaTest {
             }
 
             try (var columns = connection.getMetaData()
-                    .getColumns(null, null, "MAIL_DELIVERY_ATTEMPTS", null)) {
+                    .getColumns(null, null, "NOTIFICATION_MAIL_SEND_HISTORY", null)) {
                 int count = 0;
                 while (columns.next()) {
                     count++;
@@ -40,7 +40,7 @@ class NotificationMailSendHistorySchemaTest {
             }
 
             try (var indexes = connection.getMetaData()
-                    .getIndexInfo(null, null, "MAIL_DELIVERY_ATTEMPTS", false, false)) {
+                    .getIndexInfo(null, null, "NOTIFICATION_MAIL_SEND_HISTORY", false, false)) {
                 boolean hasCreatedIndex = false;
                 boolean hasStatusModeIndex = false;
                 boolean hasTemplateIndex = false;
@@ -64,7 +64,7 @@ class NotificationMailSendHistorySchemaTest {
             try (var outboxTables = connection.getMetaData()
                     .getTables(null, null, "AUDIT_ES_REPLICATION_OUTBOX", null);
                  var archiveTables = connection.getMetaData()
-                         .getTables(null, null, "ARCHIVED_AUDIT_EVENTS", null)) {
+                         .getTables(null, null, "AUDIT_ARCHIVE_ENTRIES", null)) {
                 assertTrue(!outboxTables.next());
                 assertTrue(archiveTables.next());
             }

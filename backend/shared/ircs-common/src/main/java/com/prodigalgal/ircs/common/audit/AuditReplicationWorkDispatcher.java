@@ -5,9 +5,9 @@ import org.slf4j.Logger;
 
 public final class AuditReplicationWorkDispatcher {
 
-    private static final String SOURCE_TABLE_REQUEST = "http_request_audit_events";
-    private static final String SOURCE_TABLE_WORKER = "background_job_audit_events";
-    private static final String SOURCE_TABLE_MAIL = "mail_delivery_attempts";
+    private static final String SOURCE_TABLE_REQUEST = "request_audit_logs";
+    private static final String SOURCE_TABLE_WORKER = "worker_job_audit_events";
+    private static final String SOURCE_TABLE_MAIL = "notification_mail_send_history";
     private static final String EVENT_UPSERT = "UPSERT";
 
     private static volatile AuditReplicationWorkPublisher publisher;

@@ -25,27 +25,27 @@ class PortalInteractionControllerTest {
     @Test
     void togglesFavoriteForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
+        UUID unifiedVideoId = UUID.randomUUID();
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
-        when(commandService.toggleFavorite(memberId, catalogEntryId)).thenReturn(true);
+        when(commandService.toggleFavorite(memberId, unifiedVideoId)).thenReturn(true);
 
-        Map<String, Boolean> response = controller.toggleFavorite("Bearer token", catalogEntryId);
+        Map<String, Boolean> response = controller.toggleFavorite("Bearer token", unifiedVideoId);
 
         assertEquals(Map.of("favorited", true), response);
-        verify(commandService).toggleFavorite(memberId, catalogEntryId);
+        verify(commandService).toggleFavorite(memberId, unifiedVideoId);
     }
 
     @Test
     void returnsFavoriteStatusForAuthenticatedMember() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
+        UUID unifiedVideoId = UUID.randomUUID();
         when(memberTokenService.requireMemberId("Bearer token")).thenReturn(memberId);
-        when(commandService.favoriteStatus(memberId, catalogEntryId)).thenReturn(false);
+        when(commandService.favoriteStatus(memberId, unifiedVideoId)).thenReturn(false);
 
-        Map<String, Boolean> response = controller.favoriteStatus("Bearer token", catalogEntryId);
+        Map<String, Boolean> response = controller.favoriteStatus("Bearer token", unifiedVideoId);
 
         assertEquals(Map.of("favorited", false), response);
-        verify(commandService).favoriteStatus(memberId, catalogEntryId);
+        verify(commandService).favoriteStatus(memberId, unifiedVideoId);
     }
 
     @Test
@@ -58,7 +58,6 @@ class PortalInteractionControllerTest {
                 "影片",
                 "https://example.invalid/poster.jpg",
                 BigDecimal.valueOf(8.8),
-                UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 "第1集",
@@ -87,7 +86,6 @@ class PortalInteractionControllerTest {
                 "影片",
                 "https://example.invalid/poster.jpg",
                 BigDecimal.valueOf(8.8),
-                null,
                 null,
                 null,
                 null,

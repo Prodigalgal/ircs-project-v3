@@ -35,48 +35,48 @@ public class AggregationPipelineRuntime {
         return runtime;
     }
 
-    public AggregationPipelineExecution run(UUID catalogEntryId) {
+    public AggregationPipelineExecution run(UUID unifiedVideoId) {
         List<AggregationPipelineStageFailure> failures = new ArrayList<>();
         List<UUID> coverR2SyncImageIds = new ArrayList<>();
 
         runStage(
                 AggregationPipelineStage.BASIC_ATTRIBUTE,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedPipelineBasicAttributes(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedPipelineBasicAttributes(unifiedVideoId),
                 failures);
         runStage(
                 AggregationPipelineStage.EXTERNAL_ID,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedPipelineExternalIds(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedPipelineExternalIds(unifiedVideoId),
                 failures);
         runStage(
                 AggregationPipelineStage.METADATA,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedPipelineMetadataRelations(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedPipelineMetadataRelations(unifiedVideoId),
                 failures);
         runStage(
                 AggregationPipelineStage.DYNAMIC_FIELD,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedPipelineDynamicFields(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedPipelineDynamicFields(unifiedVideoId),
                 failures);
         runStage(
                 AggregationPipelineStage.CATEGORY,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedPipelineCategory(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedPipelineCategory(unifiedVideoId),
                 failures);
         runStage(
                 AggregationPipelineStage.ADULT_RESTRICTION,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedAdultAssessment(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedAdultAssessment(unifiedVideoId),
                 failures);
-        coverR2SyncImageIds.addAll(runCoverStage(catalogEntryId, failures));
+        coverR2SyncImageIds.addAll(runCoverStage(unifiedVideoId, failures));
 
-        return new AggregationPipelineExecution(catalogEntryId, coverR2SyncImageIds, failures);
+        return new AggregationPipelineExecution(unifiedVideoId, coverR2SyncImageIds, failures);
     }
 
     private void runStage(
             AggregationPipelineStage stage,
-            UUID catalogEntryId,
+            UUID unifiedVideoId,
             Runnable action,
             List<AggregationPipelineStageFailure> failures) {
         try {
@@ -87,27 +87,27 @@ public class AggregationPipelineRuntime {
             rethrowContention(ex);
             failures.add(AggregationPipelineStageFailure.from(stage, ex));
             log.error(
-                    "Aggregation pipeline handler [{}] failed for catalogEntryId={}, stage={}",
+                    "Aggregation pipeline handler [{}] failed for unifiedVideoId={}, stage={}",
                     stage.handlerName(),
-                    catalogEntryId,
+                    unifiedVideoId,
                     failures.getLast().unifiedStageLabel(),
                     ex);
         }
     }
 
     private List<UUID> runCoverStage(
-            UUID catalogEntryId,
+            UUID unifiedVideoId,
             List<AggregationPipelineStageFailure> failures) {
         return runReturningStage(
                 AggregationPipelineStage.COVER_IMAGE,
-                catalogEntryId,
-                () -> repository.rebuildUnifiedPipelineCoverImage(catalogEntryId),
+                unifiedVideoId,
+                () -> repository.rebuildUnifiedPipelineCoverImage(unifiedVideoId),
                 failures);
     }
 
     private List<UUID> runReturningStage(
             AggregationPipelineStage stage,
-            UUID catalogEntryId,
+            UUID unifiedVideoId,
             Supplier<List<UUID>> action,
             List<AggregationPipelineStageFailure> failures) {
         try {
@@ -119,9 +119,9 @@ public class AggregationPipelineRuntime {
             rethrowContention(ex);
             failures.add(AggregationPipelineStageFailure.from(stage, ex));
             log.error(
-                    "Aggregation pipeline handler [{}] failed for catalogEntryId={}, stage={}",
+                    "Aggregation pipeline handler [{}] failed for unifiedVideoId={}, stage={}",
                     stage.handlerName(),
-                    catalogEntryId,
+                    unifiedVideoId,
                     failures.getLast().unifiedStageLabel(),
                     ex);
             return List.of();
@@ -212,7 +212,7 @@ record AggregationPipelineStageFailure(
 }
 
 record AggregationPipelineExecution(
-        UUID catalogEntryId,
+        UUID unifiedVideoId,
         List<UUID> coverR2SyncImageIds,
         List<AggregationPipelineStageFailure> failures) {
 

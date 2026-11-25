@@ -34,7 +34,7 @@ class DistributedAggregationWorkDeferrerIntegrationTest {
     private final MutableClock clock = new MutableClock();
     private String prefix;
     private String metrics;
-    private final String type = AggregationWorkTypes.SOURCE_RECORD;
+    private final String type = AggregationWorkTypes.RAW_VIDEO;
     private final String taskId = AggregationWorkTypes.taskId(UUID.randomUUID());
 
     @BeforeEach
@@ -194,7 +194,7 @@ class DistributedAggregationWorkDeferrerIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"MATCH_LOCK_BUSY", "NOT_ELIGIBLE", "WAITING_DEPENDENCIES", "WAITING_AUTHORITY", "SOURCE_CHANGED",
+    @ValueSource(strings = {"MATCH_LOCK_BUSY", "NOT_ELIGIBLE", "WAITING_DEPENDENCIES", "SOURCE_CHANGED",
             "IDENTITY_CONFLICT", "MERGE_AMBIGUOUS"})
     void aggregationWaitReasonsRemainDurableAndDoNotSpendFailureBudget(String reason) {
         queue.submit(request("v1"));

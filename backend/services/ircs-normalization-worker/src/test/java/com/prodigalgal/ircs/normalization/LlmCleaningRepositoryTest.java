@@ -28,11 +28,11 @@ class LlmCleaningRepositoryTest {
     private NamedParameterJdbcTemplate jdbcTemplate;
 
     @Test
-    void findCandidateReadsSourceRecordSourceCategoryWithoutDbLease() {
+    void findCandidateReadsRawVideoSourceCategoryWithoutDbLease() {
         UUID rawId = UUID.randomUUID();
         when(jdbcTemplate.query(
                         argThat(sql -> sql != null
-                                && sql.contains("from source_records")
+                                && sql.contains("from raw_videos")
                                 && sql.contains("where id = :rawId")
                                 && sql.contains("category_code")
                                 && !sql.contains("skip locked")
@@ -48,12 +48,12 @@ class LlmCleaningRepositoryTest {
     }
 
     @Test
-    void applyMatchOnlyUpdatesUnmappedSourceRecordCategoryCode() {
+    void applyMatchOnlyUpdatesUnmappedRawVideoCategoryCode() {
         UUID rawId = UUID.randomUUID();
         UUID standardId = UUID.randomUUID();
         when(jdbcTemplate.update(
                         argThat(sql -> sql != null
-                                && sql.contains("update source_records")
+                                && sql.contains("update raw_videos")
                                 && sql.contains("select slug")
                                 && sql.contains("updated_at = now()")
                                 && sql.contains("category_code")
@@ -101,7 +101,7 @@ class LlmCleaningRepositoryTest {
     void categoryStandardsOnlyExposeTwelveStableTopCategories() {
         when(jdbcTemplate.query(
                         argThat(sql -> sql != null
-                                && sql.contains("from catalog_categories")
+                                && sql.contains("from standard_category")
                                 && sql.contains("slug in (:allowedCategoryCodes)")),
                         org.mockito.ArgumentMatchers.<Map<String, ?>>argThat(params -> params != null
                                 && params.containsKey("allowedCategoryCodes")

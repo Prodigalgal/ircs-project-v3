@@ -7,7 +7,6 @@ import com.prodigalgal.ircs.content.video.messaging.ContentCommandPublisher;
 import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,21 +16,10 @@ public class TrendCatalogEntryService {
     private final TrendCatalogRepository repository;
     private final ContentCommandPublisher publisher;
     private final ContentMaintenanceGate maintenanceGate;
-    @Value("${app.catalog.authority-first.enabled:false}")
-    private boolean authorityFirst;
 
     @Transactional(timeout = 15)
     public Resolution resolve(TrendCatalogCandidate candidate) {
-        maintenanceGate.assertCatalogEntryWrite(null);
-        if (authorityFirst) {
-            var projection = repository.findAuthorityProjection(candidate);
-            if (projection.isEmpty()) {
-                repository.requestAuthorityImport(candidate);
-                return new Resolution(null, false);
-            }
-            repository.requestAuthorityResources(candidate, projection.get());
-            return new Resolution(projection.get().id(), false);
-        }
+        maintenanceGate.assertUnifiedVideoWrite(null);
         repository.lockIdentity(candidate);
         var mapped = repository.findIdentity(candidate);
         if (mapped.isPresent()) {

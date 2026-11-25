@@ -28,9 +28,9 @@ class AggregationBindingCorrectionServiceTest {
     private final UUID sourceId = UUID.randomUUID();
     private final UUID targetId = UUID.randomUUID();
     private final UUID rawId = UUID.randomUUID();
-    private final SourceRecordAggregationRecord raw = raw(rawId);
-    private final CatalogEntryAggregationCandidate source = candidate(sourceId, "Source Work");
-    private final CatalogEntryAggregationCandidate target = candidate(targetId, "Target Work");
+    private final RawVideoAggregationRecord raw = raw(rawId);
+    private final UnifiedVideoAggregationCandidate source = candidate(sourceId, "Source Work");
+    private final UnifiedVideoAggregationCandidate target = candidate(targetId, "Target Work");
 
     @AfterEach
     void clearSynchronization() {
@@ -53,8 +53,8 @@ class AggregationBindingCorrectionServiceTest {
         verifyNoInteractions(publisher);
         verify(repository, never()).configureAggregationTransaction();
         verify(repository, never()).lockAggregationShared();
-        verify(repository, never()).lockSourceRecords(List.of(rawId));
-        verify(repository, never()).lockCatalogEntries(List.of(sourceId, targetId));
+        verify(repository, never()).lockRawVideos(List.of(rawId));
+        verify(repository, never()).lockUnifiedVideos(List.of(sourceId, targetId));
         verify(repository, never()).moveCorrectionBindings(sourceId, targetId, List.of(rawId));
         verify(repository, never()).markUnifiedDirty(sourceId);
         verify(repository, never()).markUnifiedDirty(targetId);
@@ -62,8 +62,8 @@ class AggregationBindingCorrectionServiceTest {
 
     @Test
     void previewAllowsAnExistingPendingBindingAfterItsDependenciesFinish() {
-        SourceRecordAggregationRecord pending = raw(rawId, "SUCCESS", "PENDING");
-        when(repository.findSourceRecords(List.of(rawId))).thenReturn(List.of(pending));
+        RawVideoAggregationRecord pending = raw(rawId, "SUCCESS", "PENDING");
+        when(repository.findRawVideos(List.of(rawId))).thenReturn(List.of(pending));
         when(repository.findUnifiedCandidatesByIds(List.of(sourceId))).thenReturn(List.of(source));
         when(repository.findUnifiedCandidatesByIds(List.of(targetId))).thenReturn(List.of(target));
         when(matcher.bindingConflictReason(pending, source)).thenReturn("EXTERNAL_ID_CONFLICT_TMDB");
@@ -77,7 +77,7 @@ class AggregationBindingCorrectionServiceTest {
 
     @Test
     void previewBlocksPendingDependenciesAndInProgressWork() {
-        when(repository.findSourceRecords(List.of(rawId))).thenReturn(
+        when(repository.findRawVideos(List.of(rawId))).thenReturn(
                 List.of(raw(rawId, "PENDING", "PENDING")),
                 List.of(raw(rawId, "SUCCESS", "PROCESSING")));
 
@@ -140,7 +140,7 @@ class AggregationBindingCorrectionServiceTest {
         var plan = service.apply(sourceId, targetId, List.of(rawId), "snapshot-1", "operator-2");
 
         assertThat(plan.status()).isEqualTo("APPLIED_DIRTY");
-        assertThat(plan.sourceRecordIds()).containsExactly(rawId);
+        assertThat(plan.rawVideoIds()).containsExactly(rawId);
         assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
         verify(repository).lockRetainedCorrectionBinding(sourceId, List.of(rawId));
         verify(repository).moveCorrectionBindings(sourceId, targetId, List.of(rawId));
@@ -158,7 +158,7 @@ class AggregationBindingCorrectionServiceTest {
     }
 
     private void arrangeCommonInputs() {
-        when(repository.findSourceRecords(List.of(rawId))).thenReturn(List.of(raw));
+        when(repository.findRawVideos(List.of(rawId))).thenReturn(List.of(raw));
         when(repository.findUnifiedCandidatesByIds(List.of(sourceId))).thenReturn(List.of(source));
         when(repository.findUnifiedCandidatesByIds(List.of(targetId))).thenReturn(List.of(target));
         when(matcher.bindingConflictReason(raw, source)).thenReturn("EXTERNAL_ID_CONFLICT_TMDB");
@@ -173,18 +173,18 @@ class AggregationBindingCorrectionServiceTest {
                 sourceMembers, targetMembers, 0, histories, 0, expectedBindings, fingerprint);
     }
 
-    private static SourceRecordAggregationRecord raw(UUID id) {
+    private static RawVideoAggregationRecord raw(UUID id) {
         return raw(id, "SUCCESS", "BOUND");
     }
 
-    private static SourceRecordAggregationRecord raw(UUID id, String enrichmentStatus, String aggregationStatus) {
-        return new SourceRecordAggregationRecord(id, "Correction Target Movie", null, null, "2024", null, null,
+    private static RawVideoAggregationRecord raw(UUID id, String enrichmentStatus, String aggregationStatus) {
+        return new RawVideoAggregationRecord(id, "Correction Target Movie", null, null, "2024", null, null,
                 null, null, null, null, null, "电影", "movie", null, null, "101", null,
                 "READY", enrichmentStatus, aggregationStatus);
     }
 
-    private static CatalogEntryAggregationCandidate candidate(UUID id, String title) {
-        return new CatalogEntryAggregationCandidate(id, title, null, null, "2024", null, null, null,
+    private static UnifiedVideoAggregationCandidate candidate(UUID id, String title) {
+        return new UnifiedVideoAggregationCandidate(id, title, null, null, "2024", null, null, null,
                 "电影", null, null, null, null, null);
     }
 }

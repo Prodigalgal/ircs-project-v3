@@ -18,9 +18,9 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 class AuditEsReplicationRepository {
 
-    static final String REQUEST_AUDIT_LOGS = "http_request_audit_events";
-    static final String WORKER_JOB_AUDIT_EVENTS = "background_job_audit_events";
-    static final String NOTIFICATION_MAIL_SEND_HISTORY = "mail_delivery_attempts";
+    static final String REQUEST_AUDIT_LOGS = "request_audit_logs";
+    static final String WORKER_JOB_AUDIT_EVENTS = "worker_job_audit_events";
+    static final String NOTIFICATION_MAIL_SEND_HISTORY = "notification_mail_send_history";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -32,19 +32,19 @@ class AuditEsReplicationRepository {
             case REQUEST_AUDIT_LOGS -> query("""
                     select id, created_at, updated_at, audit_class, username, method, path, query_string,
                            status_code, success, duration_ms, client_ip, user_agent, trace_id, error_message
-                      from http_request_audit_events
+                      from request_audit_logs
                      where id = ?
                     """, payload, this::requestDocument);
             case WORKER_JOB_AUDIT_EVENTS -> query("""
                     select id, created_at, updated_at, audit_class, job_source, job_type, job_name,
                            correlation_id, status, duration_ms, error_class, error_message
-                      from background_job_audit_events
+                      from worker_job_audit_events
                      where id = ?
                     """, payload, this::workerDocument);
             case NOTIFICATION_MAIL_SEND_HISTORY -> query("""
                     select id, created_at, updated_at, audit_class, correlation_id, recipient, subject,
                            template_code, delivery_mode, status, credential_id, failure_code, failure_message
-                      from mail_delivery_attempts
+                      from notification_mail_send_history
                      where id = ?
                     """, payload, this::mailDocument);
             default -> Optional.empty();

@@ -37,7 +37,7 @@ public class WatchProgressBatchService {
                 continue;
             }
             latestByKey.merge(
-                    new ProgressKey(normalized.memberId(), normalized.catalogEntryId()),
+                    new ProgressKey(normalized.memberId(), normalized.unifiedVideoId()),
                     normalized,
                     (left, right) -> right.timestamp().isAfter(left.timestamp()) ? right : left);
         }
@@ -48,7 +48,7 @@ public class WatchProgressBatchService {
     }
 
     private NormalizedWatchProgress normalize(WatchProgressMessage message) {
-        if (message == null || message.getMemberId() == null || message.getCatalogEntryId() == null) {
+        if (message == null || message.getMemberId() == null || message.getUnifiedVideoId() == null) {
             return null;
         }
         Instant timestamp = message.getTimestamp() == null ? Instant.now() : message.getTimestamp();
@@ -57,7 +57,7 @@ public class WatchProgressBatchService {
                 : DEFAULT_EPISODE_NAME;
         return new NormalizedWatchProgress(
                 message.getMemberId(),
-                message.getCatalogEntryId(),
+                message.getUnifiedVideoId(),
                 message.getVideoId(),
                 message.getEpisodeId(),
                 episodeName,
@@ -71,7 +71,7 @@ public class WatchProgressBatchService {
             repository.upsertWatchHistoryIfNewer(
                     IrcsUuidGenerators.nextId(),
                     progress.memberId(),
-                    progress.catalogEntryId(),
+                    progress.unifiedVideoId(),
                     progress.videoId(),
                     progress.episodeId(),
                     progress.episodeName(),
@@ -80,18 +80,18 @@ public class WatchProgressBatchService {
                     progress.timestamp());
         } catch (DataIntegrityViolationException ex) {
             log.info(
-                    "Ignored orphaned watch progress message: memberId={}, catalogEntryId={}",
+                    "Ignored orphaned watch progress message: memberId={}, unifiedVideoId={}",
                     progress.memberId(),
-                    progress.catalogEntryId());
+                    progress.unifiedVideoId());
         }
     }
 
-    private record ProgressKey(UUID memberId, UUID catalogEntryId) {
+    private record ProgressKey(UUID memberId, UUID unifiedVideoId) {
     }
 
     private record NormalizedWatchProgress(
             UUID memberId,
-            UUID catalogEntryId,
+            UUID unifiedVideoId,
             UUID videoId,
             UUID episodeId,
             String episodeName,

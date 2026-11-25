@@ -53,17 +53,6 @@ class CatalogTmdbMetadataSourceTest {
         assertThat(facts.metadata().getDirectorNames()).containsExactly("Director");
     }
     @Test
-    void readsAnAvailableTopLevelImdbIdWhenTheExternalIdIsAPlaceholder() {
-        var source = source();
-        when(http.getJson(any())).thenReturn(Optional.of("""
-                {"id":42,"title":"Film","release_date":"2026-11-01",
-                 "imdb_id":"tt7605074","external_ids":{"imdb_id":"tt0000000"}}
-                """));
-
-        assertThat(source.fetchAuthority("movie", 42, -1).metadata().getImdbId()).isEqualTo("tt7605074");
-    }
-
-    @Test
     void seasonIsVerifiedAgainstShowSeasonsAndReturnedSeasonId() {
         var source=source();
         when(http.getJson(any())).thenAnswer(call-> ((java.net.URI)call.getArgument(0)).getPath().contains("/season/")
@@ -77,42 +66,6 @@ class CatalogTmdbMetadataSourceTest {
         assertThatThrownBy(()->source.fetch(target("movie",0,null))).isInstanceOf(CatalogMetadataUnavailableException.class);
         when(http.getJson(any())).thenReturn(Optional.of("{\"id\":42,\"title\":\"Film\",\"release_date\":\"2026-11-01\",\"adult\":true}"));
         assertThatThrownBy(()->source.fetch(target("movie",0,"42"))).isInstanceOf(CatalogMetadataUnavailableException.class);
-    }
-
-    @Test
-    void generalTvImportSelectsARegularSeasonAndKeepsSpecialsDistinct() {
-        var source = source();
-        when(http.getJson(any())).thenAnswer(call -> {
-            String path = ((java.net.URI)call.getArgument(0)).getPath();
-            if (path.endsWith("/season/0")) return Optional.of("""
-                    {"id":500,"season_number":0,"episodes":[
-                        {"id":95,"episode_number":1,"season_number":0,"show_id":42,"air_date":"2026-11-22"}]}
-                    """);
-            if (path.endsWith("/season/1")) return Optional.of("""
-                    {"id":501,"season_number":1,"episodes":[
-                        {"id":98,"episode_number":1,"season_number":1,"show_id":42,"air_date":"2026-11-11",
-                         "guest_stars":[{"id":9,"name":"Guest","credit_id":"guest-role","character":"Reporter"}]}],
-                     "credits":{"cast":[{"id":4,"name":"Season Actor","credit_id":"season-role","character":"Doctor"}]}}
-                    """);
-            assertThat(((java.net.URI) call.getArgument(0)).getQuery()).contains("aggregate_credits");
-            return Optional.of("""
-                    {"id":42,"name":"Example Show","first_air_date":"2026-11-11",
-                     "seasons":[{"id":500,"season_number":0},{"id":501,"season_number":1}],
-                     "credits":{"cast":[{"id":20,"name":"Latest Season","credit_id":"latest-role"}]},
-                     "aggregate_credits":{"cast":[{"id":4,"name":"Series Actor",
-                         "roles":[{"credit_id":"series-role","character":"Doctor"}]}]}}
-                    """);
-        });
-        var regular = source.fetchAuthority("tv",42,-1);
-        var specials = source.fetchAuthority("tv",42,0);
-        assertThat(regular.seasonNumber()).isEqualTo(1);
-        assertThat(regular.episodes()).extracting(AuthorityCatalogEvidence.Episode::tmdbId).containsExactly(98L);
-        assertThat(regular.creditSets()).extracting(AuthorityCatalogEvidence.CreditSet::seasonNumber).containsExactly(null,1,1);
-        assertThat(regular.creditSets().stream().flatMap(set -> set.credits().stream()))
-                .extracting(AuthorityCatalogEvidence.Credit::tmdbCreditId)
-                .containsExactly("series-role", "season-role", "guest-role");
-        assertThat(specials.seasonNumber()).isZero();
-        assertThat(specials.episodes()).extracting(AuthorityCatalogEvidence.Episode::tmdbId).containsExactly(95L);
     }
     private CatalogMetadataTarget target(String type,int season,String tmdb) {
         return new CatalogMetadataTarget(UUID.randomUUID(),UUID.randomUUID(),"TMDB",type,"42",season,1,"Title",null,null,tmdb);

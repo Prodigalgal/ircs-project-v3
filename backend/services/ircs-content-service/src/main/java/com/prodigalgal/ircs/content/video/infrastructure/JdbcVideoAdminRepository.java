@@ -17,14 +17,14 @@ import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.common.metadata.MetadataNameOwnerType;
 import com.prodigalgal.ircs.common.metadata.MetadataNameCache;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.SourceRecordCardResponse;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.SourceRecordCreateRequest;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.SourceRecordDetailResponse;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.SourceRecordUpdateRequest;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.CatalogEntryCardResponse;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.CatalogEntryCreateRequest;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.CatalogEntryDetailResponse;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.CatalogEntryUpdateRequest;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCreateRequest;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoDetailResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoUpdateRequest;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoCardResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoCreateRequest;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoDetailResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoUpdateRequest;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -60,7 +60,7 @@ public class JdbcVideoAdminRepository {
     private final VideoAdminCoverImageRepository coverImageRepository;
     private final VideoAdminQueryRepository queryRepository;
 
-    public Page<SourceRecordCardResponse> findSourceRecords(
+    public Page<RawVideoCardResponse> findRawVideos(
             Pageable pageable,
             String title,
             UUID categoryId,
@@ -75,7 +75,7 @@ public class JdbcVideoAdminRepository {
             String sourceCategoryName,
             String genre,
             String language) {
-        return queryRepository.findSourceRecords(
+        return queryRepository.findRawVideos(
                 pageable,
                 title,
                 categoryId,
@@ -92,21 +92,21 @@ public class JdbcVideoAdminRepository {
                 language);
     }
 
-    public Optional<SourceRecordDetailResponse> findRawDetail(UUID id) {
+    public Optional<RawVideoDetailResponse> findRawDetail(UUID id) {
         return queryRepository.findRawDetail(id);
     }
 
-    public UUID createSourceRecord(SourceRecordCreateRequest request) {
+    public UUID createRawVideo(RawVideoCreateRequest request) {
         UUID id = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update(
                 """
-                insert into source_records (
+                insert into raw_videos (
                     id, created_at, updated_at, version, source_vid, source_hash, data_hash,
-                    title, alias_title, season, subtitle, media_image_source_id, description, year, raw_language_str,
+                    title, alias_title, season, subtitle, cover_image_id, description, year, raw_language_str,
                     remarks, score, published_at, total_episodes, duration,
                     douban_id, tmdb_id, imdb_id, rotten_tomatoes_id, locked_fields,
-                    collection_source_id, actor_names, director_names,
+                    data_source_id, actor_names, director_names,
                     area_codes, language_codes, genre_codes, category_code,
                     source_category_code, source_category_name,
                     enrichment_status, enrichment_retry_count,
@@ -161,17 +161,17 @@ public class JdbcVideoAdminRepository {
         return id;
     }
 
-    public SourceRecordSnapshot rawSnapshot(UUID id) {
+    public RawVideoSnapshot rawSnapshot(UUID id) {
         return queryRepository.rawSnapshot(id);
     }
 
-    public void updateSourceRecord(UUID id, SourceRecordUpdateRequest request) {
+    public void updateRawVideo(UUID id, RawVideoUpdateRequest request) {
         Map<String, Object> updates = new LinkedHashMap<>();
         putIfPresent(updates, "title", trimToLength(request.title(), 255));
         putIfPresent(updates, "alias_title", trimToLength(request.aliasTitle(), 255));
         putIfPresent(updates, "season", request.season());
         putIfPresent(updates, "subtitle", trimToLength(request.subtitle(), 255));
-        putIfPresent(updates, "media_image_source_id", coverImageRepository.getOrCreateCoverImage(request.coverImageUrl()).orElse(null), request.coverImageUrl() != null);
+        putIfPresent(updates, "cover_image_id", coverImageRepository.getOrCreateCoverImage(request.coverImageUrl()).orElse(null), request.coverImageUrl() != null);
         putIfPresent(updates, "description", cleanText(request.description(), 5000));
         putIfPresent(updates, "year", normalizeYear(request.year()));
         putIfPresent(updates, "raw_language_str", request.rawLanguageStr());
@@ -187,7 +187,7 @@ public class JdbcVideoAdminRepository {
         if (request.lockedFields() != null) {
             updates.put("locked_fields", json(request.lockedFields()));
         }
-        putIfPresent(updates, "collection_source_id", request.dataSourceId(), request.dataSourceId() != null);
+        putIfPresent(updates, "data_source_id", request.dataSourceId(), request.dataSourceId() != null);
         putJsonIfPresent(updates, "actor_names", request.actorNames(), request.actorNames() != null);
         putJsonIfPresent(updates, "director_names", request.directorNames(), request.directorNames() != null);
         putJsonIfPresent(updates, "area_codes", request.areaCodes(), request.areaCodes() != null);
@@ -197,7 +197,7 @@ public class JdbcVideoAdminRepository {
         putIfPresent(updates, "source_category_code", trimToLength(request.sourceCategoryCode(), 100), request.sourceCategoryCode() != null);
         putIfPresent(updates, "source_category_name", trimToLength(request.sourceCategoryName(), 255), request.sourceCategoryName() != null);
         if (!updates.isEmpty()) {
-            updateTable("source_records", id, updates);
+            updateTable("raw_videos", id, updates);
         }
         if (request.actorNames() != null
                 || request.directorNames() != null
@@ -208,59 +208,51 @@ public class JdbcVideoAdminRepository {
         }
     }
 
-    public void setRawAggregationStatus(UUID sourceRecordId, String status) {
+    public void setRawAggregationStatus(UUID rawVideoId, String status) {
         jdbcTemplate.update(
-                "update source_records set aggregation_status = :status, updated_at = now() where id = :id",
-                new MapSqlParameterSource().addValue("id", sourceRecordId).addValue("status", status));
+                "update raw_videos set aggregation_status = :status, updated_at = now() where id = :id",
+                new MapSqlParameterSource().addValue("id", rawVideoId).addValue("status", status));
     }
 
-    public void setRawNormalizationPending(UUID sourceRecordId) {
+    public void setRawNormalizationPending(UUID rawVideoId) {
         int updated = jdbcTemplate.update(
                 """
-                update source_records
+                update raw_videos
                 set normalization_status = 'PENDING',
                     normalization_retry_count = 0,
                     next_normalization_retry_time = null,
                     updated_at = now()
                 where id = :id
                 """,
-                new MapSqlParameterSource("id", sourceRecordId));
+                new MapSqlParameterSource("id", rawVideoId));
         if (updated == 0) {
-            throw new ContentApiException(HttpStatus.NOT_FOUND, "Raw video not found: " + sourceRecordId);
+            throw new ContentApiException(HttpStatus.NOT_FOUND, "Raw video not found: " + rawVideoId);
         }
     }
 
-    public void unbindRaw(UUID sourceRecordId) {
+    public void unbindRaw(UUID rawVideoId) {
         jdbcTemplate.update(
-                "delete from catalog_source_bindings where source_record_id = :id",
-                new MapSqlParameterSource("id", sourceRecordId));
-        setRawAggregationStatus(sourceRecordId, "PENDING");
+                "delete from raw_video_unified_video where raw_video_id = :id",
+                new MapSqlParameterSource("id", rawVideoId));
+        setRawAggregationStatus(rawVideoId, "PENDING");
     }
 
-    public void lockSourceRecord(UUID sourceRecordId) {
-        jdbcTemplate.query("select id from source_records where id=:id for update",
-                new MapSqlParameterSource("id", sourceRecordId), rs -> { });
-    }
-
-    public void bindRawToUnified(UUID sourceRecordId, UUID catalogEntryId) {
-        ensureExists("catalog_entries", catalogEntryId, "Unified video not found: " + catalogEntryId);
-        MapSqlParameterSource target = new MapSqlParameterSource("sourceRecordId", sourceRecordId)
-                .addValue("catalogEntryId", catalogEntryId);
+    public void bindRawToUnified(UUID rawVideoId, UUID unifiedVideoId) {
+        ensureExists("unified_videos", unifiedVideoId, "Unified video not found: " + unifiedVideoId);
         jdbcTemplate.update(
-                "delete from catalog_source_bindings where source_record_id=:sourceRecordId and catalog_entry_id<>:catalogEntryId",
-                target);
+                "delete from raw_video_unified_video where raw_video_id = :rawVideoId",
+                new MapSqlParameterSource("rawVideoId", rawVideoId));
         jdbcTemplate.update(
                 """
-                insert into catalog_source_bindings (source_record_id, catalog_entry_id)
-                values (:sourceRecordId, :catalogEntryId)
+                insert into raw_video_unified_video (raw_video_id, unified_video_id)
+                values (:rawVideoId, :unifiedVideoId)
                 on conflict do nothing
                 """,
-                target);
-        jdbcTemplate.queryForObject("""
-                select affirm_catalog_source_match(:sourceRecordId, :catalogEntryId, 'MANUAL_REVIEW')
-                """, target, Integer.class);
-        setRawAggregationStatus(sourceRecordId, "BOUND");
-        markUnifiedDirty(catalogEntryId);
+                new MapSqlParameterSource()
+                        .addValue("rawVideoId", rawVideoId)
+                        .addValue("unifiedVideoId", unifiedVideoId));
+        setRawAggregationStatus(rawVideoId, "BOUND");
+        markUnifiedDirty(unifiedVideoId);
     }
 
     public List<UUID> findRawUnifiedBindings(List<UUID> rawIds) {
@@ -269,32 +261,32 @@ public class JdbcVideoAdminRepository {
         }
         return jdbcTemplate.queryForList(
                 """
-                select distinct catalog_entry_id
-                from catalog_source_bindings
-                where source_record_id in (:ids)
+                select distinct unified_video_id
+                from raw_video_unified_video
+                where raw_video_id in (:ids)
                 """,
                 new MapSqlParameterSource("ids", rawIds),
                 UUID.class);
     }
 
-    public void deleteSourceRecords(List<UUID> ids) {
+    public void deleteRawVideos(List<UUID> ids) {
         if (CollectionUtils.isEmpty(ids)) {
             return;
         }
         MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
-        jdbcTemplate.queryForList("select id from source_records where id in (:ids) order by id for update", params, UUID.class);
         List<UUID> unifiedIds = jdbcTemplate.queryForList(
-                "select distinct catalog_entry_id from catalog_source_bindings where source_record_id in (:ids)",
+                "select distinct unified_video_id from raw_video_unified_video where raw_video_id in (:ids)",
                 params,
                 UUID.class);
-        jdbcTemplate.update("delete from source_playlists where source_record_id in (:ids)", params);
-        jdbcTemplate.update("delete from catalog_source_bindings where source_record_id in (:ids)", params);
-        jdbcTemplate.update("delete from source_records where id in (:ids)", params);
+        jdbcTemplate.update("delete from episodes where playlist_id in (select id from playlists where video_id in (:ids))", params);
+        jdbcTemplate.update("delete from playlists where video_id in (:ids)", params);
+        jdbcTemplate.update("delete from raw_video_unified_video where raw_video_id in (:ids)", params);
+        jdbcTemplate.update("delete from raw_videos where id in (:ids)", params);
         evictMetadataNameCache(MetadataNameOwnerType.RAW, ids);
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, unifiedIds);
     }
 
-    public Page<CatalogEntryCardResponse> findCatalogEntries(
+    public Page<UnifiedVideoCardResponse> findUnifiedVideos(
             Pageable pageable,
             String title,
             UUID categoryId,
@@ -309,7 +301,7 @@ public class JdbcVideoAdminRepository {
             String language,
             String actor,
             String director) {
-        return queryRepository.findCatalogEntries(
+        return queryRepository.findUnifiedVideos(
                 pageable,
                 title,
                 categoryId,
@@ -326,19 +318,19 @@ public class JdbcVideoAdminRepository {
                 director);
     }
 
-    public Optional<CatalogEntryDetailResponse> findUnifiedDetail(UUID id) {
+    public Optional<UnifiedVideoDetailResponse> findUnifiedDetail(UUID id) {
         return queryRepository.findUnifiedDetail(id);
     }
 
-    public UUID createCatalogEntry(CatalogEntryCreateRequest request) {
+    public UUID createUnifiedVideo(UnifiedVideoCreateRequest request) {
         UUID id = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
         UUID coverImageId = coverImageRepository.getOrCreateCoverImage(request.coverImageUrl()).orElse(null);
         jdbcTemplate.update(
                 """
-                insert into catalog_entries (
+                insert into unified_videos (
                     id, created_at, updated_at, version, title, alias_title, season, subtitle,
-                    media_image_source_id, description, year, area, score, published_at,
+                    cover_image_id, description, year, area, score, published_at,
                     total_episodes, duration, remarks,
                     douban_id, tmdb_id, imdb_id, rotten_tomatoes_id,
                     locked_fields, category_id, category_code, actor_names, director_names,
@@ -381,18 +373,18 @@ public class JdbcVideoAdminRepository {
                         .addValue("genreCodes", jsonStringArray(request.genreCodes()))
                         .addValue("contentVisibility", normalizeContentVisibility(request.contentVisibility())));
         replaceUnifiedTags(id, request.tags());
-        bindSourceRecordsToUnified(id, request.bindVideoIds());
+        bindRawVideosToUnified(id, request.bindVideoIds());
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, List.of(id));
         return id;
     }
 
-    public void updateCatalogEntry(UUID id, CatalogEntryUpdateRequest request) {
+    public void updateUnifiedVideo(UUID id, UnifiedVideoUpdateRequest request) {
         Map<String, Object> updates = new LinkedHashMap<>();
         putIfPresent(updates, "title", trimToLength(request.title(), 255));
         putIfPresent(updates, "alias_title", trimToLength(request.aliasTitle(), 255));
         putIfPresent(updates, "season", request.season());
         putIfPresent(updates, "subtitle", trimToLength(request.subtitle(), 255));
-        putIfPresent(updates, "media_image_source_id", coverImageRepository.getOrCreateCoverImage(request.coverImageUrl()).orElse(null), request.coverImageUrl() != null);
+        putIfPresent(updates, "cover_image_id", coverImageRepository.getOrCreateCoverImage(request.coverImageUrl()).orElse(null), request.coverImageUrl() != null);
         putIfPresent(updates, "description", cleanText(request.description(), 5000));
         putIfPresent(updates, "year", normalizeYear(request.year()));
         putIfPresent(updates, "score", request.score());
@@ -424,12 +416,12 @@ public class JdbcVideoAdminRepository {
             updates.put("locked_fields", json(request.lockedFields()));
         }
         updates.put("metadata_status", "DIRTY");
-        updateTable("catalog_entries", id, updates);
+        updateTable("unified_videos", id, updates);
         if (request.tags() != null) {
             replaceUnifiedTags(id, request.tags());
         }
-        unbindSourceRecords(request.unbindVideoIds());
-        bindSourceRecordsToUnified(id, request.bindVideoIds());
+        unbindRawVideos(request.unbindVideoIds());
+        bindRawVideosToUnified(id, request.bindVideoIds());
         if (request.areaCodes() != null
                 || request.actorNames() != null
                 || request.directorNames() != null
@@ -439,16 +431,16 @@ public class JdbcVideoAdminRepository {
         }
     }
 
-    public void bindSourceRecordsToUnified(UUID catalogEntryId, Set<UUID> rawIds) {
+    public void bindRawVideosToUnified(UUID unifiedVideoId, Set<UUID> rawIds) {
         if (rawIds == null) {
             return;
         }
         for (UUID rawId : rawIds) {
-            bindRawToUnified(rawId, catalogEntryId);
+            bindRawToUnified(rawId, unifiedVideoId);
         }
     }
 
-    public void unbindSourceRecords(Set<UUID> rawIds) {
+    public void unbindRawVideos(Set<UUID> rawIds) {
         if (rawIds == null) {
             return;
         }
@@ -457,30 +449,30 @@ public class JdbcVideoAdminRepository {
         }
     }
 
-    public List<UUID> findRawIdsForUnified(UUID catalogEntryId) {
+    public List<UUID> findRawIdsForUnified(UUID unifiedVideoId) {
         return jdbcTemplate.queryForList(
-                "select source_record_id from catalog_source_bindings where catalog_entry_id = :id",
-                new MapSqlParameterSource("id", catalogEntryId),
+                "select raw_video_id from raw_video_unified_video where unified_video_id = :id",
+                new MapSqlParameterSource("id", unifiedVideoId),
                 UUID.class);
     }
 
-    public List<UUID> findRawIdsForCatalogEntries(Collection<UUID> catalogEntryIds) {
-        if (CollectionUtils.isEmpty(catalogEntryIds)) {
+    public List<UUID> findRawIdsForUnifiedVideos(Collection<UUID> unifiedVideoIds) {
+        if (CollectionUtils.isEmpty(unifiedVideoIds)) {
             return List.of();
         }
         return jdbcTemplate.queryForList(
-                "select distinct source_record_id from catalog_source_bindings where catalog_entry_id in (:ids)",
-                new MapSqlParameterSource("ids", catalogEntryIds),
+                "select distinct raw_video_id from raw_video_unified_video where unified_video_id in (:ids)",
+                new MapSqlParameterSource("ids", unifiedVideoIds),
                 UUID.class);
     }
 
-    public List<UUID> recalculateUnifiedFromSources(UUID catalogEntryId) {
-        ensureExists("catalog_entries", catalogEntryId, "Unified video not found: " + catalogEntryId);
-        List<UUID> rawIds = findRawIdsForUnified(catalogEntryId);
+    public List<UUID> recalculateUnifiedFromSources(UUID unifiedVideoId) {
+        ensureExists("unified_videos", unifiedVideoId, "Unified video not found: " + unifiedVideoId);
+        List<UUID> rawIds = findRawIdsForUnified(unifiedVideoId);
         for (UUID rawId : rawIds) {
             jdbcTemplate.update(
                     """
-                    update catalog_entries uv
+                    update unified_videos uv
                     set title = coalesce(nullif(uv.title, ''), rv.title),
                         alias_title = coalesce(nullif(uv.alias_title, ''), rv.alias_title),
                         description = coalesce(nullif(uv.description, ''), rv.description),
@@ -496,47 +488,47 @@ public class JdbcVideoAdminRepository {
                         rotten_tomatoes_id = coalesce(nullif(uv.rotten_tomatoes_id, ''), rv.rotten_tomatoes_id),
                         metadata_status = 'SYNCED',
                         updated_at = now()
-                    from source_records rv
-                    where uv.id = :catalogEntryId
-                      and rv.id = :sourceRecordId
+                    from raw_videos rv
+                    where uv.id = :unifiedVideoId
+                      and rv.id = :rawVideoId
                     """,
                     new MapSqlParameterSource()
-                            .addValue("catalogEntryId", catalogEntryId)
-                            .addValue("sourceRecordId", rawId));
+                            .addValue("unifiedVideoId", unifiedVideoId)
+                            .addValue("rawVideoId", rawId));
             jdbcTemplate.update(
-                    "update source_records set aggregation_status = 'BOUND', updated_at = now() where id = :sourceRecordId",
-                    new MapSqlParameterSource("sourceRecordId", rawId));
+                    "update raw_videos set aggregation_status = 'BOUND', updated_at = now() where id = :rawVideoId",
+                    new MapSqlParameterSource("rawVideoId", rawId));
         }
         if (rawIds.isEmpty()) {
             jdbcTemplate.update(
-                    "update catalog_entries set metadata_status = 'SYNCED', updated_at = now() where id = :id",
-                    new MapSqlParameterSource("id", catalogEntryId));
+                    "update unified_videos set metadata_status = 'SYNCED', updated_at = now() where id = :id",
+                    new MapSqlParameterSource("id", unifiedVideoId));
         }
         return rawIds;
     }
 
-    public void markUnifiedDirty(UUID catalogEntryId) {
+    public void markUnifiedDirty(UUID unifiedVideoId) {
         jdbcTemplate.update(
-                "update catalog_entries set metadata_status = 'DIRTY', updated_at = now() where id = :id",
-                new MapSqlParameterSource("id", catalogEntryId));
+                "update unified_videos set metadata_status = 'DIRTY', updated_at = now() where id = :id",
+                new MapSqlParameterSource("id", unifiedVideoId));
     }
 
-    public void deleteCatalogEntries(List<UUID> ids) {
+    public void deleteUnifiedVideos(List<UUID> ids) {
         if (CollectionUtils.isEmpty(ids)) {
             return;
         }
         List<UUID> rawIds = jdbcTemplate.queryForList(
-                "select source_record_id from catalog_source_bindings where catalog_entry_id in (:ids)",
+                "select raw_video_id from raw_video_unified_video where unified_video_id in (:ids)",
                 new MapSqlParameterSource("ids", ids),
                 UUID.class);
         if (!rawIds.isEmpty()) {
             jdbcTemplate.update(
-                    "update source_records set aggregation_status = 'PENDING', updated_at = now() where id in (:rawIds)",
+                    "update raw_videos set aggregation_status = 'PENDING', updated_at = now() where id in (:rawIds)",
                     new MapSqlParameterSource("rawIds", rawIds));
         }
         MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
-        jdbcTemplate.update("delete from catalog_source_bindings where catalog_entry_id in (:ids)", params);
-        jdbcTemplate.update("delete from catalog_entries where id in (:ids)", params);
+        jdbcTemplate.update("delete from raw_video_unified_video where unified_video_id in (:ids)", params);
+        jdbcTemplate.update("delete from unified_videos where id in (:ids)", params);
         evictMetadataNameCache(MetadataNameOwnerType.UNIFIED, ids);
     }
 
@@ -549,22 +541,22 @@ public class JdbcVideoAdminRepository {
         }
     }
 
-    private void replaceUnifiedTags(UUID catalogEntryId, Set<String> tags) {
+    private void replaceUnifiedTags(UUID unifiedVideoId, Set<String> tags) {
         jdbcTemplate.update(
-                "delete from catalog_entry_tags where catalog_entry_id = :id",
-                new MapSqlParameterSource("id", catalogEntryId));
+                "delete from unified_video_tags where unified_video_id = :id",
+                new MapSqlParameterSource("id", unifiedVideoId));
         Set<String> safeTags = normalizeTags(tags);
         if (safeTags.isEmpty()) {
             return;
         }
         List<MapSqlParameterSource> batch = safeTags.stream()
                 .map(tag -> new MapSqlParameterSource()
-                        .addValue("id", catalogEntryId)
+                        .addValue("id", unifiedVideoId)
                         .addValue("tag", tag))
                 .toList();
         jdbcTemplate.batchUpdate(
                 """
-                insert into catalog_entry_tags (catalog_entry_id, tag)
+                insert into unified_video_tags (unified_video_id, tag)
                 values (:id, :tag)
                 on conflict do nothing
                 """,
@@ -666,7 +658,7 @@ public class JdbcVideoAdminRepository {
         List<String> codes = jdbcTemplate.queryForList(
                 """
                 select slug
-                  from catalog_categories
+                  from standard_category
                  where id in (:ids)
                    and nullif(trim(slug), '') is not null
                  order by name
@@ -685,14 +677,14 @@ public class JdbcVideoAdminRepository {
         }
     }
 
-    public record SourceRecordSnapshot(
+    public record RawVideoSnapshot(
             UUID id,
             String title,
             String aliasTitle,
             String year,
             Integer season,
             String dataHash,
-            UUID catalogEntryId) {
+            UUID unifiedVideoId) {
     }
 
 }

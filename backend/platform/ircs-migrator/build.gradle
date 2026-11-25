@@ -1,7 +1,6 @@
 plugins {
     id 'org.springframework.boot'
     id 'com.google.cloud.tools.jib'
-    id 'java-test-fixtures'
 }
 
 dependencies {
@@ -11,10 +10,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-liquibase'
 
     runtimeOnly 'org.postgresql:postgresql'
-    testFixturesApi 'org.springframework:spring-jdbc'
-    testFixturesImplementation 'org.springframework:spring-context'
-    testFixturesImplementation 'org.liquibase:liquibase-core'
-    testFixturesRuntimeOnly 'org.postgresql:postgresql'
 }
 
 springBoot {

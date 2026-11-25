@@ -21,21 +21,21 @@ final class AggregationMatchKeys {
     private AggregationMatchKeys() {
     }
 
-    static List<String> forSourceRecord(SourceRecordAggregationRecord sourceRecord) {
-        return forSourceRecord(sourceRecord, DEFAULT_SAFETY_POLICY);
+    static List<String> forRawVideo(RawVideoAggregationRecord rawVideo) {
+        return forRawVideo(rawVideo, DEFAULT_SAFETY_POLICY);
     }
 
-    static List<String> forSourceRecord(SourceRecordAggregationRecord sourceRecord, AggregationSafetyPolicy safetyPolicy) {
-        if (sourceRecord == null) {
+    static List<String> forRawVideo(RawVideoAggregationRecord rawVideo, AggregationSafetyPolicy safetyPolicy) {
+        if (rawVideo == null) {
             return List.of();
         }
         LinkedHashSet<String> keys = new LinkedHashSet<>();
-        addExternalId(keys, "douban", sourceRecord.doubanId(), safetyPolicy);
-        addExternalId(keys, "tmdb", sourceRecord.tmdbId(), safetyPolicy);
-        addExternalId(keys, "imdb", sourceRecord.imdbId(), safetyPolicy);
-        addExternalId(keys, "rt", sourceRecord.rottenTomatoesId(), safetyPolicy);
-        String completeTitle = AggregationTitleNormalizer.completeIdentityTitle(sourceRecord.title(), sourceRecord.subtitle());
-        if (AggregationCategoryProfile.from(AggregationCategoryProfile.category(sourceRecord)) == AggregationCategoryProfile.SPORTS
+        addExternalId(keys, "douban", rawVideo.doubanId(), safetyPolicy);
+        addExternalId(keys, "tmdb", rawVideo.tmdbId(), safetyPolicy);
+        addExternalId(keys, "imdb", rawVideo.imdbId(), safetyPolicy);
+        addExternalId(keys, "rt", rawVideo.rottenTomatoesId(), safetyPolicy);
+        String completeTitle = AggregationTitleNormalizer.completeIdentityTitle(rawVideo.title(), rawVideo.subtitle());
+        if (AggregationCategoryProfile.from(AggregationCategoryProfile.category(rawVideo)) == AggregationCategoryProfile.SPORTS
                 || AggregationSportsIdentity.looksLikeEvent(completeTitle)) {
             AggregationSportsIdentity event = AggregationSportsIdentity.parse(completeTitle, null);
             // The year is intentionally omitted: month/day sources can match an explicitly dated
@@ -47,28 +47,28 @@ final class AggregationMatchKeys {
                 keys.add("event:" + digest(event.date() + "|" + event.identityDetails()));
             }
         }
-        addTitleKeys(keys, sourceRecord.title(), sourceRecord.aliasTitle(), sourceRecord.subtitle(), sourceRecord.season());
-        if (keys.isEmpty() && sourceRecord.id() != null) {
-            keys.add("raw:" + sourceRecord.id());
+        addTitleKeys(keys, rawVideo.title(), rawVideo.aliasTitle(), rawVideo.subtitle(), rawVideo.season());
+        if (keys.isEmpty() && rawVideo.id() != null) {
+            keys.add("raw:" + rawVideo.id());
         }
         return limit(keys);
     }
 
-    static List<String> forCluster(SourceRecordAggregationCluster cluster) {
+    static List<String> forCluster(RawVideoAggregationCluster cluster) {
         return forCluster(cluster, DEFAULT_SAFETY_POLICY);
     }
 
-    static List<String> forCluster(SourceRecordAggregationCluster cluster, AggregationSafetyPolicy safetyPolicy) {
+    static List<String> forCluster(RawVideoAggregationCluster cluster, AggregationSafetyPolicy safetyPolicy) {
         if (cluster == null) {
             return List.of();
         }
         LinkedHashSet<String> keys = new LinkedHashSet<>();
-        for (SourceRecordAggregationRecord sourceRecord : cluster.members()) {
-            keys.addAll(forSourceRecord(sourceRecord, safetyPolicy));
+        for (RawVideoAggregationRecord rawVideo : cluster.members()) {
+            keys.addAll(forRawVideo(rawVideo, safetyPolicy));
         }
-        for (UUID catalogEntryId : cluster.contextCatalogEntryIds()) {
-            if (catalogEntryId != null) {
-                keys.add("unified:" + catalogEntryId);
+        for (UUID unifiedVideoId : cluster.contextUnifiedVideoIds()) {
+            if (unifiedVideoId != null) {
+                keys.add("unified:" + unifiedVideoId);
             }
         }
         return limit(keys);
@@ -80,12 +80,12 @@ final class AggregationMatchKeys {
             all.addAll(keys);
         }
         if (matchPlan != null) {
-            if (matchPlan.rootCatalogEntryId() != null) {
-                all.add("unified:" + matchPlan.rootCatalogEntryId());
+            if (matchPlan.rootUnifiedVideoId() != null) {
+                all.add("unified:" + matchPlan.rootUnifiedVideoId());
             }
-            for (UUID victimCatalogEntryId : matchPlan.victimCatalogEntryIds()) {
-                if (victimCatalogEntryId != null) {
-                    all.add("unified:" + victimCatalogEntryId);
+            for (UUID victimUnifiedVideoId : matchPlan.victimUnifiedVideoIds()) {
+                if (victimUnifiedVideoId != null) {
+                    all.add("unified:" + victimUnifiedVideoId);
                 }
             }
         }

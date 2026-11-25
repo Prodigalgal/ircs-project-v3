@@ -28,17 +28,17 @@ class VideoAdminCoverImageRepository {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    insert into media_image_sources (
+                    insert into cover_images (
                         id, created_at, updated_at, version, storage_type, original_url, storage_path,
-                        file_hash, file_size, mime_type, source_origin_id, status, retry_count,
+                        file_hash, file_size, mime_type, source_domain_id, status, retry_count,
                         next_retry_time, last_error
                     ) values (
                         :id, now(), now(), 0, 'EXTERNAL', :url, null,
                         null, null, null, :sourceDomainId, 'UNPROCESSED', 0,
                         now(), null
                     )
-                    on conflict (original_url, source_origin_id) do update
-                    set updated_at = media_image_sources.updated_at
+                    on conflict (original_url, source_domain_id) do update
+                    set updated_at = cover_images.updated_at
                     returning id
                     """,
                     new MapSqlParameterSource()
@@ -55,10 +55,10 @@ class VideoAdminCoverImageRepository {
         String hash = VideoAdminText.sha256(domain);
         return jdbcTemplate.queryForObject(
                 """
-                insert into source_origins (id, created_at, updated_at, version, domain_hash, domain_value)
-                values (:id, now(), now(), 0, :hash, :domain)
+                insert into source_domains (id, created_at, updated_at, version, domain_hash, domain_value, remark, data_source_id)
+                values (:id, now(), now(), 0, :hash, :domain, null, null)
                 on conflict (domain_hash) do update
-                set updated_at = source_origins.updated_at
+                set updated_at = source_domains.updated_at
                 returning id
                 """,
                 new MapSqlParameterSource()

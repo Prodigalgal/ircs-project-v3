@@ -36,7 +36,7 @@ public class WorkerJobAuditWriter {
             "\\b((?:access|refresh|id)[_-]?token|token)\\b\\s*([:=])\\s*([^\\s,;&]+)",
             Pattern.CASE_INSENSITIVE);
     private static final String INSERT_SQL = """
-            insert into background_job_audit_events (
+            insert into worker_job_audit_events (
                 id, created_at, updated_at, version, audit_class, job_source, job_type, job_name,
                 correlation_id, status, duration_ms, error_class, error_message
             ) values (?, now(), now(), 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)

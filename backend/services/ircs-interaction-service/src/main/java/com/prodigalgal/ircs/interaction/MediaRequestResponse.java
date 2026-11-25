@@ -5,7 +5,6 @@ import java.util.UUID;
 
 public record MediaRequestResponse(
         UUID id,
-        UUID demandId,
         UUID memberId,
         String title,
         Integer releaseYear,

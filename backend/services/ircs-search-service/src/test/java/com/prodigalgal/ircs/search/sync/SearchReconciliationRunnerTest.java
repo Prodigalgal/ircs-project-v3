@@ -25,13 +25,13 @@ class SearchReconciliationRunnerTest {
         SearchSyncWorkPublisher workPublisher = org.mockito.Mockito.mock(SearchSyncWorkPublisher.class);
         UUID present = UUID.randomUUID();
         UUID missing = UUID.randomUUID();
-        when(documentRepository.findNextSourceRecordIds(null, 10)).thenReturn(List.of(present, missing));
-        when(documentRepository.findNextSourceRecordIds(missing, 10)).thenReturn(List.of());
-        when(documentRepository.findNextCatalogEntryIds(null, 10)).thenReturn(List.of());
+        when(documentRepository.findNextRawVideoIds(null, 10)).thenReturn(List.of(present, missing));
+        when(documentRepository.findNextRawVideoIds(missing, 10)).thenReturn(List.of());
+        when(documentRepository.findNextUnifiedVideoIds(null, 10)).thenReturn(List.of());
         when(searchIndexService.existingRawIds(List.of(present, missing))).thenReturn(Set.of(present));
         when(workPublisher.enqueueBatch(
                 List.of(missing),
-                SearchEntityType.SOURCE_RECORD,
+                SearchEntityType.RAW_VIDEO,
                 SyncOperation.INDEX,
                 "search-reconciliation",
                 null)).thenReturn(1);
@@ -53,7 +53,7 @@ class SearchReconciliationRunnerTest {
         assertThat(result.enqueued()).isEqualTo(1);
         verify(workPublisher).enqueueBatch(
                 List.of(missing),
-                SearchEntityType.SOURCE_RECORD,
+                SearchEntityType.RAW_VIDEO,
                 SyncOperation.INDEX,
                 "search-reconciliation",
                 null);

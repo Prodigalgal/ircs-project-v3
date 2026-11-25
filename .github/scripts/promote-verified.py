@@ -1,4 +1,4 @@
-"""Validate a built candidate for runtime rechecks or GitOps publication."""
+"""Validate an already-built candidate before a scope-preserving publish-only recovery."""
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import time
 from zipfile import ZipFile
 
 PUBLISH_JOB = 'Promote verified V3 images to GitOps'
@@ -15,28 +14,14 @@ CANONICAL_REPOSITORY = 'Prodigalgal/ircs-project-v3'
 PYTHON_IMAGE = 'ircs-adult-classifier-service'
 FRONTEND_IMAGES = {'admin': 'ircs-admin-frontend', 'huawai': 'ircs-huawai-frontend'}
 ARCHITECTURES = ('amd64', 'arm64')
-RUNTIME_JOBS = {f'Native service runtime / {arch}' for arch in ARCHITECTURES}
-RECHECK_JOBS = RUNTIME_JOBS | {'manifests', 'Native search plugins', 'Native service runtime / ${{ matrix.arch }}'}
 
 
 def git(*args):
     return subprocess.check_output(['git', *args], text=True).strip()
 
 
-def api_bytes(path):
-    command = ['gh', 'api', path]
-    for attempt in range(3):
-        result = subprocess.run(command, capture_output=True, check=False, timeout=35)
-        if result.returncode == 0:
-            return result.stdout
-        if attempt == 2 or not re.search(rb'HTTP (429|500|502|503|504)\b', result.stderr):
-            raise subprocess.CalledProcessError(result.returncode, command, stderr=result.stderr)
-        time.sleep(2 ** attempt)
-    raise AssertionError('Unreachable retry state')
-
-
 def api(path):
-    return json.loads(api_bytes(path))
+    return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
 
 
 def ci_only_path(path):
@@ -104,7 +89,7 @@ def load_plan(repository, run_id, revision):
     if (provenance.get('id', run_id) != run_id or provenance.get('head_sha', revision) != revision
             or not isinstance(artifact.get('id'), int) or artifact['id'] <= 0):
         raise ValueError('Affected-plan artifact provenance does not match the candidate run')
-    archive = api_bytes(f'repos/{repository}/actions/artifacts/{artifact["id"]}/zip')
+    archive = subprocess.check_output(['gh', 'api', f'repos/{repository}/actions/artifacts/{artifact["id"]}/zip'])
     return parse_plan_archive(archive, revision)
 
 
@@ -131,7 +116,7 @@ def plan_scope(plan, allowed_java):
     return selected, tests
 
 
-def validate_jobs(jobs, images, plan=None, *, recheck_runtime=False):
+def validate_jobs(jobs, images, plan=None):
     by_name = {job['name']: job for job in jobs}
     if len(by_name) != len(jobs):
         raise ValueError('Duplicate candidate job names are ambiguous')
@@ -151,7 +136,7 @@ def validate_jobs(jobs, images, plan=None, *, recheck_runtime=False):
         selected.add(PYTHON_IMAGE)
     if not selected:
         raise ValueError('A test-only run has no verified images to publish')
-    if plan is None or recheck_runtime:
+    if plan is None:
         needed = required_jobs(images)
         expected = set(images) | {PYTHON_IMAGE, *FRONTEND_IMAGES.values()}
     else:
@@ -167,18 +152,13 @@ def validate_jobs(jobs, images, plan=None, *, recheck_runtime=False):
             needed.add(f'Frontend {frontend} checks')
             needed.update(f'Frontend {frontend} / {arch}' for arch in ARCHITECTURES)
         needed.update(f'Native {image} / {arch}' for image in native for arch in ARCHITECTURES)
-    if recheck_runtime:
-        # A full image set can recreate every runtime fixture without a mutable GitOps baseline.
-        needed.difference_update(RECHECK_JOBS)
     if not expected <= selected:
         raise ValueError('Candidate image matrix misses affected-plan scope: ' + ', '.join(sorted(expected - selected)))
     missing = needed - by_name.keys()
     failed = [name for name in sorted(needed & by_name.keys())
               if by_name[name].get('status') != 'completed' or by_name[name].get('conclusion') != 'success']
     unexpected = [job['name'] for job in jobs if job['name'] != PUBLISH_JOB and job['name'] not in needed
-                  and (job.get('status') != 'completed' or (
-                      job.get('conclusion') not in ('success', 'skipped')
-                      and not (recheck_runtime and job['name'] in RECHECK_JOBS and job.get('conclusion') == 'failure')))]
+                  and (job.get('status') != 'completed' or job.get('conclusion') not in ('success', 'skipped'))]
     if missing or failed or unexpected:
         raise ValueError(f'Candidate gates incomplete: missing={sorted(missing)}, failed={failed}, unexpected={unexpected}')
     return sorted(native), sorted(selected)
@@ -196,7 +176,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id', required=True, type=int)
     parser.add_argument('--source-revision', required=True)
-    parser.add_argument('--recheck-runtime', action='store_true')
     args = parser.parse_args()
     if not re.fullmatch('[0-9a-f]{40}', args.source_revision) or args.run_id <= 0:
         raise SystemExit('Expected an exact candidate SHA and a positive workflow run ID')
@@ -212,21 +191,17 @@ def main():
     if len(java_images) != 22:
         raise SystemExit('Recovery expects the reviewed 22-module Java deployment boundary')
     jobs = []
-    page_size = 25
     for page in range(1, 20):
-        result = api(f'repos/{repository}/actions/runs/{args.run_id}/jobs?filter=latest&per_page={page_size}&page={page}')
+        result = api(f'repos/{repository}/actions/runs/{args.run_id}/jobs?filter=latest&per_page=100&page={page}')
         jobs.extend(result['jobs'])
-        if len(result['jobs']) < page_size:
+        if len(result['jobs']) < 100:
             break
     else:
         raise ValueError('Job listing exceeds the reviewed pagination boundary')
     plan = load_plan(repository, args.run_id, args.source_revision)
-    java_images, selected = validate_jobs(jobs, java_images, plan, recheck_runtime=args.recheck_runtime)
-    if args.recheck_runtime:
-        latest = git('rev-parse', 'HEAD')
-    else:
-        latest = api(f'repos/{repository}/commits/main')['sha']
-        subprocess.run(['git', 'fetch', 'origin', 'main'], check=True)
+    java_images, selected = validate_jobs(jobs, java_images, plan)
+    latest = api(f'repos/{repository}/commits/main')['sha']
+    subprocess.run(['git', 'fetch', 'origin', 'main'], check=True)
     validate_freshness(args.source_revision, latest)
     committed = datetime.fromisoformat(git('show', '-s', '--format=%cI', args.source_revision))
     date = committed.astimezone(timezone(timedelta(hours=8))).strftime('%Y%m%d')
@@ -236,11 +211,8 @@ def main():
                            'java_images': json.dumps(java_images, separators=(',', ':')),
                            'selected_images': json.dumps(selected, separators=(',', ':'))}.items():
             output.write(f'{key}={value}\n')
-    if args.recheck_runtime:
-        print(f'Validated build and test gates for {len(selected)} immutable images; rechecking runtime and manifests.')
-    else:
-        print(f'Validated same-run {"incremental" if plan is not None else "legacy full"} candidate gates; '
-              f'publishing {len(selected)} existing images only.')
+    print(f'Validated same-run {"incremental" if plan is not None else "legacy full"} candidate gates; '
+          f'publishing {len(selected)} existing images only.')
 
 
 if __name__ == '__main__':

@@ -20,13 +20,13 @@ class InternalSearchRecallControllerTest {
     @Test
     void returnsUuidOnlyContextCandidatesWithNoStoreHeader() {
         UUID id = UUID.randomUUID();
-        when(portalSearchQueryService.findCandidateCatalogEntryIds("Codex Signal", "2026"))
+        when(portalSearchQueryService.findCandidateUnifiedVideoIds("Codex Signal", "2026"))
                 .thenReturn(List.of(id));
 
         var response = controller.unifiedContextCandidates("Codex Signal", "2026");
 
         assertEquals(List.of(id), response.getBody());
         assertEquals("no-store", response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
-        verify(portalSearchQueryService).findCandidateCatalogEntryIds("Codex Signal", "2026");
+        verify(portalSearchQueryService).findCandidateUnifiedVideoIds("Codex Signal", "2026");
     }
 }

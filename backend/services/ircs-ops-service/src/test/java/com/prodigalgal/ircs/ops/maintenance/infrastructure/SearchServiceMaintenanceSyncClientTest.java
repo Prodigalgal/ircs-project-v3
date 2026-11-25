@@ -49,7 +49,7 @@ class SearchServiceMaintenanceSyncClientTest {
         transport.enqueue(response(202, "{\"accepted\":2}"));
         SearchServiceMaintenanceSyncClient client = client(transport);
 
-        int accepted = client.enqueueIndex(List.of(first, second), SearchEntityType.CATALOG_ENTRY, "corr-1");
+        int accepted = client.enqueueIndex(List.of(first, second), SearchEntityType.UNIFIED_VIDEO, "corr-1");
 
         assertThat(accepted).isEqualTo(2);
         OutboundHttpRequest sent = transport.requests.getFirst();
@@ -68,7 +68,7 @@ class SearchServiceMaintenanceSyncClientTest {
 
         JsonNode body = OBJECT_MAPPER.readTree(sent.body());
         assertThat(body.path("entityIds")).hasSize(2);
-        assertThat(body.path("entityType").asText()).isEqualTo("CATALOG_ENTRY");
+        assertThat(body.path("entityType").asText()).isEqualTo("UNIFIED_VIDEO");
         assertThat(body.path("operation").asText()).isEqualTo("INDEX");
         assertThat(body.path("sourceService").asText()).isEqualTo("ops-service");
         assertThat(body.path("correlationId").asText()).isEqualTo("corr-1");
@@ -81,11 +81,11 @@ class SearchServiceMaintenanceSyncClientTest {
         transport.enqueue(response(202, "{\"accepted\":1}"));
         SearchServiceMaintenanceSyncClient client = client(transport);
 
-        int accepted = client.enqueueIndex(List.of(rawId), SearchEntityType.SOURCE_RECORD, "corr-raw");
+        int accepted = client.enqueueIndex(List.of(rawId), SearchEntityType.RAW_VIDEO, "corr-raw");
 
         assertThat(accepted).isEqualTo(1);
         JsonNode body = OBJECT_MAPPER.readTree(transport.requests.getFirst().body());
-        assertThat(body.path("entityType").asText()).isEqualTo("SOURCE_RECORD");
+        assertThat(body.path("entityType").asText()).isEqualTo("RAW_VIDEO");
         assertThat(body.path("operation").asText()).isEqualTo("INDEX");
         assertThat(body.path("correlationId").asText()).isEqualTo("corr-raw");
     }
@@ -94,17 +94,17 @@ class SearchServiceMaintenanceSyncClientTest {
     void postsHardResetToSearchOwnerWithServiceIdentityAndCorrelation() {
         FakeTransport transport = new FakeTransport();
         transport.enqueue(response(202, """
-                {"entityType":"CATALOG_ENTRY","operation":"hard-reset","deletedSyncTasks":4,"recreated":true}
+                {"entityType":"UNIFIED_VIDEO","operation":"hard-reset","deletedSyncTasks":4,"recreated":true}
                 """));
         SearchServiceMaintenanceSyncClient client = client(transport);
 
-        int changed = client.hardResetIndex(SearchEntityType.CATALOG_ENTRY, "corr-reset");
+        int changed = client.hardResetIndex(SearchEntityType.UNIFIED_VIDEO, "corr-reset");
 
         assertThat(changed).isEqualTo(5);
         OutboundHttpRequest sent = transport.requests.getFirst();
         assertThat(sent.method()).isEqualTo("POST");
         assertThat(sent.uri().toString())
-                .isEqualTo("http://search-service:8080/internal/v1/search/index-maintenance/CATALOG_ENTRY/hard-reset");
+                .isEqualTo("http://search-service:8080/internal/v1/search/index-maintenance/UNIFIED_VIDEO/hard-reset");
         assertThat(sent.policy().type().name()).isEqualTo("INTERNAL_SERVICE");
         assertThat(sent.policy().circuitBreakerKey()).isEqualTo("ops-search-maintenance");
         assertThat(sent.headers())
@@ -120,7 +120,7 @@ class SearchServiceMaintenanceSyncClientTest {
         FakeTransport transport = new FakeTransport();
         SearchServiceMaintenanceSyncClient client = client(transport);
 
-        assertThat(client.enqueueIndex(List.of(), SearchEntityType.CATALOG_ENTRY, "corr-1")).isZero();
+        assertThat(client.enqueueIndex(List.of(), SearchEntityType.UNIFIED_VIDEO, "corr-1")).isZero();
         assertThat(transport.requests).isEmpty();
     }
 
@@ -131,7 +131,7 @@ class SearchServiceMaintenanceSyncClientTest {
         transport.enqueue(response(503, "still slow"));
         SearchServiceMaintenanceSyncClient client = client(transport);
 
-        assertThatThrownBy(() -> client.enqueueIndex(List.of(UUID.randomUUID()), SearchEntityType.CATALOG_ENTRY, "corr-1"))
+        assertThatThrownBy(() -> client.enqueueIndex(List.of(UUID.randomUUID()), SearchEntityType.UNIFIED_VIDEO, "corr-1"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("search-service maintenance sync failed: upstream status 503");
     }

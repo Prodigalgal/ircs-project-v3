@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +30,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @RequiredArgsConstructor
@@ -44,7 +42,7 @@ public class JdbcCollectionTaskRepository {
 
     public boolean existsDataSource(UUID dataSourceId) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from collection_sources where id = ?)",
+                "select exists(select 1 from data_sources where id = ?)",
                 Boolean.class,
                 dataSourceId);
         return Boolean.TRUE.equals(exists);
@@ -54,7 +52,7 @@ public class JdbcCollectionTaskRepository {
         return jdbcTemplate.query(
                 """
                 select id, name
-                from collection_sources
+                from data_sources
                 where name is not null
                   and btrim(name) <> ''
                 order by name asc, id asc
@@ -64,18 +62,15 @@ public class JdbcCollectionTaskRepository {
                         rs.getString("name")));
     }
 
-    public List<DataSourceSeedCandidate> findCatalogDiscoveryDataSources(String requestKey, int limit, List<UUID> sourceIds) {
-        String allowedIds = String.join(",", sourceIds.stream().map(UUID::toString).toList());
+    public List<DataSourceSeedCandidate> findCatalogDiscoveryDataSources(String requestKey, int limit) {
         return jdbcTemplate.query(
                 """
-                with policy as (select string_to_array(nullif(?, ''), ',')::uuid[] as source_ids)
                 select ds.id, ds.name
-                  from collection_sources ds
-                  cross join policy
+                  from data_sources ds
                   left join lateral (
                        select max(coalesce(tried.last_execution_time, tried.updated_at)) as last_attempt
-                         from collection_plan_details tried
-                        where tried.collection_source_id = ds.id
+                         from collection_tasks tried
+                        where tried.data_source_id = ds.id
                           and tried.headers -> 'ircsCatalogDiscovery' ->> 'requestKey' = ?
                           and (tried.last_execution_time is not null or tried.status in ('COMPLETED', 'FAILED'))
                   ) history on true
@@ -85,36 +80,35 @@ public class JdbcCollectionTaskRepository {
                    and ds.detail_path is not null and btrim(ds.detail_path) <> ''
                    and ds.field_mapping is not null and ds.field_mapping <> '{}'::jsonb
                    and coalesce(ds.adult_restricted, false) = false
-                   and case when policy.source_ids is not null then ds.id = any(policy.source_ids) else exists (
-                       select 1 from collection_plans configured
-                        where configured.collection_source_id = ds.id and configured.enabled = true
-                          and configured.archived_at is null
+                   and exists (
+                       select 1 from collection_tasks configured
+                        where configured.data_source_id = ds.id and configured.enabled = true
                           and not coalesce(jsonb_exists(configured.headers, 'ircsCatalogDiscovery'), false)
-                   ) end
+                   )
                    and not exists (
-                       select 1 from collection_plan_details active
-                        where active.collection_source_id = ds.id and active.status in ('QUEUED', 'RUNNING')
+                       select 1 from collection_tasks active
+                        where active.data_source_id = ds.id and active.status in ('QUEUED', 'RUNNING', 'STOPPING')
                           and coalesce(active.headers -> 'ircsCatalogDiscovery' ->> 'requestKey', '') <> ?
                    )
                    and not exists (
-                       select 1 from collection_plan_details failed
-                        where failed.collection_source_id = ds.id and failed.status = 'FAILED'
+                       select 1 from collection_tasks failed
+                        where failed.data_source_id = ds.id and failed.status = 'FAILED'
                           and failed.updated_at >= now() - interval '30 minutes'
                    )
                  order by history.last_attempt asc nulls first, exists (
-                     select 1 from collection_plan_details successful
-                      where successful.collection_source_id = ds.id and successful.status = 'COMPLETED'
+                     select 1 from collection_tasks successful
+                      where successful.data_source_id = ds.id and successful.status = 'COMPLETED'
                         and successful.stat_success > 0
                  ) desc, md5(ds.id::text || ?), ds.id
                  limit ?
                 """,
                 (rs, rowNum) -> new DataSourceSeedCandidate(rs.getObject("id", UUID.class), rs.getString("name")),
-                allowedIds, requestKey, requestKey, requestKey, Math.max(1, Math.min(3, limit)));
+                requestKey, requestKey, requestKey, Math.max(1, Math.min(3, limit)));
     }
 
     public boolean existsTaskByName(String name) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from collection_plans where name = ? and archived_at is null)",
+                "select exists(select 1 from collection_tasks where name = ?)",
                 Boolean.class,
                 name);
         return Boolean.TRUE.equals(exists);
@@ -123,7 +117,7 @@ public class JdbcCollectionTaskRepository {
     public Optional<UUID> findTaskIdByName(String name) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select id from collection_plans where name = ? and archived_at is null",
+                    "select id from collection_tasks where name = ?",
                     UUID.class,
                     name));
         } catch (EmptyResultDataAccessException ignored) {
@@ -137,13 +131,13 @@ public class JdbcCollectionTaskRepository {
                 """
                 with claimed as (
                     select id
-                      from media_request_demands
+                      from portal_media_requests
                      where status = 'PENDING'
                      order by request_count desc, last_requested_at asc, id asc
                      limit ?
                      for update skip locked
                 )
-                update media_request_demands request
+                update portal_media_requests request
                    set status = 'SCHEDULING',
                        scheduled_at = now(),
                        updated_at = now(),
@@ -155,7 +149,7 @@ public class JdbcCollectionTaskRepository {
                 (rs, rowNum) -> new MediaRequestCandidate(
                         rs.getObject("id", UUID.class),
                         rs.getString("title"),
-                        getInteger(rs, "release_year"),
+                        apiReleaseYear(rs.getInt("release_year")),
                         rs.getInt("request_count")),
                 safeLimit);
     }
@@ -168,7 +162,7 @@ public class JdbcCollectionTaskRepository {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update(
                 """
-                insert into media_request_processing_batches (
+                insert into portal_media_request_batches (
                     id, created_at, updated_at, version, status, request_count
                 ) values (?, ?, ?, 0, 'READY', ?)
                 """,
@@ -179,8 +173,8 @@ public class JdbcCollectionTaskRepository {
         for (MediaRequestCandidate candidate : candidates) {
             jdbcTemplate.update(
                     """
-                    insert into media_request_processing_batch_items (
-                        id, batch_id, demand_id, created_at, updated_at, version,
+                    insert into portal_media_request_batch_items (
+                        id, batch_id, media_request_id, created_at, updated_at, version,
                         title, release_year, request_count, status
                     ) values (?, ?, ?, ?, ?, 0, ?, ?, ?, 'READY')
                     """,
@@ -190,11 +184,11 @@ public class JdbcCollectionTaskRepository {
                     now,
                     now,
                     candidate.title(),
-                    candidate.releaseYear(),
+                    dbReleaseYear(candidate.releaseYear()),
                     candidate.requestCount());
         }
         jdbcTemplate.update(
-                "update media_request_demands set status = 'BATCHED', current_batch_id = ?, updated_at = now(), "
+                "update portal_media_requests set status = 'BATCHED', current_batch_id = ?, updated_at = now(), "
                         + "version = version + 1, last_error_message = null where id in ("
                         + placeholders(candidates.size()) + ")",
                 prepend(batchId, candidates.stream().map(MediaRequestCandidate::id).toList()).toArray());
@@ -207,7 +201,7 @@ public class JdbcCollectionTaskRepository {
         }
         List<UUID> safeIds = List.copyOf(ids);
         jdbcTemplate.update(
-                "update media_request_demands set status = 'SCHEDULED', updated_at = now(), "
+                "update portal_media_requests set status = 'SCHEDULED', updated_at = now(), "
                         + "version = version + 1, last_error_message = null where id in (" + placeholders(safeIds.size()) + ")",
                 safeIds.toArray());
     }
@@ -215,7 +209,7 @@ public class JdbcCollectionTaskRepository {
     public void markMediaRequestSkippedExisting(UUID mediaRequestId, UUID existingVideoId, String existingVideoSource) {
         jdbcTemplate.update(
                 """
-                update media_request_demands
+                update portal_media_requests
                    set status = 'SKIPPED_EXISTS',
                        existing_video_id = ?,
                        existing_video_source = ?,
@@ -240,7 +234,7 @@ public class JdbcCollectionTaskRepository {
             params.add(status.trim().toUpperCase());
         }
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from media_request_processing_batches " + where,
+                "select count(*) from portal_media_request_batches " + where,
                 Long.class,
                 params.toArray());
 
@@ -251,7 +245,7 @@ public class JdbcCollectionTaskRepository {
                 """
                 select id, status, request_count, scheduled_count, skipped_count, failed_count,
                        created_at, updated_at, started_at, cancelled_at, completed_at, last_error_message
-                  from media_request_processing_batches
+                  from portal_media_request_batches
                 %s
                  order by created_at desc, id desc
                  limit ? offset ?
@@ -267,7 +261,7 @@ public class JdbcCollectionTaskRepository {
                     """
                     select id, status, request_count, scheduled_count, skipped_count, failed_count,
                            created_at, updated_at, started_at, cancelled_at, completed_at, last_error_message
-                      from media_request_processing_batches
+                      from portal_media_request_batches
                      where id = ?
                     """,
                     mediaRequestBatchMapper(true),
@@ -280,7 +274,7 @@ public class JdbcCollectionTaskRepository {
 
     public boolean mediaRequestBatchExists(UUID batchId) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from media_request_processing_batches where id = ?)",
+                "select exists(select 1 from portal_media_request_batches where id = ?)",
                 Boolean.class,
                 batchId);
         return Boolean.TRUE.equals(exists);
@@ -289,7 +283,7 @@ public class JdbcCollectionTaskRepository {
     public boolean markMediaRequestBatchRunning(UUID batchId) {
         return jdbcTemplate.update(
                 """
-                update media_request_processing_batches
+                update portal_media_request_batches
                    set status = 'RUNNING',
                        started_at = coalesce(started_at, now()),
                        updated_at = now(),
@@ -304,17 +298,17 @@ public class JdbcCollectionTaskRepository {
     public List<MediaRequestBatchItemCandidate> findReadyMediaRequestBatchItems(UUID batchId) {
         return jdbcTemplate.query(
                 """
-                select id, demand_id, title, release_year, request_count
-                  from media_request_processing_batch_items
+                select id, media_request_id, title, release_year, request_count
+                  from portal_media_request_batch_items
                  where batch_id = ?
                    and status = 'READY'
                  order by request_count desc, created_at asc, id asc
                 """,
                 (rs, rowNum) -> new MediaRequestBatchItemCandidate(
                         rs.getObject("id", UUID.class),
-                        rs.getObject("demand_id", UUID.class),
+                        rs.getObject("media_request_id", UUID.class),
                         rs.getString("title"),
-                        getInteger(rs, "release_year"),
+                        apiReleaseYear(rs.getInt("release_year")),
                         rs.getInt("request_count")),
                 batchId);
     }
@@ -326,7 +320,7 @@ public class JdbcCollectionTaskRepository {
             String existingVideoSource) {
         jdbcTemplate.update(
                 """
-                update media_request_processing_batch_items
+                update portal_media_request_batch_items
                    set status = 'SKIPPED_EXISTS',
                        existing_video_id = ?,
                        existing_video_source = ?,
@@ -340,7 +334,7 @@ public class JdbcCollectionTaskRepository {
                 itemId);
         jdbcTemplate.update(
                 """
-                update media_request_demands
+                update portal_media_requests
                    set status = 'SKIPPED_EXISTS',
                        existing_video_id = ?,
                        existing_video_source = ?,
@@ -358,7 +352,7 @@ public class JdbcCollectionTaskRepository {
     public void markMediaRequestBatchItemScheduled(UUID itemId, UUID mediaRequestId, int scheduledTaskCount) {
         jdbcTemplate.update(
                 """
-                update media_request_processing_batch_items
+                update portal_media_request_batch_items
                    set status = 'SCHEDULED',
                        scheduled_task_count = ?,
                        updated_at = now(),
@@ -370,7 +364,7 @@ public class JdbcCollectionTaskRepository {
                 itemId);
         jdbcTemplate.update(
                 """
-                update media_request_demands
+                update portal_media_requests
                    set status = 'SCHEDULED',
                        scheduled_at = now(),
                        updated_at = now(),
@@ -384,7 +378,7 @@ public class JdbcCollectionTaskRepository {
     public void markMediaRequestBatchItemFailed(UUID itemId, UUID mediaRequestId, String reason) {
         jdbcTemplate.update(
                 """
-                update media_request_processing_batch_items
+                update portal_media_request_batch_items
                    set status = 'FAILED',
                        updated_at = now(),
                        version = version + 1,
@@ -395,7 +389,7 @@ public class JdbcCollectionTaskRepository {
                 itemId);
         jdbcTemplate.update(
                 """
-                update media_request_demands
+                update portal_media_requests
                    set status = 'FAILED',
                        updated_at = now(),
                        version = version + 1,
@@ -410,7 +404,7 @@ public class JdbcCollectionTaskRepository {
         MediaRequestBatchCounters counters = mediaRequestBatchCounters(batchId);
         jdbcTemplate.update(
                 """
-                update media_request_processing_batches
+                update portal_media_request_batches
                    set status = ?,
                        scheduled_count = ?,
                        skipped_count = ?,
@@ -433,7 +427,7 @@ public class JdbcCollectionTaskRepository {
     public boolean cancelMediaRequestBatch(UUID batchId, String reason) {
         int updated = jdbcTemplate.update(
                 """
-                update media_request_processing_batches
+                update portal_media_request_batches
                    set status = 'CANCELLED',
                        cancelled_at = now(),
                        updated_at = now(),
@@ -449,7 +443,7 @@ public class JdbcCollectionTaskRepository {
         }
         jdbcTemplate.update(
                 """
-                update media_request_processing_batch_items
+                update portal_media_request_batch_items
                    set status = 'CANCELLED',
                        updated_at = now(),
                        version = version + 1,
@@ -461,7 +455,7 @@ public class JdbcCollectionTaskRepository {
                 batchId);
         jdbcTemplate.update(
                 """
-                update media_request_demands
+                update portal_media_requests
                    set status = 'CANCELLED',
                        updated_at = now(),
                        version = version + 1,
@@ -473,10 +467,15 @@ public class JdbcCollectionTaskRepository {
                 batchId);
         jdbcTemplate.update(
                 """
-                update collection_plans
-                   set enabled = false, updated_at = now()
-                 where headers -> ? ->> 'batchId' = ? and current_run_id is null
+                update collection_tasks
+                   set status = 'PAUSED',
+                       enabled = false,
+                       updated_at = now(),
+                       last_error_message = ?
+                 where headers -> ? ->> 'batchId' = ?
+                   and status in ('IDLE', 'QUEUED')
                 """,
+                truncate(reason),
                 MEDIA_REQUEST_BATCH_HEADER_KEY,
                 batchId.toString());
         return true;
@@ -486,8 +485,8 @@ public class JdbcCollectionTaskRepository {
         return jdbcTemplate.query(
                 """
                 select id
-                  from collection_plans
-                 where archived_at is null and headers -> ? ->> 'batchId' = ?
+                  from collection_tasks
+                 where headers -> ? ->> 'batchId' = ?
                  order by created_at desc, id desc
                 """,
                 (rs, rowNum) -> rs.getObject("id", UUID.class),
@@ -503,7 +502,7 @@ public class JdbcCollectionTaskRepository {
         args.add(reason);
         args.addAll(ids);
         jdbcTemplate.update(
-                "update media_request_demands set status = 'PENDING', updated_at = now(), "
+                "update portal_media_requests set status = 'PENDING', updated_at = now(), "
                         + "version = version + 1, last_error_message = ? where id in (" + placeholders(ids.size()) + ")",
                 args.toArray());
     }
@@ -513,18 +512,22 @@ public class JdbcCollectionTaskRepository {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update(
                 """
-                insert into collection_plans (
-                    id, created_at, updated_at, name, enabled, cron_expression, time_zone,
-                    task_type, start_page, end_page, filter_type, filter_hours, filter_keywords,
+                insert into collection_tasks (
+                    id, created_at, updated_at, version, name, status, enabled, cron_expression, time_zone,
+                    task_type, start_page, end_page, current_page, filter_type, filter_hours, filter_keywords,
                     request_delay_type, fixed_delay_ms, random_delay_min_ms, random_delay_max_ms, timeout_ms,
                     max_retries, user_agent, enable_random_ua, use_custom_proxy, proxy_type, proxy_host,
-                    proxy_port, proxy_username, proxy_password, headers, collection_source_id
+                    proxy_port, proxy_username, proxy_password, headers, last_execution_time, stat_start_time,
+                    stat_end_time, stat_total_found, stat_processed, stat_success, stat_failed,
+                    last_error_message, data_source_id, stat_inserted, stat_updated, stat_ignored
                 ) values (
-                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, 0, ?, 'IDLE', ?, ?, ?,
+                    ?, ?, ?, null, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, cast(? as jsonb), ?
+                    ?, ?, ?, cast(? as jsonb), null, null,
+                    null, 0, 0, 0, 0,
+                    null, ?, 0, 0, 0
                 )
                 """,
                 id,
@@ -565,7 +568,7 @@ public class JdbcCollectionTaskRepository {
         putIfPresent(updates, "enabled", task.enabled());
         putIfPresent(updates, "cron_expression", task.cronExpression());
         putIfPresent(updates, "time_zone", task.timeZone());
-        putIfPresent(updates, "collection_source_id", task.dataSourceId());
+        putIfPresent(updates, "data_source_id", task.dataSourceId());
         putIfPresent(updates, "task_type", task.taskType());
         putIfPresent(updates, "start_page", task.startPage());
         putIfPresent(updates, "end_page", task.endPage());
@@ -602,50 +605,30 @@ public class JdbcCollectionTaskRepository {
         params.add(id);
 
         int count = jdbcTemplate.update(
-                "update collection_plans set " + String.join(", ", setClauses) + " where id = ? and archived_at is null",
+                "update collection_tasks set " + String.join(", ", setClauses) + " where id = ?",
                 params.toArray());
         return count > 0;
     }
 
-    public boolean lockPlan(UUID id) {
-        return !jdbcTemplate.queryForList(
-                "select id from collection_plans where id = ? and archived_at is null for update", UUID.class, id)
-                .isEmpty();
-    }
-
-    public void archive(UUID id) {
-        jdbcTemplate.update("""
-                update collection_plans
-                   set archived_at = now(), enabled = false, cron_expression = null,
-                       updated_at = now(), headers = null, proxy_username = null, proxy_password = null
-                 where id = ? and archived_at is null
-                """, id);
-    }
-
-    public Optional<UUID> currentRunId(UUID planId) {
-        return jdbcTemplate.query("""
-                select current_run_id
-                  from collection_plans
-                 where id = ? and archived_at is null and current_run_id is not null
-                """, (rs, row) -> rs.getObject("current_run_id", UUID.class), planId).stream().findFirst();
+    public void delete(UUID id) {
+        jdbcTemplate.update("delete from collection_tasks where id = ?", id);
     }
 
     public Optional<TaskRuntimeState> findRuntimeState(UUID id) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select id, collection_source_id, status, enabled, start_page, current_page, current_run_id
-                    from collection_plan_details
+                    select id, data_source_id, status, enabled, start_page, current_page
+                    from collection_tasks
                     where id = ?
                     """,
                     (rs, rowNum) -> new TaskRuntimeState(
                             rs.getObject("id", UUID.class),
-                            rs.getObject("collection_source_id", UUID.class),
+                            rs.getObject("data_source_id", UUID.class),
                             rs.getString("status"),
                             rs.getBoolean("enabled"),
                             getInteger(rs, "start_page"),
-                            getInteger(rs, "current_page"),
-                            rs.getObject("current_run_id", UUID.class)),
+                            getInteger(rs, "current_page")),
                     id));
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
@@ -656,36 +639,34 @@ public class JdbcCollectionTaskRepository {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
-                    select r.id,
-                           options.name,
-                           r.collection_source_id,
-                           r.status,
-                           p.enabled,
-                           r.start_page,
-                           options.end_page,
-                           r.checkpoint_page as current_page,
-                           options.filter_type,
-                           options.filter_hours,
-                           options.filter_keywords,
-                           options.fixed_delay_ms,
-                           options.user_agent,
-                           options.enable_random_ua,
-                           options.use_custom_proxy,
-                           options.proxy_type,
-                           options.proxy_host,
-                           options.proxy_port,
-                           p.proxy_username,
-                           p.proxy_password,
-                           p.headers::text
-                    from collection_runs r
-                    join collection_plans p on p.current_run_id = r.id and p.id = r.collection_plan_id
-                    cross join lateral jsonb_populate_record(null::collection_plans, r.execution_parameters) options
-                    where r.id = ? and p.archived_at is null
+                    select id,
+                           name,
+                           data_source_id,
+                           status,
+                           enabled,
+                           start_page,
+                           end_page,
+                           current_page,
+                           filter_type,
+                           filter_hours,
+                           filter_keywords,
+                           fixed_delay_ms,
+                           user_agent,
+                           enable_random_ua,
+                           use_custom_proxy,
+                           proxy_type,
+                           proxy_host,
+                           proxy_port,
+                           proxy_username,
+                           proxy_password,
+                           headers::text
+                    from collection_tasks
+                    where id = ?
                     """,
                     (rs, rowNum) -> new TaskExecutionPlan(
                             rs.getObject("id", UUID.class),
                             rs.getString("name"),
-                            rs.getObject("collection_source_id", UUID.class),
+                            rs.getObject("data_source_id", UUID.class),
                             rs.getString("status"),
                             rs.getBoolean("enabled"),
                             getInteger(rs, "start_page"),
@@ -715,7 +696,7 @@ public class JdbcCollectionTaskRepository {
         return jdbcTemplate.query(
                 """
                 select id
-                from collection_runs
+                from collection_tasks
                 where status in ('QUEUED', 'RUNNING')
                 order by updated_at asc, id asc
                 limit ?
@@ -734,9 +715,8 @@ public class JdbcCollectionTaskRepository {
         return jdbcTemplate.query(
                 """
                 select id, name, enabled, cron_expression, time_zone
-                from collection_plans
+                from collection_tasks
                 where enabled = true
-                  and archived_at is null
                   and cron_expression is not null
                   and btrim(cron_expression) <> ''
                 order by name asc, id asc
@@ -752,7 +732,7 @@ public class JdbcCollectionTaskRepository {
     public String statusOf(UUID id) {
         try {
             return jdbcTemplate.queryForObject(
-                    "select status from collection_runs where id = ?",
+                    "select status from collection_tasks where id = ?",
                     String.class,
                     id);
         } catch (EmptyResultDataAccessException ignored) {
@@ -760,159 +740,260 @@ public class JdbcCollectionTaskRepository {
         }
     }
 
-    public boolean existsActiveTaskForDataSource(UUID dataSourceId, UUID excludedPlanId) {
-        return existsSourceConflict(dataSourceId, excludedPlanId, true);
-    }
-
-    public boolean existsCatalogSourceConflict(UUID dataSourceId, UUID excludedPlanId) {
-        return existsSourceConflict(dataSourceId, excludedPlanId, true);
-    }
-
-    private boolean existsSourceConflict(UUID sourceId, UUID planId, boolean exclusiveSource) {
-        return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+    public boolean existsActiveTaskForDataSource(UUID dataSourceId, UUID excludedTaskId) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                """
                 select exists(
-                    select 1 from collection_runs
-                    where collection_source_id = ?
-                      and collection_plan_id <> ?
-                      and status in ('QUEUED', 'RUNNING')
-                      and (? or exclusive_source)
+                    select 1
+                    from collection_tasks
+                    where data_source_id = ?
+                      and id <> ?
+                      and status in ('RUNNING', 'QUEUED')
                 )
-                """, Boolean.class, sourceId, planId, exclusiveSource));
+                """,
+                Boolean.class,
+                dataSourceId,
+                excludedTaskId);
+        return Boolean.TRUE.equals(exists);
     }
 
-    @Transactional
-    public Optional<UUID> queueRun(TaskRuntimeState expected, boolean resume, boolean exclusiveSource) {
-        // Serialize exclusive and shared starts for the same source without blocking source FK reads.
-        if (jdbcTemplate.queryForList(
-                "select id from collection_sources where id = ? for no key update",
-                UUID.class, expected.dataSourceId()).isEmpty() || !lockPlan(expected.id())) {
-            return Optional.empty();
-        }
-        TaskRuntimeState current = findRuntimeState(expected.id()).orElseThrow();
-        if (!Boolean.TRUE.equals(current.enabled()) || !Objects.equals(current.dataSourceId(), expected.dataSourceId())
-                || !Objects.equals(current.currentRunId(), expected.currentRunId())
-                || "QUEUED".equals(current.status()) || "RUNNING".equals(current.status())
-                || existsSourceConflict(current.dataSourceId(), current.id(), exclusiveSource)) {
-            return Optional.empty();
-        }
-        UUID runId = IrcsUuidGenerators.nextId();
-        int startPage = resume
-                ? effectiveCurrentPage(current.currentPage(), current.startPage())
-                : effectiveStartPage(current.startPage());
-
-        // Keep credentials and request headers on the plan instead of multiplying them across runs.
-        jdbcTemplate.update("""
-                insert into collection_runs (
-                    id, collection_plan_id, collection_source_id, resumed_from_run_id, exclusive_source,
-                    execution_parameters, status, start_page, checkpoint_page
+    public boolean existsCatalogSourceConflict(UUID dataSourceId, UUID excludedTaskId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM collection_tasks
+                     WHERE data_source_id = ? AND id <> ? AND status IN ('RUNNING', 'QUEUED', 'STOPPING')
                 )
-                select ?, p.id, p.collection_source_id, ?, ?,
-                       jsonb_build_object(
-                           'name', p.name, 'task_type', p.task_type, 'end_page', p.end_page,
-                           'filter_type', p.filter_type, 'filter_hours', p.filter_hours,
-                           'filter_keywords', p.filter_keywords, 'user_agent', p.user_agent,
-                           'enable_random_ua', p.enable_random_ua, 'use_custom_proxy', p.use_custom_proxy,
-                           'proxy_type', p.proxy_type, 'proxy_host', p.proxy_host, 'proxy_port', p.proxy_port,
-                           'request_delay_type', p.request_delay_type, 'fixed_delay_ms', p.fixed_delay_ms,
-                           'random_delay_min_ms', p.random_delay_min_ms, 'random_delay_max_ms', p.random_delay_max_ms,
-                           'timeout_ms', p.timeout_ms, 'max_retries', p.max_retries
-                       ), 'QUEUED', ?, ?
-                  from collection_plans p where p.id = ?
-                """, runId, resume ? current.currentRunId() : null, exclusiveSource, startPage, startPage, current.id());
-        jdbcTemplate.update("update collection_plans set current_run_id = ? where id = ?", runId, current.id());
-        return Optional.of(runId);
+                """, Boolean.class, dataSourceId, excludedTaskId);
+        return Boolean.TRUE.equals(exists);
     }
 
-    public boolean markRunning(UUID runId) {
-        return jdbcTemplate.update("""
-                update collection_runs
-                set status = 'RUNNING', started_at = now(), updated_at = now()
-                where id = ? and status = 'QUEUED'
-                """, runId) > 0;
+    public boolean markQueued(TaskRuntimeState task, boolean resume) {
+        Timestamp now = Timestamp.from(Instant.now());
+        if (resume) {
+            int currentPage = effectiveCurrentPage(task.currentPage(), task.startPage());
+            return jdbcTemplate.update(
+                    """
+                    update collection_tasks
+                    set status = 'QUEUED',
+                        last_execution_time = ?,
+                        last_error_message = null,
+                        current_page = ?,
+                        stat_end_time = null,
+                        updated_at = ?
+                    where id = ?
+                      and enabled = true
+                      and status is not distinct from ?
+                    """,
+                    now,
+                    currentPage,
+                    now,
+                    task.id(),
+                    task.status()) > 0;
+        } else {
+            int currentPage = effectiveStartPage(task.startPage());
+            return jdbcTemplate.update(
+                    """
+                    update collection_tasks
+                    set status = 'QUEUED',
+                        last_execution_time = ?,
+                        last_error_message = null,
+                        stat_start_time = ?,
+                        stat_end_time = null,
+                        stat_total_found = 0,
+                        stat_processed = 0,
+                        stat_success = 0,
+                        stat_failed = 0,
+                        stat_inserted = 0,
+                        stat_updated = 0,
+                        stat_ignored = 0,
+                        current_page = ?,
+                        updated_at = ?
+                    where id = ?
+                      and enabled = true
+                      and status is not distinct from ?
+                    """,
+                    now,
+                    now,
+                    currentPage,
+                    now,
+                    task.id(),
+                    task.status()) > 0;
+        }
     }
 
-    public void complete(UUID runId, long processed, long success, long failed) {
-        jdbcTemplate.update("""
-                update collection_runs
-                set status = 'COMPLETED', finished_at = now(), updated_at = now(),
-                    processed_count = ?, success_count = ?, failure_count = ?
-                where id = ? and status = 'RUNNING'
-                """, processed, success, failed, runId);
+    public boolean markRunning(UUID id) {
+        Timestamp now = Timestamp.from(Instant.now());
+        return jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'RUNNING',
+                    last_execution_time = ?,
+                    updated_at = ?
+                where id = ?
+                  and status = 'QUEUED'
+                """,
+                now,
+                now,
+                id) > 0;
+    }
+
+    public void complete(UUID id, long processed, long success, long failed) {
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'COMPLETED',
+                    last_execution_time = ?,
+                    stat_end_time = ?,
+                    stat_processed = ?,
+                    stat_success = ?,
+                    stat_failed = ?,
+                    updated_at = ?
+                where id = ?
+                """,
+                now,
+                now,
+                processed,
+                success,
+                failed,
+                now,
+                id);
     }
 
     public void flushRuntimeLedger(TaskDbRuntimeSnapshot snapshot) {
-        jdbcTemplate.update("""
-                update collection_runs
-                set status = case when status = 'RUNNING' and ? = 'QUEUED' then 'RUNNING' else ? end,
-                    checkpoint_page = greatest(checkpoint_page, ?),
-                    total_found = greatest(total_found, ?),
-                    processed_count = greatest(processed_count, ?),
-                    success_count = greatest(success_count, ?),
-                    failure_count = greatest(failure_count, ?),
-                    started_at = coalesce(started_at, ?),
-                    finished_at = ?,
+        Timestamp now = Timestamp.from(snapshot.flushedAt());
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = ?,
+                    current_page = ?,
+                    stat_total_found = ?,
+                    stat_processed = ?,
+                    stat_success = ?,
+                    stat_failed = ?,
+                    stat_start_time = coalesce(stat_start_time, ?),
+                    stat_end_time = ?,
+                    last_execution_time = ?,
                     last_error_message = ?,
-                    updated_at = greatest(updated_at, ?)
-                where id = ? and status in ('QUEUED', 'RUNNING')
-                  and ? >= updated_at
+                    updated_at = ?
+                where id = ?
                 """,
-                snapshot.status(), snapshot.status(), snapshot.currentPage(), snapshot.totalFound(),
-                snapshot.processed(), snapshot.success(), snapshot.failed(), toTimestamp(snapshot.startedAt()),
-                toTimestamp(snapshot.endedAt()), truncate(snapshot.lastError()), toTimestamp(snapshot.flushedAt()),
-                snapshot.masterTaskId(), toTimestamp(snapshot.flushedAt()));
+                snapshot.status(),
+                snapshot.currentPage(),
+                snapshot.totalFound(),
+                snapshot.processed(),
+                snapshot.success(),
+                snapshot.failed(),
+                toTimestamp(snapshot.startedAt()),
+                toTimestamp(snapshot.endedAt()),
+                now,
+                truncate(snapshot.lastError()),
+                now,
+                snapshot.masterTaskId());
     }
 
-    public void fail(UUID runId, String errorMessage) {
-        finishActiveRun(runId, "FAILED", errorMessage);
+    public void fail(UUID id, String errorMessage) {
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'FAILED',
+                    last_execution_time = ?,
+                    stat_end_time = ?,
+                    last_error_message = ?,
+                    updated_at = ?
+                where id = ?
+                """,
+                now,
+                now,
+                truncate(errorMessage),
+                now,
+                id);
     }
 
-    public void markPaused(UUID runId, String message) {
-        finishActiveRun(runId, "PAUSED", message);
-    }
-
-    private void finishActiveRun(UUID runId, String status, String message) {
-        jdbcTemplate.update("""
-                update collection_runs
-                set status = ?, finished_at = now(), updated_at = now(), last_error_message = ?
-                where id = ? and status in ('QUEUED', 'RUNNING')
-                """, status, truncate(message), runId);
+    public void markPaused(UUID id, String message) {
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'PAUSED',
+                    last_execution_time = ?,
+                    stat_end_time = ?,
+                    last_error_message = ?,
+                    updated_at = ?
+                where id = ?
+                """,
+                now,
+                now,
+                truncate(message),
+                now,
+                id);
     }
 
     public int recoverInterruptedTasks(String message) {
-        return jdbcTemplate.update("""
-                update collection_runs
-                set status = 'PAUSED', finished_at = now(), updated_at = now(), last_error_message = ?
-                where status in ('QUEUED', 'RUNNING') and updated_at < now() - interval '30 minutes'
-                """, message);
+        Timestamp now = Timestamp.from(Instant.now());
+        return jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'PAUSED',
+                    last_execution_time = ?,
+                    stat_end_time = ?,
+                    last_error_message = ?,
+                    updated_at = ?
+                where status in ('QUEUED', 'RUNNING', 'STOPPING')
+                """,
+                now,
+                now,
+                message,
+                now);
     }
 
     public int failStaleActiveTasks(Instant threshold, String message) {
-        return jdbcTemplate.update("""
-                update collection_runs
-                set status = 'FAILED', finished_at = now(), updated_at = now(), last_error_message = ?
-                where status in ('QUEUED', 'RUNNING') and updated_at < ?
-                """, message, Timestamp.from(threshold));
+        Timestamp now = Timestamp.from(Instant.now());
+        return jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'FAILED',
+                    stat_end_time = ?,
+                    last_error_message = ?,
+                    updated_at = ?
+                where status in ('QUEUED', 'RUNNING')
+                  and last_execution_time < ?
+                """,
+                now,
+                message,
+                now,
+                Timestamp.from(threshold));
     }
 
-    public Optional<UUID> pause(UUID planId) {
-        return holdCurrentRun(planId, "PAUSED", "Task paused by operator.");
+    public void pause(UUID id) {
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'PAUSED',
+                    stat_end_time = ?,
+                    updated_at = ?
+                where id = ?
+                  and status in ('RUNNING', 'QUEUED')
+                """,
+                now,
+                now,
+                id);
     }
 
-    public Optional<UUID> stop(UUID planId) {
-        return holdCurrentRun(planId, "STOPPED", "Task stopped by operator.");
-    }
-
-    private Optional<UUID> holdCurrentRun(UUID planId, String status, String reason) {
-        if (!lockPlan(planId)) {
-            return Optional.empty();
-        }
-        return jdbcTemplate.query("""
-                update collection_runs r
-                set status = ?, finished_at = now(), updated_at = now(), last_error_message = ?
-                from collection_plans p
-                where p.id = ? and r.id = p.current_run_id and r.status in ('QUEUED', 'RUNNING')
-                returning r.id
-                """, (rs, row) -> rs.getObject("id", UUID.class), status, reason, planId).stream().findFirst();
+    public void stop(UUID id) {
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update(
+                """
+                update collection_tasks
+                set status = 'STOPPING',
+                    updated_at = ?
+                where id = ?
+                  and status in ('RUNNING', 'QUEUED', 'PAUSED')
+                """,
+                now,
+                id);
     }
 
     public Page<TaskCardSummary> findAll(
@@ -938,7 +1019,7 @@ public class JdbcCollectionTaskRepository {
         String where = buildWhere(name, status, dataSourceId, enabled, mediaRequestBatchId, whereParams);
 
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from collection_plan_details t " + where,
+                "select count(*) from collection_tasks t " + where,
                 Long.class,
                 whereParams.toArray());
 
@@ -971,8 +1052,8 @@ public class JdbcCollectionTaskRepository {
                        t.stat_ignored,
                        t.stat_start_time,
                        t.stat_end_time
-                from collection_plan_details t
-                left join collection_sources ds on t.collection_source_id = ds.id
+                from collection_tasks t
+                left join data_sources ds on t.data_source_id = ds.id
                 %s
                 order by t.created_at desc nulls last, t.name asc, t.id asc
                 limit ? offset ?
@@ -984,14 +1065,6 @@ public class JdbcCollectionTaskRepository {
     }
 
     public Optional<TaskDetailSummary> findById(UUID id) {
-        return findDetail("t.id", id);
-    }
-
-    public Optional<TaskDetailSummary> findCurrentRunDetail(UUID runId) {
-        return findDetail("t.current_run_id", runId);
-    }
-
-    private Optional<TaskDetailSummary> findDetail(String lookupColumn, UUID id) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
@@ -1001,7 +1074,7 @@ public class JdbcCollectionTaskRepository {
                            t.enabled,
                            t.cron_expression,
                            t.time_zone,
-                           t.collection_source_id,
+                           t.data_source_id,
                            ds.name as data_source_name,
                            t.task_type,
                            t.start_page,
@@ -1037,10 +1110,10 @@ public class JdbcCollectionTaskRepository {
                            t.stat_ignored,
                            t.stat_start_time,
                            t.stat_end_time
-                    from collection_plan_details t
-                    left join collection_sources ds on t.collection_source_id = ds.id
-                    where %s = ?
-                    """.formatted(lookupColumn),
+                    from collection_tasks t
+                    left join data_sources ds on t.data_source_id = ds.id
+                    where t.id = ?
+                    """,
                     detailMapper(),
                     id));
         } catch (EmptyResultDataAccessException ignored) {
@@ -1066,7 +1139,7 @@ public class JdbcCollectionTaskRepository {
             params.add(status.trim().toUpperCase());
         }
         if (dataSourceId != null) {
-            predicates.add("t.collection_source_id = ?");
+            predicates.add("t.data_source_id = ?");
             params.add(dataSourceId);
         }
         if (enabled != null) {
@@ -1126,7 +1199,7 @@ public class JdbcCollectionTaskRepository {
                 rs.getBoolean("enabled"),
                 rs.getString("cron_expression"),
                 rs.getString("time_zone"),
-                rs.getObject("collection_source_id", UUID.class),
+                rs.getObject("data_source_id", UUID.class),
                 rs.getString("data_source_name"),
                 rs.getString("task_type"),
                 getInteger(rs, "start_page"),
@@ -1188,17 +1261,17 @@ public class JdbcCollectionTaskRepository {
     private List<MediaRequestBatchItemResponse> findMediaRequestBatchItems(UUID batchId) {
         return jdbcTemplate.query(
                 """
-                select id, demand_id, title, release_year, request_count, status,
+                select id, media_request_id, title, release_year, request_count, status,
                        existing_video_id, existing_video_source, scheduled_task_count, last_error_message
-                  from media_request_processing_batch_items
+                  from portal_media_request_batch_items
                  where batch_id = ?
                  order by request_count desc, created_at asc, id asc
                 """,
                 (rs, rowNum) -> new MediaRequestBatchItemResponse(
                         rs.getObject("id", UUID.class),
-                        rs.getObject("demand_id", UUID.class),
+                        rs.getObject("media_request_id", UUID.class),
                         rs.getString("title"),
-                        getInteger(rs, "release_year"),
+                        apiReleaseYear(rs.getInt("release_year")),
                         rs.getInt("request_count"),
                         rs.getString("status"),
                         rs.getObject("existing_video_id", UUID.class),
@@ -1214,7 +1287,7 @@ public class JdbcCollectionTaskRepository {
                 select count(*) filter (where status = 'SCHEDULED') as scheduled,
                        count(*) filter (where status = 'SKIPPED_EXISTS') as skipped,
                        count(*) filter (where status = 'FAILED') as failed
-                  from media_request_processing_batch_items
+                  from portal_media_request_batch_items
                  where batch_id = ?
                 """,
                 (rs, rowNum) -> new MediaRequestBatchCounters(
@@ -1265,6 +1338,14 @@ public class JdbcCollectionTaskRepository {
 
     private String placeholders(int size) {
         return String.join(",", java.util.Collections.nCopies(Math.max(1, size), "?"));
+    }
+
+    private Integer apiReleaseYear(int releaseYear) {
+        return releaseYear <= 0 ? null : releaseYear;
+    }
+
+    private Integer dbReleaseYear(Integer releaseYear) {
+        return releaseYear == null || releaseYear <= 0 ? 0 : releaseYear;
     }
 
     private List<Object> prepend(Object first, List<?> rest) {

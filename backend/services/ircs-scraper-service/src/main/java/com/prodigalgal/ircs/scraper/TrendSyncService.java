@@ -75,8 +75,8 @@ class TrendSyncService {
             candidates += result.candidates();
             titleMatches += result.updatedByTitleMatch();
             duplicates += result.skippedDuplicates();
-            updated.addAll(result.updatedCatalogEntryIds());
-            created.addAll(result.createdCatalogEntryIds());
+            updated.addAll(result.updatedUnifiedVideoIds());
+            created.addAll(result.createdUnifiedVideoIds());
         }
         updated.removeAll(created);
         return new TrendSyncApplyResponse("trend-sync", candidates, updated.size(), titleMatches, created.size(),

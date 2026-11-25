@@ -15,7 +15,7 @@ public class AvatarSyncMemberRepository {
 
     public Optional<String> findAvatarUrl(UUID memberId) {
         return jdbcTemplate.query(
-                "select avatar_url from member_accounts where id = ?",
+                "select avatar_url from members where id = ?",
                 ps -> ps.setObject(1, memberId),
                 rs -> rs.next() ? Optional.ofNullable(rs.getString("avatar_url")) : Optional.empty());
     }
@@ -23,7 +23,7 @@ public class AvatarSyncMemberRepository {
     public int updateAvatarUrl(UUID memberId, String expectedCurrentUrl, String nextUrl) {
         return jdbcTemplate.update(
                 """
-                update member_accounts
+                update members
                    set avatar_url = ?,
                        updated_at = now(),
                        version = coalesce(version, 0) + 1

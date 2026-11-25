@@ -36,8 +36,8 @@ import {
     useInitAggregationResetTaskMutation,
     useInitSanitizeTaskMutation,
     useInitUnifiedRecalculateTaskMutation,
-    useReindexSourceRecordsMutation,
-    useReindexCatalogEntriesMutation,
+    useReindexRawVideosMutation,
+    useReindexUnifiedVideosMutation,
     useTriggerTrendSyncMutation
 } from './maintenanceApi';
 import ConsoleViewer from './components/ConsoleViewer';
@@ -48,8 +48,8 @@ const TASK_NAME_MAP = {
     'Aggregation Reset': 'agg_reset',
     'Unified Recalculate': 'unified_recalc', // Added
     'Aggregation Adult Assessment Backfill': 'adult_assessment_backfill',
-    'Search Reindex (SourceRecord)': 'reindex_raw',      // Added Mapping
-    'Search Reindex (CatalogEntry)': 'reindex_unified', // Added Mapping
+    'Search Reindex (RawVideo)': 'reindex_raw',      // Added Mapping
+    'Search Reindex (UnifiedVideo)': 'reindex_unified', // Added Mapping
     'aggregation-adult-assessment-backfill': 'adult_assessment_backfill'
 };
 
@@ -104,8 +104,8 @@ function MaintenancePage() {
     const [initAdultAssessmentBackfill] = useInitAdultAssessmentBackfillTaskMutation();
     const [triggerTrendSync, {isLoading: isSyncing}] = useTriggerTrendSyncMutation();
 
-    const [reindexRaw, {isLoading: isReindexingRaw}] = useReindexSourceRecordsMutation();
-    const [reindexUnified, {isLoading: isReindexingUnified}] = useReindexCatalogEntriesMutation();
+    const [reindexRaw, {isLoading: isReindexingRaw}] = useReindexRawVideosMutation();
+    const [reindexUnified, {isLoading: isReindexingUnified}] = useReindexUnifiedVideosMutation();
 
     const globalRunningId = useMemo(() => {
         if (!activeSession) return null;
@@ -200,7 +200,7 @@ function MaintenancePage() {
         }
         if (globalRunningId) return;
 
-        if (window.confirm("确定全量重建 SourceRecord 索引？(Direct-Batch 模式)")) {
+        if (window.confirm("确定全量重建 RawVideo 索引？(Direct-Batch 模式)")) {
             try {
                 const {sessionId} = await reindexRaw().unwrap();
                 launchSession(sessionId);
@@ -217,7 +217,7 @@ function MaintenancePage() {
         }
         if (globalRunningId) return;
 
-        if (window.confirm("确定全量重建 CatalogEntry 索引？(Direct-Batch 模式)")) {
+        if (window.confirm("确定全量重建 UnifiedVideo 索引？(Direct-Batch 模式)")) {
             try {
                 const {sessionId} = await reindexUnified().unwrap();
                 launchSession(sessionId);
@@ -271,7 +271,7 @@ function MaintenancePage() {
             id: 'adult_assessment_backfill',
             category: 'CORE',
             title: "成人限制评估回填",
-            description: "按最新规则批量补充 adultAssessment/adultRestricted 标记，并同步 CatalogEntry 搜索索引。",
+            description: "按最新规则批量补充 adultAssessment/adultRestricted 标记，并同步 UnifiedVideo 搜索索引。",
             icon: <AutoFixHighIcon fontSize="large" color="secondary"/>,
             btnLabel: "开始评估回填",
             btnColor: "secondary",
@@ -293,7 +293,7 @@ function MaintenancePage() {
             id: 'reindex_raw',
             category: 'SEARCH',
             title: "源视频索引全量重建",
-            description: "Direct-Batch 模式：快速重建 SourceRecord 索引 (后台运行)。",
+            description: "Direct-Batch 模式：快速重建 RawVideo 索引 (后台运行)。",
             icon: <ManageSearchIcon fontSize="large" color="info"/>,
             btnLabel: "重建 Raw 索引",
             btnColor: "info",
@@ -304,7 +304,7 @@ function MaintenancePage() {
             id: 'reindex_unified',
             category: 'SEARCH',
             title: "聚合视频索引全量重建",
-            description: "Direct-Batch 模式：快速重建 CatalogEntry 索引 (后台运行)。",
+            description: "Direct-Batch 模式：快速重建 UnifiedVideo 索引 (后台运行)。",
             icon: <ManageSearchIcon fontSize="large" color="info"/>,
             btnLabel: "重建 Unified 索引",
             btnColor: "info",

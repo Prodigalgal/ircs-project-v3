@@ -50,8 +50,7 @@ public class CatalogMetadataWorker {
                 for (MetadataNameRelation relation: MetadataNameRelation.values()) {
                     nameCache.evictNames(MetadataNameOwnerType.UNIFIED,relation,List.of(pending.id()));
                 }
-                search.enqueue(pending.id(), SearchEntityType.CATALOG_ENTRY,
-                        pending.delete() ? SyncOperation.DELETE : SyncOperation.INDEX);
+                search.enqueue(pending.id(),SearchEntityType.UNIFIED_VIDEO,SyncOperation.INDEX);
                 repository.indexed(pending);
             } catch (RuntimeException ex) {
                 log.warn("Catalog search handoff deferred: id={}, errorType={}",pending.id(),ex.getClass().getSimpleName());

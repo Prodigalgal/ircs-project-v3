@@ -53,9 +53,6 @@ management:
         enabled: true
 
 app:
-  catalog:
-    authority-first:
-      enabled: ${APP_CATALOG_AUTHORITY_FIRST_ENABLED:false}
   task:
     default-seed:
       enabled: ${APP_TASK_DEFAULT_SEED_ENABLED:true}
@@ -94,7 +91,6 @@ app:
       enabled: ${APP_TASK_TREND_DISCOVERY_ENABLED:true}
       max-keywords: ${APP_TASK_TREND_DISCOVERY_MAX_KEYWORDS:50}
       max-data-sources: ${APP_TASK_TREND_DISCOVERY_MAX_DATA_SOURCES:0}
-      keyword-disabled-data-sources: ${APP_TASK_TREND_DISCOVERY_KEYWORD_DISABLED_DATA_SOURCES:旺旺资源,天涯}
     media-request:
       enabled: ${APP_TASK_MEDIA_REQUEST_ENABLED:true}
       initial-delay-ms: ${APP_TASK_MEDIA_REQUEST_INITIAL_DELAY_MS:30000}

@@ -40,7 +40,7 @@ class RequestAuditSummarySnapshotRepository {
                            expires_at,
                            stale_until,
                            source
-                      FROM operations_http_request_summary_snapshots
+                      FROM ops_request_audit_summary_snapshots
                      WHERE snapshot_key = :snapshotKey
                        AND stale_until > now()
                     """,
@@ -62,7 +62,7 @@ class RequestAuditSummarySnapshotRepository {
         try {
             jdbcTemplate.update(
                     """
-                    INSERT INTO operations_http_request_summary_snapshots (
+                    INSERT INTO ops_request_audit_summary_snapshots (
                         snapshot_key,
                         total_count,
                         error_count,

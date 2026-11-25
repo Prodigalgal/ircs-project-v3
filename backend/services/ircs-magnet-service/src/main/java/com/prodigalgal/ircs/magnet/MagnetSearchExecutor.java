@@ -45,46 +45,46 @@ final class MagnetSearchExecutor {
                 ? Duration.ofMinutes(2) : leaseDuration;
     }
 
-    MagnetSearchJobSummary enqueue(UUID catalogEntryId, String trigger) {
+    MagnetSearchJobSummary enqueue(UUID unifiedVideoId, String trigger) {
         requireNoTransaction();
-        MagnetCatalogEntrySearchTarget target = target(catalogEntryId);
+        MagnetUnifiedVideoSearchTarget target = target(unifiedVideoId);
         List<MagnetExternalIdQuery> queries = queries(target);
         String skipped = skipReason(target, queries);
         if (skipped != null) {
-            return repository.createSkippedSearchJob(catalogEntryId, trigger, skipped, queries, List.of());
+            return repository.createSkippedSearchJob(unifiedVideoId, trigger, skipped, queries, List.of());
         }
         if (publisher == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Magnet runtime work queue is unavailable");
         }
-        MagnetSearchJobCoordinator.Enqueued result = coordinator.enqueue(catalogEntryId, trigger, queries);
+        MagnetSearchJobCoordinator.Enqueued result = coordinator.enqueue(unifiedVideoId, trigger, queries);
         // A retry of the same API call also repairs a previous commit/publish gap, with the same queue task ID.
         publisher.enqueue(result.job());
         return result.job();
     }
 
-    MagnetSearchJobSummary searchNow(UUID catalogEntryId, String trigger) {
+    MagnetSearchJobSummary searchNow(UUID unifiedVideoId, String trigger) {
         requireNoTransaction();
-        MagnetCatalogEntrySearchTarget target = target(catalogEntryId);
+        MagnetUnifiedVideoSearchTarget target = target(unifiedVideoId);
         List<MagnetExternalIdQuery> queries = queries(target);
         String skipped = skipReason(target, queries);
         if (skipped != null) {
-            return repository.createSkippedSearchJob(catalogEntryId, trigger, skipped, queries, List.of());
+            return repository.createSkippedSearchJob(unifiedVideoId, trigger, skipped, queries, List.of());
         }
-        MagnetSearchJobSummary job = coordinator.enqueue(catalogEntryId, trigger, queries).job();
-        return executeSearch(job.id(), catalogEntryId, false, false);
+        MagnetSearchJobSummary job = coordinator.enqueue(unifiedVideoId, trigger, queries).job();
+        return executeSearch(job.id(), unifiedVideoId, false, false);
     }
 
-    MagnetSearchJobSummary execute(UUID jobId, UUID catalogEntryId, String trigger, boolean retryAllowed) {
-        return executeSearch(jobId, catalogEntryId, retryAllowed, true);
+    MagnetSearchJobSummary execute(UUID jobId, UUID unifiedVideoId, String trigger, boolean retryAllowed) {
+        return executeSearch(jobId, unifiedVideoId, retryAllowed, true);
     }
 
-    private MagnetSearchJobSummary executeSearch(UUID jobId, UUID catalogEntryId, boolean retryAllowed,
+    private MagnetSearchJobSummary executeSearch(UUID jobId, UUID unifiedVideoId, boolean retryAllowed,
             boolean acknowledgeDeliveredPartial) {
         requireNoTransaction();
         MagnetQueueClaimGuard.checkCurrentOwnership();
-        MagnetCatalogEntrySearchTarget target = target(catalogEntryId);
+        MagnetUnifiedVideoSearchTarget target = target(unifiedVideoId);
         List<MagnetExternalIdQuery> queries = queries(target);
-        MagnetSearchJobCoordinator.Claim claim = coordinator.claim(jobId, catalogEntryId, queries, leaseDuration);
+        MagnetSearchJobCoordinator.Claim claim = coordinator.claim(jobId, unifiedVideoId, queries, leaseDuration);
         if (!claim.acquired()) {
             MagnetSearchJobSummary job = claim.job();
             if ("FAILED".equals(job.status()) || ("PARTIAL_SUCCESS".equals(job.status())
@@ -93,14 +93,14 @@ final class MagnetSearchExecutor {
             }
             return job;
         }
-        var lease = new MagnetSearchJobCoordinator.Lease(jobId, catalogEntryId, claim.generation(), leaseDuration);
+        var lease = new MagnetSearchJobCoordinator.Lease(jobId, unifiedVideoId, claim.generation(), leaseDuration);
         try (var guard = new MagnetJobExecutionGuard(coordinator, lease)) {
             Map<String, MagnetProviderRunSummary> outcomes = latestRuns(jobId);
             if (outcomes.values().stream()
                     .anyMatch(run -> "SUCCESS".equals(run.status()) && safeCount(run.acceptedCount()) > 0)) {
                 // The durable run may have committed before the cache or index update was delivered.
                 guard.checkOwnership();
-                publishLinkChanges(catalogEntryId);
+                publishLinkChanges(unifiedVideoId);
             }
             List<MagnetProviderSummary> providers = cache.listEnabledProviders(repository::listEnabledProviders);
             List<String> providerCodes = providers.stream().map(MagnetProviderSummary::code).toList();
@@ -128,7 +128,7 @@ final class MagnetSearchExecutor {
                 Instant started = Instant.now();
                 MagnetProviderSearchResult result;
                 try {
-                    result = runner.search(step.provider(), step.query(), catalogEntryId);
+                    result = runner.search(step.provider(), step.query(), unifiedVideoId);
                     if (result == null || result.candidates() == null) {
                         throw new MagnetProviderRunnerException("MAGNET_EMPTY_PROVIDER_RESPONSE", null, null);
                     }
@@ -150,7 +150,7 @@ final class MagnetSearchExecutor {
                 MagnetProviderSearchResult response = result;
                 List<MagnetLinkSummary> saved = coordinator.withinLease(lease, () -> {
                     guard.checkOwnership();
-                    if (!target.equals(repository.findCatalogEntrySearchTarget(catalogEntryId).orElse(null))) {
+                    if (!target.equals(repository.findUnifiedVideoSearchTarget(unifiedVideoId).orElse(null))) {
                         throw new MagnetSearchJobCoordinator.MagnetJobBusyException("MAGNET_TARGET_CHANGED_DURING_SEARCH");
                     }
                     List<MagnetLinkSummary> accepted = persistCandidates(target, step.provider(), response.candidates());
@@ -162,7 +162,7 @@ final class MagnetSearchExecutor {
                 });
                 links.addAll(saved);
                 if (!saved.isEmpty()) {
-                    publishLinkChanges(catalogEntryId);
+                    publishLinkChanges(unifiedVideoId);
                 }
             }
             guard.checkOwnership();
@@ -206,14 +206,14 @@ final class MagnetSearchExecutor {
         return acknowledgeDeliveredPartial && "PARTIAL_SUCCESS".equals(job.status()) && safeCount(job.acceptedCount()) > 0;
     }
 
-    private void publishLinkChanges(UUID catalogEntryId) {
-        cache.evictApprovedLinks(catalogEntryId);
+    private void publishLinkChanges(UUID unifiedVideoId) {
+        cache.evictApprovedLinks(unifiedVideoId);
         if (searchSync != null) {
-            searchSync.enqueue(catalogEntryId, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
+            searchSync.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
         }
     }
 
-    private List<MagnetLinkSummary> persistCandidates(MagnetCatalogEntrySearchTarget target,
+    private List<MagnetLinkSummary> persistCandidates(MagnetUnifiedVideoSearchTarget target,
             MagnetProviderSummary provider, List<MagnetProviderCandidate> candidates) {
         List<MagnetLinkSummary> links = new ArrayList<>();
         for (MagnetProviderCandidate candidate : candidates) {
@@ -257,7 +257,7 @@ final class MagnetSearchExecutor {
         return code.endsWith("TIMEOUT") || code.endsWith("HTTP_ERROR") || code.equals(MagnetProviderTrafficLimiter.FAILURE_TYPE);
     }
 
-    private List<ProviderQuery> plan(MagnetCatalogEntrySearchTarget target, List<MagnetProviderSummary> providers,
+    private List<ProviderQuery> plan(MagnetUnifiedVideoSearchTarget target, List<MagnetProviderSummary> providers,
             List<MagnetExternalIdQuery> queries) {
         List<ProviderQuery> result = new ArrayList<>();
         for (MagnetProviderSummary provider : providers) {
@@ -273,7 +273,7 @@ final class MagnetSearchExecutor {
         return result;
     }
 
-    static List<MagnetExternalIdQuery> queries(MagnetCatalogEntrySearchTarget target) {
+    static List<MagnetExternalIdQuery> queries(MagnetUnifiedVideoSearchTarget target) {
         List<MagnetExternalIdQuery> result = new ArrayList<>();
         String imdb = text(target.imdbId()).toLowerCase(Locale.ROOT);
         if (imdb.matches("tt[0-9]{7,10}") && !imdb.substring(2).matches("0+")) { add(result, "IMDB", imdb); }
@@ -302,12 +302,12 @@ final class MagnetSearchExecutor {
         }
     }
 
-    private MagnetCatalogEntrySearchTarget target(UUID id) {
-        return repository.findCatalogEntrySearchTarget(id).orElseThrow(
-                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "CatalogEntry not found"));
+    private MagnetUnifiedVideoSearchTarget target(UUID id) {
+        return repository.findUnifiedVideoSearchTarget(id).orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "UnifiedVideo not found"));
     }
 
-    private String skipReason(MagnetCatalogEntrySearchTarget target, List<MagnetExternalIdQuery> queries) {
+    private String skipReason(MagnetUnifiedVideoSearchTarget target, List<MagnetExternalIdQuery> queries) {
         if (!"SYNCED".equalsIgnoreCase(target.metadataStatus())) { return "聚合视频富化未完成，暂不补充磁链"; }
         return queries.isEmpty() ? "没有可用于搜刮的外部 ID 或标题" : null;
     }
@@ -325,7 +325,7 @@ final class MagnetSearchExecutor {
         }
     }
     private static MagnetSearchJobSummary withLinks(MagnetSearchJobSummary job, List<MagnetLinkSummary> links) {
-        return new MagnetSearchJobSummary(job.id(), job.catalogEntryId(), job.triggerType(), job.status(), job.providerCodes(),
+        return new MagnetSearchJobSummary(job.id(), job.unifiedVideoId(), job.triggerType(), job.status(), job.providerCodes(),
                 job.externalIdPlan(), job.startedAt(), job.finishedAt(), job.totalCandidates(), job.acceptedCount(), job.rejectedCount(),
                 job.skippedReason(), job.errorMessage(), List.copyOf(links), job.createdAt(), job.updatedAt());
     }

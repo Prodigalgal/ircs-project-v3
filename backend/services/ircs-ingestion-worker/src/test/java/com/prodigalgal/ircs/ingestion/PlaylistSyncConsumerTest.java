@@ -20,18 +20,18 @@ import org.springframework.amqp.core.MessageProperties;
 class PlaylistSyncConsumerTest {
 
     private final PlaylistSyncMessageParser messageParser = org.mockito.Mockito.mock(PlaylistSyncMessageParser.class);
-    private final SourceRecordIngestionService ingestionService = org.mockito.Mockito.mock(SourceRecordIngestionService.class);
+    private final RawVideoIngestionService ingestionService = org.mockito.Mockito.mock(RawVideoIngestionService.class);
     private final WorkerJobAuditWriter auditWriter = org.mockito.Mockito.mock(WorkerJobAuditWriter.class);
     private final PlaylistSyncConsumer consumer =
             new PlaylistSyncConsumer(messageParser, ingestionService, auditWriter);
 
     @Test
     void writesSucceededAuditForPlaylistSync() {
-        UUID sourceRecordId = UUID.randomUUID();
-        PlaylistSyncMessage syncMessage = message(sourceRecordId);
+        UUID rawVideoId = UUID.randomUUID();
+        PlaylistSyncMessage syncMessage = message(rawVideoId);
         when(messageParser.parse(any(Message.class))).thenReturn(syncMessage);
         when(ingestionService.syncPlaylists(syncMessage))
-                .thenReturn(SourceRecordIngestionService.PlaylistSyncResult.synced(sourceRecordId, 2));
+                .thenReturn(RawVideoIngestionService.PlaylistSyncResult.synced(rawVideoId, 2));
 
         consumer.onMessage(message());
 
@@ -39,15 +39,15 @@ class PlaylistSyncConsumerTest {
         WorkerJobAuditEvent event = captureAuditEvent();
         assertThat(event.jobType()).isEqualTo(PlaylistSyncConsumer.JOB_TYPE);
         assertThat(event.jobName()).isEqualTo(PlaylistSyncConsumer.JOB_NAME);
-        assertThat(event.correlationId()).isEqualTo(sourceRecordId.toString());
+        assertThat(event.correlationId()).isEqualTo(rawVideoId.toString());
         assertThat(event.status()).isEqualTo("succeeded");
         assertThat(event.error()).isNull();
     }
 
     @Test
     void writesFailedAuditAndRethrowsPlaylistFailure() {
-        UUID sourceRecordId = UUID.randomUUID();
-        PlaylistSyncMessage syncMessage = message(sourceRecordId);
+        UUID rawVideoId = UUID.randomUUID();
+        PlaylistSyncMessage syncMessage = message(rawVideoId);
         RuntimeException failure = new RuntimeException("playlist replacement failed with row details");
         when(messageParser.parse(any(Message.class))).thenReturn(syncMessage);
         doThrow(failure).when(ingestionService).syncPlaylists(syncMessage);
@@ -57,7 +57,7 @@ class PlaylistSyncConsumerTest {
         WorkerJobAuditEvent event = captureAuditEvent();
         assertThat(event.jobType()).isEqualTo(PlaylistSyncConsumer.JOB_TYPE);
         assertThat(event.jobName()).isEqualTo(PlaylistSyncConsumer.JOB_NAME);
-        assertThat(event.correlationId()).isEqualTo(sourceRecordId.toString());
+        assertThat(event.correlationId()).isEqualTo(rawVideoId.toString());
         assertThat(event.status()).isEqualTo("failed");
         assertThat(event.error()).hasMessage("playlist sync failed");
         assertThat(event.error()).isNotSameAs(failure);
@@ -73,7 +73,7 @@ class PlaylistSyncConsumerTest {
         return new Message(new byte[0], new MessageProperties());
     }
 
-    private static PlaylistSyncMessage message(UUID sourceRecordId) {
-        return new PlaylistSyncMessage(sourceRecordId, "source-hash", "data-hash", List.of());
+    private static PlaylistSyncMessage message(UUID rawVideoId) {
+        return new PlaylistSyncMessage(rawVideoId, "source-hash", "data-hash", List.of());
     }
 }

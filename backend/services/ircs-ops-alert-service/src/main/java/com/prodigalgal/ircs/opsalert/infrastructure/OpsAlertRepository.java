@@ -75,7 +75,7 @@ public class OpsAlertRepository {
 
     public AlertEvent insertEvent(AlertEvent event) {
         jdbcTemplate.update("""
-                insert into operations_alert_events (
+                insert into ops_alert_events (
                     id, created_at, observed_at, source, event_type, severity, resource_type, resource_name,
                     fingerprint, summary, details_json
                 ) values (
@@ -94,7 +94,7 @@ public class OpsAlertRepository {
                 select id, created_at, updated_at, version, fingerprint, status, severity, title, source,
                        resource_type, resource_name, first_seen_at, last_seen_at, recovered_at,
                        occurrence_count, last_reason, last_event_id
-                  from operations_incidents
+                  from ops_incidents
                  where fingerprint = :fingerprint and status <> :recoveredStatus
                  order by last_seen_at desc, id desc
                  limit 1
@@ -122,7 +122,7 @@ public class OpsAlertRepository {
                 event.summary(),
                 event.id());
         jdbcTemplate.update("""
-                insert into operations_incidents (
+                insert into ops_incidents (
                     id, created_at, updated_at, version, fingerprint, status, severity, title, source,
                     resource_type, resource_name, first_seen_at, last_seen_at, recovered_at,
                     occurrence_count, last_reason, last_event_id
@@ -156,7 +156,7 @@ public class OpsAlertRepository {
                 event.summary(),
                 event.id());
         jdbcTemplate.update("""
-                update operations_incidents
+                update ops_incidents
                    set updated_at = :updatedAt,
                        version = :version,
                        severity = :severity,
@@ -184,7 +184,7 @@ public class OpsAlertRepository {
                 now,
                 now);
         jdbcTemplate.update("""
-                insert into operations_remediation_actions (
+                insert into ops_healing_actions (
                     id, incident_id, created_at, updated_at, policy_key, playbook_key, dry_run, status,
                     request_payload, result_payload, started_at, finished_at
                 ) values (
@@ -200,7 +200,7 @@ public class OpsAlertRepository {
         String sql = """
                 select id, created_at, observed_at, source, event_type, severity, resource_type,
                        resource_name, fingerprint, summary, details_json
-                   from operations_alert_events
+                   from ops_alert_events
                 """ + parts.where() + JdbcPageSorts.orderBy(pageable, EVENT_SORT_COLUMNS, DEFAULT_EVENT_ORDER)
                 + " limit :limit offset :offset";
         parts.params().addValue("limit", pageable.getPageSize());
@@ -210,7 +210,7 @@ public class OpsAlertRepository {
                 parts,
                 pageable,
                 content.size(),
-                "select count(*) from operations_alert_events" + parts.where());
+                "select count(*) from ops_alert_events" + parts.where());
         return new PageImpl<>(content, pageable, total);
     }
 
@@ -220,7 +220,7 @@ public class OpsAlertRepository {
                 select id, created_at, updated_at, version, fingerprint, status, severity, title, source,
                        resource_type, resource_name, first_seen_at, last_seen_at, recovered_at,
                        occurrence_count, last_reason, last_event_id
-                  from operations_incidents
+                  from ops_incidents
                 """ + parts.where() + JdbcPageSorts.orderBy(pageable, INCIDENT_SORT_COLUMNS, DEFAULT_INCIDENT_ORDER)
                 + " limit :limit offset :offset";
         parts.params().addValue("limit", pageable.getPageSize());
@@ -230,7 +230,7 @@ public class OpsAlertRepository {
                 parts,
                 pageable,
                 content.size(),
-                "select count(*) from operations_incidents" + parts.where());
+                "select count(*) from ops_incidents" + parts.where());
         return new PageImpl<>(content, pageable, total);
     }
 
@@ -239,7 +239,7 @@ public class OpsAlertRepository {
         String sql = """
                 select id, incident_id, created_at, updated_at, policy_key, playbook_key, dry_run, status,
                        request_payload, result_payload, started_at, finished_at
-                   from operations_remediation_actions
+                   from ops_healing_actions
                 """ + parts.where() + JdbcPageSorts.orderBy(pageable, ACTION_SORT_COLUMNS, DEFAULT_ACTION_ORDER)
                 + " limit :limit offset :offset";
         parts.params().addValue("limit", pageable.getPageSize());
@@ -249,7 +249,7 @@ public class OpsAlertRepository {
                 parts,
                 pageable,
                 content.size(),
-                "select count(*) from operations_remediation_actions" + parts.where());
+                "select count(*) from ops_healing_actions" + parts.where());
         return new PageImpl<>(content, pageable, total);
     }
 

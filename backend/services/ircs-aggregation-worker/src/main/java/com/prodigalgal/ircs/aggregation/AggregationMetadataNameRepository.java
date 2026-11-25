@@ -38,51 +38,51 @@ final class AggregationMetadataNameRepository {
         this.objectMapper = objectMapper;
     }
 
-    SourceRecordAggregationRecord populateRawMetadata(SourceRecordAggregationRecord sourceRecord) {
-        Map<UUID, Set<String>> actors = findRawActorNames(Set.of(sourceRecord.id()));
-        Map<UUID, Set<String>> directors = findRawDirectorNames(Set.of(sourceRecord.id()));
-        Map<UUID, Set<String>> areas = findRawAreaNames(Set.of(sourceRecord.id()));
-        return sourceRecord.withMetadata(
-                actors.getOrDefault(sourceRecord.id(), Set.of()),
-                directors.getOrDefault(sourceRecord.id(), Set.of()),
-                areas.getOrDefault(sourceRecord.id(), Set.of()));
+    RawVideoAggregationRecord populateRawMetadata(RawVideoAggregationRecord rawVideo) {
+        Map<UUID, Set<String>> actors = findRawActorNames(Set.of(rawVideo.id()));
+        Map<UUID, Set<String>> directors = findRawDirectorNames(Set.of(rawVideo.id()));
+        Map<UUID, Set<String>> areas = findRawAreaNames(Set.of(rawVideo.id()));
+        return rawVideo.withMetadata(
+                actors.getOrDefault(rawVideo.id(), Set.of()),
+                directors.getOrDefault(rawVideo.id(), Set.of()),
+                areas.getOrDefault(rawVideo.id(), Set.of()));
     }
 
-    List<SourceRecordAggregationRecord> populateRawMetadata(List<SourceRecordAggregationRecord> sourceRecords) {
-        if (sourceRecords == null || sourceRecords.isEmpty()) {
+    List<RawVideoAggregationRecord> populateRawMetadata(List<RawVideoAggregationRecord> rawVideos) {
+        if (rawVideos == null || rawVideos.isEmpty()) {
             return List.of();
         }
         Set<UUID> ids = new HashSet<>();
-        for (SourceRecordAggregationRecord sourceRecord : sourceRecords) {
-            ids.add(sourceRecord.id());
+        for (RawVideoAggregationRecord rawVideo : rawVideos) {
+            ids.add(rawVideo.id());
         }
         Map<UUID, Set<String>> actors = findRawActorNames(ids);
         Map<UUID, Set<String>> directors = findRawDirectorNames(ids);
         Map<UUID, Set<String>> areas = findRawAreaNames(ids);
-        List<SourceRecordAggregationRecord> result = new ArrayList<>(sourceRecords.size());
-        for (SourceRecordAggregationRecord sourceRecord : sourceRecords) {
-            result.add(sourceRecord.withMetadata(
-                    actors.getOrDefault(sourceRecord.id(), Set.of()),
-                    directors.getOrDefault(sourceRecord.id(), Set.of()),
-                    areas.getOrDefault(sourceRecord.id(), Set.of())));
+        List<RawVideoAggregationRecord> result = new ArrayList<>(rawVideos.size());
+        for (RawVideoAggregationRecord rawVideo : rawVideos) {
+            result.add(rawVideo.withMetadata(
+                    actors.getOrDefault(rawVideo.id(), Set.of()),
+                    directors.getOrDefault(rawVideo.id(), Set.of()),
+                    areas.getOrDefault(rawVideo.id(), Set.of())));
         }
         return List.copyOf(result);
     }
 
-    List<CatalogEntryAggregationCandidate> populateUnifiedMetadata(
-            List<CatalogEntryAggregationCandidate> candidates) {
+    List<UnifiedVideoAggregationCandidate> populateUnifiedMetadata(
+            List<UnifiedVideoAggregationCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) {
             return List.of();
         }
         Set<UUID> ids = new HashSet<>();
-        for (CatalogEntryAggregationCandidate candidate : candidates) {
+        for (UnifiedVideoAggregationCandidate candidate : candidates) {
             ids.add(candidate.id());
         }
         Map<UUID, Set<String>> actors = findUnifiedActorNames(ids);
         Map<UUID, Set<String>> directors = findUnifiedDirectorNames(ids);
         Map<UUID, Set<String>> areas = findUnifiedAreaNames(ids);
-        List<CatalogEntryAggregationCandidate> result = new ArrayList<>(candidates.size());
-        for (CatalogEntryAggregationCandidate candidate : candidates) {
+        List<UnifiedVideoAggregationCandidate> result = new ArrayList<>(candidates.size());
+        for (UnifiedVideoAggregationCandidate candidate : candidates) {
             result.add(candidate.withMetadata(
                     actors.getOrDefault(candidate.id(), Set.of()),
                     directors.getOrDefault(candidate.id(), Set.of()),
@@ -91,8 +91,8 @@ final class AggregationMetadataNameRepository {
         return List.copyOf(result);
     }
 
-    CatalogEntryAggregationCandidate withFlatMetadata(
-            CatalogEntryAggregationCandidate candidate,
+    UnifiedVideoAggregationCandidate withFlatMetadata(
+            UnifiedVideoAggregationCandidate candidate,
             String actorsJson,
             String directorsJson,
             String areasJson) {
@@ -123,7 +123,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryRawActorNames(Collection<UUID> ids) {
-        return queryFlatNameSetById("source_records", "id", "actor_names", ids);
+        return queryFlatNameSetById("raw_videos", "id", "actor_names", ids);
     }
 
     private Map<UUID, Set<String>> findRawDirectorNames(Collection<UUID> ids) {
@@ -135,7 +135,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryRawDirectorNames(Collection<UUID> ids) {
-        return queryFlatNameSetById("source_records", "id", "director_names", ids);
+        return queryFlatNameSetById("raw_videos", "id", "director_names", ids);
     }
 
     private Map<UUID, Set<String>> findRawAreaNames(Collection<UUID> ids) {
@@ -147,7 +147,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryRawAreaNames(Collection<UUID> ids) {
-        return queryFlatNameSetById("source_records", "id", "area_codes", ids);
+        return queryFlatNameSetById("raw_videos", "id", "area_codes", ids);
     }
 
     private Map<UUID, Set<String>> findUnifiedActorNames(Collection<UUID> ids) {
@@ -159,7 +159,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryUnifiedActorNames(Collection<UUID> ids) {
-        return queryFlatNameSetById("catalog_entries", "id", "actor_names", ids);
+        return queryFlatNameSetById("unified_videos", "id", "actor_names", ids);
     }
 
     private Map<UUID, Set<String>> findUnifiedDirectorNames(Collection<UUID> ids) {
@@ -171,7 +171,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryUnifiedDirectorNames(Collection<UUID> ids) {
-        return queryFlatNameSetById("catalog_entries", "id", "director_names", ids);
+        return queryFlatNameSetById("unified_videos", "id", "director_names", ids);
     }
 
     private Map<UUID, Set<String>> findUnifiedAreaNames(Collection<UUID> ids) {
@@ -183,7 +183,7 @@ final class AggregationMetadataNameRepository {
     }
 
     private Map<UUID, Set<String>> queryUnifiedAreaNames(Collection<UUID> ids) {
-        return queryFlatNameSetById("catalog_entries", "id", "area_codes", ids);
+        return queryFlatNameSetById("unified_videos", "id", "area_codes", ids);
     }
 
     private Map<UUID, Set<String>> cachedNameSetById(

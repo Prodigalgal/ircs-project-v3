@@ -12,9 +12,9 @@ import com.prodigalgal.ircs.common.work.RuntimeWorkItemRequest;
 import com.prodigalgal.ircs.common.work.RuntimeWorkQueue;
 import com.prodigalgal.ircs.contracts.metadata.ProviderType;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
-import com.prodigalgal.ircs.metadata.dispatch.domain.SourceRecordEnrichmentRecord;
+import com.prodigalgal.ircs.metadata.dispatch.domain.RawVideoEnrichmentRecord;
 import com.prodigalgal.ircs.metadata.dispatch.dto.MetadataDispatchResult;
-import com.prodigalgal.ircs.metadata.dispatch.infrastructure.SourceRecordEnrichmentRepository;
+import com.prodigalgal.ircs.metadata.dispatch.infrastructure.RawVideoEnrichmentRepository;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataProviderTaskPublisher;
 import com.prodigalgal.ircs.metadata.pipeline.MetadataPipelineRunRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
@@ -37,7 +37,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class MetadataDispatchServiceTest {
 
     @Mock
-    private SourceRecordEnrichmentRepository repository;
+    private RawVideoEnrichmentRepository repository;
 
     @Mock
     private MetadataPipelineRunRepository pipelineRunRepository;
@@ -88,7 +88,7 @@ class MetadataDispatchServiceTest {
     @Test
     void terminalDispatchRetryRepublishesIdempotentDownstreamHandoffs() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord raw = record(id);
+        RawVideoEnrichmentRecord raw = record(id);
         raw.setEnrichmentStatus("SUCCESS");
         raw.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(raw));
@@ -108,7 +108,7 @@ class MetadataDispatchServiceTest {
     @Test
     void finalizesImmediatelyWhenAuthoritativeIdExists() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(record));
         when(repository.updateStatus(id, "hash-v1", "SUCCESS", 0)).thenReturn(1);
@@ -125,7 +125,7 @@ class MetadataDispatchServiceTest {
     @Test
     void dispatchesEnabledMissingProvidersToValkeyTasks() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(record));
         when(pipelineRunRepository.prepareDispatch(id, "hash-v1", List.of(ProviderType.TMDB)))
                 .thenReturn(List.of(ProviderType.TMDB));
@@ -152,7 +152,7 @@ class MetadataDispatchServiceTest {
     @Test
     void fanOutUsesProviderConfigAndPublishesProviderTasksThroughValkey() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         when(repository.findById(id)).thenReturn(Optional.of(record));
         RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         MetadataProviderTaskPublisher publisher = new MetadataProviderTaskPublisher(workQueue, new ObjectMapper());
@@ -195,7 +195,7 @@ class MetadataDispatchServiceTest {
     @Test
     void skipsProviderWhenAuthoritativeProviderIdAlreadyExists() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(record));
         RuntimeWorkQueue workQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
@@ -231,7 +231,7 @@ class MetadataDispatchServiceTest {
     @Test
     void noAvailableProviderEndsWithoutMeaninglessRetry() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setEnrichmentRetryCount(2);
         when(repository.findById(id)).thenReturn(Optional.of(record));
         when(repository.updateStatus(id, "hash-v1", "PERMANENT_FAILURE", 0)).thenReturn(1);
@@ -258,7 +258,7 @@ class MetadataDispatchServiceTest {
     @ValueSource(strings = {"sports", "adult", "other"})
     void sourceOnlyCategoriesDoNotFanOutEvenWhenAllFilmProvidersAreEnabled(String category) {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setCategorySlug(category);
         record.setTmdbId("0");
         when(repository.findById(id)).thenReturn(Optional.of(record));
@@ -278,7 +278,7 @@ class MetadataDispatchServiceTest {
     @Test
     void shortDramaOnlyDispatchesDoubanAndTmdbAndIncludesCompleteTitleInContext() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setCategorySlug("short-drama");
         record.setTitle("被家族抛弃");
         record.setSubtitle("我觉醒九亿属性点");
@@ -301,7 +301,7 @@ class MetadataDispatchServiceTest {
     @Test
     void placeholderIdDoesNotSkipProviderAndContextContainsCanonicalIdsOnly() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("0");
         record.setDoubanId("00123");
         record.setImdbId(" TT1234567 ");
@@ -323,7 +323,7 @@ class MetadataDispatchServiceTest {
     @Test
     void immediateStatusCasFailureDoesNotPublishAnyDownstreamWork() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setTmdbId("101");
         when(repository.findById(id)).thenReturn(Optional.of(record));
         when(repository.updateStatus(id, "hash-v1", "SUCCESS", 0)).thenReturn(0);
@@ -337,7 +337,7 @@ class MetadataDispatchServiceTest {
     @Test
     void historicalSuccessWithOnlyZeroIdIsReclassifiedInsteadOfRepublishingFalseSuccess() {
         UUID id = UUID.randomUUID();
-        SourceRecordEnrichmentRecord record = record(id);
+        RawVideoEnrichmentRecord record = record(id);
         record.setEnrichmentStatus("SUCCESS");
         record.setTmdbId("0");
         when(repository.findById(id)).thenReturn(Optional.of(record));
@@ -364,8 +364,8 @@ class MetadataDispatchServiceTest {
                 resultCollector);
     }
 
-    private SourceRecordEnrichmentRecord record(UUID id) {
-        return new SourceRecordEnrichmentRecord(
+    private RawVideoEnrichmentRecord record(UUID id) {
+        return new RawVideoEnrichmentRecord(
                 id,
                 "title",
                 null,

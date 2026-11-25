@@ -17,22 +17,22 @@ import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 class NormalizationPreviewTest {
-    private final SourceRecordNormalizationRepository repository = mock(SourceRecordNormalizationRepository.class);
+    private final RawVideoNormalizationRepository repository = mock(RawVideoNormalizationRepository.class);
     private final RawSearchSyncPublisher search = mock(RawSearchSyncPublisher.class);
     private final MetadataEnrichPublisher metadata = mock(MetadataEnrichPublisher.class);
     private final com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher aggregation =
             mock(com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher.class);
     private final NormalizeVideoPublisher normalize = mock(NormalizeVideoPublisher.class);
     private final ObjectMapper mapper = new ObjectMapper();
-    private final SourceRecordNormalizationService service = new SourceRecordNormalizationService(repository,
-            new SourceRecordTextNormalizer(mapper, new DescriptionMetadataExtractor(), new RawRelationAliasPolicy()),
+    private final RawVideoNormalizationService service = new RawVideoNormalizationService(repository,
+            new RawVideoTextNormalizer(mapper, new DescriptionMetadataExtractor(), new RawRelationAliasPolicy()),
             search, metadata, aggregation, normalize, mapper, mock(NormalizationConfigValues.class));
 
     @Test
     void previewsUseTheRealNormalizerWithoutAnyPersistenceOrQueueOperation() {
         UUID id = UUID.randomUUID();
         String raw = "{\"title\":\"资源记录(2)\",\"actorNames\":[\"罗予彤＆孙乾钊\"]}";
-        when(repository.findById(id)).thenReturn(Optional.of(new SourceRecordRecord(id, "READY", 0, raw, "[]",
+        when(repository.findById(id)).thenReturn(Optional.of(new RawVideoRecord(id, "READY", 0, raw, "[]",
                 "资源记录(2)", null, null, null, null, "2026", null, null, null, null, null, null,
                 null, null, null, null, null, "source-hash", "other", null)));
         NormalizationPreviewResult preview = service.preview(List.of(id)).getFirst();

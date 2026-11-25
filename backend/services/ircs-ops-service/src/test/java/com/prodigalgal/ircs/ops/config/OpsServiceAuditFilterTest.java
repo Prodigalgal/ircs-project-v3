@@ -83,7 +83,7 @@ class OpsServiceAuditFilterTest {
         var rows = jdbcTemplate.queryForList("""
                 select request_source, username, method, path, query_string, status_code, success,
                        client_ip, user_agent, trace_id, error_message
-                  from http_request_audit_events
+                  from request_audit_logs
                 """);
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst())
@@ -134,7 +134,7 @@ class OpsServiceAuditFilterTest {
                 .andExpect(status().isOk());
 
         verify(requestAuditQueryService).summarize();
-        Integer rowCount = jdbcTemplate.queryForObject("select count(*) from http_request_audit_events", Integer.class);
+        Integer rowCount = jdbcTemplate.queryForObject("select count(*) from request_audit_logs", Integer.class);
         assertThat(rowCount).isZero();
     }
 
@@ -142,7 +142,7 @@ class OpsServiceAuditFilterTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table http_request_audit_events (
+                    create table request_audit_logs (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

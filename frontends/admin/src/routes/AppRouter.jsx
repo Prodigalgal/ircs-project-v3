@@ -10,7 +10,7 @@ const DataSourceListPage = lazy(() => import('../features/data-sources/DataSourc
 const CollectionTaskList = lazy(() => import('../features/collection-tasks/CollectionTaskList'));
 const VideoList = lazy(() => import('../features/videos/VideoList'));
 const CategoryList = lazy(() => import('../features/categories/CategoryList'));
-const CatalogEntryList = lazy(() => import('../features/unified-videos/CatalogEntryList'));
+const UnifiedVideoList = lazy(() => import('../features/unified-videos/UnifiedVideoList'));
 const MagnetResourceList = lazy(() => import('../features/magnets/MagnetResourceList.jsx'));
 const PlaylistList = lazy(() => import('../features/playlists/PlaylistList'));
 const CoverImageList = lazy(() => import('../features/images/CoverImageList'));
@@ -59,7 +59,7 @@ function AppRouter() {
                             <Route path="collection-tasks" element={<CollectionTaskList />} />
                             <Route path="videos" element={<VideoList />} />
 
-                            <Route path="content/unified-videos" element={<CatalogEntryList />} />
+                            <Route path="content/unified-videos" element={<UnifiedVideoList />} />
                             <Route path="content/magnets" element={<MagnetResourceList />} />
                             <Route path="content/categories" element={<CategoryList />} />
                             <Route path="content/genres" element={<GenreList />} />

@@ -13,17 +13,17 @@ public class AggregationSearchSyncPublisher {
 
     private final SearchSyncWorkPublisher searchSyncWorkPublisher;
 
-    public void publishRawIndex(UUID sourceRecordId) {
-        if (DeferredAdultAssessments.deferIndex("raw:" + sourceRecordId, () -> publishRawIndex(sourceRecordId))) { return; }
-        searchSyncWorkPublisher.enqueue(sourceRecordId, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX);
+    public void publishRawIndex(UUID rawVideoId) {
+        if (DeferredAdultAssessments.deferIndex("raw:" + rawVideoId, () -> publishRawIndex(rawVideoId))) { return; }
+        searchSyncWorkPublisher.enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
     }
 
-    public void publishUnifiedIndex(UUID catalogEntryId) {
-        if (DeferredAdultAssessments.deferIndex("unified:" + catalogEntryId, () -> publishUnifiedIndex(catalogEntryId))) { return; }
-        searchSyncWorkPublisher.enqueue(catalogEntryId, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
+    public void publishUnifiedIndex(UUID unifiedVideoId) {
+        if (DeferredAdultAssessments.deferIndex("unified:" + unifiedVideoId, () -> publishUnifiedIndex(unifiedVideoId))) { return; }
+        searchSyncWorkPublisher.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
     }
 
-    public void publishUnifiedDelete(UUID catalogEntryId) {
-        searchSyncWorkPublisher.enqueue(catalogEntryId, SearchEntityType.CATALOG_ENTRY, SyncOperation.DELETE);
+    public void publishUnifiedDelete(UUID unifiedVideoId) {
+        searchSyncWorkPublisher.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.DELETE);
     }
 }

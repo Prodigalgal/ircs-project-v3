@@ -34,26 +34,26 @@ public class AggregationWorkPublisher {
         this.defaultSourceService = normalize(defaultSourceService, SOURCE_LIMIT);
     }
 
-    public void enqueue(UUID sourceRecordId, String pipelineVersion, String reason) {
-        enqueue(sourceRecordId, pipelineVersion, defaultSourceService, reason);
+    public void enqueue(UUID rawVideoId, String pipelineVersion, String reason) {
+        enqueue(rawVideoId, pipelineVersion, defaultSourceService, reason);
     }
 
-    public void enqueue(UUID sourceRecordId, String pipelineVersion, String sourceService, String reason) {
-        if (sourceRecordId == null) {
+    public void enqueue(UUID rawVideoId, String pipelineVersion, String sourceService, String reason) {
+        if (rawVideoId == null) {
             return;
         }
         AggregationWorkPayload payload = new AggregationWorkPayload(
-                sourceRecordId,
+                rawVideoId,
                 normalize(pipelineVersion, 256),
                 normalize(StringUtils.hasText(sourceService) ? sourceService : defaultSourceService, SOURCE_LIMIT),
                 normalize(reason, REASON_LIMIT));
         workQueue.submitAfterCommit(new RuntimeWorkItemRequest(
-                AggregationWorkTypes.SOURCE_RECORD,
-                AggregationWorkTypes.taskId(sourceRecordId),
-                sourceRecordId.toString(),
+                AggregationWorkTypes.RAW_VIDEO,
+                AggregationWorkTypes.taskId(rawVideoId),
+                rawVideoId.toString(),
                 payload.pipelineVersion(),
                 serialize(payload)));
-        log.debug("Enqueued aggregation runtime work: sourceRecordId={}, reason={}", sourceRecordId, payload.reason());
+        log.debug("Enqueued aggregation runtime work: rawVideoId={}, reason={}", rawVideoId, payload.reason());
     }
 
     private String serialize(AggregationWorkPayload payload) {

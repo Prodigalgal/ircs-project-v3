@@ -14,12 +14,12 @@ import org.springframework.stereotype.Component;
 public class ImageDeletionConsumer {
 
     private final StorageUuidMessageParser messageParser;
-    private final CoverImageMetadataDeletionService deletionService;
+    private final CoverImagePhysicalDeletionService deletionService;
 
     @RabbitListener(queues = QueueTopic.Names.STORAGE_Q_DELETE)
     public void onMessage(Message message) {
         UUID imageId = messageParser.parse(message);
-        log.debug("Processing unlinked cover image: {}", imageId);
+        log.info("Processing cover image physical deletion: {}", imageId);
         deletionService.delete(imageId);
     }
 }

@@ -19,7 +19,7 @@ public class JdbcFeedbackRepository {
         return jdbcTemplate.queryForObject(
                 """
                 with inserted as (
-                    insert into member_feedback_posts (
+                    insert into user_messages (
                         id,
                         created_at,
                         updated_at,
@@ -29,7 +29,7 @@ public class JdbcFeedbackRepository {
                         status,
                         is_public
                     ) values (?, ?, ?, 0, ?, ?, 'PENDING', false)
-                    returning id, member_id, content, status, is_public, created_at, updated_at
+                    returning id, member_id, content, reply, status, is_public, created_at, updated_at
                 )
                 select inserted.id,
                        inserted.member_id,
@@ -37,13 +37,13 @@ public class JdbcFeedbackRepository {
                        m.email as member_email,
                        m.avatar_url as member_avatar_url,
                        inserted.content,
-                       cast(null as text) as reply,
+                       inserted.reply,
                        inserted.status,
                        inserted.is_public,
                        inserted.created_at,
                        inserted.updated_at
                 from inserted
-                join member_accounts m on m.id = inserted.member_id
+                join members m on m.id = inserted.member_id
                 """,
                 userMessageMapper(),
                 id,
@@ -54,7 +54,7 @@ public class JdbcFeedbackRepository {
     }
 
     public PageResponse<UserMessageResponse> findMemberMessages(UUID memberId, PageBounds bounds) {
-        long total = count("select count(*) from member_feedback_posts where member_id = ? and deleted_at is null", memberId);
+        long total = count("select count(*) from user_messages where member_id = ?", memberId);
         List<UserMessageResponse> content = jdbcTemplate.query(
                 """
                 select um.id,
@@ -63,18 +63,14 @@ public class JdbcFeedbackRepository {
                        m.email as member_email,
                        m.avatar_url as member_avatar_url,
                        um.content,
-                       reply.content as reply,
+                       um.reply,
                        um.status,
                        um.is_public,
                        um.created_at,
                        um.updated_at
-                from member_feedback_posts um
-                join member_accounts m on m.id = um.member_id
-                left join lateral (
-                    select content from member_feedback_replies where feedback_post_id = um.id
-                    order by created_at desc, id desc limit 1
-                ) reply on true
-                where um.member_id = ? and um.deleted_at is null
+                from user_messages um
+                join members m on m.id = um.member_id
+                where um.member_id = ?
                 order by um.created_at desc, um.id asc
                 limit ? offset ?
                 """,
@@ -87,7 +83,7 @@ public class JdbcFeedbackRepository {
 
     public long countMemberMessagesCreatedBetween(UUID memberId, Instant startInclusive, Instant endExclusive) {
         return count(
-                "select count(*) from member_feedback_posts where member_id = ? and created_at >= ? and created_at < ?",
+                "select count(*) from user_messages where member_id = ? and created_at >= ? and created_at < ?",
                 memberId,
                 Timestamp.from(startInclusive),
                 Timestamp.from(endExclusive));
@@ -95,8 +91,7 @@ public class JdbcFeedbackRepository {
 
     public int deleteMemberMessage(UUID memberId, UUID messageId) {
         return jdbcTemplate.update(
-                "update member_feedback_posts set deleted_at = now(), updated_at = now(), version = coalesce(version, 0) + 1 "
-                        + "where member_id = ? and id = ? and deleted_at is null",
+                "delete from user_messages where member_id = ? and id = ?",
                 memberId,
                 messageId);
     }

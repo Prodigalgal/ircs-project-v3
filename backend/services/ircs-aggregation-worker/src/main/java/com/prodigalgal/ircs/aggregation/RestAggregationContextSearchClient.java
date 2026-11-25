@@ -34,7 +34,7 @@ class RestAggregationContextSearchClient implements AggregationContextSearchClie
     }
 
     @Override
-    public ContextSearchResult findCandidateCatalogEntryIds(String title, String year) {
+    public ContextSearchResult findCandidateUnifiedVideoIds(String title, String year) {
         if (!enabled || !StringUtils.hasText(title)) {
             return ContextSearchResult.notAttempted();
         }

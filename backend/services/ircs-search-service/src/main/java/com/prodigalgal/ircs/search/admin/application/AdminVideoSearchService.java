@@ -10,8 +10,8 @@ import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchRequest;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchResult;
-import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
-import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
+import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -41,17 +41,17 @@ public class AdminVideoSearchService {
 
     public AdminVideoSearchResult searchRawIds(AdminVideoSearchRequest request) {
         Instant started = Instant.now();
-        SearchHits<SourceRecordSearchDocument> hits = elasticsearchOperations.search(
+        SearchHits<RawVideoSearchDocument> hits = elasticsearchOperations.search(
                 rawQuery(request),
-                SourceRecordSearchDocument.class);
+                RawVideoSearchDocument.class);
         return toResult(rawIds(hits), hits, started);
     }
 
     public AdminVideoSearchResult searchUnifiedIds(AdminVideoSearchRequest request) {
         Instant started = Instant.now();
-        SearchHits<CatalogEntrySearchDocument> hits = elasticsearchOperations.search(
+        SearchHits<UnifiedVideoSearchDocument> hits = elasticsearchOperations.search(
                 unifiedQuery(request),
-                CatalogEntrySearchDocument.class);
+                UnifiedVideoSearchDocument.class);
         return toResult(unifiedIds(hits), hits, started);
     }
 
@@ -211,21 +211,21 @@ public class AdminVideoSearchService {
         };
     }
 
-    private List<UUID> rawIds(SearchHits<SourceRecordSearchDocument> hits) {
+    private List<UUID> rawIds(SearchHits<RawVideoSearchDocument> hits) {
         LinkedHashSet<UUID> ids = new LinkedHashSet<>();
         hits.stream()
                 .map(SearchHit::getContent)
-                .map(SourceRecordSearchDocument::getId)
+                .map(RawVideoSearchDocument::getId)
                 .filter(java.util.Objects::nonNull)
                 .forEach(ids::add);
         return new ArrayList<>(ids);
     }
 
-    private List<UUID> unifiedIds(SearchHits<CatalogEntrySearchDocument> hits) {
+    private List<UUID> unifiedIds(SearchHits<UnifiedVideoSearchDocument> hits) {
         LinkedHashSet<UUID> ids = new LinkedHashSet<>();
         hits.stream()
                 .map(SearchHit::getContent)
-                .map(CatalogEntrySearchDocument::getId)
+                .map(UnifiedVideoSearchDocument::getId)
                 .filter(java.util.Objects::nonNull)
                 .forEach(ids::add);
         return new ArrayList<>(ids);

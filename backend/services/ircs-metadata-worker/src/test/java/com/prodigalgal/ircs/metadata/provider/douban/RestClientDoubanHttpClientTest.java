@@ -106,21 +106,6 @@ class RestClientDoubanHttpClientTest {
     }
 
     @Test
-    void publicPageRequestsHaveNoCookiesAndBackOffWithoutAnInlineRetry() {
-        URI subject = URI.create("https://movie.douban.com/subject/26266893/");
-        transport.enqueue(response(429, "rate"));
-
-        assertThatThrownBy(() -> client.getPublicPage(subject, "text/html"))
-                .isInstanceOf(MetadataProviderRetryableException.class)
-                .extracting("errorCode").isEqualTo("RATE_LIMITED");
-
-        assertThat(transport.requests).hasSize(1);
-        assertThat(transport.requests.getFirst().headers())
-                .containsEntry("Accept", "text/html")
-                .doesNotContainKey("Cookie");
-    }
-
-    @Test
     void blocksPrivateDoubanUrlBeforeTransport() {
         resolver.address = "169.254.169.254";
 

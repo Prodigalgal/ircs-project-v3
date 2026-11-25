@@ -92,9 +92,9 @@ class PortalStandardNameCache {
     }
 
     private enum Dictionary {
-        GENRE("catalog_genres", "genre"),
-        AREA("catalog_regions", "area"),
-        LANGUAGE("catalog_languages", "language");
+        GENRE("standard_genre", "genre"),
+        AREA("standard_areas", "area"),
+        LANGUAGE("standard_languages", "language");
 
         private final String tableName;
         private final String externalKey;

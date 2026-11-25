@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -42,36 +41,18 @@ public class MediaRequestCommandService {
         Integer releaseYear = normalizeYear(request.releaseYear());
         String extraInfo = cleanOptionalText(request.extraInfo(), MAX_EXTRA_LENGTH);
 
-        pointLedger.lockMember(memberId);
-        UUID clientRequestId = request.clientRequestId();
-        if (clientRequestId != null) {
-            Optional<MediaRequestResponse> existing = repository.findMemberSubmission(memberId, clientRequestId);
-            if (existing.isPresent()) {
-                MediaRequestResponse prior = existing.get();
-                if (!prior.title().equals(title) || !Objects.equals(prior.releaseYear(), releaseYear)
-                        || !Objects.equals(prior.extraInfo(), extraInfo)) {
-                    throw new ApiException(HttpStatus.CONFLICT, "该求片提交标识已用于不同请求");
-                }
-                return prior;
-            }
-        }
-
-        Instant now = Instant.now();
-        checkDailyLimit(memberId, now);
+        checkDailyLimit(memberId);
         int cost = pointCost();
-        MediaRequestResponse submitted = repository.submit(
-                IrcsUuidGenerators.nextId(),
+        pointLedger.spend(memberId, cost, "MEDIA_REQUEST");
+        return repository.upsert(
                 IrcsUuidGenerators.nextId(),
                 memberId,
                 title,
                 normalizedTitle,
                 releaseYear,
                 extraInfo,
-                clientRequestId,
-                now,
+                Instant.now(),
                 cost);
-        pointLedger.spend(memberId, cost, "MEDIA_REQUEST", submitted.id());
-        return submitted;
     }
 
     @Transactional(readOnly = true)
@@ -79,12 +60,12 @@ public class MediaRequestCommandService {
         return repository.findMemberRequests(memberId, bounds);
     }
 
-    private void checkDailyLimit(UUID memberId, Instant now) {
+    private void checkDailyLimit(UUID memberId) {
         int limit = dailyLimit();
         if (limit <= 0) {
             return;
         }
-        LocalDate today = now.atZone(DAILY_LIMIT_ZONE).toLocalDate();
+        LocalDate today = LocalDate.now(DAILY_LIMIT_ZONE);
         Instant startOfDay = today.atStartOfDay(DAILY_LIMIT_ZONE).toInstant();
         Instant endOfDay = today.plusDays(1).atStartOfDay(DAILY_LIMIT_ZONE).toInstant();
         long count = repository.countMemberRequestsCreatedBetween(memberId, startOfDay, endOfDay);

@@ -13,68 +13,68 @@ import org.springframework.jdbc.core.RowMapper;
 class CoverImageReferenceRepositoryTest {
 
     @Test
-    void findsSourceRecordIdsByCoverImageId() {
+    void findsRawVideoIdsByCoverImageId() {
         JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
         UUID id = UUID.randomUUID();
         UUID rawId = UUID.randomUUID();
         when(jdbcTemplate.query(
-                org.mockito.Mockito.eq("select id from source_records where media_image_source_id = ?"),
+                org.mockito.Mockito.eq("select id from raw_videos where cover_image_id = ?"),
                 org.mockito.Mockito.<RowMapper<UUID>>any(),
                 org.mockito.Mockito.eq(id)))
                 .thenReturn(List.of(rawId));
 
-        List<UUID> ids = new CoverImageReferenceRepository(jdbcTemplate).findSourceRecordIds(id);
+        List<UUID> ids = new CoverImageReferenceRepository(jdbcTemplate).findRawVideoIds(id);
 
         assertEquals(List.of(rawId), ids);
         verify(jdbcTemplate).query(
-                org.mockito.Mockito.eq("select id from source_records where media_image_source_id = ?"),
+                org.mockito.Mockito.eq("select id from raw_videos where cover_image_id = ?"),
                 org.mockito.Mockito.<RowMapper<UUID>>any(),
                 org.mockito.Mockito.eq(id));
     }
 
     @Test
-    void findsCatalogEntryIdsByCoverImageId() {
+    void findsUnifiedVideoIdsByCoverImageId() {
         JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
         UUID id = UUID.randomUUID();
         UUID unifiedId = UUID.randomUUID();
         when(jdbcTemplate.query(
-                org.mockito.Mockito.eq("select id from catalog_entries where media_image_source_id = ?"),
+                org.mockito.Mockito.eq("select id from unified_videos where cover_image_id = ?"),
                 org.mockito.Mockito.<RowMapper<UUID>>any(),
                 org.mockito.Mockito.eq(id)))
                 .thenReturn(List.of(unifiedId));
 
-        List<UUID> ids = new CoverImageReferenceRepository(jdbcTemplate).findCatalogEntryIds(id);
+        List<UUID> ids = new CoverImageReferenceRepository(jdbcTemplate).findUnifiedVideoIds(id);
 
         assertEquals(List.of(unifiedId), ids);
         verify(jdbcTemplate).query(
-                org.mockito.Mockito.eq("select id from catalog_entries where media_image_source_id = ?"),
+                org.mockito.Mockito.eq("select id from unified_videos where cover_image_id = ?"),
                 org.mockito.Mockito.<RowMapper<UUID>>any(),
                 org.mockito.Mockito.eq(id));
     }
 
     @Test
-    void unlinksSourceRecordsByCoverImageId() {
+    void unlinksRawVideosByCoverImageId() {
         JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
         UUID id = UUID.randomUUID();
-        when(jdbcTemplate.update("update source_records set media_image_source_id = null where media_image_source_id = ?", id))
+        when(jdbcTemplate.update("update raw_videos set cover_image_id = null where cover_image_id = ?", id))
                 .thenReturn(3);
 
-        int count = new CoverImageReferenceRepository(jdbcTemplate).unlinkSourceRecords(id);
+        int count = new CoverImageReferenceRepository(jdbcTemplate).unlinkRawVideos(id);
 
         assertEquals(3, count);
-        verify(jdbcTemplate).update("update source_records set media_image_source_id = null where media_image_source_id = ?", id);
+        verify(jdbcTemplate).update("update raw_videos set cover_image_id = null where cover_image_id = ?", id);
     }
 
     @Test
-    void unlinksCatalogEntriesByCoverImageId() {
+    void unlinksUnifiedVideosByCoverImageId() {
         JdbcTemplate jdbcTemplate = org.mockito.Mockito.mock(JdbcTemplate.class);
         UUID id = UUID.randomUUID();
-        when(jdbcTemplate.update("update catalog_entries set media_image_source_id = null where media_image_source_id = ?", id))
+        when(jdbcTemplate.update("update unified_videos set cover_image_id = null where cover_image_id = ?", id))
                 .thenReturn(1);
 
-        int count = new CoverImageReferenceRepository(jdbcTemplate).unlinkCatalogEntries(id);
+        int count = new CoverImageReferenceRepository(jdbcTemplate).unlinkUnifiedVideos(id);
 
         assertEquals(1, count);
-        verify(jdbcTemplate).update("update catalog_entries set media_image_source_id = null where media_image_source_id = ?", id);
+        verify(jdbcTemplate).update("update unified_videos set cover_image_id = null where cover_image_id = ?", id);
     }
 }

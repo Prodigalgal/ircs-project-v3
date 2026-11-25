@@ -3,23 +3,23 @@ package com.prodigalgal.ircs.aggregation;
 import java.util.UUID;
 import java.util.List;
 
-public record AggregationResult(UUID sourceRecordId, UUID catalogEntryId, String status, List<UUID> deletedCatalogEntryIds) {
-    public static AggregationResult bound(UUID sourceRecordId, UUID catalogEntryId) {
-        return bound(sourceRecordId, catalogEntryId, List.of());
+public record AggregationResult(UUID rawVideoId, UUID unifiedVideoId, String status, List<UUID> deletedUnifiedVideoIds) {
+    public static AggregationResult bound(UUID rawVideoId, UUID unifiedVideoId) {
+        return bound(rawVideoId, unifiedVideoId, List.of());
     }
 
-    public static AggregationResult bound(UUID sourceRecordId, UUID catalogEntryId, List<UUID> deletedCatalogEntryIds) {
-        return new AggregationResult(sourceRecordId, catalogEntryId, "BOUND", List.copyOf(deletedCatalogEntryIds));
+    public static AggregationResult bound(UUID rawVideoId, UUID unifiedVideoId, List<UUID> deletedUnifiedVideoIds) {
+        return new AggregationResult(rawVideoId, unifiedVideoId, "BOUND", List.copyOf(deletedUnifiedVideoIds));
     }
 
-    public static AggregationResult skipped(UUID sourceRecordId, String status) {
-        return new AggregationResult(sourceRecordId, null, status, List.of());
+    public static AggregationResult skipped(UUID rawVideoId, String status) {
+        return new AggregationResult(rawVideoId, null, status, List.of());
     }
 
     public static AggregationResult pipelineFailed(
-            UUID sourceRecordId,
-            UUID catalogEntryId,
-            List<UUID> deletedCatalogEntryIds) {
-        return new AggregationResult(sourceRecordId, catalogEntryId, "PIPELINE_FAILED", List.copyOf(deletedCatalogEntryIds));
+            UUID rawVideoId,
+            UUID unifiedVideoId,
+            List<UUID> deletedUnifiedVideoIds) {
+        return new AggregationResult(rawVideoId, unifiedVideoId, "PIPELINE_FAILED", List.copyOf(deletedUnifiedVideoIds));
     }
 }

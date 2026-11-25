@@ -2,8 +2,8 @@ package com.prodigalgal.ircs.search.repository;
 
 import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
-import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
-import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
+import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
 import com.prodigalgal.ircs.search.support.CoverImageUrlResolver;
 import com.prodigalgal.ircs.search.support.SearchTextHelper;
 import java.sql.Date;
@@ -31,7 +31,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class SearchDocumentJdbcRepository {
 
-    private static final String SOURCE_RECORD_SQL = """
+    private static final String RAW_VIDEO_SQL = """
             SELECT rv.id,
                    rv.title,
                    rv.alias_title,
@@ -58,7 +58,7 @@ public class SearchDocumentJdbcRepository {
                    cast(rv.language_codes as varchar) AS language_codes,
                    cast(rv.genre_codes as varchar) AS genre_codes,
                    ds.name AS data_source_name,
-                   ds.id AS collection_source_id,
+                   ds.id AS data_source_id,
                    rv.category_code,
                    rv.source_category_code,
                    COALESCE(rv.source_category_name, rv.source_category_code) AS source_category_name,
@@ -70,17 +70,17 @@ public class SearchDocumentJdbcRepository {
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
                    sd.domain_value AS cover_source_domain
-              FROM source_records rv
-              LEFT JOIN collection_sources ds ON rv.collection_source_id = ds.id
-              LEFT JOIN catalog_categories sc ON sc.slug = rv.category_code
-              LEFT JOIN media_image_sources ci ON rv.media_image_source_id = ci.id
-              LEFT JOIN source_origins sd ON ci.source_origin_id = sd.id
+              FROM raw_videos rv
+              LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
+              LEFT JOIN standard_category sc ON sc.slug = rv.category_code
+              LEFT JOIN cover_images ci ON rv.cover_image_id = ci.id
+              LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
              WHERE rv.id = :id
             """;
 
-    private static final String CATALOG_ENTRY_SQL = """
+    private static final String UNIFIED_VIDEO_SQL = """
             SELECT uv.id,
-                   summary.title,
+                   uv.title,
                    uv.alias_title,
                    uv.description,
                    uv.year,
@@ -103,10 +103,10 @@ public class SearchDocumentJdbcRepository {
                    cast(uv.area_codes as varchar) AS area_codes,
                    cast(uv.language_codes as varchar) AS language_codes,
                    cast(uv.genre_codes as varchar) AS genre_codes,
-                   summary.category_code AS category_slug,
+                   uv.category_code AS category_slug,
                    sc.name AS category_name,
                    sc.id AS category_id,
-                   summary.content_visibility,
+                   uv.content_visibility,
                    uv.metadata_status,
                    coalesce(uv.adult_restricted, false) AS adult_restricted,
                    coalesce((uv.adult_assessment ->> 'adultRestricted')::boolean, false) AS adult_assessment_restricted,
@@ -116,16 +116,11 @@ public class SearchDocumentJdbcRepository {
                    ci.original_url AS cover_original_url,
                    ci.storage_path AS cover_storage_path,
                    sd.domain_value AS cover_source_domain
-              FROM catalog_entry_summaries summary
-              JOIN catalog_entries uv ON uv.id = summary.catalog_entry_id
-              LEFT JOIN catalog_categories sc ON sc.slug = summary.category_code
-              LEFT JOIN media_image_sources ci ON summary.media_image_source_id = ci.id
-              LEFT JOIN source_origins sd ON ci.source_origin_id = sd.id
+              FROM unified_videos uv
+              LEFT JOIN standard_category sc ON sc.slug = uv.category_code
+              LEFT JOIN cover_images ci ON uv.cover_image_id = ci.id
+              LEFT JOIN source_domains sd ON ci.source_domain_id = sd.id
              WHERE uv.id = :id
-               AND summary.content_visibility <> 'HIDDEN'
-               AND NOT coalesce(uv.adult_restricted, false)
-               AND lower(coalesce(uv.adult_assessment ->> 'adultRestricted','false')) = 'false'
-               AND upper(coalesce(uv.adult_assessment ->> 'level','SAFE')) <> 'ADULT'
             """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -140,17 +135,17 @@ public class SearchDocumentJdbcRepository {
         jdbcTemplate.getJdbcTemplate().setQueryTimeout(Math.max(1, queryTimeoutSeconds));
     }
 
-    public List<UUID> findNextSourceRecordIds(UUID afterId, int limit) {
-        return findNextIds("source_records", afterId, limit);
+    public List<UUID> findNextRawVideoIds(UUID afterId, int limit) {
+        return findNextIds("raw_videos", afterId, limit);
     }
 
-    public List<UUID> findNextCatalogEntryIds(UUID afterId, int limit) {
-        return findNextIds("catalog_entries", afterId, limit);
+    public List<UUID> findNextUnifiedVideoIds(UUID afterId, int limit) {
+        return findNextIds("unified_videos", afterId, limit);
     }
 
-    public Optional<SourceRecordSearchDocument> findSourceRecord(UUID id) {
-        SourceRecordSearchDocument doc = DataAccessUtils.singleResult(
-                jdbcTemplate.query(SOURCE_RECORD_SQL, Map.of("id", id), new SourceRecordRowMapper()));
+    public Optional<RawVideoSearchDocument> findRawVideo(UUID id) {
+        RawVideoSearchDocument doc = DataAccessUtils.singleResult(
+                jdbcTemplate.query(RAW_VIDEO_SQL, Map.of("id", id), new RawVideoRowMapper()));
         if (doc == null) {
             return Optional.empty();
         }
@@ -183,17 +178,17 @@ public class SearchDocumentJdbcRepository {
                 (rs, rowNum) -> rs.getObject("id", UUID.class));
     }
 
-    public Optional<CatalogEntrySearchDocument> findCatalogEntry(UUID id) {
-        CatalogEntrySearchDocument doc = DataAccessUtils.singleResult(
-                jdbcTemplate.query(CATALOG_ENTRY_SQL, Map.of("id", id), new CatalogEntryRowMapper()));
+    public Optional<UnifiedVideoSearchDocument> findUnifiedVideo(UUID id) {
+        UnifiedVideoSearchDocument doc = DataAccessUtils.singleResult(
+                jdbcTemplate.query(UNIFIED_VIDEO_SQL, Map.of("id", id), new UnifiedVideoRowMapper()));
         if (doc == null) {
             return Optional.empty();
         }
 
         doc.setTags(findNames("""
                 SELECT tag
-                  FROM catalog_entry_tags
-                 WHERE catalog_entry_id = :id
+                  FROM unified_video_tags
+                 WHERE unified_video_id = :id
                  ORDER BY tag
                 """, id));
         doc.setSourceCount(countSources(id));
@@ -212,13 +207,13 @@ public class SearchDocumentJdbcRepository {
     private int countSources(UUID id) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                  FROM catalog_source_bindings
-                 WHERE catalog_entry_id = :id
+                  FROM raw_video_unified_video
+                 WHERE unified_video_id = :id
                 """, Map.of("id", id), Integer.class);
         return count == null ? 0 : count;
     }
 
-    private String[] buildSuggestionInputs(CatalogEntrySearchDocument doc) {
+    private String[] buildSuggestionInputs(UnifiedVideoSearchDocument doc) {
         List<String> inputs = new ArrayList<>();
         addSuggestionInput(inputs, doc.getTitle());
         addSuggestionInput(inputs, doc.getAliasTitle());
@@ -272,10 +267,10 @@ public class SearchDocumentJdbcRepository {
                 .toList();
     }
 
-    private class SourceRecordRowMapper implements RowMapper<SourceRecordSearchDocument> {
+    private class RawVideoRowMapper implements RowMapper<RawVideoSearchDocument> {
         @Override
-        public SourceRecordSearchDocument mapRow(ResultSet rs, int rowNum) throws SQLException {
-            SourceRecordSearchDocument doc = new SourceRecordSearchDocument();
+        public RawVideoSearchDocument mapRow(ResultSet rs, int rowNum) throws SQLException {
+            RawVideoSearchDocument doc = new RawVideoSearchDocument();
             doc.setId(getUuid(rs, "id"));
             doc.setTitle(rs.getString("title"));
             doc.setAliasTitle(rs.getString("alias_title"));
@@ -300,7 +295,7 @@ public class SearchDocumentJdbcRepository {
             doc.setSeason((Integer) rs.getObject("season"));
             doc.setSubtitle(rs.getString("subtitle"));
             doc.setDataSourceName(rs.getString("data_source_name"));
-            doc.setDataSourceId(getUuid(rs, "collection_source_id"));
+            doc.setDataSourceId(getUuid(rs, "data_source_id"));
             doc.setCategoryName(rs.getString("category_name"));
             doc.setCategoryId(getUuid(rs, "category_id"));
             doc.setCategoryCode(rs.getString("category_code"));
@@ -334,10 +329,10 @@ public class SearchDocumentJdbcRepository {
         }
     }
 
-    private class CatalogEntryRowMapper implements RowMapper<CatalogEntrySearchDocument> {
+    private class UnifiedVideoRowMapper implements RowMapper<UnifiedVideoSearchDocument> {
         @Override
-        public CatalogEntrySearchDocument mapRow(ResultSet rs, int rowNum) throws SQLException {
-            CatalogEntrySearchDocument doc = new CatalogEntrySearchDocument();
+        public UnifiedVideoSearchDocument mapRow(ResultSet rs, int rowNum) throws SQLException {
+            UnifiedVideoSearchDocument doc = new UnifiedVideoSearchDocument();
             doc.setId(getUuid(rs, "id"));
             doc.setTitle(rs.getString("title"));
             doc.setAliasTitle(rs.getString("alias_title"));

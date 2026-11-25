@@ -35,75 +35,75 @@ public final class MagnetSearchJobCoordinator {
 
     public record Enqueued(MagnetSearchJobSummary job, boolean created) { }
     public record Claim(MagnetSearchJobSummary job, Long generation, boolean acquired) { }
-    public record Lease(UUID jobId, UUID catalogEntryId, long generation, Duration duration) {
+    public record Lease(UUID jobId, UUID unifiedVideoId, long generation, Duration duration) {
         public Lease {
             Objects.requireNonNull(jobId, "jobId");
-            Objects.requireNonNull(catalogEntryId, "catalogEntryId");
+            Objects.requireNonNull(unifiedVideoId, "unifiedVideoId");
             validDuration(duration);
         }
     }
 
-    public Enqueued enqueue(UUID catalogEntryId, String trigger, List<MagnetExternalIdQuery> queries) {
+    public Enqueued enqueue(UUID unifiedVideoId, String trigger, List<MagnetExternalIdQuery> queries) {
         return transactions.execute(transaction -> {
-            lockTarget(catalogEntryId);
-            List<UUID> open = openJobs(catalogEntryId);
+            lockTarget(unifiedVideoId);
+            List<UUID> open = openJobs(unifiedVideoId);
             if (!open.isEmpty()) {
                 return new Enqueued(job(open.getFirst()), false);
             }
-            return new Enqueued(repository.createPendingSearchJob(catalogEntryId, trigger, queries), true);
+            return new Enqueued(repository.createPendingSearchJob(unifiedVideoId, trigger, queries), true);
         });
     }
 
-    public Claim claim(UUID jobId, UUID catalogEntryId, List<MagnetExternalIdQuery> queries, Duration duration) {
+    public Claim claim(UUID jobId, UUID unifiedVideoId, List<MagnetExternalIdQuery> queries, Duration duration) {
         validDuration(duration);
         return transactions.execute(transaction -> {
-            lockTarget(catalogEntryId);
+            lockTarget(unifiedVideoId);
             JobState requested = lockJob(jobId);
-            checkTarget(requested, catalogEntryId);
+            checkTarget(requested, unifiedVideoId);
             if (!OPEN_STATUSES.contains(requested.status())) {
                 return new Claim(job(jobId), null, false);
             }
             Instant now = databaseNow();
             List<UUID> active = jdbc.queryForList("""
-                    select id from magnet_discovery_jobs
-                    where catalog_entry_id = ? and status = 'RUNNING' and updated_at > ?
+                    select id from magnet_search_jobs
+                    where unified_video_id = ? and status = 'RUNNING' and updated_at > ?
                     limit 1
-                    """, UUID.class, catalogEntryId, Timestamp.from(now.minus(duration)));
+                    """, UUID.class, unifiedVideoId, Timestamp.from(now.minus(duration)));
             if (!active.isEmpty()) {
                 throw new MagnetJobBusyException("MAGNET_SEARCH_JOB_ALREADY_RUNNING");
             }
             repository.markSearchJobRunning(jobId, queries).orElseThrow(
                     () -> new MagnetJobBusyException("MAGNET_SEARCH_JOB_NOT_CLAIMABLE"));
             // Use the database clock for the heartbeat, not a worker's wall clock.
-            jdbc.update("update magnet_discovery_jobs set updated_at = clock_timestamp() where id = ?", jobId);
+            jdbc.update("update magnet_search_jobs set updated_at = clock_timestamp() where id = ?", jobId);
             long generation = lockJob(jobId).generation();
             jdbc.update("""
-                    update magnet_discovery_jobs
+                    update magnet_search_jobs
                     set status = 'SKIPPED', skipped_reason = ?, finished_at = clock_timestamp(),
                         updated_at = clock_timestamp(), version = coalesce(version, 0) + 1
-                    where catalog_entry_id = ? and id <> ? and status = 'RUNNING' and updated_at <= ?
-                    """, "STALE_DUPLICATE_OF:" + jobId, catalogEntryId, jobId, Timestamp.from(now.minus(duration)));
+                    where unified_video_id = ? and id <> ? and status = 'RUNNING' and updated_at <= ?
+                    """, "STALE_DUPLICATE_OF:" + jobId, unifiedVideoId, jobId, Timestamp.from(now.minus(duration)));
             jdbc.update("""
-                    update magnet_discovery_jobs
+                    update magnet_search_jobs
                     set status = 'SKIPPED', skipped_reason = ?, finished_at = clock_timestamp(),
                         updated_at = clock_timestamp(), version = coalesce(version, 0) + 1
                     where id in (
-                        select pending.id from magnet_discovery_jobs pending
-                        where pending.catalog_entry_id = ? and pending.status = 'PENDING' and pending.id <> ?
-                          and not exists (select 1 from magnet_discovery_provider_runs history where history.job_id = pending.id)
+                        select pending.id from magnet_search_jobs pending
+                        where pending.unified_video_id = ? and pending.status = 'PENDING' and pending.id <> ?
+                          and not exists (select 1 from magnet_provider_runs history where history.job_id = pending.id)
                         order by pending.created_at asc, pending.id asc limit ?
                     ) and status = 'PENDING'
-                    """, "DUPLICATE_OF:" + jobId, catalogEntryId, jobId, DUPLICATE_BATCH_LIMIT);
+                    """, "DUPLICATE_OF:" + jobId, unifiedVideoId, jobId, DUPLICATE_BATCH_LIMIT);
             return new Claim(job(jobId), generation, true);
         });
     }
 
     public boolean renew(Lease lease) {
         return Boolean.TRUE.equals(transactions.execute(transaction -> {
-            lockTarget(lease.catalogEntryId());
+            lockTarget(lease.unifiedVideoId());
             JobState current = lockJob(lease.jobId());
             if (!owns(lease, current, databaseNow())) return false;
-            jdbc.update("update magnet_discovery_jobs set updated_at = clock_timestamp() where id = ?", lease.jobId());
+            jdbc.update("update magnet_search_jobs set updated_at = clock_timestamp() where id = ?", lease.jobId());
             return true;
         }));
     }
@@ -114,7 +114,7 @@ public final class MagnetSearchJobCoordinator {
         return transactions.execute(transaction -> {
             MagnetQueueClaimGuard.checkCurrentOwnership();
             // All operations take UV then job locks, including inserts referencing the UV FK.
-            lockTarget(lease.catalogEntryId());
+            lockTarget(lease.unifiedVideoId());
             JobState before = lockJob(lease.jobId());
             if (!owns(lease, before, databaseNow())) throw lost();
             MagnetQueueClaimGuard.checkCurrentOwnership();
@@ -124,7 +124,7 @@ public final class MagnetSearchJobCoordinator {
             boolean sameGeneration = after.generation() == lease.generation() && after.status().equals("RUNNING");
             boolean completed = after.generation() == lease.generation() + 1 && !after.status().equals("RUNNING");
             if (!before.updatedAt().plus(lease.duration()).isAfter(now)
-                    || !after.catalogEntryId().equals(lease.catalogEntryId()) || !(sameGeneration || completed)) {
+                    || !after.unifiedVideoId().equals(lease.unifiedVideoId()) || !(sameGeneration || completed)) {
                 throw lost();
             }
             MagnetQueueClaimGuard.checkCurrentOwnership();
@@ -135,7 +135,7 @@ public final class MagnetSearchJobCoordinator {
     public MagnetSearchJobSummary retry(Lease lease, String reason) {
         return withinLease(lease, () -> {
             jdbc.update("""
-                    update magnet_discovery_jobs
+                    update magnet_search_jobs
                     set status = 'PENDING', finished_at = null, error_message = ?,
                         updated_at = clock_timestamp(), version = coalesce(version, 0) + 1
                     where id = ?
@@ -153,7 +153,7 @@ public final class MagnetSearchJobCoordinator {
     public MagnetSearchJobSummary fail(Lease lease, String reason) {
         return withinLease(lease, () -> {
             jdbc.update("""
-                    update magnet_discovery_jobs set status = 'FAILED', error_message = ?,
+                    update magnet_search_jobs set status = 'FAILED', error_message = ?,
                         finished_at = clock_timestamp(), updated_at = clock_timestamp(), version = coalesce(version, 0) + 1
                     where id = ?
                     """, reason, lease.jobId());
@@ -162,42 +162,42 @@ public final class MagnetSearchJobCoordinator {
     }
 
     /** Reconciles an abandoned durable job with a terminal queue record; never steals a live execution. */
-    public boolean failAbandoned(UUID jobId, UUID catalogEntryId, long generation, Instant olderThan, String reason) {
+    public boolean failAbandoned(UUID jobId, UUID unifiedVideoId, long generation, Instant olderThan, String reason) {
         return Boolean.TRUE.equals(transactions.execute(transaction -> {
-            lockTarget(catalogEntryId);
+            lockTarget(unifiedVideoId);
             JobState current = lockJob(jobId);
-            if (!current.catalogEntryId().equals(catalogEntryId) || current.generation() != generation
+            if (!current.unifiedVideoId().equals(unifiedVideoId) || current.generation() != generation
                     || !OPEN_STATUSES.contains(current.status()) || current.updatedAt().isAfter(olderThan)) { return false; }
             return jdbc.update("""
-                    update magnet_discovery_jobs set status = 'FAILED', error_message = ?, finished_at = clock_timestamp(),
+                    update magnet_search_jobs set status = 'FAILED', error_message = ?, finished_at = clock_timestamp(),
                         updated_at = clock_timestamp(), version = coalesce(version, 0) + 1 where id = ?
                     """, reason, jobId) == 1;
         }));
     }
 
-    private void lockTarget(UUID catalogEntryId) {
-        List<UUID> target = jdbc.queryForList("select id from catalog_entries where id = ? for update",
-                UUID.class, catalogEntryId);
-        if (target.isEmpty()) throw new IllegalArgumentException("MAGNET_CATALOG_ENTRY_NOT_FOUND");
+    private void lockTarget(UUID unifiedVideoId) {
+        List<UUID> target = jdbc.queryForList("select id from unified_videos where id = ? for update",
+                UUID.class, unifiedVideoId);
+        if (target.isEmpty()) throw new IllegalArgumentException("MAGNET_UNIFIED_VIDEO_NOT_FOUND");
     }
 
     private JobState lockJob(UUID jobId) {
         List<JobState> rows = jdbc.query("""
-                select id, catalog_entry_id, status, coalesce(version, 0) as generation, updated_at
-                from magnet_discovery_jobs where id = ? for update
+                select id, unified_video_id, status, coalesce(version, 0) as generation, updated_at
+                from magnet_search_jobs where id = ? for update
                 """, (rs, row) -> new JobState(rs.getObject("id", UUID.class),
-                rs.getObject("catalog_entry_id", UUID.class), rs.getString("status"),
+                rs.getObject("unified_video_id", UUID.class), rs.getString("status"),
                 rs.getLong("generation"), rs.getTimestamp("updated_at").toInstant()), jobId);
         if (rows.isEmpty()) throw new IllegalArgumentException("MAGNET_SEARCH_JOB_NOT_FOUND");
         return rows.getFirst();
     }
 
-    private List<UUID> openJobs(UUID catalogEntryId) {
+    private List<UUID> openJobs(UUID unifiedVideoId) {
         return jdbc.queryForList("""
-                select id from magnet_discovery_jobs
-                where catalog_entry_id = ? and status in ('PENDING', 'RUNNING')
+                select id from magnet_search_jobs
+                where unified_video_id = ? and status in ('PENDING', 'RUNNING')
                 order by case status when 'RUNNING' then 0 else 1 end, created_at asc, id asc limit 1
-                """, UUID.class, catalogEntryId);
+                """, UUID.class, unifiedVideoId);
     }
 
     private MagnetSearchJobSummary job(UUID jobId) {
@@ -209,12 +209,12 @@ public final class MagnetSearchJobCoordinator {
     }
 
     private static boolean owns(Lease lease, JobState state, Instant now) {
-        return state.catalogEntryId().equals(lease.catalogEntryId()) && state.status().equals("RUNNING")
+        return state.unifiedVideoId().equals(lease.unifiedVideoId()) && state.status().equals("RUNNING")
                 && state.generation() == lease.generation() && state.updatedAt().plus(lease.duration()).isAfter(now);
     }
 
-    private static void checkTarget(JobState job, UUID catalogEntryId) {
-        if (!job.catalogEntryId().equals(catalogEntryId)) throw new IllegalArgumentException("MAGNET_JOB_TARGET_MISMATCH");
+    private static void checkTarget(JobState job, UUID unifiedVideoId) {
+        if (!job.unifiedVideoId().equals(unifiedVideoId)) throw new IllegalArgumentException("MAGNET_JOB_TARGET_MISMATCH");
     }
 
     private static void validDuration(Duration duration) {
@@ -224,7 +224,7 @@ public final class MagnetSearchJobCoordinator {
     }
 
     private static MagnetLeaseLostException lost() { return new MagnetLeaseLostException("MAGNET_SEARCH_JOB_LEASE_LOST"); }
-    private record JobState(UUID id, UUID catalogEntryId, String status, long generation, Instant updatedAt) { }
+    private record JobState(UUID id, UUID unifiedVideoId, String status, long generation, Instant updatedAt) { }
 
     public static final class MagnetJobBusyException extends IllegalStateException {
         public MagnetJobBusyException(String message) { super(message); }

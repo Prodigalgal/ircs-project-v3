@@ -42,7 +42,7 @@ class TrendSyncScheduler {
             if (Instant.now().isBefore(retryAfter)) return;
             locks.runWithLock("lock:scraper:trend-sync", owner, Duration.ofMinutes(10), () -> {
                 Instant now = Instant.now();
-                Instant last = jdbc.queryForObject("select max(last_attempt_at) from provider_ranking_boards",
+                Instant last = jdbc.queryForObject("select max(last_attempt_at) from external_trend_boards",
                         (rs, n) -> rs.getTimestamp(1) == null ? null : rs.getTimestamp(1).toInstant());
                 if (!due(last, now, config.value("app.scraper.trend-sync.cron").orElse("0 */30 * * * *"),
                         config.value("app.scraper.trend-sync.timezone").orElse("Asia/Shanghai"))) return;

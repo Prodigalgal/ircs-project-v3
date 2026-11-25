@@ -117,7 +117,6 @@ export interface Episode {
     id: string;
     title: string;
     url: string;
-    catalogEpisodeId?: string | null;
 }
 
 export interface VideoSource {
@@ -203,14 +202,13 @@ export interface RegisterResponse {
 
 export interface InteractionRecord {
     id: string;
-    catalogEntryId: string;
+    unifiedVideoId: string;
     title: string;
     coverImageUrl: string;
     score: number;
 
     lastVideoId?: string;
     lastEpisodeId?: string;
-    catalogEpisodeId?: string | null;
     episodeName?: string;
     progressSeconds: number;
     durationSeconds: number;

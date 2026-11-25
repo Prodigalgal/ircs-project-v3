@@ -110,7 +110,7 @@ class NotificationMailSendHistoryRepositoryTest {
 
     private static void createTable(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.execute("""
-                create table mail_delivery_attempts (
+                create table notification_mail_send_history (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -140,7 +140,7 @@ class NotificationMailSendHistoryRepositoryTest {
             String failureCode,
             String failureMessage) {
         jdbcTemplate.update("""
-                        insert into mail_delivery_attempts (
+                        insert into notification_mail_send_history (
                             id, created_at, updated_at, version, audit_class, correlation_id, recipient, subject,
                             template_code, delivery_mode, status, credential_id, failure_code, failure_message
                         ) values (?, ?, ?, 0, 'SYSTEM', ?, ?, ?, ?, ?, ?, ?, ?, ?)

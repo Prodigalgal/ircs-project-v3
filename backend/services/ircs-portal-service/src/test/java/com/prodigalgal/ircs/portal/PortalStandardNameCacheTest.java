@@ -16,9 +16,9 @@ class PortalStandardNameCacheTest {
     void resolvesStandardNamesFromTtlCache() {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource("portal_standard_name_cache"));
         createDictionaryTables(jdbcTemplate);
-        jdbcTemplate.update("insert into catalog_genres(code, name) values ('drama', '剧情')");
-        jdbcTemplate.update("insert into catalog_regions(code, name) values ('cn', '中国大陆')");
-        jdbcTemplate.update("insert into catalog_languages(code, name) values ('zh', '国语')");
+        jdbcTemplate.update("insert into standard_genre(code, name) values ('drama', '剧情')");
+        jdbcTemplate.update("insert into standard_areas(code, name) values ('cn', '中国大陆')");
+        jdbcTemplate.update("insert into standard_languages(code, name) values ('zh', '国语')");
         PortalStandardNameCache cache = new PortalStandardNameCache(
                 new NamedParameterJdbcTemplate(jdbcTemplate),
                 new CacheRegistry(),
@@ -28,7 +28,7 @@ class PortalStandardNameCacheTest {
         assertThat(cache.resolveAreaNames(List.of("cn"))).containsExactly("中国大陆");
         assertThat(cache.resolveLanguageNames(List.of("zh"))).containsExactly("国语");
 
-        jdbcTemplate.update("update catalog_genres set name = '故事' where code = 'drama'");
+        jdbcTemplate.update("update standard_genre set name = '故事' where code = 'drama'");
 
         assertThat(cache.resolveGenreNames(List.of("drama"))).containsExactly("剧情");
     }
@@ -42,8 +42,8 @@ class PortalStandardNameCacheTest {
     }
 
     private void createDictionaryTables(JdbcTemplate jdbcTemplate) {
-        jdbcTemplate.execute("create table catalog_genres(code varchar(100) primary key, name varchar(255))");
-        jdbcTemplate.execute("create table catalog_regions(code varchar(100) primary key, name varchar(255))");
-        jdbcTemplate.execute("create table catalog_languages(code varchar(100) primary key, name varchar(255))");
+        jdbcTemplate.execute("create table standard_genre(code varchar(100) primary key, name varchar(255))");
+        jdbcTemplate.execute("create table standard_areas(code varchar(100) primary key, name varchar(255))");
+        jdbcTemplate.execute("create table standard_languages(code varchar(100) primary key, name varchar(255))");
     }
 }

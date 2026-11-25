@@ -18,7 +18,7 @@ import java.util.UUID;
 @RequestMapping("/internal/v1/normalization/maintenance")
 class NormalizationMaintenanceInternalController {
 
-    private final SourceRecordNormalizationService normalizationService;
+    private final RawVideoNormalizationService normalizationService;
     private final NormalizationInternalAccessPolicy accessPolicy;
 
     @PostMapping("/preview")
@@ -28,10 +28,10 @@ class NormalizationMaintenanceInternalController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String serviceScopes) {
         accessPolicy.assertAccess(serviceId, serviceToken, serviceScopes);
-        return normalizationService.preview(request.sourceRecordIds());
+        return normalizationService.preview(request.rawVideoIds());
     }
 
-    record PreviewRequest(List<UUID> sourceRecordIds) {}
+    record PreviewRequest(List<UUID> rawVideoIds) {}
 
     @PostMapping("/raw-videos/reset-normalization")
     ResponseEntity<NormalizationMaintenanceRunResponse> resetNormalization(

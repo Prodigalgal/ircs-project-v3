@@ -36,49 +36,47 @@ class TaskCommandServiceTest {
     @Test
     void startSubmitsPostCommitDispatchAsynchronouslyAfterTaskIsQueued() {
         UUID taskId = UUID.randomUUID();
-        UUID runId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
-        TaskRuntimeState runtimeState = new TaskRuntimeState(taskId, dataSourceId, "IDLE", true, 1, 1, null);
+        TaskRuntimeState runtimeState = new TaskRuntimeState(taskId, dataSourceId, "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(runtimeState));
-        when(taskRepository.queueRun(runtimeState, false, true)).thenReturn(Optional.of(runId));
+        when(taskRepository.markQueued(runtimeState, false)).thenReturn(true);
         when(taskRepository.existsActiveTaskForDataSource(dataSourceId, taskId)).thenReturn(false);
 
         assertThatCode(() -> service.start(taskId, false)).doesNotThrowAnyException();
 
-        verify(taskRepository).queueRun(runtimeState, false, true);
-        verify(taskQueueDispatchService, never()).dispatchQueuedMaster(runId, false);
+        verify(taskRepository).markQueued(runtimeState, false);
+        verify(taskQueueDispatchService, never()).dispatchQueuedMaster(taskId, false);
         assertThat(taskQueueDispatchExecutor.pending).isNotNull();
 
         taskQueueDispatchExecutor.runPending();
 
-        verify(taskQueueDispatchService).dispatchQueuedMaster(runId, false);
+        verify(taskQueueDispatchService).dispatchQueuedMaster(taskId, false);
     }
 
     @Test
     void startDoesNotBubbleAsyncDispatchFailureAfterTaskIsQueued() {
         UUID taskId = UUID.randomUUID();
-        UUID runId = UUID.randomUUID();
         UUID dataSourceId = UUID.randomUUID();
-        TaskRuntimeState runtimeState = new TaskRuntimeState(taskId, dataSourceId, "IDLE", true, 1, 1, null);
+        TaskRuntimeState runtimeState = new TaskRuntimeState(taskId, dataSourceId, "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(runtimeState));
-        when(taskRepository.queueRun(runtimeState, false, true)).thenReturn(Optional.of(runId));
+        when(taskRepository.markQueued(runtimeState, false)).thenReturn(true);
         when(taskRepository.existsActiveTaskForDataSource(dataSourceId, taskId)).thenReturn(false);
         doThrow(new IllegalStateException("rabbit unavailable"))
-                .when(taskQueueDispatchService).dispatchQueuedMaster(runId, false);
+                .when(taskQueueDispatchService).dispatchQueuedMaster(taskId, false);
 
         service.start(taskId, false);
 
         assertThatCode(taskQueueDispatchExecutor::runPending).doesNotThrowAnyException();
-        verify(taskRepository).queueRun(runtimeState, false, true);
-        verify(taskQueueDispatchService).dispatchQueuedMaster(runId, false);
+        verify(taskRepository).markQueued(runtimeState, false);
+        verify(taskQueueDispatchService).dispatchQueuedMaster(taskId, false);
     }
 
     @Test
     void concurrentStartLosingCasDoesNotDispatch() {
         UUID taskId = UUID.randomUUID();
-        TaskRuntimeState state = new TaskRuntimeState(taskId, UUID.randomUUID(), "IDLE", true, 1, 1, null);
+        TaskRuntimeState state = new TaskRuntimeState(taskId, UUID.randomUUID(), "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(state));
-        when(taskRepository.queueRun(state, false, false)).thenReturn(Optional.empty());
+        when(taskRepository.markQueued(state, false)).thenReturn(false);
 
         assertThat(service.startInternal(taskId, false)).isFalse();
         assertThat(taskQueueDispatchExecutor.pending).isNull();
@@ -89,14 +87,11 @@ class TaskCommandServiceTest {
     void pauseMarksRuntimeMasterAsHeldAfterDbStatusChange() {
         UUID taskId = UUID.randomUUID();
 
-        UUID runId = UUID.randomUUID();
-        when(taskRepository.pause(taskId)).thenReturn(Optional.of(runId));
-
         service.pause(taskId);
 
         verify(taskRepository).pause(taskId);
         verify(progressService).holdMaster(
-                org.mockito.Mockito.eq(runId),
+                org.mockito.Mockito.eq(taskId),
                 org.mockito.Mockito.eq("PAUSED"),
                 org.mockito.Mockito.anyString(),
                 org.mockito.Mockito.any());
@@ -106,13 +101,13 @@ class TaskCommandServiceTest {
     void catalogStartRechecksSourceConflictBeforeQueuing() {
         UUID taskId = UUID.randomUUID();
         UUID sourceId = UUID.randomUUID();
-        TaskRuntimeState state = new TaskRuntimeState(taskId, sourceId, "IDLE", true, 1, 1, null);
+        TaskRuntimeState state = new TaskRuntimeState(taskId, sourceId, "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(state));
         when(taskRepository.existsCatalogSourceConflict(sourceId, taskId)).thenReturn(true);
 
         assertThat(service.startCatalog(taskId, sourceId, () -> {})).isFalse();
 
-        verify(taskRepository, never()).queueRun(state, false, true);
+        verify(taskRepository, never()).markQueued(state, false);
         assertThat(taskQueueDispatchExecutor.pending).isNull();
     }
 
@@ -120,30 +115,29 @@ class TaskCommandServiceTest {
     void catalogStartDoesNotQueueTaskWhoseSourceWasChangedByAnOperator() {
         UUID taskId = UUID.randomUUID();
         UUID expectedSource = UUID.randomUUID();
-        TaskRuntimeState state = new TaskRuntimeState(taskId, UUID.randomUUID(), "IDLE", true, 1, 1, null);
+        TaskRuntimeState state = new TaskRuntimeState(taskId, UUID.randomUUID(), "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(state));
 
         assertThat(service.startCatalog(taskId, expectedSource, () -> {})).isFalse();
 
-        verify(taskRepository, never()).queueRun(state, false, true);
+        verify(taskRepository, never()).markQueued(state, false);
     }
 
     @Test
     void catalogStartUsesExistingCasAndAsynchronousDispatchAfterOwnershipChecks() {
         UUID taskId = UUID.randomUUID();
-        UUID runId = UUID.randomUUID();
         UUID sourceId = UUID.randomUUID();
-        TaskRuntimeState state = new TaskRuntimeState(taskId, sourceId, "IDLE", true, 1, 1, null);
+        TaskRuntimeState state = new TaskRuntimeState(taskId, sourceId, "IDLE", true, 1, 1);
         when(taskRepository.findRuntimeState(taskId)).thenReturn(Optional.of(state));
-        when(taskRepository.queueRun(state, false, true)).thenReturn(Optional.of(runId));
+        when(taskRepository.markQueued(state, false)).thenReturn(true);
         java.util.concurrent.atomic.AtomicInteger checks = new java.util.concurrent.atomic.AtomicInteger();
 
         assertThat(service.startCatalog(taskId, sourceId, checks::incrementAndGet)).isTrue();
 
         assertThat(checks.get()).isEqualTo(2);
-        verify(taskRepository).queueRun(state, false, true);
+        verify(taskRepository).markQueued(state, false);
         assertThat(taskQueueDispatchExecutor.pending).isNotNull();
-        verify(taskQueueDispatchService, never()).dispatchQueuedMaster(runId, false);
+        verify(taskQueueDispatchService, never()).dispatchQueuedMaster(taskId, false);
     }
 
     @Test

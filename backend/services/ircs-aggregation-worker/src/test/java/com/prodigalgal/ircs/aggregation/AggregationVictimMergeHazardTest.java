@@ -25,15 +25,15 @@ class AggregationVictimMergeHazardTest {
         // hard-identity check waves it through. Its title is merely close, not identical.
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID decoyId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate decoy = candidate(decoyId, "Codex Signet", "2026", null, null);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate decoy = candidate(decoyId, "Codex Signet", "2026", null, null);
 
         AggregationMatchPlan plan = strategy.findMatchPlan(raw, List.of(root, decoy));
 
-        assertThat(plan.rootCatalogEntryId()).isEqualTo(rootId);
+        assertThat(plan.rootUnifiedVideoId()).isEqualTo(rootId);
         // The decoy is a different work that merely resembles the raw; it must not be merged away.
-        assertThat(plan.victimCatalogEntryIds()).isEmpty();
+        assertThat(plan.victimUnifiedVideoIds()).isEmpty();
     }
 
     @Test
@@ -41,14 +41,14 @@ class AggregationVictimMergeHazardTest {
         // Both stored rows carry the same usable ID and corroborating title.
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID duplicateId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate duplicate = candidate(duplicateId, "Codex Signal", "2026", "9001", null);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate duplicate = candidate(duplicateId, "Codex Signal", "2026", "9001", null);
 
         AggregationMatchPlan plan = strategy.findMatchPlan(raw, List.of(root, duplicate));
 
-        assertThat(plan.rootCatalogEntryId()).isEqualTo(rootId);
-        assertThat(plan.victimCatalogEntryIds()).containsExactly(duplicateId);
+        assertThat(plan.rootUnifiedVideoId()).isEqualTo(rootId);
+        assertThat(plan.victimUnifiedVideoIds()).containsExactly(duplicateId);
     }
 
     @Test
@@ -56,9 +56,9 @@ class AggregationVictimMergeHazardTest {
         AggregationMatchingStrategy noAutomaticMerge = strategyWithAutomaticUnifiedMerge(false);
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID duplicateId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate duplicate = candidate(duplicateId, "Codex Signal", "2026", "9001", null);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate duplicate = candidate(duplicateId, "Codex Signal", "2026", "9001", null);
 
         AggregationMatchPlan plan = noAutomaticMerge.findMatchPlan(raw, List.of(root, duplicate));
 
@@ -70,7 +70,7 @@ class AggregationVictimMergeHazardTest {
         AggregationMatchingStrategy noAutomaticMerge = strategyWithAutomaticUnifiedMerge(false);
         UUID pollutedId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID verifiedId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Harbor Village", "2026", null, "70001");
+        RawVideoAggregationRecord raw = rawVideo("Harbor Village", "2026", null, "70001");
         var polluted = candidate(pollutedId, "Harbor Village", "2026", "456", "70001");
         var verified = candidate(verifiedId, "Harbor Village", "2026", "94000001", "70001");
 
@@ -83,29 +83,29 @@ class AggregationVictimMergeHazardTest {
         AggregationMatchingStrategy noAutomaticMerge = strategyWithAutomaticUnifiedMerge(false);
         UUID firstId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID secondId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", "9001", "70001");
-        CatalogEntryAggregationCandidate first = candidate(firstId, "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate second = candidate(secondId, "Codex Signal", "2026", null, "70001");
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate first = candidate(firstId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate second = candidate(secondId, "Codex Signal", "2026", null, "70001");
 
         AggregationMatchPlan plan = noAutomaticMerge.findMatchPlan(raw, List.of(first, second));
 
         assertThat(plan.isAmbiguous()).isTrue();
-        assertThat(plan.rootCatalogEntryId()).isNull();
-        assertThat(plan.victimCatalogEntryIds()).isEmpty();
+        assertThat(plan.rootUnifiedVideoId()).isNull();
+        assertThat(plan.victimUnifiedVideoIds()).isEmpty();
     }
 
     @Test
     void rawCarryingDifferentProviderIdsDoesNotProveStoredWorksAreDuplicates() {
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID otherId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", "9001", "70001");
-        CatalogEntryAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate other = candidate(otherId, "Codex Signal", "2026", null, "70001");
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate other = candidate(otherId, "Codex Signal", "2026", null, "70001");
 
         AggregationMatchPlan plan = strategy.findMatchPlan(raw, List.of(root, other));
 
         assertThat(plan.hasRoot()).isFalse();
-        assertThat(plan.victimCatalogEntryIds()).isEmpty();
+        assertThat(plan.victimUnifiedVideoIds()).isEmpty();
     }
 
     @Test
@@ -114,32 +114,32 @@ class AggregationVictimMergeHazardTest {
         // not evidence of identity, so neither may be merged on the raw's say-so.
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID decoyId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", null, null);
-        CatalogEntryAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", null, null);
-        CatalogEntryAggregationCandidate decoy = candidate(decoyId, "Codex Signet", "2026", null, null);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", null, null);
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", null, null);
+        UnifiedVideoAggregationCandidate decoy = candidate(decoyId, "Codex Signet", "2026", null, null);
 
         AggregationMatchPlan plan = strategy.findMatchPlan(raw, List.of(root, decoy));
 
-        assertThat(plan.victimCatalogEntryIds()).isEmpty();
+        assertThat(plan.victimUnifiedVideoIds()).isEmpty();
     }
 
     @Test
     void completeMergePlanRejectsVictimToVictimConflictThroughSparseRoot() {
         UUID rootId = UUID.fromString("11111111-1111-1111-1111-111111111111");
-        SourceRecordAggregationRecord raw = sourceRecord("Codex Signal", "2026", null, "70001");
-        CatalogEntryAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", null, "70001");
-        CatalogEntryAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", "70001");
-        CatalogEntryAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9002", "70001");
-        List<CatalogEntryAggregationCandidate> candidates = List.of(root, first, second);
+        RawVideoAggregationRecord raw = rawVideo("Codex Signal", "2026", null, "70001");
+        UnifiedVideoAggregationCandidate root = candidate(rootId, "Codex Signal", "2026", null, "70001");
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9002", "70001");
+        List<UnifiedVideoAggregationCandidate> candidates = List.of(root, first, second);
 
         assertThat(strategy.isSafeUnifiedMerge(candidates, Set.of(root.id(), first.id(), second.id()))).isFalse();
-        assertThat(strategy.findMatchPlan(raw, candidates).victimCatalogEntryIds()).isEmpty();
+        assertThat(strategy.findMatchPlan(raw, candidates).victimUnifiedVideoIds()).isEmpty();
     }
 
     @Test
     void completeMergePlanRejectsMissingUnexpectedAndDuplicateCandidates() {
-        CatalogEntryAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
         Set<UUID> expected = Set.of(first.id(), second.id());
 
         assertThat(strategy.isSafeUnifiedMerge(List.of(first), expected)).isFalse();
@@ -150,25 +150,25 @@ class AggregationVictimMergeHazardTest {
 
     @Test
     void completeMergePlanRequiresPositiveEvidenceRatherThanOnlyNoConflicts() {
-        CatalogEntryAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", null, null);
-        CatalogEntryAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal", "2026", null, null);
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", null, null);
+        UnifiedVideoAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal", "2026", null, null);
 
         assertThat(strategy.isSafeUnifiedMerge(List.of(first, second), Set.of(first.id(), second.id()))).isFalse();
     }
 
     @Test
     void approximateTitleAndSingleUnverifiedIdAreInsufficientForDestructiveMerge() {
-        CatalogEntryAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal Extended Cut", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate second = candidate(UUID.randomUUID(), "Codex Signal Extended Cut", "2026", "9001", null);
 
         assertThat(strategy.isSafeUnifiedMerge(List.of(first, second), Set.of(first.id(), second.id()))).isFalse();
     }
 
     @Test
     void twoSharedProviderIdsStillRequireCorroboration() {
-        SourceRecordAggregationRecord raw = sourceRecord("荒原来信", "2026", "9001", "70001");
-        CatalogEntryAggregationCandidate first = candidate(UUID.randomUUID(), "荒原来信", "2026", "9001", "70001");
-        CatalogEntryAggregationCandidate second = candidate(UUID.randomUUID(), "深海漫游", "2026", "9001", "70001");
+        RawVideoAggregationRecord raw = rawVideo("荒原来信", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "荒原来信", "2026", "9001", "70001");
+        UnifiedVideoAggregationCandidate second = candidate(UUID.randomUUID(), "深海漫游", "2026", "9001", "70001");
 
         AggregationMatchPlan unsupported = strategy.findMatchPlan(raw, List.of(second));
 
@@ -180,18 +180,18 @@ class AggregationVictimMergeHazardTest {
 
     @Test
     void unifiedMergeUsesReleaseToleranceButUnknownYearCannotHideKnownConflict() {
-        CatalogEntryAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2025", "9001", null);
-        CatalogEntryAggregationCandidate next = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
-        CatalogEntryAggregationCandidate distant = candidate(UUID.randomUUID(), "Codex Signal", "2027", "9001", null);
-        CatalogEntryAggregationCandidate unknown = candidate(UUID.randomUUID(), "Codex Signal", null, "9001", null);
+        UnifiedVideoAggregationCandidate first = candidate(UUID.randomUUID(), "Codex Signal", "2025", "9001", null);
+        UnifiedVideoAggregationCandidate next = candidate(UUID.randomUUID(), "Codex Signal", "2026", "9001", null);
+        UnifiedVideoAggregationCandidate distant = candidate(UUID.randomUUID(), "Codex Signal", "2027", "9001", null);
+        UnifiedVideoAggregationCandidate unknown = candidate(UUID.randomUUID(), "Codex Signal", null, "9001", null);
 
         assertThat(strategy.isSafeUnifiedMerge(List.of(first, next), Set.of(first.id(), next.id()))).isTrue();
         assertThat(strategy.isSafeUnifiedMerge(List.of(first, unknown, distant),
                 Set.of(first.id(), unknown.id(), distant.id()))).isFalse();
     }
 
-    private SourceRecordAggregationRecord sourceRecord(String title, String year, String doubanId, String tmdbId) {
-        return new SourceRecordAggregationRecord(
+    private RawVideoAggregationRecord rawVideo(String title, String year, String doubanId, String tmdbId) {
+        return new RawVideoAggregationRecord(
                 UUID.randomUUID(),
                 title,
                 null,
@@ -215,9 +215,9 @@ class AggregationVictimMergeHazardTest {
                 "PENDING");
     }
 
-    private CatalogEntryAggregationCandidate candidate(
+    private UnifiedVideoAggregationCandidate candidate(
             UUID id, String title, String year, String doubanId, String tmdbId) {
-        return new CatalogEntryAggregationCandidate(
+        return new UnifiedVideoAggregationCandidate(
                 id,
                 title,
                 null,

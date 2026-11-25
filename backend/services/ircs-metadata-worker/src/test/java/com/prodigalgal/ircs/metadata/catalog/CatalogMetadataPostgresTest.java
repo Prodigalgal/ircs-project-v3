@@ -2,32 +2,19 @@ package com.prodigalgal.ircs.metadata.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import com.prodigalgal.ircs.contracts.metadata.EnrichedMetadataDTO;
-import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.Credit;
-import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.CreditKind;
-import com.prodigalgal.ircs.metadata.catalog.AuthorityCatalogEvidence.CreditSet;
-import com.prodigalgal.ircs.metadata.catalog.DoubanCatalogObservation.MatchBasis;
-import com.prodigalgal.ircs.metadata.catalog.ImdbCatalogSnapshotReader.Alias;
-import com.prodigalgal.ircs.metadata.provider.douban.DoubanHttpClient;
-import com.prodigalgal.ircs.metadata.provider.douban.DoubanProviderProperties;
-import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
-import java.net.URI;
-import java.time.Duration;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,60 +22,68 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 @EnabledIfEnvironmentVariable(named="IRCS_TEST_POSTGRES_URL",matches=".+")
 class CatalogMetadataPostgresTest {
-    private CatalogTestDatabase database;
+    private JdbcTemplate admin;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
     private TransactionTemplate transactions;
     private CatalogMetadataRepository repository;
-    private AuthorityCatalogImportRepository authority;
-    private CatalogReferenceSyncRepository references;
+    private String schema;
 
     @BeforeEach
     void setup() throws Exception {
-        database = CatalogTestDatabase.open();
-        pool = new HikariDataSource();
-        pool.setJdbcUrl(database.url());
-        pool.setUsername(System.getenv("IRCS_TEST_POSTGRES_USER"));
-        pool.setPassword(System.getenv("IRCS_TEST_POSTGRES_PASSWORD"));
-        pool.setMaximumPoolSize(3);
-        pool.setMinimumIdle(0);
+        String url=System.getenv("IRCS_TEST_POSTGRES_URL"), user=System.getenv("IRCS_TEST_POSTGRES_USER"), password=System.getenv("IRCS_TEST_POSTGRES_PASSWORD");
+        admin=new JdbcTemplate(new DriverManagerDataSource(url,user,password));
+        schema="catalog_metadata_"+UUID.randomUUID().toString().replace("-","");
+        admin.execute("create schema "+schema);
+        pool=new HikariDataSource(); pool.setJdbcUrl(url); pool.setUsername(user); pool.setPassword(password);
+        pool.setMaximumPoolSize(3); pool.setMinimumIdle(0); pool.setConnectionInitSql("set search_path to "+schema);
         jdbc=new JdbcTemplate(pool); transactions=new TransactionTemplate(new DataSourceTransactionManager(pool));
-        var named = new NamedParameterJdbcTemplate(pool);
-        var mapper = JsonMapper.builder().findAndAddModules().build();
-        repository = new CatalogMetadataRepository(named, mapper);
-        authority = new AuthorityCatalogImportRepository(named, repository, new CatalogPeopleRepository(named, mapper));
-        references = new CatalogReferenceSyncRepository(named, mapper);
+        repository=new CatalogMetadataRepository(new NamedParameterJdbcTemplate(pool),JsonMapper.builder().findAndAddModules().build());
         jdbc.execute("""
-                insert into catalog_regions(id,created_at,updated_at,code,name)
-                    values(uuidv7(),now(),now(),'CN','中国大陆') on conflict do nothing;
-                insert into catalog_languages(id,created_at,updated_at,code,name,english_name,native_name)
-                    values(uuidv7(),now(),now(),'zh','中文','Chinese','中文') on conflict do nothing;
-                insert into catalog_genres(id,created_at,updated_at,code,name)
-                    values(uuidv7(),now(),now(),'action','动作') on conflict do nothing
+                create table unified_videos(id uuid primary key,title text,alias_title text,description text,year text,
+                    score numeric,published_at date,tmdb_id text,imdb_id text,cover_image_id uuid,season integer,
+                    actor_names jsonb default '[]',director_names jsonb default '[]',area_codes jsonb default '[]',
+                    language_codes jsonb default '[]',genre_codes jsonb default '[]',locked_fields jsonb default '[]',
+                    adult_restricted boolean default false,adult_assessment jsonb default '{}',content_visibility text default 'PUBLIC',
+                    metadata_status text default 'DIRTY',updated_at timestamptz default now(),version bigint default 0);
+                create table standard_areas(code text,name text);
+                create table standard_languages(code text,name text,english_name text,native_name text);
+                create table standard_genre(code text,name text);
+                insert into standard_areas values('CN','中国大陆');
+                insert into standard_languages values('zh','中文','Chinese','中文');
+                insert into standard_genre values('action','动作');
+                create table source_domains(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,domain_value text unique);
+                create table cover_images(id uuid primary key,created_at timestamptz,updated_at timestamptz,version bigint,
+                    storage_type text,original_url text,source_domain_id uuid,status text,retry_count integer,next_retry_time timestamptz,
+                    unique(original_url,source_domain_id));
                 """);
+        String migration=Files.readString(migration());
+        for (String table:List.of("external_catalog_identities","catalog_metadata_requests")) {
+            var matcher=Pattern.compile("CREATE TABLE "+table+"[\\s\\S]*?\\n\\);").matcher(migration);
+            assertThat(matcher.find()).as("production migration table %s",table).isTrue();
+            jdbc.execute(matcher.group());
+        }
     }
 
     @AfterEach
-    void cleanup() {
-        if (pool != null) pool.close();
-        if (database != null) database.close();
-    }
+    void cleanup() { if(pool!=null)pool.close(); if(admin!=null&&schema!=null)admin.execute("drop schema "+schema+" cascade"); }
 
     @Test
     void fillsRealMetadataWithoutCreatingOrNeedingAnyRawResource() {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         assertThat(transactions.<Boolean>execute(status->repository.apply(target,evidence()))).isTrue();
-        assertThat(jdbc.queryForObject("select description from catalog_entries where id=?",String.class,id)).isEqualTo("Verified overview");
-        assertThat(jdbc.queryForObject("select score from catalog_entries where id=?",BigDecimal.class,id)).isEqualByComparingTo("8.2");
-        assertThat(jdbc.queryForObject("select actor_names::text from catalog_entries where id=?",String.class,id)).contains("Actor");
-        assertThat(jdbc.queryForObject("select genre_codes::text from catalog_entries where id=?",String.class,id)).contains("action");
-        assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("SYNCED");
-        assertThat(jdbc.queryForObject("select count(*) from source_records",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("select description from unified_videos where id=?",String.class,id)).isEqualTo("Verified overview");
+        assertThat(jdbc.queryForObject("select score from unified_videos where id=?",BigDecimal.class,id)).isEqualByComparingTo("8.2");
+        assertThat(jdbc.queryForObject("select actor_names::text from unified_videos where id=?",String.class,id)).contains("Actor");
+        assertThat(jdbc.queryForObject("select genre_codes::text from unified_videos where id=?",String.class,id)).contains("action");
+        assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("SYNCED");
+        assertThat(jdbc.queryForObject("select to_regclass('raw_videos') is null",Boolean.class)).isTrue();
         assertThat(repository.pendingIndexes()).hasSize(1);
     }
 
@@ -96,19 +91,19 @@ class CatalogMetadataPostgresTest {
     void manualArrayAndObjectLocksAndNonemptyValuesSurviveInFlightFetches() {
         for(String locks:List.of("[\"actors\",\"score\"]","{\"actors\":true,\"score\":true}")) {
             UUID id=enqueue(); var target=repository.claim(1).getFirst();
-            jdbc.update("update catalog_entries set locked_fields=cast(? as jsonb),score=0,description='Manual text' where id=?",locks,id);
+            jdbc.update("update unified_videos set locked_fields=cast(? as jsonb),score=0,description='Manual text' where id=?",locks,id);
             transactions.execute(status->repository.apply(target,evidence()));
-            assertThat(jdbc.queryForObject("select score from catalog_entries where id=?",BigDecimal.class,id)).isEqualByComparingTo("0");
-            assertThat(jdbc.queryForObject("select description from catalog_entries where id=?",String.class,id)).isEqualTo("Manual text");
-            assertThat(jdbc.queryForObject("select actor_names::text from catalog_entries where id=?",String.class,id)).isEqualTo("[]");
-            assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("DIRTY");
+            assertThat(jdbc.queryForObject("select score from unified_videos where id=?",BigDecimal.class,id)).isEqualByComparingTo("0");
+            assertThat(jdbc.queryForObject("select description from unified_videos where id=?",String.class,id)).isEqualTo("Manual text");
+            assertThat(jdbc.queryForObject("select actor_names::text from unified_videos where id=?",String.class,id)).isEqualTo("[]");
+            assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("DIRTY");
         }
     }
 
     @Test
     void expiredOwnersCannotApplyOrAcknowledgeReclaimedRequests() {
         enqueue(); var old=repository.claim(1).getFirst();
-        jdbc.update("update catalog_metadata_enrichment_jobs set lease_until=now()-interval '1 second'");
+        jdbc.update("update catalog_metadata_requests set lease_until=now()-interval '1 second'");
         var current=repository.claim(1).getFirst();
         assertThat(transactions.<Boolean>execute(status->repository.apply(old,evidence()))).isFalse();
         assertThat(repository.renew(old)).isFalse(); assertThat(repository.defer(old,false,"OLD")).isFalse();
@@ -126,7 +121,7 @@ class CatalogMetadataPostgresTest {
             assertThat(claimed).hasSize(1);
             assertThat(repository.defer(claimed.getFirst(),true,"NO_VERIFIABLE_PROVIDER")).isTrue();
             assertThat(repository.claim(1)).isEmpty();
-            assertThat(jdbc.queryForObject("select next_attempt_at>now()+interval '23 hours' from catalog_metadata_enrichment_jobs",Boolean.class)).isTrue();
+            assertThat(jdbc.queryForObject("select next_attempt_at>now()+interval '23 hours' from catalog_metadata_requests",Boolean.class)).isTrue();
         }
     }
 
@@ -135,12 +130,12 @@ class CatalogMetadataPostgresTest {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         assertThatThrownBy(()->transactions.execute(status->repository.apply(target,
                 new CatalogMetadataEvidence("99","movie",0,evidence().metadata())))).isInstanceOf(CatalogMetadataUnavailableException.class);
-        jdbc.update("update catalog_entries set content_visibility='HIDDEN' where id=?",id);
+        jdbc.update("update unified_videos set content_visibility='HIDDEN' where id=?",id);
         assertThatThrownBy(()->transactions.execute(status->repository.apply(target,evidence()))).isInstanceOf(CatalogMetadataUnavailableException.class);
-        jdbc.update("update catalog_entries set content_visibility='PUBLIC' where id=?",id);
+        jdbc.update("update unified_videos set content_visibility='PUBLIC' where id=?",id);
         var partial=new EnrichedMetadataDTO(); partial.setTmdbId("42"); partial.setDescription("Only overview");
         assertThat(transactions.<Boolean>execute(status->repository.apply(target,new CatalogMetadataEvidence("42","movie",0,partial)))).isTrue();
-        assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?",String.class,id)).isEqualTo("DIRTY");
+        assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?",String.class,id)).isEqualTo("DIRTY");
     }
 
     @Test
@@ -148,422 +143,14 @@ class CatalogMetadataPostgresTest {
         UUID id=enqueue(); var target=repository.claim(1).getFirst();
         transactions.execute(status->repository.apply(target,evidence()));
         var old=repository.pendingIndexes().getFirst();
-        jdbc.update("update catalog_entries set title=title || ' v2' where id=?",id);
+        jdbc.update("update catalog_metadata_requests set index_generation=index_generation+1 where unified_video_id=?",id);
         repository.indexed(old); assertThat(repository.pendingIndexes()).hasSize(1);
         repository.indexed(repository.pendingIndexes().getFirst()); assertThat(repository.pendingIndexes()).isEmpty();
     }
 
-    @Test
-    void commitsTypedWorksAndEpisodesBeforeCreatingDiscovery() throws Exception {
-        jdbc.update("""
-                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
-                values ('movie',42,-1,100),('tv',42,1,200)
-                """);
-        assertThat(jdbc.queryForObject("select count(*) from catalog_resource_discovery_jobs", Integer.class)).isZero();
-        var tv = authority.claim().orElseThrow();
-        assertThat(tv.mediaType()).isEqualTo("tv");
-        var premiere = LocalDate.of(2026, 4, 15);
-        var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", premiere);
-        var episode = new AuthorityCatalogEvidence.Episode(2, 999, "Episode 2", premiere.plusDays(7));
-        var tvEvidence = new AuthorityCatalogEvidence("tv",42,1,premiere,"series",authorityFacts("Example Series"),
-                List.of(season), List.of(episode), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(tv,tvEvidence))).isTrue();
-        var movie = authority.claim().orElseThrow();
-        var movieEvidence = new AuthorityCatalogEvidence("movie",42,-1,premiere,"movie",authorityFacts("Example Movie"),
-                List.of(), List.of(), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(movie,movieEvidence))).isTrue();
-
-        assertThat(jdbc.queryForList("select media_type from catalog_works order by media_type", String.class))
-                .containsExactly("movie", "tv");
-        assertThat(jdbc.queryForObject("select tmdb_episode_id from catalog_episodes", Long.class)).isEqualTo(999L);
-        assertThat(jdbc.queryForList("select target_season from catalog_resource_discovery_jobs order by target_season", Integer.class))
-                .containsExactly(0, 1);
-        assertThat(repository.pendingIndexes()).hasSize(2);
-        assertThat(jdbc.queryForObject("select count(*) from source_origins", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select count(*) from media_image_sources", Integer.class)).isEqualTo(1);
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(tv,tvEvidence))).isFalse();
-    }
-
-    @Test
-    void importsRecentMissingEpisodeTargetsOnlyAfterTheSeasonHasResources() throws Exception {
-        jdbc.update("""
-                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
-                values ('tv',42,1,100)
-                """);
-        LocalDate today = jdbc.queryForObject("select current_date", LocalDate.class);
-        var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", today.minusDays(30));
-        var episodes = List.of(
-                new AuthorityCatalogEvidence.Episode(1, 1001, "Episode 1", today.minusDays(20)),
-                new AuthorityCatalogEvidence.Episode(2, 1002, "Episode 2", today.minusDays(5)),
-                new AuthorityCatalogEvidence.Episode(3, 1003, "Episode 3", today.minusDays(4)),
-                new AuthorityCatalogEvidence.Episode(4, 1004, "Episode 4", today.minusDays(3)),
-                new AuthorityCatalogEvidence.Episode(5, 1005, "Episode 5", today.minusDays(2)),
-                new AuthorityCatalogEvidence.Episode(6, 1006, "Episode 6", today.plusDays(1)));
-        var evidence = new AuthorityCatalogEvidence("tv", 42, 1, today, "series", authorityFacts("Example Series"),
-                List.of(season), episodes, List.of());
-        var first = authority.claim().orElseThrow();
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(first, evidence))).isTrue();
-        assertThat(jdbc.queryForList("select target_episode from catalog_resource_discovery_jobs", Integer.class))
-                .containsExactly(0);
-
-        jdbc.update("""
-                insert into catalog_magnet_links(id,catalog_entry_id,provider_code,info_hash,magnet_uri,title,
-                        matched_external_id_type,matched_external_id_value,status)
-                select uuidv7(),id,'authority-test',repeat('A',40),'magnet:?xt=urn:btih:'||repeat('A',40),
-                       'Season fixture','TMDB','42','APPROVED' from catalog_entries
-                """);
-        jdbc.update("update catalog_authority_import_jobs set status='PENDING', next_attempt_at=now()");
-        var refreshed = authority.claim().orElseThrow();
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(refreshed, evidence))).isTrue();
-
-        assertThat(jdbc.queryForList("select target_episode from catalog_resource_discovery_jobs order by target_episode",
-                Integer.class)).containsExactly(0, 3, 4, 5);
-        assertThat(jdbc.queryForList("select distinct target_season from catalog_resource_discovery_jobs", Integer.class))
-                .containsExactly(1);
-
-        jdbc.update("update catalog_authority_import_jobs set status='PENDING', next_attempt_at=now()");
-        var repeated = authority.claim().orElseThrow();
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(repeated, evidence))).isTrue();
-        assertThat(jdbc.queryForObject("select count(*) from catalog_resource_discovery_jobs", Integer.class)).isEqualTo(4);
-
-        jdbc.update("update catalog_resource_discovery_jobs set status='SUBMITTED', fulfilled_at=now() where target_episode=5");
-        jdbc.update("update catalog_authority_import_jobs set status='PENDING', next_attempt_at=now()");
-        var afterCompletion = authority.claim().orElseThrow();
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(afterCompletion, evidence))).isTrue();
-        assertThat(jdbc.queryForList("select target_episode from catalog_resource_discovery_jobs order by target_episode",
-                Integer.class)).containsExactly(0, 2, 3, 4, 5);
-    }
-
-    @Test
-    void oneSeasonAdultRejectionBlocksAnInFlightImportForTheSameWork() throws Exception {
-        jdbc.update("""
-                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority)
-                values ('tv',42,1,200),('tv',42,2,100)
-                """);
-        var rejected = authority.claim().orElseThrow();
-        var inFlight = authority.claim().orElseThrow();
-        transactions.executeWithoutResult(status -> authority.defer(rejected, "ADULT_SOURCE_RECORD", true));
-        var date = LocalDate.of(2026, 4, 15);
-        var season = new AuthorityCatalogEvidence.Season(2, 23, "Season 2", date);
-        var evidence = new AuthorityCatalogEvidence("tv",42,2,date,"series",authorityFacts("Example Series"),
-                List.of(season), List.of(), List.of());
-        assertThatThrownBy(() -> transactions.execute(status -> authority.publish(inFlight,evidence)))
-                .isInstanceOf(CatalogMetadataUnavailableException.class)
-                .hasMessage("ADULT_SOURCE_RECORD");
-        assertThat(jdbc.queryForObject("select count(*) from catalog_works", Integer.class)).isZero();
-    }
-
-    @Test
-    void warmupUsesOnlyTheActivePublicSnapshotAndRespectsItsCap() throws Exception {
-        jdbc.update("""
-                update provider_catalog_snapshot_states
-                   set active_slot=1,snapshot_date=date '2026-11-22',row_count=4 where media_type='movie';
-                insert into provider_catalog_snapshot_items(media_type,slot,tmdb_id,title,popularity,video)
-                values ('movie',1,100,'First',200,false),('movie',1,99,'Second',100,false),
-                       ('movie',1,98,'Third',10,false),('movie',1,2,'Clip',1000,true),
-                       ('movie',0,5,'Inactive',3000,false),('tv',1,1,'TV',100,false)
-                """);
-        assertThat(authority.seed("movie",2)).isEqualTo(2);
-        assertThat(authority.seed("movie",2)).isZero();
-        assertThat(jdbc.queryForList("select tmdb_id from catalog_authority_import_jobs order by tmdb_id",Long.class))
-                .containsExactly(99L,100L);
-    }
-
-    @Test
-    void storesPeopleByProviderIdAndKeepsPriorRolesOnIncompleteReplies() throws Exception {
-        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('tv',42,1)");
-        var date = LocalDate.of(2026, 4, 15);
-        var season = new AuthorityCatalogEvidence.Season(1, 23, "Season 1", date);
-        var episode = new AuthorityCatalogEvidence.Episode(2, 999, "Episode 2", date);
-        var cast = AuthorityCatalogEvidence.CreditKind.CAST;
-        var guest = AuthorityCatalogEvidence.CreditKind.GUEST_CAST;
-        var mainRole = new AuthorityCatalogEvidence.Credit("101", "main", "Alex", null, "Acting", "Actor", "Lead", 0, 0);
-        var guestRole = new AuthorityCatalogEvidence.Credit("101", "guest", "Alex", null, "Acting", "Actor", "Guest", null, 0);
-        var namesake = new AuthorityCatalogEvidence.Credit("102", "another", "Alex", null, "Acting", "Actor", "Friend", 1, 1);
-        var scope = new AuthorityCatalogEvidence.CreditSet(null, null, cast, true, List.of(mainRole, namesake));
-        var episodeScope = new AuthorityCatalogEvidence.CreditSet(1, 2, guest, true, List.of(guestRole));
-        var job = authority.claim().orElseThrow();
-        var complete = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
-                List.of(season), List.of(episode), List.of(scope, episodeScope));
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, complete))).isTrue();
-        assertThat(jdbc.queryForObject("select count(*) from catalog_people", Integer.class)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("select count(distinct person_id) from catalog_person_credits where external_credit_id in ('main','guest')",
-                Integer.class)).isEqualTo(1);
-        UUID guestCreditId = jdbc.queryForObject("select id from catalog_person_credits where episode_number=2", UUID.class);
-
-        jdbc.update("update catalog_authority_import_jobs set credits_backfill_at=now()");
-        var backfill = authority.claim().orElseThrow();
-        assertThat(backfill.creditBackfill()).isTrue();
-        authority.defer(backfill, "SOURCE_OR_WRITE_FAILED", false);
-        assertThat(authority.claim()).isEmpty();
-        assertThat(jdbc.queryForObject("select status from catalog_authority_import_jobs", String.class)).isEqualTo("SUCCESS");
-
-        jdbc.update("update catalog_authority_import_jobs set credits_backfill_at=now()");
-        var rerun = authority.claim().orElseThrow();
-        var incomplete = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
-                List.of(season), List.of(episode),
-                List.of(new AuthorityCatalogEvidence.CreditSet(null, null, cast, false, List.of(mainRole))));
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(rerun, incomplete))).isTrue();
-        assertThat(jdbc.queryForObject("select count(*) from catalog_person_credits", Integer.class)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("select id from catalog_person_credits where episode_number=2", UUID.class)).isEqualTo(guestCreditId);
-        assertThat(jdbc.queryForObject("select credits_backfill_at is null from catalog_authority_import_jobs", Boolean.class)).isTrue();
-
-        jdbc.update("update catalog_authority_import_jobs set status='PENDING',next_attempt_at=now()");
-        var refresh = authority.claim().orElseThrow();
-        var latest = new AuthorityCatalogEvidence("tv", 42, 1, date, "series", authorityFacts("Example Series"),
-                List.of(season), List.of(episode),
-                List.of(new AuthorityCatalogEvidence.CreditSet(null, null, cast, true, List.of(mainRole))));
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, latest))).isTrue();
-        assertThat(jdbc.queryForList("select external_credit_id from catalog_person_credits order by external_credit_id", String.class))
-                .containsExactly("guest", "main");
-    }
-
-    @Test
-    void preservesAnInFlightTmdbChangeAndQueuesVerifiedRegularSeasons() {
-        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,priority) values ('tv',42,-1,100)");
-        var job = authority.claim().orElseThrow();
-        var premiere = LocalDate.of(2026, 4, 15);
-        var cursor = authority.cursor("tv", premiere);
-        assertThat(transactions.<Boolean>execute(
-                status -> authority.saveChanges(cursor, new TmdbChangePage(List.of(42L), true), 0))).isTrue();
-        var evidence = new AuthorityCatalogEvidence("tv", 42, 1, premiere, "series", authorityFacts("Example Series"),
-                List.of(new AuthorityCatalogEvidence.Season(0, 200, "Specials", null),
-                        new AuthorityCatalogEvidence.Season(1, 201, "Season 1", premiere),
-                        new AuthorityCatalogEvidence.Season(2, 202, "Season 2", null)), List.of(), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, evidence))).isTrue();
-        assertThat(jdbc.queryForList("select season_number from catalog_authority_import_jobs order by season_number", Integer.class))
-                .containsExactly(-1, 2);
-        assertThat(jdbc.queryForObject("select status from catalog_authority_import_jobs where season_number=-1", String.class))
-                .isEqualTo("PENDING");
-        var refresh = authority.claim().orElseThrow();
-        assertThat(refresh.refreshGeneration()).isEqualTo(job.refreshGeneration() + 1);
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, evidence))).isTrue();
-        assertThat(authority.claim().orElseThrow().seasonNumber()).isEqualTo(2);
-    }
-
-    @Test
-    void expiredChangeCursorRefreshesTrackedWorksAndAdmitsOnlyActiveSnapshotMatches() {
-        var day = LocalDate.of(2026, 4, 15);
-        jdbc.update("""
-                insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number,status,last_success_at,last_error)
-                values ('movie',42,-1,'SUCCESS',now(),null),('movie',43,-1,'UNAVAILABLE',null,'ADULT_SOURCE_RECORD')
-                """);
-        var cursor = authority.cursor("movie", day);
-        transactions.executeWithoutResult(status -> authority.recoverExpiredCursor(cursor, day.plusDays(30)));
-        assertThat(jdbc.queryForList("select status from catalog_authority_import_jobs order by tmdb_id", String.class))
-                .containsExactly("PENDING", "UNAVAILABLE");
-        var recovered = authority.cursor("movie", day);
-        assertThat(recovered.day()).isEqualTo(day.plusDays(30));
-        assertThat(recovered.page()).isEqualTo(1);
-
-        jdbc.update("update provider_catalog_snapshot_states set snapshot_date=?, active_slot=1, row_count=3 where media_type='movie'",
-                recovered.day());
-        jdbc.update("""
-                insert into provider_catalog_snapshot_items(media_type,slot,tmdb_id,title,popularity,video)
-                values ('movie',1,51,'New detail',15,false),('movie',1,52,'Another detail',14,false),
-                       ('movie',1,53,'Trailer',20,true),('movie',0,54,'Obsolete slot',21,false)
-                """);
-        assertThat(transactions.<Boolean>execute(status -> authority.saveChanges(recovered,
-                new TmdbChangePage(List.of(43L, 51L, 52L, 53L, 54L, 55L), true), 1))).isTrue();
-        assertThat(jdbc.queryForList("select tmdb_id from catalog_authority_import_jobs order by tmdb_id", Long.class))
-                .containsExactly(42L, 43L, 51L);
-    }
-
-    @Test
-    void keepsProviderFactsSeparateAndDeduplicatesReplayedReferenceSnapshots() {
-        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
-        var facts = authorityFacts("Canonical TMDB title");
-        facts.setImdbId("tt0133093");
-        var job = authority.claim().orElseThrow();
-        var evidence = new AuthorityCatalogEvidence("movie", 42, -1, LocalDate.of(1999, 3, 31), "movie",
-                facts, List.of(), List.of(), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, evidence))).isTrue();
-        var targets = references.imdbTargets();
-        assertThat(targets.keySet()).containsExactly("tt0133093");
-        var titles = references.claim("IMDb", "title-basics", Duration.ofMinutes(5)).orElseThrow();
-        assertThat(references.claim("IMDb", "title-basics", Duration.ofMinutes(5))).isEmpty();
-        var title = new ImdbCatalogSnapshotReader.Title("tt0133093", "movie", "IMDb facts", null, 1999, 136, List.of("Action"));
-        var conflictingTitle = new ImdbCatalogSnapshotReader.Title("tt0133093", "tv", "Wrong shape", null, 1999, 136, List.of());
-        transactions.executeWithoutResult(status -> references.storeImdbTitles(titles, targets, List.of(conflictingTitle)));
-        for (int replay = 0; replay < 2; replay++) {
-            transactions.executeWithoutResult(status -> references.storeImdbTitles(titles, targets, List.of(title)));
-        }
-        assertThat(references.complete(titles, Duration.ofHours(1), "fingerprint", "\"etag\"", null)).isTrue();
-        assertThatThrownBy(() -> transactions.executeWithoutResult(
-                status -> references.storeImdbTitles(titles, targets, List.of(title))))
-                .isInstanceOf(IllegalStateException.class).hasMessage("REFERENCE_SYNC_LEASE_LOST");
-        var ratings = references.claim("IMDb", "title-ratings", Duration.ofMinutes(5)).orElseThrow();
-        var rating = new ImdbCatalogSnapshotReader.Rating("tt0133093", new BigDecimal("8.5"), 12345);
-        transactions.executeWithoutResult(status -> references.storeImdbRatings(ratings, targets, List.of(rating)));
-        assertThat(jdbc.queryForObject("select vote_count from catalog_rating_observations where provider='IMDb'", Long.class))
-                .isEqualTo(12345L);
-
-        var douban = references.claim("Douban", "work-metadata", Duration.ofMinutes(5)).orElseThrow();
-        var target = references.dueDoubanTargets("Douban", 5).getFirst();
-        var mismatchedFacts = new DoubanCatalogObservation.Facts("1291843", "tt7605074", "同名作品",
-                null, "1999", List.of(), null);
-        var mismatched = new DoubanCatalogObservation(mismatchedFacts, null, null, MatchBasis.EXTERNAL_ID);
-        assertThat(transactions.<Boolean>execute(
-                status -> references.storeDouban(douban, target, mismatched, Duration.ofDays(1)))).isFalse();
-        var doubanFacts = new DoubanCatalogObservation.Facts("1291843", "tt0133093", "豆瓣译名",
-                null, "1999", List.of("豆瓣别名"), LocalDate.of(2000, 1, 14));
-        var doubanScore = new BigDecimal("9.1");
-        var supplement = new DoubanCatalogObservation(doubanFacts, doubanScore, 1000L, MatchBasis.EXTERNAL_ID);
-        assertThat(transactions.<Boolean>execute(
-                status -> references.storeDouban(douban, target, supplement, Duration.ofDays(1)))).isTrue();
-        jdbc.update("update catalog_rating_observations set observed_on=observed_on-1 where provider='Douban'");
-        transactions.executeWithoutResult(status -> references.storeDouban(douban, target, supplement, Duration.ofDays(1)));
-        assertThat(jdbc.queryForList(
-                "select vote_count from catalog_rating_observations where provider='Douban' order by observed_on", Long.class))
-                .containsExactly(1000L);
-        var updatedVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, 1003L, MatchBasis.EXTERNAL_ID);
-        var missingVotes = new DoubanCatalogObservation(doubanFacts, doubanScore, null, MatchBasis.EXTERNAL_ID);
-        transactions.executeWithoutResult(status -> references.storeDouban(douban, target, updatedVotes, Duration.ofDays(1)));
-        transactions.executeWithoutResult(status -> references.storeDouban(douban, target, missingVotes, Duration.ofDays(1)));
-        assertThat(jdbc.queryForList(
-                "select vote_count from catalog_rating_observations where provider='Douban' order by observed_on", Long.class))
-                .containsExactly(1000L, 1003L);
-        assertThat(references.dueDoubanTargets("Douban", 5)).isEmpty();
-        assertThat(jdbc.queryForList("select provider from catalog_metadata_observations order by provider", String.class))
-                .containsExactly("Douban", "IMDb", "TMDB");
-        assertThat(jdbc.queryForObject(
-                "select facts->'aliases'->>0 from catalog_metadata_observations where provider='Douban'", String.class))
-                .isEqualTo("豆瓣别名");
-        assertThat(jdbc.queryForObject(
-                "select facts->>'mainlandReleaseDate' from catalog_metadata_observations where provider='Douban'", String.class))
-                .isEqualTo("2000-01-14");
-        assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("Canonical TMDB title");
-    }
-
-    @Test
-    void writesOnlyChangedImdbAliasSetsAndKeepsTheBasicsCheckpointIndependent() {
-        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
-        var job = authority.claim().orElseThrow();
-        var facts = authorityFacts("TMDB title");
-        facts.setImdbId("tt7605074");
-        var work = new AuthorityCatalogEvidence("movie", 42, -1, LocalDate.of(2019, 2, 5), "movie",
-                facts, List.of(), List.of(), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, work))).isTrue();
-        var targets = references.imdbTargets();
-        var basics = references.claim("IMDb", "title-basics", Duration.ofMinutes(5)).orElseThrow();
-        var aliases = references.claim("IMDb", "title-akas", Duration.ofMinutes(5)).orElseThrow();
-        var title = new ImdbCatalogSnapshotReader.Title("tt7605074", "movie", "IMDb title", null, 2019, 125, List.of());
-        var aliasSnapshot = Map.of("tt7605074", List.of(new Alias("流浪地球", "CN", "zh", true)));
-        Map<String, List<Alias>> emptySnapshot = Map.of("tt7605074", List.of());
-
-        transactions.executeWithoutResult(status -> references.storeImdbTitles(basics, targets, List.of(title)));
-        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, emptySnapshot));
-        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, aliasSnapshot));
-        transactions.executeWithoutResult(status -> references.storeImdbTitles(basics, targets, List.of(title)));
-        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, aliasSnapshot));
-        assertThat(jdbc.queryForList("""
-                select coalesce(facts->>'dataset','title.basics') from catalog_metadata_observations
-                 where provider='IMDb' order by observed_at,id
-                """, String.class)).containsExactly("title.basics", "title.akas");
-        assertThat(jdbc.queryForObject("""
-                select facts->'aliases'->0->>'title' from catalog_metadata_observations
-                 where provider='IMDb' and facts->>'dataset'='title.akas'
-                """, String.class)).isEqualTo("流浪地球");
-
-        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, emptySnapshot));
-        transactions.executeWithoutResult(status -> references.storeImdbAliases(aliases, targets, emptySnapshot));
-        assertThat(jdbc.queryForList("""
-                select jsonb_array_length(facts->'aliases') from catalog_metadata_observations
-                 where provider='IMDb' and facts->>'dataset'='title.akas' order by observed_at,id
-                """, Integer.class)).containsExactly(1, 0);
-        assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("TMDB title");
-    }
-
-    @Test
-    void discoversDoubanAndImdbForAnImportedWorkWithOnlyTmdbIdentity() {
-        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
-        var cast = new CreditSet(null, null, CreditKind.CAST, true,
-                List.of(new Credit("101", "actor", "吴京", "Wu Jing", "Acting", "Actor", "刘培强", 0, 0)));
-        var crew = new CreditSet(null, null, CreditKind.CREW, true,
-                List.of(new Credit("102", "director", "郭帆", "Frant Gwo", "Directing", "Director", null, null, 0)));
-        var job = authority.claim().orElseThrow();
-        var imported = new AuthorityCatalogEvidence("movie", 42, -1, LocalDate.of(2019, 2, 5), "movie",
-                authorityFacts("流浪地球"), List.of(), List.of(), List.of(cast, crew));
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(job, imported))).isTrue();
-        var target = references.dueDoubanTargets("Douban", 1).getFirst();
-        assertThat(target.imdbId()).isNull();
-        assertThat(target.doubanId()).isNull();
-
-        DoubanHttpClient http = mock(DoubanHttpClient.class);
-        when(http.getPublicPage(argThat(uri -> uri.getPath().equals("/j/subject_suggest")), eq("application/json")))
-                .thenReturn(Optional.of("[{\"id\":\"26266893\"}]"));
-        when(http.getPublicPage(URI.create("https://movie.douban.com/subject/26266893/"), "text/html"))
-                .thenReturn(Optional.of("""
-                        <link rel="canonical" href="https://movie.douban.com/subject/26266893/">
-                        <h1><span property="v:itemreviewed">流浪地球</span><span class="year">(2019)</span></h1>
-                        <div id="info">
-                          <span class="pl">导演:</span><a property="v:directedBy">郭帆</a><br>
-                          <span class="pl">主演:</span><a property="v:starring">吴京</a><br>
-                          <span class="pl">上映日期:</span><span property="v:initialReleaseDate">2019-02-05(中国大陆)</span><br>
-                          <span class="pl">IMDb:</span>tt7605074
-                        </div><strong property="v:average">7.9</strong><span property="v:votes">1000</span>
-                        """));
-        var source = new CatalogDoubanSupplementSource(http, JsonMapper.builder().build(), new DoubanProviderProperties());
-        var observation = source.fetch(target, () -> references.tmdbWorkEvidence(target)).orElseThrow();
-        assertThat(observation.matchBasis()).isEqualTo(MatchBasis.TMDB_DETAILS);
-
-        var lease = references.claim("Douban", "work-metadata", Duration.ofMinutes(5)).orElseThrow();
-        transactions.executeWithoutResult(status -> references.deferDoubanTarget(
-                lease, target, Duration.ofDays(7), "NO_IDENTITY_MATCH"));
-        assertThat(references.dueDoubanTargets("Douban", 1)).isEmpty();
-        jdbc.update("update catalog_works set last_verified_at=now()+interval '1 second' where id=?", target.workId());
-        assertThat(references.dueDoubanTargets("Douban", 1)).hasSize(1);
-        assertThat(transactions.<Boolean>execute(
-                status -> references.storeDouban(lease, target, observation, Duration.ZERO))).isFalse();
-        assertThat(references.imdbTargets()).isEmpty();
-        var refreshed = references.dueDoubanTargets("Douban", 1).getFirst();
-        var refreshedObservation = source.fetch(refreshed, () -> references.tmdbWorkEvidence(refreshed)).orElseThrow();
-        assertThat(transactions.<Boolean>execute(
-                status -> references.storeDouban(lease, refreshed, refreshedObservation, Duration.ofDays(1)))).isTrue();
-
-        assertThat(references.imdbTargets()).containsOnlyKeys("tt7605074");
-        assertThat(jdbc.queryForObject("select external_id from catalog_external_ids where provider='Douban'", String.class))
-                .isEqualTo("26266893");
-        assertThat(jdbc.queryForObject("select last_result from catalog_reference_work_refreshes", String.class))
-                .isEqualTo("MATCHED_BY_TMDB_DETAILS");
-        assertThat(jdbc.queryForObject("select title from catalog_entries", String.class)).isEqualTo("流浪地球");
-    }
-
-    @Test
-    void requeuesAnAgedTmdbDetailWithoutImdbAndStopsWhenTheIdArrives() {
-        jdbc.update("insert into catalog_authority_import_jobs(media_type,tmdb_id,season_number) values ('movie',42,-1)");
-        var initial = authority.claim().orElseThrow();
-        var released = LocalDate.of(2019, 2, 5);
-        var original = new AuthorityCatalogEvidence("movie", 42, -1, released, "movie",
-                authorityFacts("Canonical title"), List.of(), List.of(), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(initial, original))).isTrue();
-        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isZero();
-
-        jdbc.update("update catalog_works set last_verified_at=now()-interval '8 days'");
-        jdbc.update("update catalog_authority_import_jobs set last_success_at=now()-interval '8 days'");
-        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isOne();
-        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isZero();
-        var refresh = authority.claim().orElseThrow();
-        assertThat(refresh.tmdbId()).isEqualTo(initial.tmdbId());
-        var updatedFacts = authorityFacts("Canonical title");
-        updatedFacts.setImdbId("tt7605074");
-        var refreshed = new AuthorityCatalogEvidence("movie", 42, -1, released, "movie", updatedFacts,
-                List.of(), List.of(), List.of());
-        assertThat(transactions.<Boolean>execute(status -> authority.publish(refresh, refreshed))).isTrue();
-        assertThat(references.imdbTargets()).containsOnlyKeys("tt7605074");
-        assertThat(jdbc.queryForObject("select count(*) from catalog_works", Integer.class)).isOne();
-        assertThat(authority.queueMissingImdbDetails("movie", 2, Duration.ofDays(7))).isZero();
-    }
-
-    private EnrichedMetadataDTO authorityFacts(String title) {
-        var facts = evidence().metadata();
-        facts.setTitle(title);
-        return facts;
-    }
-
     private UUID enqueue() {
-        UUID id=UUID.randomUUID(); jdbc.update("insert into catalog_entries(id,title,tmdb_id,created_at,updated_at) values(?,'Known title','42',now(),now())",id);
-        jdbc.update("insert into catalog_metadata_enrichment_jobs(catalog_entry_id,provider,media_type,external_id) values(?,'TMDB','movie','42')",id);
+        UUID id=UUID.randomUUID(); jdbc.update("insert into unified_videos(id,title,tmdb_id) values(?,'Known title','42')",id);
+        jdbc.update("insert into catalog_metadata_requests(unified_video_id,provider,media_type,external_id) values(?,'TMDB','movie','42')",id);
         return id;
     }
     private CatalogMetadataEvidence evidence() {
@@ -572,5 +159,13 @@ class CatalogMetadataPostgresTest {
         facts.setScore(new BigDecimal("8.2"));facts.setActorNames(Set.of("Actor"));facts.setDirectorNames(Set.of("Director"));
         facts.setArea("CN");facts.setLanguage("zh");facts.setGenreNames(Set.of("动作"));
         return new CatalogMetadataEvidence("42","movie",0,facts);
+    }
+    private Path migration() {
+        Path relative=Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/16-02-global-rankings-and-discovery.sql");
+        for(Path root=Path.of("").toAbsolutePath();root!=null;root=root.getParent()) {
+            if(Files.isRegularFile(root.resolve(relative)))return root.resolve(relative);
+            if(Files.isRegularFile(root.resolve("backend").resolve(relative)))return root.resolve("backend").resolve(relative);
+        }
+        throw new IllegalStateException("Production catalog migration missing");
     }
 }

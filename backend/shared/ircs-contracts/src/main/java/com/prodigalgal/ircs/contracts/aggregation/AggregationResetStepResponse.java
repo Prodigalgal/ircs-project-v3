@@ -6,13 +6,13 @@ import java.util.UUID;
 public record AggregationResetStepResponse(
         String taskName,
         String stepName,
-        long sourceRecordCount,
-        long catalogEntryCount,
+        long rawVideoCount,
+        long unifiedVideoCount,
         long bindingCount,
         long changedRows,
-        List<UUID> sampleSourceRecordIds
+        List<UUID> sampleRawVideoIds
 ) {
     public AggregationResetStepResponse {
-        sampleSourceRecordIds = sampleSourceRecordIds == null ? List.of() : List.copyOf(sampleSourceRecordIds);
+        sampleRawVideoIds = sampleRawVideoIds == null ? List.of() : List.copyOf(sampleRawVideoIds);
     }
 }

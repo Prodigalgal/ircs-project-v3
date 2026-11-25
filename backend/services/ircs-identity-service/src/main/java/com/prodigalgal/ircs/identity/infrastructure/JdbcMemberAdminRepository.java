@@ -47,19 +47,18 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
             PageBounds bounds,
             String sort) {
         QueryParts query = memberQuery(keyword, status, adultContentAllowed, minPoints, maxPoints);
-        String memberBalances = " from member_accounts account join member_point_balances points on points.member_id = account.id";
-        long total = count("select count(*)" + memberBalances + query.where(), query.args());
+        long total = count("select count(*) from members" + query.where(), query.args());
 
         List<Object> args = new ArrayList<>(query.args());
         args.add(bounds.size());
         args.add(bounds.offset());
         List<MemberRecord> content = jdbcTemplate.query(
                 """
-                select account.id, account.created_at, account.updated_at, account.version, account.email,
-                       account.password_hash, account.nickname, account.avatar_url, account.role, account.status,
-                       coalesce(account.adult_content_allowed, false) as adult_content_allowed,
-                       account.experience, points.balance as points, account.last_check_in_date, account.check_in_streak
-                """ + memberBalances
+                select id, created_at, updated_at, version, email, password_hash, nickname, avatar_url, role, status,
+                       coalesce(adult_content_allowed, false) as adult_content_allowed,
+                       experience, points, last_check_in_date, check_in_streak
+                  from members
+                """
                         + query.where()
                         + orderBy(sort)
                         + " limit ? offset ?",
@@ -71,7 +70,7 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
     @Override
     public boolean existsByEmailExcludingId(String email, UUID excludedId) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from member_accounts where lower(email) = lower(?) and id <> ?)",
+                "select exists(select 1 from members where lower(email) = lower(?) and id <> ?)",
                 Boolean.class,
                 email,
                 excludedId);
@@ -80,11 +79,11 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
 
     @Override
     public PageResponse<HistoryRecordResponse> findFavorites(UUID memberId, PageBounds bounds) {
-        long total = count("select count(*) from member_catalog_favorites where member_id = ?", List.of(memberId));
+        long total = count("select count(*) from member_favorites where member_id = ?", List.of(memberId));
         List<HistoryRecordResponse> content = jdbcTemplate.query(
                 """
                 select mf.id,
-                       mf.catalog_entry_id,
+                       mf.unified_video_id,
                        uv.title,
                        uv.score,
                        ci.storage_type as cover_storage_type,
@@ -98,10 +97,10 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
                        0 as duration_seconds,
                        mf.created_at as last_watched_at,
                        true as is_favorite
-                from member_catalog_favorites mf
-                join catalog_entries uv on uv.id = mf.catalog_entry_id
-                left join media_image_sources ci on ci.id = uv.media_image_source_id
-                left join source_origins sd on sd.id = ci.source_origin_id
+                from member_favorites mf
+                join unified_videos uv on uv.id = mf.unified_video_id
+                left join cover_images ci on ci.id = uv.cover_image_id
+                left join source_domains sd on sd.id = ci.source_domain_id
                 where mf.member_id = ?
                 order by mf.created_at desc, mf.id asc
                 limit ? offset ?
@@ -115,11 +114,11 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
 
     @Override
     public PageResponse<HistoryRecordResponse> findHistory(UUID memberId, PageBounds bounds) {
-        long total = count("select count(*) from member_playback_progress where member_id = ?", List.of(memberId));
+        long total = count("select count(*) from member_watch_histories where member_id = ?", List.of(memberId));
         List<HistoryRecordResponse> content = jdbcTemplate.query(
                 """
                 select mwh.id,
-                       mwh.catalog_entry_id,
+                       mwh.unified_video_id,
                        uv.title,
                        uv.score,
                        ci.storage_type as cover_storage_type,
@@ -134,14 +133,14 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
                        mwh.last_watched_at,
                        exists (
                            select 1
-                           from member_catalog_favorites mf
+                           from member_favorites mf
                            where mf.member_id = mwh.member_id
-                             and mf.catalog_entry_id = mwh.catalog_entry_id
+                             and mf.unified_video_id = mwh.unified_video_id
                        ) as is_favorite
-                from member_playback_progress mwh
-                join catalog_entries uv on uv.id = mwh.catalog_entry_id
-                left join media_image_sources ci on ci.id = uv.media_image_source_id
-                left join source_origins sd on sd.id = ci.source_origin_id
+                from member_watch_histories mwh
+                join unified_videos uv on uv.id = mwh.unified_video_id
+                left join cover_images ci on ci.id = uv.cover_image_id
+                left join source_domains sd on sd.id = ci.source_domain_id
                 where mwh.member_id = ?
                 order by mwh.last_watched_at desc, mwh.id asc
                 limit ? offset ?
@@ -155,13 +154,13 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
 
     @Override
     public void deleteMemberRelations(UUID memberId) {
-        jdbcTemplate.update("delete from member_catalog_favorites where member_id = ?", memberId);
-        jdbcTemplate.update("delete from member_playback_progress where member_id = ?", memberId);
+        jdbcTemplate.update("delete from member_favorites where member_id = ?", memberId);
+        jdbcTemplate.update("delete from member_watch_histories where member_id = ?", memberId);
     }
 
     @Override
     public int deleteMember(UUID memberId) {
-        return jdbcTemplate.update("delete from member_accounts where id = ?", memberId);
+        return jdbcTemplate.update("delete from members where id = ?", memberId);
     }
 
     private QueryParts memberQuery(
@@ -187,11 +186,11 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
             args.add(adultContentAllowed);
         }
         if (minPoints != null) {
-            predicates.add("points.balance >= ?");
+            predicates.add("points >= ?");
             args.add(Math.max(0, minPoints));
         }
         if (maxPoints != null) {
-            predicates.add("points.balance <= ?");
+            predicates.add("points <= ?");
             args.add(Math.max(0, maxPoints));
         }
         String where = predicates.isEmpty() ? "" : " where " + String.join(" and ", predicates);
@@ -249,7 +248,7 @@ public class JdbcMemberAdminRepository implements MemberAdminRepository {
     private RowMapper<HistoryRecordResponse> historyMapper() {
         return (rs, rowNum) -> new HistoryRecordResponse(
                 rs.getObject("id", UUID.class),
-                rs.getObject("catalog_entry_id", UUID.class),
+                rs.getObject("unified_video_id", UUID.class),
                 rs.getString("title"),
                 coverImageUrl(rs),
                 rs.getObject("score", BigDecimal.class),

@@ -74,14 +74,14 @@ public class DlqRepository {
         String sql = """
                 select id, created_at, updated_at, version, queue_name, routing_key,
                        exchange, payload, exception_stack, retry_count, status
-                  from message_processing_failures
+                  from failed_messages
                 """ + where + JdbcPageSorts.orderBy(pageable, SORT_COLUMNS, DEFAULT_ORDER)
                 + " limit :limit offset :offset";
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<FailedMessageResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
         long total = filtered
-                ? count("select count(*) from message_processing_failures" + where, params)
+                ? count("select count(*) from failed_messages" + where, params)
                 : estimatedTotal(pageable, content.size());
         return new PageImpl<>(content, pageable, total);
     }
@@ -92,7 +92,7 @@ public class DlqRepository {
                     """
                     select id, created_at, updated_at, version, queue_name, routing_key,
                            exchange, payload, exception_stack, retry_count, status
-                      from message_processing_failures
+                      from failed_messages
                      where id = :id
                     """,
                     Map.of("id", id),
@@ -105,7 +105,7 @@ public class DlqRepository {
     public int markRetried(UUID id) {
         return jdbcTemplate.update(
                 """
-                update message_processing_failures
+                update failed_messages
                    set status = 'RETRIED',
                        retry_count = coalesce(retry_count, 0) + 1,
                        updated_at = now(),
@@ -119,7 +119,7 @@ public class DlqRepository {
     public int markDiscarded(UUID id) {
         return jdbcTemplate.update(
                 """
-                update message_processing_failures
+                update failed_messages
                    set status = 'DISCARDED',
                        updated_at = now(),
                        version = coalesce(version, 0) + 1

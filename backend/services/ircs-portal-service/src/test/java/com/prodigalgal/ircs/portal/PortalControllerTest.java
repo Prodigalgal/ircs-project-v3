@@ -192,7 +192,7 @@ class PortalControllerTest {
                 List.of(new PortalMovieDetailResponse.VideoSource(
                         UUID.randomUUID().toString(),
                         "来源",
-                        List.of(new PortalMovieDetailResponse.Episode(UUID.randomUUID().toString(), "第1集", "https://example.invalid/1.m3u8", null)))),
+                        List.of(new PortalMovieDetailResponse.Episode(UUID.randomUUID().toString(), "第1集", "https://example.invalid/1.m3u8")))),
                 List.of(),
                 List.of("高清"),
                 List.of());

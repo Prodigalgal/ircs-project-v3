@@ -129,7 +129,7 @@ class AggregationQueueClaimGuardTest {
     private RuntimeWorkItem item() {
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
-        return new RuntimeWorkItem(AggregationWorkTypes.SOURCE_RECORD, AggregationWorkTypes.taskId(id),
+        return new RuntimeWorkItem(AggregationWorkTypes.RAW_VIDEO, AggregationWorkTypes.taskId(id),
                 UUID.randomUUID().toString(), id.toString(), "v1", "{}", "PROCESSING", 1,
                 now, now, now, now.plusSeconds(60), "worker", null);
     }

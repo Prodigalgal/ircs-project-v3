@@ -75,12 +75,6 @@ public class TaskCommandService {
         }
         ValidatedUpdateTask task = validateUpdate(request);
         try {
-            if (!taskRepository.lockPlan(id)) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found");
-            }
-            if (taskRepository.findRuntimeState(id).map(TaskRuntimeState::status).filter(this::isBusy).isPresent()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Stop the active collection run before editing this plan");
-            }
             boolean updated = taskRepository.update(id, task);
             if (!updated) {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found");
@@ -95,8 +89,7 @@ public class TaskCommandService {
 
     @Transactional
     public void delete(UUID id) {
-        stop(id);
-        taskRepository.archive(id);
+        taskRepository.delete(id);
         publishAfterCommit(new TaskConfigurationChangedEvent(id, true));
     }
 
@@ -113,9 +106,10 @@ public class TaskCommandService {
         if (taskRepository.existsActiveTaskForDataSource(task.dataSourceId(), id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "DataSource busy");
         }
-        UUID runId = taskRepository.queueRun(task, resume, true).orElseThrow(
-                () -> new ResponseStatusException(HttpStatus.CONFLICT, "Task state changed; retry the request"));
-        dispatchQueuedMasterAfterCommit(runId, resume);
+        if (!taskRepository.markQueued(task, resume)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task state changed; retry the request");
+        }
+        dispatchQueuedMasterAfterCommit(id, resume);
     }
 
     @Transactional
@@ -125,7 +119,11 @@ public class TaskCommandService {
         if (!Boolean.TRUE.equals(task.enabled()) || isBusy(task.status())) {
             return false;
         }
-        return queueAndDispatch(task, resume, false);
+        if (!taskRepository.markQueued(task, resume)) {
+            return false;
+        }
+        dispatchQueuedMasterAfterCommit(id, resume);
+        return true;
     }
 
     /** Invoked while the caller holds the catalog source lease; no network I/O is part of this transaction. */
@@ -140,25 +138,19 @@ public class TaskCommandService {
             return false;
         }
         ownershipCheck.run();
-        return queueAndDispatch(task, false, true);
+        return startInternal(id, false);
     }
 
     @Transactional
     public void pause(UUID id) {
-        taskRepository.pause(id).ifPresent(runId ->
-                runAfterCommit(() -> progressService.holdMaster(runId, "PAUSED", "Task paused by operator.", java.time.Instant.now())));
+        taskRepository.pause(id);
+        runAfterCommit(() -> progressService.holdMaster(id, "PAUSED", "Task paused by operator.", java.time.Instant.now()));
     }
 
     @Transactional
     public void stop(UUID id) {
-        taskRepository.stop(id).ifPresent(runId ->
-                runAfterCommit(() -> progressService.holdMaster(runId, "STOPPING", "Task stopped by operator.", java.time.Instant.now())));
-    }
-
-    private boolean queueAndDispatch(TaskRuntimeState plan, boolean resume, boolean exclusiveSource) {
-        var runId = taskRepository.queueRun(plan, resume, exclusiveSource);
-        runId.ifPresent(id -> dispatchQueuedMasterAfterCommit(id, resume));
-        return runId.isPresent();
+        taskRepository.stop(id);
+        runAfterCommit(() -> progressService.holdMaster(id, "STOPPING", "Task stopped by operator.", java.time.Instant.now()));
     }
 
     private void ensureDataSourceExists(UUID dataSourceId) {

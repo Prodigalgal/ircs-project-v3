@@ -97,14 +97,14 @@ public class WorkerJobAuditRepository {
         String sql = """
                 select id, created_at, updated_at, version, audit_class, job_source, job_type, job_name,
                        correlation_id, status, duration_ms, error_class, error_message
-                  from background_job_audit_events
+                  from worker_job_audit_events
                 """ + where + JdbcPageSorts.orderBy(pageable, SORT_COLUMNS, DEFAULT_ORDER)
                 + " limit :limit offset :offset";
         params.addValue("limit", pageable.getPageSize());
         params.addValue("offset", pageable.getOffset());
         List<WorkerJobAuditEventResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
         long total = filtered
-                ? count("select count(*) from background_job_audit_events" + where, params)
+                ? count("select count(*) from worker_job_audit_events" + where, params)
                 : estimatedTotal(pageable, content.size());
         return new PageImpl<>(content, pageable, total);
     }
@@ -121,7 +121,7 @@ public class WorkerJobAuditRepository {
                                max(duration_ms) as max_duration_ms
                           from (
                                 select status, duration_ms
-                                  from background_job_audit_events
+                                  from worker_job_audit_events
                                  where created_at >= :since
                                  order by created_at desc
                                  limit :sampleLimit

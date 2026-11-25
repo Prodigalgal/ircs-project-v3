@@ -10,7 +10,7 @@ interface MagnetProviderSearchRunner {
     MagnetProviderSearchResult search(
             MagnetProviderSummary provider,
             MagnetExternalIdQuery query,
-            UUID catalogEntryId);
+            UUID unifiedVideoId);
 }
 
 record MagnetExternalIdQuery(

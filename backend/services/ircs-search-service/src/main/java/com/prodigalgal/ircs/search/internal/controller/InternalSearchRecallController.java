@@ -24,6 +24,6 @@ class InternalSearchRecallController {
             @RequestParam(required = false) String year) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(portalSearchQueryService.findCandidateCatalogEntryIds(title, year));
+                .body(portalSearchQueryService.findCandidateUnifiedVideoIds(title, year));
     }
 }

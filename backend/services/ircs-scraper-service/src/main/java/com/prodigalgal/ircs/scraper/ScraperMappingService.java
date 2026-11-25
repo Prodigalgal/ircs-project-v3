@@ -18,15 +18,12 @@ import com.prodigalgal.ircs.scraper.ScraperDtos.ScrapedVideoDraft;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -122,14 +119,15 @@ class ScraperMappingService {
 
     IngestionItem toItem(ScrapedVideoDraft draft, boolean forceIngest) {
         String rawMetadata = canonicalRawMetadata(draft);
-        List<IngestionPlaylistDTO> playlists = draft.playlists() == null ? List.of() : draft.playlists();
-        ArrayNode content = objectMapper.createArrayNode()
-                .add(objectMapper.readTree(rawMetadata))
-                .add(objectMapper.valueToTree(playlists));
         IngestionVideoDTO video = new IngestionVideoDTO(
                 draft.sourceVid(),
                 sha256(draft.dataSourceId() + ":" + draft.sourceVid()),
-                sha256(objectMapper.writeValueAsString(sortedObjectKeys(content))),
+                sha256(String.join("|",
+                        value(draft.title()),
+                        value(draft.coverImageUrl()),
+                        value(draft.year()),
+                        value(draft.remarks()),
+                        rawMetadata)),
                 draft.title(),
                 draft.aliasTitle(),
                 draft.description(),
@@ -149,25 +147,9 @@ class ScraperMappingService {
                 rawMetadata,
                 "PENDING",
                 draft.dataSourceId(),
-                playlists,
+                draft.playlists() == null ? List.of() : draft.playlists(),
                 0);
-        return new IngestionItem(video, forceIngest, Instant.now());
-    }
-
-    private JsonNode sortedObjectKeys(JsonNode value) {
-        if (value.isObject()) {
-            ObjectNode sorted = objectMapper.createObjectNode();
-            value.properties().stream()
-                    .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
-                    .forEach(field -> sorted.set(field.getKey(), sortedObjectKeys(field.getValue())));
-            return sorted;
-        }
-        if (value.isArray()) {
-            ArrayNode result = objectMapper.createArrayNode();
-            value.forEach(item -> result.add(sortedObjectKeys(item)));
-            return result;
-        }
-        return value;
+        return new IngestionItem(video, forceIngest);
     }
 
     private String canonicalRawMetadata(ScrapedVideoDraft draft) {
@@ -438,4 +420,7 @@ class ScraperMappingService {
         }
     }
 
+    private String value(String value) {
+        return value == null ? "" : value;
+    }
 }

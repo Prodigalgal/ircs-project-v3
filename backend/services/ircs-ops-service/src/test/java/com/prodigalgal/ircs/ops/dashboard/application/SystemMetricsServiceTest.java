@@ -243,9 +243,9 @@ class SystemMetricsServiceTest {
     void runtimeWorkQueueReportsNoActiveConsumerInsteadOfHeartbeatTimeout() {
         RuntimeWorkQueue runtimeWorkQueue = org.mockito.Mockito.mock(RuntimeWorkQueue.class);
         when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
-        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.SOURCE_RECORD))
+        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
                 .thenReturn(new RuntimeWorkQueueCounts(9, 0, 0));
-        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.SOURCE_RECORD))
+        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
                 .thenReturn(0L);
         when(redisConnectionFactory.getConnection()).thenThrow(new IllegalStateException("redis unavailable"));
 
@@ -282,9 +282,9 @@ class SystemMetricsServiceTest {
         AggregationOpsStatsClient aggregationOpsStatsClient = org.mockito.Mockito.mock(AggregationOpsStatsClient.class);
         when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
         when(aggregationOpsStatsClientProvider.getIfAvailable()).thenReturn(aggregationOpsStatsClient);
-        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.SOURCE_RECORD))
+        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
                 .thenReturn(new RuntimeWorkQueueCounts(0, 25, 0));
-        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.SOURCE_RECORD))
+        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
                 .thenReturn(1L);
         when(aggregationOpsStatsClient.currentStats()).thenReturn(Map.of(
                 "available", true,
@@ -311,9 +311,9 @@ class SystemMetricsServiceTest {
         AggregationOpsStatsClient aggregationOpsStatsClient = org.mockito.Mockito.mock(AggregationOpsStatsClient.class);
         when(runtimeWorkQueueProvider.getIfAvailable()).thenReturn(runtimeWorkQueue);
         when(aggregationOpsStatsClientProvider.getIfAvailable()).thenReturn(aggregationOpsStatsClient);
-        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.SOURCE_RECORD))
+        when(runtimeWorkQueue.counts(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
                 .thenReturn(new RuntimeWorkQueueCounts(0, 25, 0));
-        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.SOURCE_RECORD))
+        when(runtimeWorkQueue.consumerCount(com.prodigalgal.ircs.common.aggregation.AggregationWorkTypes.RAW_VIDEO))
                 .thenReturn(1L);
         when(aggregationOpsStatsClient.currentStats()).thenReturn(Map.of(
                 "available", true,

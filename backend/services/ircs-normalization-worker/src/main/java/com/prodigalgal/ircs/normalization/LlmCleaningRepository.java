@@ -43,10 +43,10 @@ class LlmCleaningRepository {
         requireCategory(kind);
         int updated = jdbcTemplate.update(
                 """
-                update source_records
+                update raw_videos
                    set category_code = (
                            select slug
-                             from catalog_categories
+                             from standard_category
                             where id = :standardId
                             limit 1
                        ),
@@ -70,7 +70,7 @@ class LlmCleaningRepository {
         return switch (kind) {
             case CATEGORY -> """
                     select id, source_category_name as raw_value
-                    from source_records
+                    from raw_videos
                     where id = :rawId
                       and nullif(trim(coalesce(category_code, '')), '') is null
                       and source_category_name is not null
@@ -85,7 +85,7 @@ class LlmCleaningRepository {
         return switch (kind) {
             case CATEGORY -> """
                     select id, name
-                    from catalog_categories
+                    from standard_category
                     where slug in (:allowedCategoryCodes)
                       and name is not null
                     order by name

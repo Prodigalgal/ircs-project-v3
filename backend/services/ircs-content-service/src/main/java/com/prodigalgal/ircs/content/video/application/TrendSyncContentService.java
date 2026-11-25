@@ -67,12 +67,9 @@ public class TrendSyncContentService {
                     count++;
                     if (!boardIds.add(candidate.identityKey())) { duplicateCount++; continue; }
                     var resolution = remember(candidate, resolved, created, updated);
-                    if (resolution.id() != null) {
-                        observations.add(new TrendSnapshotRepository.Observation(candidate, resolution.id()));
-                    }
+                    observations.add(new TrendSnapshotRepository.Observation(candidate, resolution.id()));
                 }
-                // If all observed works are awaiting details, keep the previous verified board.
-                if (candidates.isEmpty() || !observations.isEmpty()) snapshots.save(board, observations);
+                snapshots.save(board, observations);
             }
         }
         updated.removeAll(created);
@@ -87,9 +84,7 @@ public class TrendSyncContentService {
         if (resolution == null) {
             resolution = catalog.resolve(candidate);
             resolved.put(key, resolution);
-            if (resolution.id() != null) {
-                if (resolution.created()) created.add(resolution.id()); else updated.add(resolution.id());
-            }
+            if (resolution.created()) created.add(resolution.id()); else updated.add(resolution.id());
         }
         return resolution;
     }

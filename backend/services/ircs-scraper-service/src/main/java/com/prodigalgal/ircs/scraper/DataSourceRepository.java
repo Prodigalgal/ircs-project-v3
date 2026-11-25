@@ -35,7 +35,7 @@ class DataSourceRepository {
                        read_timeout_ms,
                        user_agent,
                        coalesce(adult_restricted, false) as adult_restricted
-                from collection_sources
+                from data_sources
                 order by name asc
                 """, this::map);
     }
@@ -59,7 +59,7 @@ class DataSourceRepository {
                        read_timeout_ms,
                        user_agent,
                        coalesce(adult_restricted, false) as adult_restricted
-                from collection_sources
+                from data_sources
                 where id = ?
                 """, this::map, id).stream().findFirst();
     }

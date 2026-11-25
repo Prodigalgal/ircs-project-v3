@@ -10,7 +10,6 @@ import com.prodigalgal.ircs.task.infrastructure.TaskDistributedLockRunner;
 import com.prodigalgal.ircs.task.dto.TaskCreateRequest;
 import com.prodigalgal.ircs.task.domain.CatalogDiscoveryCandidate;
 import com.prodigalgal.ircs.task.domain.TaskRuntimeState;
-import com.prodigalgal.ircs.task.config.CatalogDiscoveryConfigValues;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
@@ -29,7 +28,6 @@ class TrendDiscoveryTaskServiceTest {
 
     private final JdbcCollectionTaskRepository taskRepository = org.mockito.Mockito.mock(JdbcCollectionTaskRepository.class);
     private final TaskCommandService taskCommandService = org.mockito.Mockito.mock(TaskCommandService.class);
-    private final CatalogDiscoveryConfigValues config = org.mockito.Mockito.mock(CatalogDiscoveryConfigValues.class);
     private final TrendDiscoveryTaskService service = service();
 
     @Test
@@ -120,41 +118,15 @@ class TrendDiscoveryTaskServiceTest {
         assertThat(captor.getValue().dataSourceId()).isEqualTo(firstDataSourceId);
     }
 
-    @Test
-    void skipsKeywordDiscoveryForConfiguredListOnlySources() {
-        UUID unsupportedId = UUID.randomUUID();
-        UUID supportedId = UUID.randomUUID();
-        UUID taskId = UUID.randomUUID();
-        ReflectionTestUtils.setField(service, "keywordDisabledDataSources", " 旺旺资源,天涯 ");
-        when(taskRepository.findDefaultTaskSeedDataSources()).thenReturn(List.of(
-                new DataSourceSeedCandidate(unsupportedId, "旺旺资源"),
-                new DataSourceSeedCandidate(UUID.randomUUID(), "天涯"),
-                new DataSourceSeedCandidate(supportedId, "Other Source")));
-        when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.empty());
-        when(taskCommandService.create(any())).thenReturn(taskId);
-        when(taskCommandService.startInternal(taskId, false)).thenReturn(true);
-
-        var response = service.schedule(new TrendDiscoveryScheduleRequest(
-                List.of("Codex Trend"), 1, 1, 0, false), "corr-trend");
-
-        assertThat(response.dataSourceCount()).isEqualTo(1);
-        assertThat(response.tasks()).extracting(task -> task.dataSourceId()).containsExactly(supportedId);
-        ArgumentCaptor<TaskCreateRequest> captor = ArgumentCaptor.forClass(TaskCreateRequest.class);
-        verify(taskCommandService).create(captor.capture());
-        assertThat(captor.getValue().dataSourceId()).isEqualTo(supportedId);
-    }
-
     private TrendDiscoveryTaskService service() {
         TrendDiscoveryTaskService result = new TrendDiscoveryTaskService(
                 taskRepository,
                 taskCommandService,
                 TaskDistributedLockRunner.local(),
-                new tools.jackson.databind.ObjectMapper(),
-                config);
+                new tools.jackson.databind.ObjectMapper());
         ReflectionTestUtils.setField(result, "enabled", true);
         ReflectionTestUtils.setField(result, "maxKeywords", 50);
         ReflectionTestUtils.setField(result, "maxDataSources", 0);
-        ReflectionTestUtils.setField(result, "keywordDisabledDataSources", "");
         return result;
     }
 
@@ -165,10 +137,9 @@ class TrendDiscoveryTaskServiceTest {
         UUID taskId = UUID.randomUUID();
         CatalogDiscoveryCandidate first = new CatalogDiscoveryCandidate(workId, 1, 5, "Same Title", 1, UUID.randomUUID());
         CatalogDiscoveryCandidate second = new CatalogDiscoveryCandidate(workId, 2, 5, "Same Title", 1, UUID.randomUUID());
-        when(config.sourceIds()).thenReturn(List.of(sourceId));
-        when(taskRepository.findCatalogDiscoveryDataSources(first.requestKey(), 3, List.of(sourceId)))
+        when(taskRepository.findCatalogDiscoveryDataSources(first.requestKey(), 3))
                 .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
-        when(taskRepository.findCatalogDiscoveryDataSources(second.requestKey(), 3, List.of(sourceId)))
+        when(taskRepository.findCatalogDiscoveryDataSources(second.requestKey(), 3))
                 .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
         when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.empty());
         when(taskCommandService.create(any())).thenReturn(taskId);
@@ -196,13 +167,12 @@ class TrendDiscoveryTaskServiceTest {
         UUID taskId = UUID.randomUUID();
         CatalogDiscoveryCandidate candidate = new CatalogDiscoveryCandidate(
                 UUID.randomUUID(), 0, 0, "Example", 2, UUID.randomUUID());
-        when(config.sourceIds()).thenReturn(List.of());
-        when(taskRepository.findCatalogDiscoveryDataSources(candidate.requestKey(), 1, List.of()))
+        when(taskRepository.findCatalogDiscoveryDataSources(candidate.requestKey(), 1))
                 .thenReturn(List.of(new DataSourceSeedCandidate(sourceId, "Source")));
         when(taskRepository.findTaskIdByName(any())).thenReturn(Optional.of(taskId));
         when(taskRepository.findRuntimeState(taskId))
-                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", true, 1, 1, UUID.randomUUID())))
-                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", false, 1, 1, UUID.randomUUID())));
+                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", true, 1, 1)))
+                .thenReturn(Optional.of(new TaskRuntimeState(taskId, sourceId, "RUNNING", false, 1, 1)));
 
         assertThat(service.scheduleCatalog(candidate, 1, () -> {}).tasks().getFirst().status()).isEqualTo("ACTIVE");
         assertThat(service.scheduleCatalog(candidate, 1, () -> {}).tasks().getFirst().status())

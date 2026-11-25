@@ -74,7 +74,7 @@ class MaintenanceWriteGateInspectorTest {
         dataSource.setUrl("jdbc:h2:mem:maintenance_gate_" + name + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         jdbcTemplate.execute("""
-                create table operations_maintenance_runs (
+                create table maintenance_operations (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,
@@ -111,7 +111,7 @@ class MaintenanceWriteGateInspectorTest {
                 Instant expiresAt,
                 String status) {
             jdbcTemplate.update("""
-                    insert into operations_maintenance_runs (
+                    insert into maintenance_operations (
                         id, created_at, updated_at, operation_key, owner_service, resource_type,
                         resource_scope, mode, status, reason, expires_at
                     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

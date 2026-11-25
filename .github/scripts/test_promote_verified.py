@@ -57,25 +57,6 @@ class PromotionGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verified.validate_jobs(jobs, ['ircs-api-gateway'])
 
-    def test_runtime_recheck_accepts_built_images_after_runtime_and_manifest_failures(self):
-        jobs = self.jobs()
-        for job in jobs:
-            if job['name'] in verified.RUNTIME_JOBS:
-                job['conclusion'] = 'failure'
-            if job['name'] == 'manifests':
-                job['conclusion'] = 'skipped'
-        native, images = verified.validate_jobs(jobs, ['ircs-api-gateway'], recheck_runtime=True)
-        self.assertEqual(native, ['ircs-api-gateway'])
-        self.assertEqual(len(images), 4)
-        with self.assertRaises(ValueError):
-            verified.validate_jobs(jobs, ['ircs-api-gateway'])
-
-    def test_runtime_recheck_requires_every_original_build_and_test_gate(self):
-        for name in ('Native ircs-api-gateway / arm64', 'java-tests', 'Frontend admin / amd64'):
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                jobs = [job for job in self.jobs() if job['name'] != name]
-                verified.validate_jobs(jobs, ['ircs-api-gateway'], recheck_runtime=True)
-
     def test_missing_architecture_cannot_be_bypassed(self):
         with self.assertRaises(ValueError):
             verified.validate_jobs([j for j in self.jobs() if j['name'] != 'Native ircs-api-gateway / arm64'], ['ircs-api-gateway'])
@@ -188,10 +169,10 @@ class PromotionGuardTests(unittest.TestCase):
         artifact = {'name': 'affected-plan', 'id': 123, 'expired': False,
                     'workflow_run': {'id': 456, 'head_sha': self.revision}}
         with patch.object(verified, 'api', return_value={'artifacts': [artifact]}) as api, \
-                patch.object(verified, 'api_bytes', return_value=self.archive()) as download:
+                patch.object(verified.subprocess, 'check_output', return_value=self.archive()) as download:
             self.assertEqual(verified.load_plan(verified.CANONICAL_REPOSITORY, 456, self.revision), self.plan())
             self.assertIn('/actions/runs/456/artifacts?', api.call_args.args[0])
-            download.assert_called_once_with(f'repos/{verified.CANONICAL_REPOSITORY}/actions/artifacts/123/zip')
+            self.assertEqual(download.call_args.args[0][-1], f'repos/{verified.CANONICAL_REPOSITORY}/actions/artifacts/123/zip')
         for artifacts in ([{**artifact, 'expired': True}], [artifact, artifact],
                           [{**artifact, 'workflow_run': {'id': 999, 'head_sha': self.revision}}]):
             with patch.object(verified, 'api', return_value={'artifacts': artifacts}), self.assertRaises(ValueError):
@@ -243,7 +224,7 @@ class PromotionGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='ircs-publish-unit-') as temporary:
             output = Path(temporary)/'output'
             with patch.object(verified, 'git', side_effect=git), patch.object(verified, 'api', side_effect=api), \
-                    patch.object(verified.subprocess, 'run'), patch.object(verified, 'api_bytes', return_value=self.archive()), \
+                    patch.object(verified.subprocess, 'run'), patch.object(verified.subprocess, 'check_output', return_value=self.archive()), \
                     patch.dict(verified.os.environ, {'GITHUB_REPOSITORY': verified.CANONICAL_REPOSITORY, 'GITHUB_OUTPUT': str(output)}), \
                     patch('sys.argv', ['promote-verified.py', '--run-id', '456', '--source-revision', self.revision]):
                 verified.main()

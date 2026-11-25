@@ -74,7 +74,7 @@ public class MemberAdminService {
 
     @Transactional
     public MemberAdminResponse updateMember(UUID memberId, MemberAdminUpdateRequest request) {
-        MemberRecord member = requireMemberForUpdate(memberId);
+        MemberRecord member = requireMember(memberId);
         String nextEmail = member.email();
         if (request != null && StringUtils.hasText(request.email())) {
             nextEmail = normalizeEmail(request.email());
@@ -104,9 +104,6 @@ public class MemberAdminService {
             updated = updated.withAdultContentAllowed(request.adultContentAllowed());
         }
         memberRepository.update(updated);
-        if (request != null && request.points() != null) {
-            memberRepository.setPointBalance(memberId, updated.points());
-        }
         if (member.status() != updated.status()) {
             statusCacheService.updateStatus(memberId, updated.status());
         }
@@ -118,7 +115,7 @@ public class MemberAdminService {
         if (status == null) {
             throw ApiException.badRequest("状态不能为空", "member", "status.required");
         }
-        MemberRecord member = requireMemberForUpdate(memberId);
+        MemberRecord member = requireMember(memberId);
         if (member.status() == status) {
             return mapper.toAdmin(member);
         }
@@ -140,11 +137,6 @@ public class MemberAdminService {
 
     private MemberRecord requireMember(UUID memberId) {
         return memberRepository.findById(memberId)
-                .orElseThrow(() -> ApiException.notFound("Member not found", "member", "not.found"));
-    }
-
-    private MemberRecord requireMemberForUpdate(UUID memberId) {
-        return memberRepository.findByIdForUpdate(memberId)
                 .orElseThrow(() -> ApiException.notFound("Member not found", "member", "not.found"));
     }
 

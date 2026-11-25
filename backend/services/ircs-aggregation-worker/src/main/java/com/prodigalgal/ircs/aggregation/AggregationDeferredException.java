@@ -17,7 +17,7 @@ final class AggregationDeferredException extends RuntimeException {
     Duration retryAfter() { return retryAfter; }
 
     static boolean isWaitingReason(String reason) {
-        return "WAITING_DEPENDENCIES".equals(reason) || "WAITING_AUTHORITY".equals(reason) || "NOT_ELIGIBLE".equals(reason)
+        return "WAITING_DEPENDENCIES".equals(reason) || "NOT_ELIGIBLE".equals(reason)
                 || "MATCH_LOCK_BUSY".equals(reason) || "SOURCE_CHANGED".equals(reason)
                 || "IDENTITY_CONFLICT".equals(reason) || "MERGE_AMBIGUOUS".equals(reason);
     }

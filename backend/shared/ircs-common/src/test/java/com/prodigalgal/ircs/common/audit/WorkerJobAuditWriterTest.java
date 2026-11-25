@@ -48,7 +48,7 @@ class WorkerJobAuditWriterTest {
              var result = connection.createStatement().executeQuery("""
                      select audit_class, job_source, job_type, job_name, correlation_id, status, duration_ms,
                             error_class, error_message
-                     from background_job_audit_events
+                     from worker_job_audit_events
                      """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("audit_class")).isEqualTo("SYSTEM");
@@ -64,11 +64,11 @@ class WorkerJobAuditWriterTest {
         }
         RuntimeWorkItemRequest request = queue.requests.getFirst();
         assertThat(request.taskType()).isEqualTo(AuditReplicationWorkTypes.ES_REPLICATION);
-        assertThat(request.taskId()).startsWith("background_job_audit_events:");
+        assertThat(request.taskId()).startsWith("worker_job_audit_events:");
         assertThat(request.version()).isEqualTo("UPSERT");
         AuditReplicationWorkPayload payload = new ObjectMapper()
                 .readValue(request.payload(), AuditReplicationWorkPayload.class);
-        assertThat(payload.sourceTable()).isEqualTo("background_job_audit_events");
+        assertThat(payload.sourceTable()).isEqualTo("worker_job_audit_events");
         assertThat(payload.auditClass()).isEqualTo(AuditClass.SYSTEM);
     }
 
@@ -91,7 +91,7 @@ class WorkerJobAuditWriterTest {
 
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement()
-                     .executeQuery("select job_source from background_job_audit_events")) {
+                     .executeQuery("select job_source from worker_job_audit_events")) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("job_source"))
                     .startsWith("ircs-task-service@")
@@ -115,7 +115,7 @@ class WorkerJobAuditWriterTest {
 
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement()
-                     .executeQuery("select audit_class, error_class, error_message from background_job_audit_events")) {
+                     .executeQuery("select audit_class, error_class, error_message from worker_job_audit_events")) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("audit_class")).isEqualTo("SYSTEM");
             assertThat(result.getString("error_class")).isEqualTo("java.lang.RuntimeException");
@@ -139,7 +139,7 @@ class WorkerJobAuditWriterTest {
 
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement()
-                     .executeQuery("select error_message from background_job_audit_events")) {
+                     .executeQuery("select error_message from worker_job_audit_events")) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("error_message"))
                     .contains("Unexpected character")
@@ -200,7 +200,7 @@ class WorkerJobAuditWriterTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table background_job_audit_events (
+                    create table worker_job_audit_events (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

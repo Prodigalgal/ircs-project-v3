@@ -70,47 +70,47 @@ public class MagnetQueryService {
         }
     }
 
-    public List<MagnetLinkSummary> findApprovedLinks(UUID catalogEntryId) {
-        return readModelCache.findApprovedLinks(catalogEntryId, () -> magnetRepository.findApprovedLinks(catalogEntryId));
+    public List<MagnetLinkSummary> findApprovedLinks(UUID unifiedVideoId) {
+        return readModelCache.findApprovedLinks(unifiedVideoId, () -> magnetRepository.findApprovedLinks(unifiedVideoId));
     }
 
-    public List<MagnetLinkSummary> findLinks(UUID catalogEntryId) {
-        ensureCatalogEntryExists(catalogEntryId);
-        return magnetRepository.findLinks(catalogEntryId);
+    public List<MagnetLinkSummary> findLinks(UUID unifiedVideoId) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        return magnetRepository.findLinks(unifiedVideoId);
     }
 
-    public List<MagnetSearchJobSummary> findSearchJobs(UUID catalogEntryId, int limit) {
-        ensureCatalogEntryExists(catalogEntryId);
-        return magnetRepository.findSearchJobs(catalogEntryId, limit);
+    public List<MagnetSearchJobSummary> findSearchJobs(UUID unifiedVideoId, int limit) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        return magnetRepository.findSearchJobs(unifiedVideoId, limit);
     }
 
     public List<MagnetProviderRunSummary> findProviderRuns(UUID jobId) {
         return magnetRepository.findProviderRuns(jobId);
     }
 
-    public MagnetSearchJobSummary triggerUnifiedSearch(UUID catalogEntryId) {
-        return searchExecutor.searchNow(catalogEntryId, "ADMIN_MANUAL");
+    public MagnetSearchJobSummary triggerUnifiedSearch(UUID unifiedVideoId) {
+        return searchExecutor.searchNow(unifiedVideoId, "ADMIN_MANUAL");
     }
 
-    public MagnetSearchJobSummary triggerAutomaticSearch(UUID catalogEntryId) {
-        return searchExecutor.searchNow(catalogEntryId, "AUTO_SCHEDULED");
+    public MagnetSearchJobSummary triggerAutomaticSearch(UUID unifiedVideoId) {
+        return searchExecutor.searchNow(unifiedVideoId, "AUTO_SCHEDULED");
     }
 
-    public MagnetSearchJobSummary enqueueUnifiedSearch(UUID catalogEntryId) {
-        return searchExecutor.enqueue(catalogEntryId, "ADMIN_MANUAL");
+    public MagnetSearchJobSummary enqueueUnifiedSearch(UUID unifiedVideoId) {
+        return searchExecutor.enqueue(unifiedVideoId, "ADMIN_MANUAL");
     }
 
-    public MagnetSearchJobSummary enqueueAutomaticSearch(UUID catalogEntryId) {
-        return searchExecutor.enqueue(catalogEntryId, "AUTO_SCHEDULED");
+    public MagnetSearchJobSummary enqueueAutomaticSearch(UUID unifiedVideoId) {
+        return searchExecutor.enqueue(unifiedVideoId, "AUTO_SCHEDULED");
     }
 
-    public MagnetSearchJobSummary executeQueuedSearch(UUID jobId, UUID catalogEntryId, String triggerType) {
-        return executeQueuedSearch(jobId, catalogEntryId, triggerType, true);
+    public MagnetSearchJobSummary executeQueuedSearch(UUID jobId, UUID unifiedVideoId, String triggerType) {
+        return executeQueuedSearch(jobId, unifiedVideoId, triggerType, true);
     }
 
-    public MagnetSearchJobSummary executeQueuedSearch(UUID jobId, UUID catalogEntryId, String triggerType,
+    public MagnetSearchJobSummary executeQueuedSearch(UUID jobId, UUID unifiedVideoId, String triggerType,
             boolean retryAllowed) {
-        return searchExecutor.execute(jobId, catalogEntryId, triggerType, retryAllowed);
+        return searchExecutor.execute(jobId, unifiedVideoId, triggerType, retryAllowed);
     }
 
     @Transactional
@@ -119,24 +119,24 @@ public class MagnetQueryService {
     }
 
     @Transactional
-    public MagnetLinkSummary updateLinkStatus(UUID catalogEntryId, UUID linkId, MagnetLinkStatusRequest request) {
-        ensureCatalogEntryExists(catalogEntryId);
+    public MagnetLinkSummary updateLinkStatus(UUID unifiedVideoId, UUID linkId, MagnetLinkStatusRequest request) {
+        ensureUnifiedVideoExists(unifiedVideoId);
         String status = normalizeLinkStatus(request == null ? null : request.status());
-        MagnetLinkSummary link = magnetRepository.updateLinkStatus(catalogEntryId, linkId, status)
+        MagnetLinkSummary link = magnetRepository.updateLinkStatus(unifiedVideoId, linkId, status)
                 .orElseThrow(() -> notFound("Magnet link not found"));
-        readModelCache.evictApprovedLinks(catalogEntryId);
-        enqueueSearchSync(catalogEntryId);
+        readModelCache.evictApprovedLinks(unifiedVideoId);
+        enqueueSearchSync(unifiedVideoId);
         return link;
     }
 
     @Transactional
-    public void deleteLink(UUID catalogEntryId, UUID linkId) {
-        ensureCatalogEntryExists(catalogEntryId);
-        if (!magnetRepository.deleteLink(catalogEntryId, linkId)) {
+    public void deleteLink(UUID unifiedVideoId, UUID linkId) {
+        ensureUnifiedVideoExists(unifiedVideoId);
+        if (!magnetRepository.deleteLink(unifiedVideoId, linkId)) {
             throw notFound("Magnet link not found");
         }
-        readModelCache.evictApprovedLinks(catalogEntryId);
-        enqueueSearchSync(catalogEntryId);
+        readModelCache.evictApprovedLinks(unifiedVideoId);
+        enqueueSearchSync(unifiedVideoId);
     }
 
     private MagnetProviderRequest normalizeProviderRequest(MagnetProviderRequest request) {
@@ -246,15 +246,15 @@ public class MagnetQueryService {
         }
     }
 
-    private void ensureCatalogEntryExists(UUID catalogEntryId) {
-        if (!magnetRepository.existsCatalogEntry(catalogEntryId)) {
-            throw notFound("CatalogEntry not found");
+    private void ensureUnifiedVideoExists(UUID unifiedVideoId) {
+        if (!magnetRepository.existsUnifiedVideo(unifiedVideoId)) {
+            throw notFound("UnifiedVideo not found");
         }
     }
 
-    private void enqueueSearchSync(UUID catalogEntryId) {
-        if (searchSyncWorkPublisher != null && catalogEntryId != null) {
-            searchSyncWorkPublisher.enqueue(catalogEntryId, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
+    private void enqueueSearchSync(UUID unifiedVideoId) {
+        if (searchSyncWorkPublisher != null && unifiedVideoId != null) {
+            searchSyncWorkPublisher.enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
         }
     }
 

@@ -22,13 +22,13 @@ class CoverImageUploadStateTest {
         jdbc = new JdbcTemplate(source);
         repository = new CoverImageAdminRepository(new NamedParameterJdbcTemplate(source), mock(CoverImageUrlResolver.class));
         jdbc.execute("""
-                create table media_image_sources (
+                create table cover_images (
                   id uuid primary key, storage_type varchar(20), storage_path varchar(100),
                   status varchar(30), retry_count int, next_retry_time timestamp,
                   last_error varchar(500), updated_at timestamp
                 )
                 """);
-        jdbc.update("insert into media_image_sources(id,storage_type,storage_path,status) values (?, 'LOCAL', 'covers/a.png', 'LOCAL_STORED')", imageId);
+        jdbc.update("insert into cover_images(id,storage_type,storage_path,status) values (?, 'LOCAL', 'covers/a.png', 'LOCAL_STORED')", imageId);
     }
 
     @Test
@@ -47,20 +47,20 @@ class CoverImageUploadStateTest {
         assertThat(repository.finalizeUpload(imageId, "covers/a.png")).isTrue();
 
         assertThat(status()).isEqualTo("PENDING_DELETE");
-        assertThat(jdbc.queryForObject("select storage_type from media_image_sources where id = ?", String.class, imageId)).isEqualTo("R2");
-        assertThat(jdbc.queryForObject("select next_retry_time from media_image_sources where id = ?", java.sql.Timestamp.class, imageId)).isNotNull();
+        assertThat(jdbc.queryForObject("select storage_type from cover_images where id = ?", String.class, imageId)).isEqualTo("R2");
+        assertThat(jdbc.queryForObject("select next_retry_time from cover_images where id = ?", java.sql.Timestamp.class, imageId)).isNotNull();
     }
 
     @Test
     void staleUploadCannotOverwriteAResetStoragePath() {
         repository.markUploading(imageId);
-        jdbc.update("update media_image_sources set storage_path='covers/new.png' where id=?", imageId);
+        jdbc.update("update cover_images set storage_path='covers/new.png' where id=?", imageId);
 
         assertThat(repository.finalizeUpload(imageId, "covers/a.png")).isFalse();
-        assertThat(jdbc.queryForObject("select storage_path from media_image_sources where id = ?", String.class, imageId)).isEqualTo("covers/new.png");
+        assertThat(jdbc.queryForObject("select storage_path from cover_images where id = ?", String.class, imageId)).isEqualTo("covers/new.png");
     }
 
     private String status() {
-        return jdbc.queryForObject("select status from media_image_sources where id = ?", String.class, imageId);
+        return jdbc.queryForObject("select status from cover_images where id = ?", String.class, imageId);
     }
 }

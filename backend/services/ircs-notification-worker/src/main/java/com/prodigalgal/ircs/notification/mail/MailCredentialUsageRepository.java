@@ -15,7 +15,7 @@ class MailCredentialUsageRepository {
 
     private static final String COUNT_SENT_SQL = """
             select count(*)
-              from mail_delivery_attempts
+              from notification_mail_send_history
              where credential_id = ?
                and status = 'sent'
                and created_at >= ?

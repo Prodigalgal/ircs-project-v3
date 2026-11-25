@@ -21,7 +21,7 @@ public class PlaylistSyncConsumer {
     static final String JOB_NAME = "ingestion.playlist-sync";
 
     private final PlaylistSyncMessageParser messageParser;
-    private final SourceRecordIngestionService ingestionService;
+    private final RawVideoIngestionService ingestionService;
     private final WorkerJobAuditWriter auditWriter;
 
     @RabbitListener(queues = QueueTopic.Names.PROCESS_Q_PLAYLIST, autoStartup = "${app.ingestion.listener.enabled:false}")

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLazyGetCategoriesQuery } from '../../categories/categoriesApi';
-import { useGetCatalogEntryByIdQuery } from '../../unified-videos/catalogEntriesApi';
+import { useGetUnifiedVideoByIdQuery } from '../../unified-videos/unifiedVideosApi';
 import { useEntityLocking } from '../../../shared/hooks/useEntityLocking';
 
 export const VIDEO_LOCKABLE_FIELDS = [
@@ -30,7 +30,7 @@ const emptyVideo = {
     enrichmentStatus: '',
     aggregationStatus: '', // New
     rawMetadata: '',
-    catalogEntryId: null, catalogEntryTitle: null,
+    unifiedVideoId: null, unifiedVideoTitle: null,
     playlists: [],
     coverImageOriginalUrl: '',
     resolvedCoverUrl: '',
@@ -111,7 +111,7 @@ export function useVideoForm(initialVideo, onSubmit) {
                 enrichmentStatus: initialVideo.enrichmentStatus || 'PENDING',
                 aggregationStatus: initialVideo.aggregationStatus || 'PENDING', // New
                 rawMetadata: initialVideo.rawMetadata || '',
-                catalogEntryId: initialVideo.catalogEntryId || null,
+                unifiedVideoId: initialVideo.unifiedVideoId || null,
                 playlists: initialVideo.playlists || []
             });
             setLocks(initialVideo.lockedFields || []);
@@ -147,7 +147,7 @@ export function useVideoForm(initialVideo, onSubmit) {
             sourceCategoryName: formData.sourceCategoryName,
             dataSourceId: formData.dataSourceId,
 
-            catalogEntryId: formData.catalogEntryId,
+            unifiedVideoId: formData.unifiedVideoId,
             lockedFields: lockedFields,
             playlists: undefined,
             actors: undefined, directors: undefined, areas: undefined, genres: undefined,
@@ -155,7 +155,7 @@ export function useVideoForm(initialVideo, onSubmit) {
             categoryName: undefined, // Remove read-only names
             coverImageStatus: undefined, coverImageStorageType: undefined,
             normalizationStatus: undefined, enrichmentStatus: undefined, aggregationStatus: undefined, // Read-only statuses
-            rawMetadata: undefined, catalogEntryTitle: undefined,
+            rawMetadata: undefined, unifiedVideoTitle: undefined,
             coverImageOriginalUrl: undefined, resolvedCoverUrl: undefined, coverImageStoragePath: undefined
         };
         try {
@@ -167,22 +167,22 @@ export function useVideoForm(initialVideo, onSubmit) {
         }
     }, [formData, lockedFields, onSubmit]);
 
-    const currentCatalogEntryValue = useMemo(() =>
-            formData.catalogEntryId
-                ? { id: formData.catalogEntryId, title: formData.catalogEntryTitle || '(Loading...)' }
+    const currentUnifiedVideoValue = useMemo(() =>
+            formData.unifiedVideoId
+                ? { id: formData.unifiedVideoId, title: formData.unifiedVideoTitle || '(Loading...)' }
                 : null
-        , [formData.catalogEntryId, formData.catalogEntryTitle]);
+        , [formData.unifiedVideoId, formData.unifiedVideoTitle]);
 
-    const { data: catalogEntryDetail } = useGetCatalogEntryByIdQuery(
-        formData.catalogEntryId,
-        { skip: !formData.catalogEntryId }
+    const { data: unifiedVideoDetail } = useGetUnifiedVideoByIdQuery(
+        formData.unifiedVideoId,
+        { skip: !formData.unifiedVideoId }
     );
 
     useEffect(() => {
-        if (catalogEntryDetail && formData.catalogEntryId === catalogEntryDetail.id) {
-            setFormData(prev => ({...prev, catalogEntryTitle: catalogEntryDetail.title}));
+        if (unifiedVideoDetail && formData.unifiedVideoId === unifiedVideoDetail.id) {
+            setFormData(prev => ({...prev, unifiedVideoTitle: unifiedVideoDetail.title}));
         }
-    }, [catalogEntryDetail, formData.catalogEntryId]);
+    }, [unifiedVideoDetail, formData.unifiedVideoId]);
 
     const handleBatchLockWrapper = (shouldLock) => {
         if (shouldLock) lockAll(); else unlockAll();
@@ -200,7 +200,7 @@ export function useVideoForm(initialVideo, onSubmit) {
         tabIndex,
         setTabIndex,
         resetForm,
-        currentCatalogEntryValue,
+        currentUnifiedVideoValue,
         categoryFetch: useLazyGetCategoriesQuery,
         lockedCount,
         totalLockableCount

@@ -4,7 +4,7 @@ import java.util.UUID;
 
 /** Identity fields read from an existing raw-to-unified association. */
 record AggregationMemberIdentity(
-        UUID sourceRecordId,
+        UUID rawVideoId,
         String title,
         String aliasTitle,
         String subtitle,

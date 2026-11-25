@@ -21,25 +21,25 @@ public class TrendSnapshotRepository {
     private final NamedParameterJdbcTemplate jdbc;
 
     private static final String UPSERT_EVENT = """
-            insert into catalog_release_events(catalog_entry_id, provider, external_id, season,
+            insert into external_catalog_events(unified_video_id, provider, external_id, season,
                 episode, event_date, event_type, observed_at, source_url, region)
             values (:id, :provider, :externalId, :season, coalesce(:episode, 0),
                 :eventDate, :eventType, :at, :url, :region)
-            on conflict (catalog_entry_id, provider, season, episode, event_date, event_type) do update
-                set observed_at = greatest(catalog_release_events.observed_at, excluded.observed_at),
+            on conflict (unified_video_id, provider, season, episode, event_date, event_type) do update
+                set observed_at = greatest(external_catalog_events.observed_at, excluded.observed_at),
                     source_url = excluded.source_url
             """;
 
     private static final String UPSERT_OBSERVATION = """
-            insert into provider_ranking_observations(provider, board, media_type, source_window, external_id,
-                season, catalog_entry_id, position, popularity, vote_count, observed_at,
+            insert into external_trend_observations(provider, board, media_type, source_window, external_id,
+                season, unified_video_id, position, popularity, vote_count, observed_at,
                 event_date, event_type, episode, region, source_url)
             values (:provider, :board, :type, :window, :externalId, :season, :id, :position, :popularity,
                 :votes, :at, :eventDate, :eventType, :episode, :region, :url)
             on conflict (provider, board, media_type, source_window, external_id, season) do update
-                set previous_position = case when excluded.observed_at > provider_ranking_observations.observed_at
-                        then provider_ranking_observations.position else provider_ranking_observations.previous_position end,
-                    catalog_entry_id = excluded.catalog_entry_id, position = excluded.position,
+                set previous_position = case when excluded.observed_at > external_trend_observations.observed_at
+                        then external_trend_observations.position else external_trend_observations.previous_position end,
+                    unified_video_id = excluded.unified_video_id, position = excluded.position,
                     popularity = excluded.popularity, vote_count = excluded.vote_count,
                     observed_at = excluded.observed_at, event_date = excluded.event_date,
                     event_type = excluded.event_type, episode = excluded.episode,
@@ -52,12 +52,12 @@ public class TrendSnapshotRepository {
         Instant sampledAt = board.collectedAt().truncatedTo(ChronoUnit.MICROS);
         MapSqlParameterSource p = boardParams(board, sampledAt);
         jdbc.update("""
-                insert into provider_ranking_boards(provider, board, media_type, source_window, last_attempt_at, status)
+                insert into external_trend_boards(provider, board, media_type, source_window, last_attempt_at, status)
                 values (:provider, :board, :type, :window, :at, :status)
                 on conflict do nothing
                 """, p);
         BoardState state = jdbc.queryForObject("""
-                select last_attempt_at, last_success_at from provider_ranking_boards
+                select last_attempt_at, last_success_at from external_trend_boards
                  where provider = :provider and board = :board and media_type = :type and source_window = :window
                  for update
                 """, p, (rs, n) -> new BoardState(rs.getTimestamp(1).toInstant(),
@@ -66,19 +66,19 @@ public class TrendSnapshotRepository {
                 || sampledAt.equals(state.lastSuccess()))) return false;
         if (!"SUCCESS".equals(board.status())) {
             jdbc.update("""
-                    update provider_ranking_boards set last_attempt_at = :at, status = :status, error_code = :error
+                    update external_trend_boards set last_attempt_at = :at, status = :status, error_code = :error
                      where provider = :provider and board = :board and media_type = :type and source_window = :window
                     """, p);
             return true;
         }
         saveObservations(board, sampledAt, observations);
         jdbc.update("""
-                delete from provider_ranking_observations
+                delete from external_trend_observations
                  where provider = :provider and board = :board and media_type = :type and source_window = :window
                    and observed_at <> :at
                 """, p);
         jdbc.update("""
-                update provider_ranking_boards set last_attempt_at = :at, last_success_at = :at,
+                update external_trend_boards set last_attempt_at = :at, last_success_at = :at,
                     status = 'SUCCESS', error_code = :error, item_count = :count
                  where provider = :provider and board = :board and media_type = :type and source_window = :window
                 """, p.addValue("count", observations.size()));

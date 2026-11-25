@@ -11,37 +11,37 @@ import tools.jackson.databind.ObjectMapper;
 
 class CategoryAwareNormalizationTest {
     private final ObjectMapper mapper = new ObjectMapper();
-    private final SourceRecordTextNormalizer normalizer = new SourceRecordTextNormalizer(
+    private final RawVideoTextNormalizer normalizer = new RawVideoTextNormalizer(
             mapper, new DescriptionMetadataExtractor(), new RawRelationAliasPolicy());
 
     @Test
     void sportsPreservesBothTeamsScoresDatesRoundsAndSeasonRanges() throws Exception {
         for (String date : new String[]{"6月28日", "20261115", "[20261115]"}) {
             String event = date + "25-26赛季新疆足球超级联赛 第23轮";
-            SourceRecordPatch patch = normalize("sports", event + " 巴州队VS和田队 3:2", "{}", "[]", null);
+            RawVideoPatch patch = normalize("sports", event + " 巴州队VS和田队 3:2", "{}", "[]", null);
             assertEquals(event, patch.title());
             assertEquals("巴州队VS和田队 3:2", patch.subtitle());
             assertNull(patch.season());
         }
-        SourceRecordPatch score = normalize("sports", "湖人 123:122 勇士 第7场", "{\"season\":23}", "[]", null);
+        RawVideoPatch score = normalize("sports", "湖人 123:122 勇士 第7场", "{\"season\":23}", "[]", null);
         assertEquals("湖人 123:122 勇士 第7场", score.title());
         assertNull(score.season());
     }
 
     @Test
     void sameDayDifferentMatchupsRetainDistinctIdentityAndExplicitSubtitle() throws Exception {
-        SourceRecordPatch first = normalize("sports", "20261115 NBA 湖人VS勇士", "{}", "[]", null);
-        SourceRecordPatch second = normalize("sports", "20261115 NBA 湖人VS快船", "{}", "[]", null);
+        RawVideoPatch first = normalize("sports", "20261115 NBA 湖人VS勇士", "{}", "[]", null);
+        RawVideoPatch second = normalize("sports", "20261115 NBA 湖人VS快船", "{}", "[]", null);
         assertEquals(first.title(), second.title());
         assertNotEquals(first.subtitle(), second.subtitle());
-        SourceRecordPatch explicit = normalize("sports", "20261115 NBA", "{\"subtitle\":\"湖人 123:122 勇士\"}", "[]", null);
+        RawVideoPatch explicit = normalize("sports", "20261115 NBA", "{\"subtitle\":\"湖人 123:122 勇士\"}", "[]", null);
         assertEquals("湖人 123:122 勇士", explicit.subtitle());
     }
 
     @Test
     void sportsLocksPreserveManualSeasonAndBothSubtitleLockSpellings() throws Exception {
         for (String lock : new String[]{"subtitle", "sub_title"}) {
-            SourceRecordPatch patch = normalize("sports", "20261115 NBA 湖人VS勇士",
+            RawVideoPatch patch = normalize("sports", "20261115 NBA 湖人VS勇士",
                     "{\"subtitle\":\"来源副标题\"}", "[\"season\",\"" + lock + "\"]", "人工副标题");
             assertEquals(9, patch.season());
             assertEquals("人工副标题", patch.subtitle());
@@ -50,14 +50,14 @@ class CategoryAwareNormalizationTest {
 
     @Test
     void shortDramaPreservesFullStructuredIdentityAndDoesNotInferBareNumbers() throws Exception {
-        SourceRecordPatch first = normalize("short-drama", "被家族抛弃，我觉醒九亿属性点", "{}", "[]", null);
-        SourceRecordPatch second = normalize("short-drama", "被家族抛弃，我继承万亿家产", "{}", "[]", null);
+        RawVideoPatch first = normalize("short-drama", "被家族抛弃，我觉醒九亿属性点", "{}", "[]", null);
+        RawVideoPatch second = normalize("short-drama", "被家族抛弃，我继承万亿家产", "{}", "[]", null);
         assertEquals("被家族抛弃", first.title());
         assertEquals("我觉醒九亿属性点", first.subtitle());
         assertNotEquals(first.subtitle(), second.subtitle());
         assertEquals("归来23", normalize("short-drama", "归来23", "{}", "[]", null).title());
         assertNull(normalize("short-drama", "归来23", "{}", "[]", null).season());
-        SourceRecordPatch explicit = normalize("short-drama", "归来 第二季:新生", "{}", "[]", null);
+        RawVideoPatch explicit = normalize("short-drama", "归来 第二季:新生", "{}", "[]", null);
         assertEquals(2, explicit.season());
         assertEquals("新生", explicit.subtitle());
         assertEquals("归来Ⅲ", normalize("short-drama", "归来Ⅲ", "{}", "[]", null).title());
@@ -66,7 +66,7 @@ class CategoryAwareNormalizationTest {
     @Test
     void otherAndMissingCategoriesDoNotTreatChineseTailNumbersAsSeasons() throws Exception {
         for (String category : new String[]{"other", "", "legacy"}) {
-            SourceRecordPatch patch = normalize(category, "活动23", "{}", "[]", null);
+            RawVideoPatch patch = normalize(category, "活动23", "{}", "[]", null);
             assertEquals("活动23", patch.title());
             assertNull(patch.season());
         }
@@ -81,11 +81,11 @@ class CategoryAwareNormalizationTest {
     @Test
     void movieSequelNumbersAndPartsNeverBecomeTelevisionSeasons() throws Exception {
         for (String title : new String[]{"叶问2", "叶问 第2部", "Rocky Ⅲ", "Dune Part Ⅱ"}) {
-            SourceRecordPatch movie = normalize("movie", title, "{}", "[]", null);
+            RawVideoPatch movie = normalize("movie", title, "{}", "[]", null);
             assertEquals(title, movie.title(), title);
             assertNull(movie.season(), title);
         }
-        SourceRecordPatch series = normalize("series", "庆余年 第2季", "{}", "[]", null);
+        RawVideoPatch series = normalize("series", "庆余年 第2季", "{}", "[]", null);
         assertEquals("庆余年", series.title());
         assertEquals(2, series.season());
     }
@@ -93,54 +93,54 @@ class CategoryAwareNormalizationTest {
     @Test
     void onlyExplicitCategoryLabelsSelectSpecialProfiles() throws Exception {
         assertNull(normalize("other", "甲23", "{\"rawTypeName\":\"都市\"}", "[]", null).season());
-        SourceRecordPatch sports = normalize("other", "湖人 123:122 勇士",
+        RawVideoPatch sports = normalize("other", "湖人 123:122 勇士",
                 "{\"rawTypeName\":\"体育赛事\"}", "[]", null);
         assertEquals("湖人 123:122 勇士", sports.title());
-        SourceRecordPatch drama = normalize("other", "归来23", "{\"categoryName\":\"微短剧\"}", "[]", null);
+        RawVideoPatch drama = normalize("other", "归来23", "{\"categoryName\":\"微短剧\"}", "[]", null);
         assertEquals("归来23", drama.title());
         assertNull(drama.season());
     }
 
     @Test
     void persistedClassificationTakesPrecedenceOverUntrustedSourceLabel() throws Exception {
-        SourceRecordPatch patch = normalize("movie", "钢铁侠3", "{\"rawTypeName\":\"短剧\"}", "[]", null);
+        RawVideoPatch patch = normalize("movie", "钢铁侠3", "{\"rawTypeName\":\"短剧\"}", "[]", null);
         assertEquals("钢铁侠3", patch.title());
         assertNull(patch.season());
-        SourceRecordPatch sports = normalize("sports", "湖人 123:122 勇士", "{\"rawTypeName\":\"电影\"}", "[]", null);
+        RawVideoPatch sports = normalize("sports", "湖人 123:122 勇士", "{\"rawTypeName\":\"电影\"}", "[]", null);
         assertEquals("湖人 123:122 勇士", sports.title());
     }
 
     @Test
     void personNamesPreserveGlyphsAndEnglishOriginalsWhileSplittingChineseAmpersands() throws Exception {
-        SourceRecordPatch patch = normalize("short-drama", "归来", """
+        RawVideoPatch patch = normalize("short-drama", "归来", """
                 {"actorNames":["罗予彤＆孙乾钊", "罗予彤&孙乾钊", "Robert Downey Jr.", "R&D"],
                  "directorNames":"张三&amp;李四"}
                 """, "[]", null);
         assertEquals(Set.of("罗予彤", "孙乾钊", "Robert Downey Jr.", "R&D"), patch.actorValues());
         assertEquals(Set.of("张三", "李四"), patch.directorValues());
-        SourceRecordPatch locked = normalize("short-drama", "归来", "{\"actorNames\":\"甲&乙\"}", "[\"actors\"]", null);
+        RawVideoPatch locked = normalize("short-drama", "归来", "{\"actorNames\":\"甲&乙\"}", "[\"actors\"]", null);
         assertEquals(Set.of(), locked.actorValues());
     }
 
     @Test
     void descriptionFallbackPreservesPersonGlyphsBeforeDictionaryConversion() throws Exception {
-        SourceRecordTextNormalizer local = new SourceRecordTextNormalizer(mapper, new DescriptionMetadataExtractor() {
+        RawVideoTextNormalizer local = new RawVideoTextNormalizer(mapper, new DescriptionMetadataExtractor() {
             @Override
             public ExtractedMetadata extract(String description) {
                 assertEquals("罗予彤与孙乾钊出演", description);
                 return new ExtractedMetadata(Set.of("罗予彤", "孙乾钊"), Set.of());
             }
         }, new RawRelationAliasPolicy());
-        SourceRecordRecord record = new SourceRecordRecord(UUID.randomUUID(), "PENDING", 0, "{}", "[]",
+        RawVideoRecord record = new RawVideoRecord(UUID.randomUUID(), "PENDING", 0, "{}", "[]",
                 "作品", null, null, null, "罗予彤与孙乾钊出演", null, null, null, null, null,
                 null, null, null, null, null, null, null, "hash", "short-drama", null);
-        SourceRecordPatch patch = local.normalize(record, mapper.readTree("{}"));
+        RawVideoPatch patch = local.normalize(record, mapper.readTree("{}"));
         assertEquals(Set.of("罗予彤", "孙乾钊"), patch.actorValues());
     }
 
     @Test
     void placeholderAuthorityIdsBecomeNullButSourceCategoryZeroSurvives() throws Exception {
-        SourceRecordPatch patch = normalize("movie", "作品", """
+        RawVideoPatch patch = normalize("movie", "作品", """
                 {"doubanId":"0","tmdbId":"N/A","imdbId":"tt0","rtId":"unknown","rawTypeId":"0"}
                 """, "[]", null);
         assertNull(patch.doubanId());
@@ -152,11 +152,11 @@ class CategoryAwareNormalizationTest {
 
     @Test
     void authorityIdFieldLocksPreserveManualValues() throws Exception {
-        SourceRecordRecord record = new SourceRecordRecord(UUID.randomUUID(), "PENDING", 0, "{}",
+        RawVideoRecord record = new RawVideoRecord(UUID.randomUUID(), "PENDING", 0, "{}",
                 "[\"doubanId\",\"tmdbId\",\"imdbId\",\"rottenTomatoesId\"]",
                 "作品", null, null, null, null, null, null, null, null, null, null, null,
                 "manual-douban", "manual-tmdb", "manual-imdb", "manual-rt", null, "hash", "movie", null);
-        SourceRecordPatch patch = normalizer.normalize(record, mapper.readTree("""
+        RawVideoPatch patch = normalizer.normalize(record, mapper.readTree("""
                 {"doubanId":"0","tmdbId":"0","imdbId":"0","rtId":"0"}
                 """));
         assertEquals("manual-douban", patch.doubanId());
@@ -182,7 +182,7 @@ class CategoryAwareNormalizationTest {
                 case "music" -> "同一首歌 Live 20260618";
                 default -> "独立资源记录(2)";
             };
-            SourceRecordPatch patch = normalize(category, title, "{}", "[]", null);
+            RawVideoPatch patch = normalize(category, title, "{}", "[]", null);
             String complete = patch.title() + (patch.subtitle() == null ? "" : " " + patch.subtitle());
             if (category.equals("series")) assertEquals(2, patch.season());
             else {
@@ -202,21 +202,21 @@ class CategoryAwareNormalizationTest {
 
     @Test
     void musicArtistsAndEducationLecturersUseThePerformerRoleWithoutRewritingNames() throws Exception {
-        SourceRecordPatch music = normalize("music", "现场音乐会", "{\"artistNames\":[\"罗予彤＆孙乾钊\"]}", "[]", null);
+        RawVideoPatch music = normalize("music", "现场音乐会", "{\"artistNames\":[\"罗予彤＆孙乾钊\"]}", "[]", null);
         assertEquals(Set.of("罗予彤", "孙乾钊"), music.actorValues());
         assertEquals(Set.of(), music.directorValues());
-        SourceRecordPatch course = normalize("education", "课程 第2章", "{\"lecturerNames\":[\"讲师甲\",\"讲师乙\"]}", "[]", null);
+        RawVideoPatch course = normalize("education", "课程 第2章", "{\"lecturerNames\":[\"讲师甲\",\"讲师乙\"]}", "[]", null);
         assertEquals(Set.of("讲师甲", "讲师乙"), course.actorValues());
     }
 
-    private SourceRecordPatch normalize(String category, String title, String metadata, String locks, String subtitle)
+    private RawVideoPatch normalize(String category, String title, String metadata, String locks, String subtitle)
             throws Exception {
-        SourceRecordRecord record = new SourceRecordRecord(UUID.randomUUID(), "PENDING", 0, "{}", locks,
+        RawVideoRecord record = new RawVideoRecord(UUID.randomUUID(), "PENDING", 0, "{}", locks,
                 title, null, 9, subtitle, null, "2026", null, null, null, null, null, null,
                 null, null, null, null, null, "hash-v1", category, null);
         // The existing season is absent unless a field lock explicitly asks to retain it.
         if (!locks.contains("season")) {
-            record = new SourceRecordRecord(record.id(), "PENDING", 0, "{}", locks,
+            record = new RawVideoRecord(record.id(), "PENDING", 0, "{}", locks,
                     title, null, null, subtitle, null, "2026", null, null, null, null, null, null,
                     null, null, null, null, null, "hash-v1", category, null);
         }

@@ -3,7 +3,7 @@ package com.prodigalgal.ircs.interaction;
 import java.util.UUID;
 
 public record ProgressReportRequest(
-        UUID catalogEntryId,
+        UUID unifiedVideoId,
         UUID videoId,
         UUID episodeId,
         String episodeName,

@@ -37,9 +37,6 @@ spring:
       password: ${SPRING_DATA_REDIS_PASSWORD:${REDIS_PASSWORD:${VALKEY_PASSWORD:}}}
 
 app:
-  catalog:
-    authority-first:
-      enabled: ${APP_CATALOG_AUTHORITY_FIRST_ENABLED:false}
   content:
     cluster-lock:
       enabled: ${APP_CONTENT_CLUSTER_LOCK_ENABLED:true}

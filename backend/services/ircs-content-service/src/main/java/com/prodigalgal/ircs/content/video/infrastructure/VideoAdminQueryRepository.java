@@ -8,12 +8,12 @@ import tools.jackson.databind.ObjectMapper;
 import com.prodigalgal.ircs.common.metadata.JsonStringArrays;
 import com.prodigalgal.ircs.content.config.ContentCoverImageUrlResolver;
 import com.prodigalgal.ircs.content.video.api.ContentApiException;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.SourceRecordCardResponse;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.SourceRecordDetailResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoCardResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.RawVideoDetailResponse;
 import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.StandardAreaRef;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.CatalogEntryCardResponse;
-import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.CatalogEntryDetailResponse;
-import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository.SourceRecordSnapshot;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoCardResponse;
+import com.prodigalgal.ircs.content.video.dto.VideoAdminDtos.UnifiedVideoDetailResponse;
+import com.prodigalgal.ircs.content.video.infrastructure.JdbcVideoAdminRepository.RawVideoSnapshot;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchRequest;
 import com.prodigalgal.ircs.contracts.search.AdminVideoSearchResult;
 import java.math.BigDecimal;
@@ -55,7 +55,7 @@ class VideoAdminQueryRepository {
     private final ContentCoverImageUrlResolver coverImageUrlResolver;
     private final AdminVideoSearchClient adminVideoSearchClient;
 
-    Page<SourceRecordCardResponse> findSourceRecords(
+    Page<RawVideoCardResponse> findRawVideos(
             Pageable pageable,
             String title,
             UUID categoryId,
@@ -76,7 +76,7 @@ class VideoAdminQueryRepository {
                 .addValue("offset", safe.getOffset());
         String where = rawWhere(params, title, categoryId, enrichmentStatus, normalizationStatus, aggregationStatus, year, area,
                 minScore, isMissingSlug, dataSourceId, sourceCategoryName, genre, language);
-        Optional<Page<SourceRecordCardResponse>> searchPage = rawSearchPage(
+        Optional<Page<RawVideoCardResponse>> searchPage = rawSearchPage(
                 safe,
                 params,
                 where,
@@ -96,21 +96,21 @@ class VideoAdminQueryRepository {
         if (searchPage.isPresent()) {
             return searchPage.get();
         }
-        List<SourceRecordCardResponse> content = jdbcTemplate.query(
+        List<RawVideoCardResponse> content = jdbcTemplate.query(
                 rawCardSql(where) + orderBy(safe, "rv"),
                 params,
                 this::mapRawCard);
-        long total = totalElements("source_records", rawCountSql(where), params, where, safe, content.size());
+        long total = totalElements("raw_videos", rawCountSql(where), params, where, safe, content.size());
         return new PageImpl<>(content, safe, total);
     }
 
-    Optional<SourceRecordDetailResponse> findRawDetail(UUID id) {
+    Optional<RawVideoDetailResponse> findRawDetail(UUID id) {
         try {
-            SourceRecordDetailBase base = jdbcTemplate.queryForObject(
+            RawVideoDetailBase base = jdbcTemplate.queryForObject(
                     """
                     select rv.*, sc.id as resolved_category_id, sc.name as category_name,
                            rv.source_category_name as source_name,
-                           ds.name as data_source_name, rv.collection_source_id as resolved_collection_source_id,
+                           ds.name as data_source_name, rv.data_source_id as resolved_data_source_id,
                            cast(rv.actor_names as varchar) as flat_actor_names,
                            cast(rv.director_names as varchar) as flat_director_names,
                            cast(rv.area_codes as varchar) as flat_area_codes,
@@ -120,21 +120,21 @@ class VideoAdminQueryRepository {
                            ci.storage_type as cover_storage_type, ci.status as cover_status,
                            sd.domain_value as cover_domain,
                            (
-                               select rvu.catalog_entry_id
-                               from catalog_source_bindings rvu
-                               where rvu.source_record_id = rv.id
+                               select rvu.unified_video_id
+                               from raw_video_unified_video rvu
+                               where rvu.raw_video_id = rv.id
                                limit 1
-                           ) as catalog_entry_id
-                    from source_records rv
-                    left join catalog_categories sc on sc.slug = rv.category_code
-                    left join collection_sources ds on rv.collection_source_id = ds.id
-                    left join media_image_sources ci on rv.media_image_source_id = ci.id
-                    left join source_origins sd on ci.source_origin_id = sd.id
+                           ) as unified_video_id
+                    from raw_videos rv
+                    left join standard_category sc on sc.slug = rv.category_code
+                    left join data_sources ds on rv.data_source_id = ds.id
+                    left join cover_images ci on rv.cover_image_id = ci.id
+                    left join source_domains sd on ci.source_domain_id = sd.id
                     where rv.id = :id
                     """,
                     new MapSqlParameterSource("id", id),
                     this::mapRawDetailBase);
-            return Optional.of(new SourceRecordDetailResponse(
+            return Optional.of(new RawVideoDetailResponse(
                     base.id(),
                     base.sourceVid(),
                     base.title(),
@@ -169,7 +169,7 @@ class VideoAdminQueryRepository {
                     base.dataSourceName(),
                     base.dataSourceId(),
                     null,
-                    base.catalogEntryId(),
+                    base.unifiedVideoId(),
                     base.enrichmentStatus(),
                     base.normalizationStatus(),
                     base.createdAt(),
@@ -189,35 +189,35 @@ class VideoAdminQueryRepository {
         }
     }
 
-    SourceRecordSnapshot rawSnapshot(UUID id) {
+    RawVideoSnapshot rawSnapshot(UUID id) {
         try {
             return jdbcTemplate.queryForObject(
                     """
                     select rv.id, rv.title, rv.alias_title, rv.year, rv.season, rv.data_hash,
                            (
-                               select rvu.catalog_entry_id
-                               from catalog_source_bindings rvu
-                               where rvu.source_record_id = rv.id
+                               select rvu.unified_video_id
+                               from raw_video_unified_video rvu
+                               where rvu.raw_video_id = rv.id
                                limit 1
-                           ) as catalog_entry_id
-                    from source_records rv
+                           ) as unified_video_id
+                    from raw_videos rv
                     where rv.id = :id
                     """,
                     new MapSqlParameterSource("id", id),
-                    (rs, rowNum) -> new SourceRecordSnapshot(
+                    (rs, rowNum) -> new RawVideoSnapshot(
                             rs.getObject("id", UUID.class),
                             rs.getString("title"),
                             rs.getString("alias_title"),
                             rs.getString("year"),
                             (Integer) rs.getObject("season"),
                             rs.getString("data_hash"),
-                            rs.getObject("catalog_entry_id", UUID.class)));
+                            rs.getObject("unified_video_id", UUID.class)));
         } catch (EmptyResultDataAccessException ex) {
             throw new ContentApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Raw video not found: " + id);
         }
     }
 
-    Page<CatalogEntryCardResponse> findCatalogEntries(
+    Page<UnifiedVideoCardResponse> findUnifiedVideos(
             Pageable pageable,
             String title,
             UUID categoryId,
@@ -251,7 +251,7 @@ class VideoAdminQueryRepository {
                 language,
                 actor,
                 director);
-        Optional<Page<CatalogEntryCardResponse>> searchPage = unifiedSearchPage(
+        Optional<Page<UnifiedVideoCardResponse>> searchPage = unifiedSearchPage(
                 safe,
                 params,
                 where,
@@ -271,18 +271,18 @@ class VideoAdminQueryRepository {
         if (searchPage.isPresent()) {
             return searchPage.get();
         }
-        List<CatalogEntryCardResponse> page = jdbcTemplate.query(
+        List<UnifiedVideoCardResponse> page = jdbcTemplate.query(
                 unifiedCardSql(where) + orderBy(safe, "uv"),
                 params,
                 this::mapUnifiedCard);
-        List<CatalogEntryCardResponse> content = withSourceCounts(page);
-        long total = totalElements("catalog_entries", unifiedCountSql(where), params, where, safe, content.size());
+        List<UnifiedVideoCardResponse> content = withSourceCounts(page);
+        long total = totalElements("unified_videos", unifiedCountSql(where), params, where, safe, content.size());
         return new PageImpl<>(content, safe, total);
     }
 
-    Optional<CatalogEntryDetailResponse> findUnifiedDetail(UUID id) {
+    Optional<UnifiedVideoDetailResponse> findUnifiedDetail(UUID id) {
                 try {
-            CatalogEntryDetailBase base = jdbcTemplate.queryForObject(
+            UnifiedVideoDetailBase base = jdbcTemplate.queryForObject(
                     """
                     select uv.*, sc.id as resolved_category_id, sc.name as category_name,
                            cast(uv.actor_names as varchar) as flat_actor_names,
@@ -293,15 +293,15 @@ class VideoAdminQueryRepository {
                            cast(uv.adult_assessment as varchar) as adult_assessment_json,
                            ci.original_url as cover_original_url, ci.storage_path as cover_storage_path,
                            ci.storage_type as cover_storage_type, sd.domain_value as cover_domain
-                    from catalog_entries uv
-                    left join catalog_categories sc on sc.slug = uv.category_code
-                    left join media_image_sources ci on uv.media_image_source_id = ci.id
-                    left join source_origins sd on ci.source_origin_id = sd.id
+                    from unified_videos uv
+                    left join standard_category sc on sc.slug = uv.category_code
+                    left join cover_images ci on uv.cover_image_id = ci.id
+                    left join source_domains sd on ci.source_domain_id = sd.id
                     where uv.id = :id
                     """,
                     new MapSqlParameterSource("id", id),
                     this::mapUnifiedDetailBase);
-            return Optional.of(new CatalogEntryDetailResponse(
+            return Optional.of(new UnifiedVideoDetailResponse(
                     base.id(),
                     base.title(),
                     base.aliasTitle(),
@@ -373,7 +373,7 @@ class VideoAdminQueryRepository {
             params.addValue("title", "%" + title.trim() + "%");
         }
         if (categoryId != null) {
-            clauses.add("rv.category_code = (select sc.slug from catalog_categories sc where sc.id = :categoryId)");
+            clauses.add("rv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
             params.addValue("categoryId", categoryId);
         }
         if (StringUtils.hasText(enrichmentStatus)) {
@@ -397,7 +397,7 @@ class VideoAdminQueryRepository {
             params.addValue("minScore", minScore);
         }
         if (dataSourceId != null) {
-            clauses.add("rv.collection_source_id = :dataSourceId");
+            clauses.add("rv.data_source_id = :dataSourceId");
             params.addValue("dataSourceId", dataSourceId);
         }
         if (StringUtils.hasText(sourceCategoryName)) {
@@ -409,7 +409,7 @@ class VideoAdminQueryRepository {
                     exists (
                         select 1
                           from jsonb_array_elements_text(coalesce(rv.area_codes, '[]'::jsonb)) ac(code)
-                          left join catalog_regions sa on sa.code = ac.code
+                          left join standard_areas sa on sa.code = ac.code
                          where lower(ac.code) like lower(:area)
                             or lower(coalesce(sa.name, '')) like lower(:area)
                     )
@@ -421,7 +421,7 @@ class VideoAdminQueryRepository {
                     exists (
                         select 1
                           from jsonb_array_elements_text(coalesce(rv.genre_codes, '[]'::jsonb)) gc(code)
-                          left join catalog_genres sg on sg.code = gc.code
+                          left join standard_genre sg on sg.code = gc.code
                          where lower(gc.code) like lower(:genre)
                             or lower(coalesce(sg.name, '')) like lower(:genre)
                     )
@@ -434,7 +434,7 @@ class VideoAdminQueryRepository {
                      or exists (
                         select 1
                           from jsonb_array_elements_text(coalesce(rv.language_codes, '[]'::jsonb)) lc(code)
-                          left join catalog_languages sl on sl.code = lc.code
+                          left join standard_languages sl on sl.code = lc.code
                          where lower(lc.code) like lower(:language)
                             or lower(coalesce(sl.name, '')) like lower(:language)
                      ))
@@ -449,7 +449,7 @@ class VideoAdminQueryRepository {
         return clauses.isEmpty() ? "" : " where " + String.join(" and ", clauses);
     }
 
-    private Optional<Page<SourceRecordCardResponse>> rawSearchPage(
+    private Optional<Page<RawVideoCardResponse>> rawSearchPage(
             Pageable pageable,
             MapSqlParameterSource params,
             String where,
@@ -485,7 +485,7 @@ class VideoAdminQueryRepository {
                 language)) {
             return Optional.empty();
         }
-        Optional<Page<SourceRecordCardResponse>> emptyStatusPage = rawStatusOnlyEmptyPage(
+        Optional<Page<RawVideoCardResponse>> emptyStatusPage = rawStatusOnlyEmptyPage(
                 pageable,
                 where,
                 params,
@@ -534,7 +534,7 @@ class VideoAdminQueryRepository {
                 .flatMap(result -> rawSearchResultPage(result, pageable, where, params));
     }
 
-    private Optional<Page<SourceRecordCardResponse>> rawStatusOnlyEmptyPage(
+    private Optional<Page<RawVideoCardResponse>> rawStatusOnlyEmptyPage(
             Pageable pageable,
             String where,
             MapSqlParameterSource params,
@@ -567,7 +567,7 @@ class VideoAdminQueryRepository {
                 language)) {
             return Optional.empty();
         }
-        return hasAnyDatabaseRow("source_records rv", where, params)
+        return hasAnyDatabaseRow("raw_videos rv", where, params)
                 ? Optional.empty()
                 : Optional.of(Page.empty(pageable));
     }
@@ -642,12 +642,12 @@ class VideoAdminQueryRepository {
                 || StringUtils.hasText(sourceCategoryName);
     }
 
-    private Optional<Page<SourceRecordCardResponse>> rawSearchResultPage(
+    private Optional<Page<RawVideoCardResponse>> rawSearchResultPage(
             AdminVideoSearchResult result,
             Pageable pageable,
             String where,
             MapSqlParameterSource params) {
-        if (result.ids().isEmpty() && hasAnyDatabaseRow("source_records rv", where, params)) {
+        if (result.ids().isEmpty() && hasAnyDatabaseRow("raw_videos rv", where, params)) {
             return Optional.empty();
         }
         return Optional.of(new PageImpl<>(
@@ -659,7 +659,7 @@ class VideoAdminQueryRepository {
     private String rawCountSql(String where) {
         return """
                 select count(*)
-                from source_records rv
+                from raw_videos rv
                 """ + where;
     }
 
@@ -678,13 +678,13 @@ class VideoAdminQueryRepository {
                        (
                            select string_agg(coalesce(sa.name, ac.code), ', ' order by coalesce(sa.name, ac.code))
                            from jsonb_array_elements_text(coalesce(rv.area_codes, '[]'::jsonb)) ac(code)
-                           left join catalog_regions sa on sa.code = ac.code
+                           left join standard_areas sa on sa.code = ac.code
                        ) as area
-                from source_records rv
-                left join catalog_categories sc on sc.slug = rv.category_code
-                left join collection_sources ds on rv.collection_source_id = ds.id
-                left join media_image_sources ci on rv.media_image_source_id = ci.id
-                left join source_origins sd on ci.source_origin_id = sd.id
+                from raw_videos rv
+                left join standard_category sc on sc.slug = rv.category_code
+                left join data_sources ds on rv.data_source_id = ds.id
+                left join cover_images ci on rv.cover_image_id = ci.id
+                left join source_domains sd on ci.source_domain_id = sd.id
                 """ + where;
     }
 
@@ -709,7 +709,7 @@ class VideoAdminQueryRepository {
             params.addValue("title", "%" + title.trim() + "%");
         }
         if (categoryId != null) {
-            clauses.add("uv.category_code = (select sc.slug from catalog_categories sc where sc.id = :categoryId)");
+            clauses.add("uv.category_code = (select sc.slug from standard_category sc where sc.id = :categoryId)");
             params.addValue("categoryId", categoryId);
         }
         if (StringUtils.hasText(year)) {
@@ -725,7 +725,7 @@ class VideoAdminQueryRepository {
                     exists (
                         select 1
                           from jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
-                          left join catalog_regions sa on sa.code = ac.code
+                          left join standard_areas sa on sa.code = ac.code
                          where lower(ac.code) like lower(:area)
                             or lower(coalesce(sa.name, '')) like lower(:area)
                     )
@@ -755,7 +755,7 @@ class VideoAdminQueryRepository {
                     exists (
                         select 1
                           from jsonb_array_elements_text(coalesce(uv.genre_codes, '[]'::jsonb)) gc(code)
-                          left join catalog_genres sg on sg.code = gc.code
+                          left join standard_genre sg on sg.code = gc.code
                          where lower(gc.code) like lower(:genre)
                             or lower(coalesce(sg.name, '')) like lower(:genre)
                     )
@@ -767,7 +767,7 @@ class VideoAdminQueryRepository {
                     exists (
                         select 1
                           from jsonb_array_elements_text(coalesce(uv.language_codes, '[]'::jsonb)) lc(code)
-                          left join catalog_languages sl on sl.code = lc.code
+                          left join standard_languages sl on sl.code = lc.code
                          where lower(lc.code) like lower(:language)
                             or lower(coalesce(sl.name, '')) like lower(:language)
                     )
@@ -797,7 +797,7 @@ class VideoAdminQueryRepository {
         return clauses.isEmpty() ? "" : " where " + String.join(" and ", clauses);
     }
 
-    private Optional<Page<CatalogEntryCardResponse>> unifiedSearchPage(
+    private Optional<Page<UnifiedVideoCardResponse>> unifiedSearchPage(
             Pageable pageable,
             MapSqlParameterSource params,
             String where,
@@ -912,12 +912,12 @@ class VideoAdminQueryRepository {
                 || StringUtils.hasText(director);
     }
 
-    private Optional<Page<CatalogEntryCardResponse>> unifiedSearchResultPage(
+    private Optional<Page<UnifiedVideoCardResponse>> unifiedSearchResultPage(
             AdminVideoSearchResult result,
             Pageable pageable,
             String where,
             MapSqlParameterSource params) {
-        if (result.ids().isEmpty() && hasAnyDatabaseRow("catalog_entries uv", where, params)) {
+        if (result.ids().isEmpty() && hasAnyDatabaseRow("unified_videos uv", where, params)) {
             return Optional.empty();
         }
         return Optional.of(new PageImpl<>(
@@ -941,7 +941,7 @@ class VideoAdminQueryRepository {
     private String unifiedCountSql(String where) {
         return """
                 select count(*)
-                from catalog_entries uv
+                from unified_videos uv
                 """ + where;
     }
 
@@ -958,35 +958,35 @@ class VideoAdminQueryRepository {
                        (
                            select string_agg(coalesce(sa.name, ac.code), ', ' order by coalesce(sa.name, ac.code))
                            from jsonb_array_elements_text(coalesce(uv.area_codes, '[]'::jsonb)) ac(code)
-                           left join catalog_regions sa on sa.code = ac.code
+                           left join standard_areas sa on sa.code = ac.code
                        ) as area
-                from catalog_entries uv
-                left join catalog_categories sc on sc.slug = uv.category_code
-                left join media_image_sources ci on uv.media_image_source_id = ci.id
-                left join source_origins sd on ci.source_origin_id = sd.id
+                from unified_videos uv
+                left join standard_category sc on sc.slug = uv.category_code
+                left join cover_images ci on uv.cover_image_id = ci.id
+                left join source_domains sd on ci.source_domain_id = sd.id
                 """ + where;
     }
 
-    private List<SourceRecordCardResponse> findRawCardsByIds(List<UUID> ids) {
+    private List<RawVideoCardResponse> findRawCardsByIds(List<UUID> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        List<SourceRecordCardResponse> rows = jdbcTemplate.query(
+        List<RawVideoCardResponse> rows = jdbcTemplate.query(
                 rawCardSql(" where rv.id in (:ids)"),
                 new MapSqlParameterSource("ids", ids),
                 this::mapRawCard);
-        return orderByIds(rows, ids, SourceRecordCardResponse::id);
+        return orderByIds(rows, ids, RawVideoCardResponse::id);
     }
 
-    private List<CatalogEntryCardResponse> findUnifiedCardsByIds(List<UUID> ids) {
+    private List<UnifiedVideoCardResponse> findUnifiedCardsByIds(List<UUID> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        List<CatalogEntryCardResponse> rows = jdbcTemplate.query(
+        List<UnifiedVideoCardResponse> rows = jdbcTemplate.query(
                 unifiedCardSql(" where uv.id in (:ids)"),
                 new MapSqlParameterSource("ids", ids),
                 this::mapUnifiedCard);
-        return orderByIds(rows, ids, CatalogEntryCardResponse::id);
+        return orderByIds(rows, ids, UnifiedVideoCardResponse::id);
     }
 
     private <T> List<T> orderByIds(List<T> rows, List<UUID> ids, java.util.function.Function<T, UUID> idExtractor) {
@@ -1039,8 +1039,8 @@ class VideoAdminQueryRepository {
         };
     }
 
-    private SourceRecordCardResponse mapRawCard(ResultSet rs, int rowNum) throws SQLException {
-        return new SourceRecordCardResponse(
+    private RawVideoCardResponse mapRawCard(ResultSet rs, int rowNum) throws SQLException {
+        return new RawVideoCardResponse(
                 rs.getObject("id", UUID.class),
                 rs.getString("source_vid"),
                 rs.getString("title"),
@@ -1072,8 +1072,8 @@ class VideoAdminQueryRepository {
                 readJsonStringSet(rs.getString("genre_codes")));
     }
 
-    private CatalogEntryCardResponse mapUnifiedCard(ResultSet rs, int rowNum) throws SQLException {
-        return new CatalogEntryCardResponse(
+    private UnifiedVideoCardResponse mapUnifiedCard(ResultSet rs, int rowNum) throws SQLException {
+        return new UnifiedVideoCardResponse(
                 rs.getObject("id", UUID.class),
                 rs.getString("title"),
                 rs.getString("alias_title"),
@@ -1104,29 +1104,29 @@ class VideoAdminQueryRepository {
                 readJsonStringSet(rs.getString("area_codes")));
     }
 
-    private List<CatalogEntryCardResponse> withSourceCounts(List<CatalogEntryCardResponse> page) {
+    private List<UnifiedVideoCardResponse> withSourceCounts(List<UnifiedVideoCardResponse> page) {
         if (page.isEmpty()) {
             return page;
         }
-        List<UUID> ids = page.stream().map(CatalogEntryCardResponse::id).toList();
+        List<UUID> ids = page.stream().map(UnifiedVideoCardResponse::id).toList();
         Map<UUID, Integer> counts = new LinkedHashMap<>();
         jdbcTemplate.query(
                 """
-                select catalog_entry_id, cast(count(*) as integer) as source_count
-                  from catalog_source_bindings
-                 where catalog_entry_id in (:ids)
-                 group by catalog_entry_id
+                select unified_video_id, cast(count(*) as integer) as source_count
+                  from raw_video_unified_video
+                 where unified_video_id in (:ids)
+                 group by unified_video_id
                 """,
                 new MapSqlParameterSource("ids", ids),
                 (org.springframework.jdbc.core.RowCallbackHandler)
-                        rs -> counts.put(rs.getObject("catalog_entry_id", UUID.class), rs.getInt("source_count")));
+                        rs -> counts.put(rs.getObject("unified_video_id", UUID.class), rs.getInt("source_count")));
         return page.stream()
                 .map(video -> withSourceCount(video, counts.getOrDefault(video.id(), 0)))
                 .toList();
     }
 
-    private CatalogEntryCardResponse withSourceCount(CatalogEntryCardResponse video, int sourceCount) {
-        return new CatalogEntryCardResponse(
+    private UnifiedVideoCardResponse withSourceCount(UnifiedVideoCardResponse video, int sourceCount) {
+        return new UnifiedVideoCardResponse(
                 video.id(),
                 video.title(),
                 video.aliasTitle(),
@@ -1153,8 +1153,8 @@ class VideoAdminQueryRepository {
                 video.areaCodes());
     }
 
-    private SourceRecordDetailBase mapRawDetailBase(ResultSet rs, int rowNum) throws SQLException {
-        return new SourceRecordDetailBase(
+    private RawVideoDetailBase mapRawDetailBase(ResultSet rs, int rowNum) throws SQLException {
+        return new RawVideoDetailBase(
                 rs.getObject("id", UUID.class),
                 rs.getString("source_vid"),
                 rs.getString("title"),
@@ -1184,8 +1184,8 @@ class VideoAdminQueryRepository {
                 rs.getString("category_code"),
                 rs.getString("source_category_code"),
                 rs.getString("data_source_name"),
-                rs.getObject("resolved_collection_source_id", UUID.class),
-                rs.getObject("catalog_entry_id", UUID.class),
+                rs.getObject("resolved_data_source_id", UUID.class),
+                rs.getObject("unified_video_id", UUID.class),
                 rs.getString("enrichment_status"),
                 rs.getString("normalization_status"),
                 instant(rs, "created_at"),
@@ -1199,8 +1199,8 @@ class VideoAdminQueryRepository {
                 rs.getString("flat_genre_codes"));
     }
 
-    private CatalogEntryDetailBase mapUnifiedDetailBase(ResultSet rs, int rowNum) throws SQLException {
-        return new CatalogEntryDetailBase(
+    private UnifiedVideoDetailBase mapUnifiedDetailBase(ResultSet rs, int rowNum) throws SQLException {
+        return new UnifiedVideoDetailBase(
                 rs.getObject("id", UUID.class),
                 rs.getString("title"),
                 rs.getString("alias_title"),
@@ -1240,32 +1240,32 @@ class VideoAdminQueryRepository {
                 rs.getString("flat_genre_codes"));
     }
 
-    private List<SourceRecordCardResponse> findRawCardsForUnified(UUID catalogEntryId) {
+    private List<RawVideoCardResponse> findRawCardsForUnified(UUID unifiedVideoId) {
         return jdbcTemplate.query(
-                rawCardSql(" where exists (select 1 from catalog_source_bindings rvu where rvu.source_record_id = rv.id and rvu.catalog_entry_id = :id)")
+                rawCardSql(" where exists (select 1 from raw_video_unified_video rvu where rvu.raw_video_id = rv.id and rvu.unified_video_id = :id)")
                         + " order by rv.updated_at desc",
-                new MapSqlParameterSource("id", catalogEntryId),
+                new MapSqlParameterSource("id", unifiedVideoId),
                 this::mapRawCard);
     }
 
-    private Set<String> findUnifiedTags(UUID catalogEntryId) {
+    private Set<String> findUnifiedTags(UUID unifiedVideoId) {
         return new LinkedHashSet<>(jdbcTemplate.queryForList(
                 """
                 select tag
-                  from catalog_entry_tags
-                 where catalog_entry_id = :id
+                  from unified_video_tags
+                 where unified_video_id = :id
                  order by tag
                 """,
-                new MapSqlParameterSource("id", catalogEntryId),
+                new MapSqlParameterSource("id", unifiedVideoId),
                 String.class));
     }
 
     private Set<String> resolveGenreNames(String genreCodesJson) {
-        return resolveNamesByCodes("catalog_genres", "code", "name", readJsonStringSet(genreCodesJson));
+        return resolveNamesByCodes("standard_genre", "code", "name", readJsonStringSet(genreCodesJson));
     }
 
     private Set<String> resolveLanguageNames(String languageCodesJson) {
-        return resolveNamesByCodes("catalog_languages", "code", "name", readJsonStringSet(languageCodesJson));
+        return resolveNamesByCodes("standard_languages", "code", "name", readJsonStringSet(languageCodesJson));
     }
 
     private Set<String> resolveNamesByCodes(String table, String codeColumn, String nameColumn, Set<String> codes) {
@@ -1297,7 +1297,7 @@ class VideoAdminQueryRepository {
         jdbcTemplate.query(
                 """
                 select id, name, code, region, created_at, updated_at
-                  from catalog_regions
+                  from standard_areas
                  where code in (:codes)
                 """,
                 new MapSqlParameterSource("codes", areaCodes),
@@ -1414,7 +1414,7 @@ class VideoAdminQueryRepository {
         return value == null ? null : value.toInstant();
     }
 
-    private record SourceRecordDetailBase(
+    private record RawVideoDetailBase(
             UUID id,
             String sourceVid,
             String title,
@@ -1445,7 +1445,7 @@ class VideoAdminQueryRepository {
             String sourceCategoryCode,
             String dataSourceName,
             UUID dataSourceId,
-            UUID catalogEntryId,
+            UUID unifiedVideoId,
             String enrichmentStatus,
             String normalizationStatus,
             Instant createdAt,
@@ -1459,7 +1459,7 @@ class VideoAdminQueryRepository {
             String genreCodesJson) {
     }
 
-    private record CatalogEntryDetailBase(
+    private record UnifiedVideoDetailBase(
             UUID id,
             String title,
             String aliasTitle,

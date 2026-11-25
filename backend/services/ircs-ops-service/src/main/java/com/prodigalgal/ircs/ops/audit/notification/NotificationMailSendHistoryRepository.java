@@ -92,7 +92,7 @@ public class NotificationMailSendHistoryRepository {
         String sql = """
                 select id, created_at, updated_at, version, audit_class, correlation_id, recipient, subject,
                        template_code, delivery_mode, status, credential_id, failure_code, failure_message
-                  from mail_delivery_attempts
+                  from notification_mail_send_history
                 """ + where + JdbcPageSorts.orderBy(pageable, SORT_COLUMNS, DEFAULT_ORDER)
                 + " limit :limit offset :offset";
         params.addValue("limit", pageable.getPageSize());
@@ -100,7 +100,7 @@ public class NotificationMailSendHistoryRepository {
         List<NotificationMailSendHistoryResponse> content = jdbcTemplate.query(sql, params, ROW_MAPPER);
         long total = predicates.isEmpty()
                 ? estimatedTotal(pageable, content.size())
-                : count("select count(*) from mail_delivery_attempts" + where, params);
+                : count("select count(*) from notification_mail_send_history" + where, params);
         return new PageImpl<>(content, pageable, total);
     }
 
@@ -112,7 +112,7 @@ public class NotificationMailSendHistoryRepository {
                        count(*) filter (where lower(status) = 'skipped') as skipped_count,
                        count(*) filter (where lower(status) = 'sent') as sent_count,
                        count(*) filter (where lower(status) = 'failed') as failed_count
-                  from mail_delivery_attempts
+                  from notification_mail_send_history
                  where created_at >= :since
                 """,
                 params,

@@ -1,5 +1,4 @@
 dependencies {
-    testImplementation testFixtures(project(':platform:ircs-migrator'))
     implementation project(':shared:ircs-common')
     implementation project(':shared:ircs-content-metadata')
     implementation project(':shared:ircs-messaging')

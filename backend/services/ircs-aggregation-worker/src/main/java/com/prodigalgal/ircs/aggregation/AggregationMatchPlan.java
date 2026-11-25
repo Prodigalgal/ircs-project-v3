@@ -3,14 +3,14 @@ package com.prodigalgal.ircs.aggregation;
 import java.util.List;
 import java.util.UUID;
 
-public record AggregationMatchPlan(UUID rootCatalogEntryId, List<UUID> victimCatalogEntryIds, String resolutionReason) {
+public record AggregationMatchPlan(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds, String resolutionReason) {
 
     public AggregationMatchPlan {
-        victimCatalogEntryIds = List.copyOf(victimCatalogEntryIds);
+        victimUnifiedVideoIds = List.copyOf(victimUnifiedVideoIds);
     }
 
-    public AggregationMatchPlan(UUID rootCatalogEntryId, List<UUID> victimCatalogEntryIds) {
-        this(rootCatalogEntryId, victimCatalogEntryIds, null);
+    public AggregationMatchPlan(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
+        this(rootUnifiedVideoId, victimUnifiedVideoIds, null);
     }
 
     public static AggregationMatchPlan ambiguous() {
@@ -25,19 +25,19 @@ public record AggregationMatchPlan(UUID rootCatalogEntryId, List<UUID> victimCat
         return new AggregationMatchPlan(null, List.of());
     }
 
-    public static AggregationMatchPlan rootOnly(UUID rootCatalogEntryId) {
-        return new AggregationMatchPlan(rootCatalogEntryId, List.of());
+    public static AggregationMatchPlan rootOnly(UUID rootUnifiedVideoId) {
+        return new AggregationMatchPlan(rootUnifiedVideoId, List.of());
     }
 
-    public static AggregationMatchPlan rootWithVictims(UUID rootCatalogEntryId, List<UUID> victimCatalogEntryIds) {
-        return new AggregationMatchPlan(rootCatalogEntryId, List.copyOf(victimCatalogEntryIds));
+    public static AggregationMatchPlan rootWithVictims(UUID rootUnifiedVideoId, List<UUID> victimUnifiedVideoIds) {
+        return new AggregationMatchPlan(rootUnifiedVideoId, List.copyOf(victimUnifiedVideoIds));
     }
 
     public boolean hasRoot() {
-        return rootCatalogEntryId != null;
+        return rootUnifiedVideoId != null;
     }
 
     public boolean hasVictims() {
-        return !victimCatalogEntryIds.isEmpty();
+        return !victimUnifiedVideoIds.isEmpty();
     }
 }

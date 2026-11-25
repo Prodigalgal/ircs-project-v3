@@ -40,18 +40,14 @@ public class FeedbackCommandService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "留言内容过长 (最多500字)");
         }
 
+        checkDailyLimit(memberId);
         String safeContent = cleanHtml(rawContent).trim();
         if (!StringUtils.hasText(safeContent)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "留言内容无效或包含非法字符");
         }
 
-        pointLedger.lockMember(memberId);
-        Instant now = Instant.now();
-        checkDailyLimit(memberId, now);
-        UUID postId = IrcsUuidGenerators.nextId();
-        UserMessageResponse post = repository.insertMessage(postId, memberId, safeContent, now);
-        pointLedger.spend(memberId, pointCost(), "FEEDBACK_POST", postId);
-        return post;
+        pointLedger.spend(memberId, pointCost(), "MESSAGE");
+        return repository.insertMessage(IrcsUuidGenerators.nextId(), memberId, safeContent, Instant.now());
     }
 
     @Transactional(readOnly = true)
@@ -67,12 +63,12 @@ public class FeedbackCommandService {
         repository.deleteMemberMessage(memberId, messageId);
     }
 
-    private void checkDailyLimit(UUID memberId, Instant now) {
+    private void checkDailyLimit(UUID memberId) {
         int limit = dailyLimit();
         if (limit <= 0) {
             return;
         }
-        LocalDate today = now.atZone(DAILY_LIMIT_ZONE).toLocalDate();
+        LocalDate today = LocalDate.now(DAILY_LIMIT_ZONE);
         Instant startOfDay = today.atStartOfDay(DAILY_LIMIT_ZONE).toInstant();
         Instant endOfDay = today.plusDays(1).atStartOfDay(DAILY_LIMIT_ZONE).toInstant();
         long count = repository.countMemberMessagesCreatedBetween(memberId, startOfDay, endOfDay);

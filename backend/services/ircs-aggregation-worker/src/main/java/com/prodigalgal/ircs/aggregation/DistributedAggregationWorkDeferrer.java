@@ -105,7 +105,7 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
         if (!valid(item) || !isWaitingReason(reason)) { return false; }
         long seconds = delay == null ? 2 : Math.max(2, Math.min(604800, delay.getSeconds()));
         long now = clock.millis();
-        String typePrefix = prefix + ":" + AggregationWorkTypes.SOURCE_RECORD;
+        String typePrefix = prefix + ":" + AggregationWorkTypes.RAW_VIDEO;
         Long result = redis.execute(DEFER,
                 List.of(taskKey(item), typePrefix + ":pending", typePrefix + ":inflight",
                         typePrefix + ":dlq", prefix + ":events"),
@@ -122,7 +122,7 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
         long now = clock.millis();
         long millis = visibility == null ? 600000 : Math.max(1000, Math.min(604800000, visibility.toMillis()));
         Long result = redis.execute(RENEW,
-                List.of(taskKey(item), prefix + ":" + AggregationWorkTypes.SOURCE_RECORD + ":inflight"),
+                List.of(taskKey(item), prefix + ":" + AggregationWorkTypes.RAW_VIDEO + ":inflight"),
                 item.taskType(), item.taskId(), item.submissionId(), item.ownerId(), Integer.toString(item.attempt()),
                 Long.toString(now), Long.toString(now + millis));
         return Long.valueOf(1).equals(result);
@@ -142,8 +142,8 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
     }
 
     @Override
-    public Optional<ReviewedWork> findReviewedWork(UUID sourceRecordId) {
-        String key = taskKey(AggregationWorkTypes.taskId(sourceRecordId));
+    public Optional<ReviewedWork> findReviewedWork(UUID rawVideoId) {
+        String key = taskKey(AggregationWorkTypes.taskId(rawVideoId));
         List<Object> fields = redis.opsForHash().multiGet(key,
                 List.of("status", "submissionId", "updatedAt", "lastError", "reviewReplayedSubmissionId"));
         if (fields.size() != 5 || !"PERMANENT_FAILURE".equals(fields.get(0))
@@ -152,19 +152,19 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
                 || submission.equals(fields.get(4))) {
             return Optional.empty();
         }
-        return Optional.of(new ReviewedWork(sourceRecordId, submission, updatedAt, reason));
+        return Optional.of(new ReviewedWork(rawVideoId, submission, updatedAt, reason));
     }
 
     @Override
     public boolean requeueReviewedWork(ReviewedWork work) {
         if (!isReviewReason(work.reason())) { return false; }
-        String type = AggregationWorkTypes.SOURCE_RECORD;
-        String id = AggregationWorkTypes.taskId(work.sourceRecordId());
+        String type = AggregationWorkTypes.RAW_VIDEO;
+        String id = AggregationWorkTypes.taskId(work.rawVideoId());
         String typePrefix = prefix + ":" + type;
         Long result = redis.execute(REQUEUE_REVIEW,
                 List.of(taskKey(id), typePrefix + ":pending", typePrefix + ":inflight",
                         typePrefix + ":dlq", prefix + ":events"),
-                type, id, work.sourceRecordId().toString(), work.submissionId(), work.updatedAt(), work.reason(),
+                type, id, work.rawVideoId().toString(), work.submissionId(), work.updatedAt(), work.reason(),
                 Long.toString(clock.millis()), Integer.toString(streamMaxLen));
         return Long.valueOf(1).equals(result);
     }
@@ -174,7 +174,7 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
     }
 
     private boolean valid(RuntimeWorkItem item) {
-        return item != null && AggregationWorkTypes.SOURCE_RECORD.equals(item.taskType())
+        return item != null && AggregationWorkTypes.RAW_VIDEO.equals(item.taskType())
                 && StringUtils.hasText(item.taskId()) && item.taskId().startsWith("raw_video:")
                 && StringUtils.hasText(item.submissionId()) && StringUtils.hasText(item.ownerId())
                 && item.attempt() > 0;
@@ -185,6 +185,6 @@ final class DistributedAggregationWorkDeferrer implements AggregationWorkDeferre
     }
 
     private String taskKey(String taskId) {
-        return prefix + ":" + AggregationWorkTypes.SOURCE_RECORD + ":task:" + taskId;
+        return prefix + ":" + AggregationWorkTypes.RAW_VIDEO + ":task:" + taskId;
     }
 }

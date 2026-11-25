@@ -22,10 +22,10 @@ class RestAggregationContextSearchClientTest {
                 new RestAggregationContextSearchClient(RestClient.builder(), false, "http://search-service", null);
 
         AggregationContextSearchClient.ContextSearchResult result =
-                client.findCandidateCatalogEntryIds("Codex Signal", "2026");
+                client.findCandidateUnifiedVideoIds("Codex Signal", "2026");
 
         assertFalse(result.attempted());
-        assertEquals(List.of(), result.catalogEntryIds());
+        assertEquals(List.of(), result.unifiedVideoIds());
     }
 
     @Test
@@ -41,10 +41,10 @@ class RestAggregationContextSearchClientTest {
                         MediaType.APPLICATION_JSON));
 
         AggregationContextSearchClient.ContextSearchResult result =
-                client.findCandidateCatalogEntryIds("Codex Signal", "2026");
+                client.findCandidateUnifiedVideoIds("Codex Signal", "2026");
 
         assertTrue(result.attempted());
-        assertEquals(List.of(id), result.catalogEntryIds());
+        assertEquals(List.of(id), result.unifiedVideoIds());
         server.verify();
     }
 
@@ -55,7 +55,7 @@ class RestAggregationContextSearchClientTest {
         org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(true);
         try {
             org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
-                    () -> client.findCandidateCatalogEntryIds("Ordinary movie", "2026"));
+                    () -> client.findCandidateUnifiedVideoIds("Ordinary movie", "2026"));
         } finally {
             org.springframework.transaction.support.TransactionSynchronizationManager.setActualTransactionActive(false);
         }
@@ -71,10 +71,10 @@ class RestAggregationContextSearchClientTest {
                 .andRespond(withServerError());
 
         AggregationContextSearchClient.ContextSearchResult result =
-                client.findCandidateCatalogEntryIds("Codex Signal", "2026");
+                client.findCandidateUnifiedVideoIds("Codex Signal", "2026");
 
         assertTrue(result.attempted());
-        assertEquals(List.of(), result.catalogEntryIds());
+        assertEquals(List.of(), result.unifiedVideoIds());
         server.verify();
     }
 }

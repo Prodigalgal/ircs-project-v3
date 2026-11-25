@@ -28,7 +28,7 @@ public class JdbcDashboardRepository {
                 WITH table_estimates AS (
                     SELECT relname, greatest(coalesce(n_live_tup, 0), 0) AS live_rows
                       FROM pg_stat_user_tables
-                     WHERE relname IN ('source_records', 'catalog_entries', 'collection_plans')
+                     WHERE relname IN ('raw_videos', 'unified_videos', 'collection_tasks')
                 )
                 SELECT greatest(coalesce(est_raw.live_rows, 0), coalesce(raw_stats.observed_raw_count, 0)) AS raw_count,
                        greatest(coalesce(est_unified.live_rows, 0), 0) AS unified_count,
@@ -56,16 +56,16 @@ public class JdbcDashboardRepository {
                                count(*) FILTER (
                                    WHERE nullif(trim(coalesce(tmdb_id, '')), '') IS NULL
                                ) AS missing_tmdb
-                          FROM source_records
+                          FROM raw_videos
                   ) raw_stats
                   CROSS JOIN (
                         SELECT count(*) FILTER (WHERE status = 'FAILED') AS failed_cover,
                                count(*) FILTER (WHERE status = 'DEAD_LINK') AS dead_link_cover
-                          FROM media_image_sources
+                          FROM cover_images
                   ) cover_stats
-                  LEFT JOIN table_estimates est_raw ON est_raw.relname = 'source_records'
-                  LEFT JOIN table_estimates est_unified ON est_unified.relname = 'catalog_entries'
-                  LEFT JOIN table_estimates est_tasks ON est_tasks.relname = 'collection_plans'
+                  LEFT JOIN table_estimates est_raw ON est_raw.relname = 'raw_videos'
+                  LEFT JOIN table_estimates est_unified ON est_unified.relname = 'unified_videos'
+                  LEFT JOIN table_estimates est_tasks ON est_tasks.relname = 'collection_tasks'
                 """,
                 Map.of(),
                 (rs, rowNum) -> new DashboardStatsResponse(
@@ -88,7 +88,7 @@ public class JdbcDashboardRepository {
                 """
                 SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS label,
                        count(*) AS value
-                  FROM source_records
+                  FROM raw_videos
                  WHERE created_at >= :since
                  GROUP BY date_trunc('day', created_at)
                  ORDER BY label ASC
@@ -102,8 +102,8 @@ public class JdbcDashboardRepository {
                 """
                 SELECT coalesce(sc.name, '未分类') AS label,
                        count(uv.id) AS value
-                  FROM catalog_entries uv
-                  LEFT JOIN catalog_categories sc ON sc.slug = uv.category_code
+                  FROM unified_videos uv
+                  LEFT JOIN standard_category sc ON sc.slug = uv.category_code
                  GROUP BY coalesce(sc.name, '未分类')
                  ORDER BY value DESC, label ASC
                  LIMIT 20
@@ -117,8 +117,8 @@ public class JdbcDashboardRepository {
                 """
                 SELECT coalesce(ds.name, '未知数据源') AS label,
                        count(rv.id) AS value
-                  FROM source_records rv
-                  LEFT JOIN collection_sources ds ON rv.collection_source_id = ds.id
+                  FROM raw_videos rv
+                  LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
                  GROUP BY coalesce(ds.name, '未知数据源')
                  ORDER BY value DESC, label ASC
                  LIMIT 20
@@ -132,7 +132,7 @@ public class JdbcDashboardRepository {
                 """
                 SELECT coalesce(enrichment_status, 'UNKNOWN') AS label,
                        count(*) AS value
-                  FROM source_records
+                  FROM raw_videos
                  GROUP BY coalesce(enrichment_status, 'UNKNOWN')
                  ORDER BY value DESC, label ASC
                 """,
@@ -159,7 +159,7 @@ public class JdbcDashboardRepository {
                            WHERE nullif(trim(coalesce(douban_id, '')), '') IS NULL
                              AND nullif(trim(coalesce(tmdb_id, '')), '') IS NULL
                        ) AS "None"
-                  FROM source_records
+                  FROM raw_videos
                 """,
                 Map.of()).entrySet().stream()
                 .collect(java.util.stream.Collectors.toMap(
@@ -179,8 +179,8 @@ public class JdbcDashboardRepository {
                               OR nullif(trim(coalesce(rv.douban_id, '')), '') IS NOT NULL
                               OR nullif(trim(coalesce(rv.tmdb_id, '')), '') IS NOT NULL
                        ) AS success_count
-                  FROM source_records rv
-                  LEFT JOIN collection_sources ds ON rv.collection_source_id = ds.id
+                  FROM raw_videos rv
+                  LEFT JOIN data_sources ds ON rv.data_source_id = ds.id
                  GROUP BY coalesce(ds.name, '未知数据源')
                  ORDER BY total DESC, name ASC
                  LIMIT 10
@@ -199,8 +199,8 @@ public class JdbcDashboardRepository {
                               OR nullif(trim(coalesce(rv.douban_id, '')), '') IS NOT NULL
                               OR nullif(trim(coalesce(rv.tmdb_id, '')), '') IS NOT NULL
                        ) AS success_count
-                  FROM source_records rv
-                  LEFT JOIN catalog_categories sc ON sc.slug = rv.category_code
+                  FROM raw_videos rv
+                  LEFT JOIN standard_category sc ON sc.slug = rv.category_code
                  GROUP BY coalesce(sc.name, nullif(trim(rv.source_category_name), ''), rv.source_category_code, '未分类')
                  ORDER BY total DESC, name ASC
                  LIMIT 10
@@ -212,7 +212,7 @@ public class JdbcDashboardRepository {
     public List<SourceQualityResponse> sourceQuality() {
         return jdbcTemplate.query(
                 """
-                SELECT ds.id AS collection_source_id,
+                SELECT ds.id AS data_source_id,
                        ds.name AS data_source_name,
                        count(rv.id) AS total_count,
                        count(rv.id) FILTER (
@@ -233,9 +233,9 @@ public class JdbcDashboardRepository {
                        count(rv.id) FILTER (
                            WHERE ci.status IN ('FAILED', 'DEAD_LINK')
                        ) AS image_error_count
-                  FROM collection_sources ds
-                  LEFT JOIN source_records rv ON rv.collection_source_id = ds.id
-                  LEFT JOIN media_image_sources ci ON rv.media_image_source_id = ci.id
+                  FROM data_sources ds
+                  LEFT JOIN raw_videos rv ON rv.data_source_id = ds.id
+                  LEFT JOIN cover_images ci ON rv.cover_image_id = ci.id
                  GROUP BY ds.id, ds.name
                  ORDER BY total_count DESC, ds.name ASC
                 """,
@@ -258,7 +258,7 @@ public class JdbcDashboardRepository {
 
     private RowMapper<SourceQualityResponse> sourceQualityMapper() {
         return (rs, rowNum) -> SourceQualityResponse.of(
-                getUuid(rs, "collection_source_id"),
+                getUuid(rs, "data_source_id"),
                 rs.getString("data_source_name"),
                 rs.getLong("total_count"),
                 rs.getLong("perfect_count"),

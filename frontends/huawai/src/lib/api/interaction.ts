@@ -17,7 +17,6 @@ export interface UserMessage {
 
 export interface MediaRequest {
     id: string;
-    demandId: string;
     title: string;
     releaseYear?: number;
     extraInfo?: string;
@@ -35,9 +34,9 @@ export interface MediaRequest {
 }
 
 export const interactionApi = {
-    async toggleFavorite(catalogEntryId: string): Promise<boolean> {
+    async toggleFavorite(unifiedVideoId: string): Promise<boolean> {
         const token = localStorage.getItem("huawai_token");
-        const res = await fetch(`${API_BASE}/favorites/${catalogEntryId}`, {
+        const res = await fetch(`${API_BASE}/favorites/${unifiedVideoId}`, {
             method: "POST",
             headers: { "Authorization": `Bearer ${token}` }
         });
@@ -46,11 +45,11 @@ export const interactionApi = {
         return data.favorited;
     },
 
-    async checkFavorite(catalogEntryId: string): Promise<boolean> {
+    async checkFavorite(unifiedVideoId: string): Promise<boolean> {
         const token = localStorage.getItem("huawai_token");
         if (!token) return false;
 
-        const res = await fetch(`${API_BASE}/favorites/${catalogEntryId}/status`, {
+        const res = await fetch(`${API_BASE}/favorites/${unifiedVideoId}/status`, {
             method: "GET",
             headers: { "Authorization": `Bearer ${token}` }
         });
@@ -69,7 +68,7 @@ export const interactionApi = {
     },
 
     async reportProgress(
-        catalogEntryId: string,
+        unifiedVideoId: string,
         videoId: string,
         episodeId: string | undefined,
         episodeName: string,
@@ -87,7 +86,7 @@ export const interactionApi = {
                 "Authorization": `Bearer ${token}`
             },
             body: JSON.stringify({
-                catalogEntryId,
+                unifiedVideoId,
                 videoId,
                 episodeId,
                 episodeName,
@@ -168,7 +167,7 @@ export const interactionApi = {
         if (!res.ok) throw new Error("Failed to delete message");
     },
 
-    async submitMediaRequest(title: string, releaseYear?: number, extraInfo?: string, clientRequestId?: string): Promise<MediaRequest> {
+    async submitMediaRequest(title: string, releaseYear?: number, extraInfo?: string): Promise<MediaRequest> {
         const token = localStorage.getItem("huawai_token");
         const res = await fetch(`${MEDIA_REQUEST_BASE}`, {
             method: "POST",
@@ -176,7 +175,7 @@ export const interactionApi = {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`
             },
-            body: JSON.stringify({ title, releaseYear, extraInfo, clientRequestId })
+            body: JSON.stringify({ title, releaseYear, extraInfo })
         });
         if (!res.ok) {
             const errData = await res.json().catch(() => ({}));

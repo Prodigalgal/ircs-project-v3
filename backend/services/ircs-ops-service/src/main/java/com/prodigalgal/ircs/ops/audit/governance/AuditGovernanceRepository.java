@@ -27,7 +27,7 @@ public class AuditGovernanceRepository {
                        sum(case when audit_class = 'SYSTEM' then 1 else 0 end) as system_count,
                        min(created_at) as oldest_archived_at,
                        max(created_at) as newest_archived_at
-                  from archived_audit_events
+                  from audit_archive_entries
                 """,
                 new MapSqlParameterSource(),
                 (rs, rowNum) -> new AuditArchiveSummaryResponse(

@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 public class JdbcSystemConfigRepositorySupport implements RuntimeConfigValueSource {
 
-    private static final String FIND_VALUE_SQL = "select config_value from application_settings where config_key = ?";
+    private static final String FIND_VALUE_SQL = "select config_value from system_configs where config_key = ?";
 
     private final JdbcTemplate jdbcTemplate;
     private final SystemConfigCache valkeyCache;

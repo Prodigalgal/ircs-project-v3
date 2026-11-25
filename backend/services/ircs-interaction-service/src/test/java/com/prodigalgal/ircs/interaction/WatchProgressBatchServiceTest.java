@@ -20,9 +20,9 @@ class WatchProgressBatchServiceTest {
     private final WatchProgressBatchService service = new WatchProgressBatchService(repository);
 
     @Test
-    void batchUpsertKeepsLatestMessagePerMemberAndCatalogEntry() {
+    void batchUpsertKeepsLatestMessagePerMemberAndUnifiedVideo() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
+        UUID unifiedVideoId = UUID.randomUUID();
         UUID oldVideoId = UUID.randomUUID();
         UUID newVideoId = UUID.randomUUID();
         UUID episodeId = UUID.randomUUID();
@@ -31,7 +31,7 @@ class WatchProgressBatchServiceTest {
 
         WatchProgressMessage oldMessage = new WatchProgressMessage(
                 memberId,
-                catalogEntryId,
+                unifiedVideoId,
                 oldVideoId,
                 null,
                 "第1集",
@@ -40,7 +40,7 @@ class WatchProgressBatchServiceTest {
                 older);
         WatchProgressMessage newMessage = new WatchProgressMessage(
                 memberId,
-                catalogEntryId,
+                unifiedVideoId,
                 newVideoId,
                 episodeId,
                 " ",
@@ -53,7 +53,7 @@ class WatchProgressBatchServiceTest {
         verify(repository).upsertWatchHistoryIfNewer(
                 any(UUID.class),
                 eq(memberId),
-                eq(catalogEntryId),
+                eq(unifiedVideoId),
                 eq(newVideoId),
                 eq(episodeId),
                 eq(WatchProgressBatchService.DEFAULT_EPISODE_NAME),
@@ -83,14 +83,14 @@ class WatchProgressBatchServiceTest {
     @Test
     void batchUpsertIgnoresOrphanedDataIntegrityViolation() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
+        UUID unifiedVideoId = UUID.randomUUID();
         Instant timestamp = Instant.parse("2026-06-07T01:02:00Z");
         doThrow(new DataIntegrityViolationException("fk"))
                 .when(repository)
                 .upsertWatchHistoryIfNewer(
                         any(UUID.class),
                         eq(memberId),
-                        eq(catalogEntryId),
+                        eq(unifiedVideoId),
                         any(),
                         any(),
                         any(),
@@ -100,7 +100,7 @@ class WatchProgressBatchServiceTest {
 
         WatchProgressMessage message = new WatchProgressMessage(
                 memberId,
-                catalogEntryId,
+                unifiedVideoId,
                 null,
                 null,
                 "第1集",

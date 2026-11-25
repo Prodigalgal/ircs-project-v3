@@ -31,10 +31,6 @@ public class TaskQueryService {
         return taskRepository.findById(id);
     }
 
-    public Optional<UUID> findCurrentRunId(UUID planId) {
-        return taskRepository.currentRunId(planId);
-    }
-
     private String normalizeStatus(String status) {
         if (status == null || status.isBlank()) {
             return null;

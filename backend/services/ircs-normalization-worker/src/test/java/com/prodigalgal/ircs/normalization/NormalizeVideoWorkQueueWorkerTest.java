@@ -24,7 +24,7 @@ class NormalizeVideoWorkQueueWorkerTest {
     @Test
     void drainsFullBatchInWavesWhileReservingOneDatabaseConnection() {
         var queue = mock(RuntimeWorkQueue.class);
-        var service = mock(SourceRecordNormalizationService.class);
+        var service = mock(RawVideoNormalizationService.class);
         var items = new ConcurrentLinkedQueue<RuntimeWorkItem>();
         for (int i = 0; i < 5; i++) items.add(item(UUID.randomUUID().toString()));
         var largestClaim = new AtomicInteger();
@@ -37,7 +37,7 @@ class NormalizeVideoWorkQueueWorkerTest {
         });
         when(service.normalize(any(), any())).thenAnswer(invocation -> {
             assertThat(Thread.currentThread().isVirtual()).isTrue();
-            return SourceRecordNormalizationService.NormalizationResult.ready(invocation.getArgument(0));
+            return RawVideoNormalizationService.NormalizationResult.ready(invocation.getArgument(0));
         });
         var worker = worker(queue, service);
         try {
@@ -52,11 +52,11 @@ class NormalizeVideoWorkQueueWorkerTest {
     @Test
     void permanentNormalizationFailureIsDeadLetteredInsteadOfReportedAsSuccess() {
         var queue = mock(RuntimeWorkQueue.class);
-        var service = mock(SourceRecordNormalizationService.class);
+        var service = mock(RawVideoNormalizationService.class);
         var task = item(UUID.randomUUID().toString());
         when(queue.claim(anyString(), anyString(), anyInt(), any()))
                 .thenReturn(List.of(task), List.of());
-        when(service.normalize(any(), any())).thenReturn(new SourceRecordNormalizationService.NormalizationResult(
+        when(service.normalize(any(), any())).thenReturn(new RawVideoNormalizationService.NormalizationResult(
                 UUID.fromString(task.aggregateId()), "PERMANENT_FAILURE", "INVALID_RAW_METADATA"));
         var worker = worker(queue, service);
         try {
@@ -68,7 +68,7 @@ class NormalizeVideoWorkQueueWorkerTest {
         }
     }
 
-    private NormalizeVideoWorkQueueWorker worker(RuntimeWorkQueue queue, SourceRecordNormalizationService service) {
+    private NormalizeVideoWorkQueueWorker worker(RuntimeWorkQueue queue, RawVideoNormalizationService service) {
         return new NormalizeVideoWorkQueueWorker(queue, service, mock(NormalizationConfigValues.class),
                 WorkerJobAuditWriter.noop(), "test", "worker", 5, 8, 2, Duration.ofMinutes(10));
     }

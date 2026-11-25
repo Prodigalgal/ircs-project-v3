@@ -30,7 +30,7 @@ record MagnetProviderRequest(
 
 record MagnetSearchJobSummary(
         UUID id,
-        UUID catalogEntryId,
+        UUID unifiedVideoId,
         String triggerType,
         String status,
         List<String> providerCodes,
@@ -67,7 +67,7 @@ record MagnetProviderRunSummary(
 ) {
 }
 
-record MagnetCatalogEntrySearchTarget(
+record MagnetUnifiedVideoSearchTarget(
         UUID id,
         String title,
         String aliasTitle,
@@ -80,7 +80,7 @@ record MagnetCatalogEntrySearchTarget(
         Integer season,
         String categoryCode
 ) {
-    MagnetCatalogEntrySearchTarget(UUID id, String title, String aliasTitle, String year,
+    MagnetUnifiedVideoSearchTarget(UUID id, String title, String aliasTitle, String year,
             String imdbId, String tmdbId, String doubanId, String metadataStatus) {
         this(id, title, aliasTitle, year, imdbId, tmdbId, doubanId, metadataStatus, null, null, null);
     }
@@ -88,7 +88,7 @@ record MagnetCatalogEntrySearchTarget(
 
 record MagnetSearchWorkPayload(
         UUID jobId,
-        UUID catalogEntryId,
+        UUID unifiedVideoId,
         String triggerType
 ) {
 }

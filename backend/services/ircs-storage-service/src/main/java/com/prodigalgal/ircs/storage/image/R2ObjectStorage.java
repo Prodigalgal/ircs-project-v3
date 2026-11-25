@@ -69,6 +69,24 @@ public class R2ObjectStorage {
                 && (StringUtils.hasText(endpoint) || StringUtils.hasText(accountId));
     }
 
+    public void delete(String storagePath) {
+        if (!StringUtils.hasText(storagePath)) {
+            return;
+        }
+        if (!isActive()) {
+            log.info("R2 delete skipped because R2 storage is disabled or incomplete");
+            return;
+        }
+        withClient(client -> {
+            client.deleteObject(DeleteObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(extractKey(storagePath))
+                    .build());
+            log.info("Deleted R2 storage object: {}", storagePath);
+            return null;
+        });
+    }
+
     public boolean exists(String storagePath) {
         if (!StringUtils.hasText(storagePath) || !isActive()) {
             return false;
@@ -101,13 +119,6 @@ public class R2ObjectStorage {
             log.info("Stored R2 storage object: {}", storagePath);
             return null;
         });
-    }
-
-    void deleteCover(String bucket, String key) {
-        if (!isActive() || !bucketName.equals(bucket)) {
-            throw new IllegalStateException("The registered media bucket is unavailable");
-        }
-        withClient(client -> client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(extractKey(key)).build()));
     }
 
     private <T> T withClient(Function<S3Client, T> operation) {

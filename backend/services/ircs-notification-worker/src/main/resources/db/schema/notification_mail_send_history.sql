@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS mail_delivery_attempts (
+CREATE TABLE IF NOT EXISTS notification_mail_send_history (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -16,21 +16,21 @@ CREATE TABLE IF NOT EXISTS mail_delivery_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_created
-    ON mail_delivery_attempts (created_at DESC);
+    ON notification_mail_send_history (created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_status_mode_created
-    ON mail_delivery_attempts (status, delivery_mode, created_at DESC);
+    ON notification_mail_send_history (status, delivery_mode, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_template_created
-    ON mail_delivery_attempts (template_code, created_at DESC);
+    ON notification_mail_send_history (template_code, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_correlation
-    ON mail_delivery_attempts (correlation_id);
+    ON notification_mail_send_history (correlation_id);
 
 CREATE INDEX IF NOT EXISTS idx_notification_mail_send_history_audit_class_created
-    ON mail_delivery_attempts (audit_class, created_at DESC);
+    ON notification_mail_send_history (audit_class, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS archived_audit_events (
+CREATE TABLE IF NOT EXISTS audit_archive_entries (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

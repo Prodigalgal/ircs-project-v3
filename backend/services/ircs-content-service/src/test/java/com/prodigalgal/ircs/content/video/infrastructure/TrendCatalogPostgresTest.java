@@ -14,9 +14,10 @@ import com.prodigalgal.ircs.contracts.search.SyncOperation;
 import com.prodigalgal.ircs.contracts.trend.TrendBoardPayload;
 import com.prodigalgal.ircs.contracts.trend.TrendItemPayload;
 import com.prodigalgal.ircs.contracts.trend.TrendSignalPayload;
-import com.prodigalgal.ircs.migrator.CatalogTestDatabase;
 import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -34,13 +35,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Real migration and PostgreSQL transaction/locking semantics; every test owns one isolated database. */
+/** Real migration and PostgreSQL transaction/locking semantics; every test owns one isolated schema. */
 class TrendCatalogPostgresTest {
 
     @Test
@@ -50,31 +53,51 @@ class TrendCatalogPostgresTest {
         assertThat(TrendSnapshotRepository.eventHasOccurred(eventDay,Instant.parse("2026-11-17T15:59:00Z"))).isFalse();
     }
 
-    private CatalogTestDatabase database;
+    private JdbcTemplate admin;
     private JdbcTemplate jdbc;
     private HikariDataSource pool;
     private TransactionTemplate transactions;
     private TrendCatalogEntryService entries;
     private TrendSnapshotRepository snapshots;
     private ContentCommandPublisher publisher;
+    private String schema;
     private Instant now;
 
     @BeforeEach
     void setUp() throws Exception {
-        database = CatalogTestDatabase.open();
+        String url = requiredEnvironment("IRCS_TEST_POSTGRES_URL");
         String user = requiredEnvironment("IRCS_TEST_POSTGRES_USER");
         String password = requiredEnvironment("IRCS_TEST_POSTGRES_PASSWORD");
+        admin = new JdbcTemplate(new DriverManagerDataSource(url, user, password));
+        schema = "trend_catalog_" + UUID.randomUUID().toString().replace("-", "");
+        admin.execute("create schema " + schema);
         pool = new HikariDataSource();
-        pool.setJdbcUrl(database.url());
+        pool.setJdbcUrl(url);
         pool.setUsername(user);
         pool.setPassword(password);
         pool.setMaximumPoolSize(6);
         pool.setMinimumIdle(0);
         pool.setConnectionTimeout(5000);
+        pool.setConnectionInitSql("set search_path to " + schema);
         jdbc = new JdbcTemplate(pool);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(pool));
         transactions.setTimeout(10);
         now = Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(60);
+        createSourceTables();
+        String migration = Files.readString(migrationPath());
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            try (var statement = connection.createStatement()) {
+                statement.execute(migration);
+            }
+            return null;
+        });
+        String targetResourcesMigration = Files.readString(targetResourcesMigrationPath());
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            try (var statement = connection.createStatement()) {
+                statement.execute(targetResourcesMigration);
+            }
+            return null;
+        });
         var covers = Mockito.mock(VideoAdminCoverImageRepository.class);
         when(covers.getOrCreateCoverImage(any())).thenReturn(Optional.empty());
         publisher = Mockito.mock(ContentCommandPublisher.class);
@@ -87,7 +110,7 @@ class TrendCatalogPostgresTest {
     @AfterEach
     void tearDown() {
         if (pool != null) pool.close();
-        if (database != null) database.close();
+        if (admin != null && schema != null) admin.execute("drop schema if exists " + schema + " cascade");
     }
 
     @Test
@@ -96,9 +119,9 @@ class TrendCatalogPostgresTest {
         var tv = resolve(candidate("TMDB", "42", "tv", "Same Title", "2026", 1, 1, "trending-day", "day", 1, now, null));
 
         assertThat(movie.id()).isNotEqualTo(tv.id());
-        assertThat(count("catalog_entries")).isEqualTo(2);
-        assertThat(count("catalog_external_ids")).isEqualTo(2);
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(2);
+        assertThat(count("unified_videos")).isEqualTo(2);
+        assertThat(count("external_catalog_identities")).isEqualTo(2);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(2);
     }
 
     @Test
@@ -111,23 +134,23 @@ class TrendCatalogPostgresTest {
         assertThat(first.id()).isNotEqualTo(second.id());
         assertThat(unknown.id()).isNotIn(first.id(), second.id());
         assertThat(resolve(unknownCandidate).id()).isEqualTo(unknown.id());
-        assertThat(count("catalog_entries")).isEqualTo(3);
+        assertThat(count("unified_videos")).isEqualTo(3);
     }
 
     @Test
     void exactTitleYearAndMediaTypeCanBindAnExistingWorkWithoutChangingManualFields() {
         UUID existing = seedVideo("Known Film", "2026", "movie", null, null);
-        jdbc.update("update catalog_entries set score=9.3, locked_fields='[\"title\",\"score\"]'::jsonb, metadata_status='SYNCED' where id=?", existing);
+        jdbc.update("update unified_videos set score=9.3, locked_fields='[\"title\",\"score\"]'::jsonb, metadata_status='SYNCED' where id=?", existing);
 
         var result = resolve(candidate("TMDB", "42", "movie", "KNOWN FILM", "2026", 0, 0, "popular", "popular", 1, now, null));
 
         assertThat(result.id()).isEqualTo(existing);
         assertThat(result.created()).isFalse();
-        assertThat(jdbc.queryForObject("select title from catalog_entries where id=?", String.class, existing)).isEqualTo("Known Film");
-        assertThat(jdbc.queryForObject("select score from catalog_entries where id=?", BigDecimal.class, existing)).isEqualByComparingTo("9.3");
-        assertThat(jdbc.queryForObject("select metadata_status from catalog_entries where id=?", String.class, existing)).isEqualTo("SYNCED");
-        assertThat(count("catalog_external_ids")).isEqualTo(1);
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select title from unified_videos where id=?", String.class, existing)).isEqualTo("Known Film");
+        assertThat(jdbc.queryForObject("select score from unified_videos where id=?", BigDecimal.class, existing)).isEqualByComparingTo("9.3");
+        assertThat(jdbc.queryForObject("select metadata_status from unified_videos where id=?", String.class, existing)).isEqualTo("SYNCED");
+        assertThat(count("external_catalog_identities")).isEqualTo(1);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
     }
 
     @Test
@@ -143,7 +166,7 @@ class TrendCatalogPostgresTest {
         assertThat(idConflict.id()).isNotEqualTo(conflicting);
         assertThat(yearConflict.id()).isNotEqualTo(otherYear);
         assertThat(typeConflict.id()).isNotEqualTo(otherType);
-        assertThat(jdbc.queryForObject("select tmdb_id from catalog_entries where id=?", String.class, conflicting)).isEqualTo("99");
+        assertThat(jdbc.queryForObject("select tmdb_id from unified_videos where id=?", String.class, conflicting)).isEqualTo("99");
     }
 
     @Test
@@ -163,11 +186,11 @@ class TrendCatalogPostgresTest {
             assertThat(created).isEqualTo(1);
             verify(publisher).publishUnifiedSearch(canonical, SyncOperation.INDEX);
         }
-        assertThat(count("catalog_entries")).isEqualTo(1);
-        assertThat(count("catalog_external_ids")).isEqualTo(1);
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select score from catalog_entries", BigDecimal.class)).isNull();
-        assertThat(jdbc.queryForObject("select metadata_status from catalog_entries", String.class)).isEqualTo("DIRTY");
+        assertThat(count("unified_videos")).isEqualTo(1);
+        assertThat(count("external_catalog_identities")).isEqualTo(1);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select score from unified_videos", BigDecimal.class)).isNull();
+        assertThat(jdbc.queryForObject("select metadata_status from unified_videos", String.class)).isEqualTo("DIRTY");
         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
     }
 
@@ -176,28 +199,28 @@ class TrendCatalogPostgresTest {
         UUID existing = seedVideo("Known Film", "2026", "movie", null, "42");
         var candidate = candidate("TMDB", "42", "movie", "Known Film", "2026", 0, 0, "popular", "popular", 1, now, null);
         assertThat(resolve(candidate).id()).isEqualTo(existing);
-        jdbc.update("update catalog_resource_discovery_jobs set status='SUBMITTED', submitted_at=now(), attempts=3, next_attempt_at=now()+interval '1 hour'");
+        jdbc.update("update catalog_discovery_requests set status='SUBMITTED', submitted_at=now(), attempts=3, next_attempt_at=now()+interval '1 hour'");
 
         resolve(candidate);
 
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select status from catalog_resource_discovery_jobs", String.class)).isEqualTo("SUBMITTED");
-        assertThat(jdbc.queryForObject("select attempts from catalog_resource_discovery_jobs", Integer.class)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("select next_attempt_at>now() from catalog_resource_discovery_jobs", Boolean.class)).isTrue();
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select status from catalog_discovery_requests", String.class)).isEqualTo("SUBMITTED");
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("select next_attempt_at>now() from catalog_discovery_requests", Boolean.class)).isTrue();
     }
 
     @Test
     void missingResourcesAfterSubmissionCooldownAreRequeuedWithoutCreatingAnotherRequest() {
         var candidate = candidate("TMDB", "42", "movie", "Known Film", "2026", 0, 0, "popular", "popular", 1, now, null);
         resolve(candidate);
-        jdbc.update("update catalog_resource_discovery_jobs set status='SUBMITTED', submitted_at=now()-interval '7 hours', attempts=3, next_attempt_at=now()+interval '1 hour'");
+        jdbc.update("update catalog_discovery_requests set status='SUBMITTED', submitted_at=now()-interval '7 hours', attempts=3, next_attempt_at=now()+interval '1 hour'");
 
         resolve(candidate);
 
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select status from catalog_resource_discovery_jobs", String.class)).isEqualTo("PENDING");
-        assertThat(jdbc.queryForObject("select next_attempt_at<=now() from catalog_resource_discovery_jobs", Boolean.class)).isTrue();
-        assertThat(jdbc.queryForObject("select attempts from catalog_resource_discovery_jobs", Integer.class)).isEqualTo(3);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select status from catalog_discovery_requests", String.class)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("select next_attempt_at<=now() from catalog_discovery_requests", Boolean.class)).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from catalog_discovery_requests", Integer.class)).isEqualTo(3);
     }
 
     @Test
@@ -209,7 +232,7 @@ class TrendCatalogPostgresTest {
 
         UUID id = resolve(TrendCatalogCandidate.from(zero)).id();
 
-        assertThat(jdbc.queryForObject("select score from catalog_entries where id=?", BigDecimal.class, id)).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(jdbc.queryForObject("select score from unified_videos where id=?", BigDecimal.class, id)).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -221,12 +244,12 @@ class TrendCatalogPostgresTest {
         var next = candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 6, "popular", "popular", 1, now, null);
 
         assertThat(resolve(current).id()).isEqualTo(existing);
-        assertThat(count("catalog_resource_discovery_jobs")).isZero();
+        assertThat(count("catalog_discovery_requests")).isZero();
         resolve(next);
 
         assertThat(jdbc.queryForObject("select available_episode from catalog_resource_inventory(?,2)", Integer.class, existing)).isEqualTo(5);
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select target_episode from catalog_resource_discovery_jobs", Integer.class)).isEqualTo(6);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select target_episode from catalog_discovery_requests", Integer.class)).isEqualTo(6);
     }
 
     @Test
@@ -235,7 +258,7 @@ class TrendCatalogPostgresTest {
         UUID playlist = bindPlaylist(existing, 2, false);
         episode(playlist, "S02E14", "https://media.example/14", null);
         resolve(candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 12, "popular", "popular", 1, now, null));
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
 
         UUID anotherId = seedVideo("Another Show", "2026", "series", 2, "43");
         UUID anotherPlaylist = bindPlaylist(anotherId, 2, false);
@@ -247,19 +270,14 @@ class TrendCatalogPostgresTest {
     @Test
     void approvedMagnetSatisfiesOnlyPublicAdultSafeWholeWorkRequest() {
         UUID existing = seedVideo("Known Film", "2026", "movie", 0, "42");
-        jdbc.update("""
-                insert into catalog_magnet_links(id,catalog_entry_id,status,provider_code,info_hash,magnet_uri,
-                    title,matched_external_id_type,matched_external_id_value)
-                values(uuidv7(),?,'CANDIDATE','fixture',repeat('f',40),'magnet:?xt=urn:btih:' || repeat('f',40),
-                    'Fixture','TMDB','123')
-                """, existing);
+        jdbc.update("insert into magnet_links(unified_video_id, status) values (?, 'CANDIDATE')", existing);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
-        jdbc.update("update catalog_magnet_links set status = 'APPROVED'");
+        jdbc.update("update magnet_links set status = 'APPROVED'");
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isTrue();
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 12)", Boolean.class, existing)).isFalse();
-        jdbc.update("update catalog_entries set content_visibility = 'HIDDEN' where id = ?", existing);
+        jdbc.update("update unified_videos set content_visibility = 'PRIVATE' where id = ?", existing);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
-        jdbc.update("update catalog_entries set content_visibility = 'PUBLIC', adult_restricted = true where id = ?", existing);
+        jdbc.update("update unified_videos set content_visibility = 'PUBLIC', adult_restricted = true where id = ?", existing);
         assertThat(jdbc.queryForObject("select catalog_has_target_resources(?, 0, 0)", Boolean.class, existing)).isFalse();
     }
 
@@ -277,7 +295,7 @@ class TrendCatalogPostgresTest {
         resolve(candidate("TMDB", "42", "tv", "Known Show", "2026", 2, 5, "popular", "popular", 1, now, null));
 
         assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)", Boolean.class, existing)).isFalse();
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
     }
 
     @Test
@@ -286,14 +304,14 @@ class TrendCatalogPostgresTest {
         episode(bindPlaylist(existing, 2, false), "S02E05", "https://media.example/episode", null);
         for (String assessment : List.of("{\"adultRestricted\":true}", "{\"level\":\"ADULT\"}",
                 "{\"adultRestricted\":\"unknown\"}")) {
-            jdbc.update("update catalog_entries set adult_assessment=?::jsonb where id=?", assessment, existing);
+            jdbc.update("update unified_videos set adult_assessment=?::jsonb where id=?", assessment, existing);
             assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)",
                     Boolean.class, existing)).isFalse();
         }
-        jdbc.update("update catalog_entries set adult_assessment='{}',adult_restricted=true where id=?", existing);
+        jdbc.update("update unified_videos set adult_assessment='{}',adult_restricted=true where id=?", existing);
         assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)",
                 Boolean.class, existing)).isFalse();
-        jdbc.update("update catalog_entries set adult_restricted=false where id=?", existing);
+        jdbc.update("update unified_videos set adult_restricted=false where id=?", existing);
         assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)",
                 Boolean.class, existing)).isTrue();
     }
@@ -307,7 +325,7 @@ class TrendCatalogPostgresTest {
 
         assertThat(jdbc.queryForObject("select resource_available from catalog_resource_inventory(?,2)", Boolean.class, existing)).isTrue();
         assertThat(jdbc.queryForObject("select available_episode from catalog_resource_inventory(?,2)", Integer.class, existing)).isNull();
-        assertThat(count("catalog_resource_discovery_jobs")).isEqualTo(1);
+        assertThat(count("catalog_discovery_requests")).isEqualTo(1);
     }
 
     @Test
@@ -320,8 +338,8 @@ class TrendCatalogPostgresTest {
         assertThat(save(board, List.of(observation(candidate, id)))).isTrue();
         assertThat(save(board, List.of())).isFalse();
 
-        assertThat(jdbc.queryForObject("select last_success_at from provider_ranking_boards", Timestamp.class).toInstant()).isEqualTo(now);
-        assertThat(count("provider_ranking_observations")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select last_success_at from external_trend_boards", Timestamp.class).toInstant()).isEqualTo(now);
+        assertThat(count("external_trend_observations")).isEqualTo(1);
     }
 
     @Test
@@ -335,11 +353,11 @@ class TrendCatalogPostgresTest {
 
         assertThat(save(board(old, "SUCCESS", old.item().signal().observedAt()), List.of(observation(old, id)))).isFalse();
 
-        assertThat(jdbc.queryForObject("select status from provider_ranking_boards", String.class)).isEqualTo("FAILED");
-        assertThat(jdbc.queryForObject("select last_success_at from provider_ranking_boards", Timestamp.class).toInstant()).isEqualTo(successfulAt);
-        assertThat(jdbc.queryForObject("select item_count from provider_ranking_boards", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select position from provider_ranking_observations", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select heat from catalog_entry_rankings", BigDecimal.class)).isGreaterThan(BigDecimal.ZERO);
+        assertThat(jdbc.queryForObject("select status from external_trend_boards", String.class)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("select last_success_at from external_trend_boards", Timestamp.class).toInstant()).isEqualTo(successfulAt);
+        assertThat(jdbc.queryForObject("select item_count from external_trend_boards", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select position from external_trend_observations", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select heat from external_catalog_rankings", BigDecimal.class)).isGreaterThan(BigDecimal.ZERO);
     }
 
     @Test
@@ -352,10 +370,10 @@ class TrendCatalogPostgresTest {
 
         save(board(candidate, "SUCCESS", now), List.of());
 
-        assertThat(count("provider_ranking_observations")).isZero();
-        assertThat(count("catalog_release_events")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select event_date from catalog_entry_recent_release_events", java.sql.Date.class).toLocalDate()).isEqualTo(yesterday);
-        assertThat(jdbc.queryForObject("select episode from catalog_entry_recent_release_events", Integer.class)).isEqualTo(12);
+        assertThat(count("external_trend_observations")).isZero();
+        assertThat(count("external_catalog_events")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select event_date from external_catalog_recent_events", java.sql.Date.class).toLocalDate()).isEqualTo(yesterday);
+        assertThat(jdbc.queryForObject("select episode from external_catalog_recent_events", Integer.class)).isEqualTo(12);
     }
 
     @Test
@@ -363,19 +381,19 @@ class TrendCatalogPostgresTest {
         var day = candidate("TMDB", "42", "movie", "Known Film", "2026", 0, 0, "trending-day", "day", 1, now, null);
         UUID id = resolve(day).id();
         save(board(day, "SUCCESS", now), List.of(observation(day, id)));
-        BigDecimal oneBoard = jdbc.queryForObject("select heat from catalog_entry_rankings", BigDecimal.class);
+        BigDecimal oneBoard = jdbc.queryForObject("select heat from external_catalog_rankings", BigDecimal.class);
         var week = candidate("TMDB", "42", "movie", "Known Film", "2026", 0, 0, "trending-week", "week", 5, now, null);
         save(board(week, "SUCCESS", now), List.of(observation(week, id)));
 
-        BigDecimal twoBoards = jdbc.queryForObject("select heat from catalog_entry_rankings", BigDecimal.class);
+        BigDecimal twoBoards = jdbc.queryForObject("select heat from external_catalog_rankings", BigDecimal.class);
         assertThat(twoBoards).isCloseTo(oneBoard, org.assertj.core.data.Offset.offset(new BigDecimal("0.0001")));
         var douban = candidate("Douban", "123", "movie", "Known Film", "2026", 0, 0, "chart", "chart", 2, now, null);
         assertThat(resolve(douban).id()).isEqualTo(id);
         save(board(douban, "SUCCESS", now), List.of(observation(douban, id)));
 
-        assertThat(jdbc.queryForObject("select heat from catalog_entry_rankings", BigDecimal.class))
+        assertThat(jdbc.queryForObject("select heat from external_catalog_rankings", BigDecimal.class))
                 .isGreaterThan(oneBoard.multiply(new BigDecimal("1.5")));
-        assertThat(jdbc.queryForObject("select sources from catalog_entry_rankings", String.class)).isEqualTo("Douban,TMDB");
+        assertThat(jdbc.queryForObject("select sources from external_catalog_rankings", String.class)).isEqualTo("Douban,TMDB");
     }
 
     @Test
@@ -383,13 +401,13 @@ class TrendCatalogPostgresTest {
         var stale = candidate("TMDB", "42", "movie", "Old Film", "2026", 0, 0, "trending-day", "day", 1, now.minusSeconds(8 * 86400L), null);
         UUID id = resolve(stale).id();
         save(board(stale, "SUCCESS", stale.item().signal().observedAt()), List.of(observation(stale, id)));
-        assertThat(count("catalog_entry_rankings")).isZero();
+        assertThat(count("external_catalog_rankings")).isZero();
         var legacy = candidate("TMDB", "42", "movie", "Old Film", "2026", 0, 0, "legacy", "legacy", 1, now, null);
         save(board(legacy, "SUCCESS", now), List.of(observation(legacy, id)));
-        assertThat(jdbc.queryForObject("select heat from catalog_entry_rankings", BigDecimal.class)).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(jdbc.queryForObject("select heat from external_catalog_rankings", BigDecimal.class)).isEqualByComparingTo(BigDecimal.ZERO);
         var event = candidate("TMDB", "42", "movie", "Old Film", "2026", 0, 0, "recent-release", "event", null, now, LocalDate.now(ZoneOffset.UTC).minusDays(1));
         save(board(event, "SUCCESS", now), List.of(observation(event, id)));
-        assertThat(jdbc.queryForObject("select heat from catalog_entry_rankings", BigDecimal.class)).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(jdbc.queryForObject("select heat from external_catalog_rankings", BigDecimal.class)).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -404,9 +422,9 @@ class TrendCatalogPostgresTest {
                 List.of(observation(fresh, id), observation(absent, UUID.randomUUID()))))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
-        assertThat(count("provider_ranking_observations")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select position from provider_ranking_observations", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select last_success_at from provider_ranking_boards", Timestamp.class).toInstant()).isEqualTo(old.item().signal().observedAt());
+        assertThat(count("external_trend_observations")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select position from external_trend_observations", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select last_success_at from external_trend_boards", Timestamp.class).toInstant()).isEqualTo(old.item().signal().observedAt());
     }
 
     @Test
@@ -421,8 +439,8 @@ class TrendCatalogPostgresTest {
             for (var result : results) result.get();
         }
 
-        assertThat(jdbc.queryForObject("select position from provider_ranking_observations", Integer.class)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("select last_success_at from provider_ranking_boards", Timestamp.class).toInstant()).isEqualTo(now);
+        assertThat(jdbc.queryForObject("select position from external_trend_observations", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select last_success_at from external_trend_boards", Timestamp.class).toInstant()).isEqualTo(now);
     }
 
     private TrendCatalogEntryService.Resolution resolve(TrendCatalogCandidate candidate) {
@@ -456,7 +474,7 @@ class TrendCatalogPostgresTest {
 
     private UUID seedVideo(String title, String year, String category, Integer season, String tmdbId) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into catalog_entries(id,title,year,category_code,season,tmdb_id,created_at,updated_at) values(?,?,?,?,?,?,now(),now())",
+        jdbc.update("insert into unified_videos(id,title,year,category_code,season,tmdb_id) values(?,?,?,?,?,?)",
                 id, title, year, category, season, tmdbId);
         return id;
     }
@@ -465,40 +483,57 @@ class TrendCatalogPostgresTest {
         UUID raw = UUID.randomUUID();
         UUID playlist = UUID.randomUUID();
         UUID source = UUID.randomUUID();
-        jdbc.update("""
-                insert into collection_sources(id,adult_restricted,created_at,updated_at,name,base_url,list_path,detail_path)
-                values(?,?,now(),now(),?,'https://example.invalid','/list','/detail')
-                """, source, adultRestricted, source.toString());
-        jdbc.update("""
-                insert into source_records(id,season,collection_source_id,created_at,updated_at,source_vid,source_hash,
-                    title,enrichment_status,normalization_status)
-                values(?,?,?,now(),now(),?,?,'Fixture','PENDING','PENDING')
-                """, raw, season, source, raw.toString(), raw.toString());
-        jdbc.update("insert into catalog_source_bindings(source_record_id,catalog_entry_id) values(?,?)", raw, videoId);
-        jdbc.update("""
-                insert into source_playlists(id,source_record_id,created_at,updated_at,name)
-                values(?,?,now(),now(),'Main')
-                """, playlist, raw);
+        jdbc.update("insert into data_sources(id,adult_restricted) values(?,?)", source, adultRestricted);
+        jdbc.update("insert into raw_videos(id,season,data_source_id) values(?,?,?)", raw, season, source);
+        jdbc.update("insert into raw_video_unified_video(raw_video_id,unified_video_id) values(?,?)", raw, videoId);
+        jdbc.update("insert into playlists(id,video_id) values(?,?)", playlist, raw);
         return playlist;
     }
 
     private void episode(UUID playlist, String name, String url, UUID sourceDomain) {
-        UUID raw = jdbc.queryForObject("select source_record_id from source_playlists where id=?", UUID.class, playlist);
-        if (sourceDomain != null) {
-            jdbc.update("""
-                    insert into source_origins(id,created_at,updated_at,domain_hash,domain_value)
-                    values(?,now(),now(),?,'https://media.example')
-                    """, sourceDomain, sourceDomain.toString());
-        }
-        jdbc.update("""
-                insert into source_playback_items(id,playlist_id,name,url,source_origin_id,source_record_id,created_at,updated_at)
-                values(?,?,?,?,?,?,now(),now())
-                """, UUID.randomUUID(), playlist, name, url, sourceDomain, raw);
-        jdbc.query("select reconcile_catalog_playback(?)", (rs, row) -> null, raw);
+        jdbc.update("insert into episodes(id,playlist_id,name,url,source_domain_id) values(?,?,?,?,?)", UUID.randomUUID(), playlist, name, url, sourceDomain);
     }
 
     private int count(String table) {
         return jdbc.queryForObject("select count(*) from " + table, Integer.class);
+    }
+
+    private void createSourceTables() {
+        jdbc.execute("""
+                create table unified_videos(
+                    id uuid primary key, created_at timestamptz default now(), updated_at timestamptz default now(),
+                    version bigint default 0, title varchar(255) not null, alias_title text, season integer,
+                    cover_image_id uuid, description text, year varchar(10), score numeric, published_at date,
+                    douban_id varchar(255), tmdb_id varchar(255), imdb_id varchar(255), rotten_tomatoes_id varchar(255),
+                    locked_fields jsonb default '[]', category_code varchar(50), content_visibility varchar(30) default 'PUBLIC',
+                    metadata_status varchar(30) default 'DIRTY', adult_restricted boolean default false, adult_assessment jsonb default '{}',
+                    actor_names jsonb default '[]', director_names jsonb default '[]', genre_codes jsonb default '[]'
+                );
+                create table data_sources(id uuid primary key, adult_restricted boolean default false);
+                create table raw_videos(id uuid primary key, season integer, data_source_id uuid);
+                create table raw_video_unified_video(raw_video_id uuid not null, unified_video_id uuid not null);
+                create table playlists(id uuid primary key,video_id uuid not null);
+                create table episodes(id uuid primary key,playlist_id uuid not null,name text,url text,source_domain_id uuid);
+                create table magnet_links(unified_video_id uuid,status text);
+                """);
+    }
+
+    private static Path migrationPath() {
+        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/16-02-global-rankings-and-discovery.sql");
+        for (Path parent = Path.of(System.getProperty("user.dir")).toAbsolutePath(); parent != null; parent = parent.getParent()) {
+            Path candidate = parent.resolve(relative);
+            if (Files.isRegularFile(candidate)) return candidate;
+        }
+        throw new IllegalStateException("Real global-rankings migration was not found in checkout");
+    }
+
+    private static Path targetResourcesMigrationPath() {
+        Path relative = Path.of("platform/ircs-migrator/src/main/resources/db/changelog/2026/11/22-01-catalog-target-resources.sql");
+        for (Path parent = Path.of(System.getProperty("user.dir")).toAbsolutePath(); parent != null; parent = parent.getParent()) {
+            Path candidate = parent.resolve(relative);
+            if (Files.isRegularFile(candidate)) return candidate;
+        }
+        throw new IllegalStateException("Target resource migration was not found in checkout");
     }
 
     private static String requiredEnvironment(String key) {

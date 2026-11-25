@@ -9,8 +9,8 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import com.prodigalgal.ircs.search.portal.cache.SearchPortalReadModelCache;
 import com.prodigalgal.ircs.search.document.AuditEventSearchDocument;
-import com.prodigalgal.ircs.search.document.SourceRecordSearchDocument;
-import com.prodigalgal.ircs.search.document.CatalogEntrySearchDocument;
+import com.prodigalgal.ircs.search.document.RawVideoSearchDocument;
+import com.prodigalgal.ircs.search.document.UnifiedVideoSearchDocument;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -36,8 +36,8 @@ class SearchIndexServiceTest {
 
     @Test
     void saveUnifiedEvictsPortalPublicReadModelCache() {
-        CatalogEntrySearchDocument document = new CatalogEntrySearchDocument();
-        when(elasticsearchOperations.indexOps(CatalogEntrySearchDocument.class)).thenReturn(indexOperations);
+        UnifiedVideoSearchDocument document = new UnifiedVideoSearchDocument();
+        when(elasticsearchOperations.indexOps(UnifiedVideoSearchDocument.class)).thenReturn(indexOperations);
         when(indexOperations.exists()).thenReturn(true);
 
         SearchIndexService service = new SearchIndexService(elasticsearchOperations, readModelCache);
@@ -51,26 +51,26 @@ class SearchIndexServiceTest {
     @Test
     void deleteUnifiedEvictsPortalPublicReadModelCache() {
         UUID id = UUID.randomUUID();
-        when(elasticsearchOperations.indexOps(CatalogEntrySearchDocument.class)).thenReturn(indexOperations);
+        when(elasticsearchOperations.indexOps(UnifiedVideoSearchDocument.class)).thenReturn(indexOperations);
         when(indexOperations.exists()).thenReturn(true);
 
         SearchIndexService service = new SearchIndexService(elasticsearchOperations, readModelCache);
-        service.delete(id, SearchEntityType.CATALOG_ENTRY);
+        service.delete(id, SearchEntityType.UNIFIED_VIDEO);
 
-        verify(elasticsearchOperations).delete(id.toString(), CatalogEntrySearchDocument.class);
+        verify(elasticsearchOperations).delete(id.toString(), UnifiedVideoSearchDocument.class);
         verify(readModelCache).evictPortalPublicReadModel();
     }
 
     @Test
     void deleteRawDoesNotEvictPortalPublicReadModelCache() {
         UUID id = UUID.randomUUID();
-        when(elasticsearchOperations.indexOps(SourceRecordSearchDocument.class)).thenReturn(indexOperations);
+        when(elasticsearchOperations.indexOps(RawVideoSearchDocument.class)).thenReturn(indexOperations);
         when(indexOperations.exists()).thenReturn(true);
 
         SearchIndexService service = new SearchIndexService(elasticsearchOperations, readModelCache);
-        service.delete(id, SearchEntityType.SOURCE_RECORD);
+        service.delete(id, SearchEntityType.RAW_VIDEO);
 
-        verify(elasticsearchOperations).delete(id.toString(), SourceRecordSearchDocument.class);
+        verify(elasticsearchOperations).delete(id.toString(), RawVideoSearchDocument.class);
         verify(readModelCache, never()).evictPortalPublicReadModel();
     }
 
@@ -92,12 +92,12 @@ class SearchIndexServiceTest {
 
     @Test
     void hardResetUnifiedDeletesRecreatesIndexAndEvictsPortalCache() {
-        when(elasticsearchOperations.indexOps(CatalogEntrySearchDocument.class)).thenReturn(indexOperations);
+        when(elasticsearchOperations.indexOps(UnifiedVideoSearchDocument.class)).thenReturn(indexOperations);
         when(indexOperations.exists()).thenReturn(true);
         when(indexOperations.createWithMapping()).thenReturn(true);
 
         SearchIndexService service = new SearchIndexService(elasticsearchOperations, readModelCache);
-        boolean recreated = service.hardReset(SearchEntityType.CATALOG_ENTRY);
+        boolean recreated = service.hardReset(SearchEntityType.UNIFIED_VIDEO);
 
         org.junit.jupiter.api.Assertions.assertTrue(recreated);
         verify(indexOperations).delete();
@@ -107,12 +107,12 @@ class SearchIndexServiceTest {
 
     @Test
     void hardResetRawDoesNotEvictPortalCache() {
-        when(elasticsearchOperations.indexOps(SourceRecordSearchDocument.class)).thenReturn(indexOperations);
+        when(elasticsearchOperations.indexOps(RawVideoSearchDocument.class)).thenReturn(indexOperations);
         when(indexOperations.exists()).thenReturn(false);
         when(indexOperations.createWithMapping()).thenReturn(true);
 
         SearchIndexService service = new SearchIndexService(elasticsearchOperations, readModelCache);
-        boolean recreated = service.hardReset(SearchEntityType.SOURCE_RECORD);
+        boolean recreated = service.hardReset(SearchEntityType.RAW_VIDEO);
 
         org.junit.jupiter.api.Assertions.assertTrue(recreated);
         verify(indexOperations, never()).delete();

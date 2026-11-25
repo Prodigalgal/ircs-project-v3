@@ -1,6 +1,5 @@
 package com.prodigalgal.ircs.ops.dashboard.infrastructure;
 
-import com.prodigalgal.ircs.contracts.search.SearchEntityType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -21,8 +20,8 @@ import org.springframework.util.StringUtils;
 @Slf4j
 public class DashboardSearchIndexStatsClient {
 
-    static final String RAW_INDEX = SearchEntityType.SOURCE_RECORD_INDEX;
-    static final String UNIFIED_INDEX = SearchEntityType.CATALOG_ENTRY_INDEX;
+    static final String RAW_INDEX = "ircs_raw_video";
+    static final String UNIFIED_INDEX = "ircs_unified_video";
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;

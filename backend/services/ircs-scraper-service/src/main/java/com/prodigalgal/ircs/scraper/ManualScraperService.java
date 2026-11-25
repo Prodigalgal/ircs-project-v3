@@ -49,7 +49,7 @@ class ManualScraperService {
     private final ListScraperClient listScraperClient;
     private final ScraperMappingService mappingService;
     private final IngestionPublisher ingestionPublisher;
-    private final SourceRecordRefetchRepository sourceRecordRefetchRepository;
+    private final RawVideoRefetchRepository rawVideoRefetchRepository;
     private final Executor scraperExecutor;
     private final WorkerJobAuditWriter auditWriter;
     private final ScrapeUpdateWindowFilter updateWindowFilter;
@@ -64,23 +64,23 @@ class ManualScraperService {
         return sessionId;
     }
 
-    void refetchSourceRecord(UUID sourceRecordId) {
+    void refetchRawVideo(UUID rawVideoId) {
         Instant acceptedAt = Instant.now();
-        SourceRecordRefetchRepository.SourceRecordRefetchTarget target = sourceRecordRefetchRepository.findTarget(sourceRecordId)
+        RawVideoRefetchRepository.RawVideoRefetchTarget target = rawVideoRefetchRepository.findTarget(rawVideoId)
                 .orElseThrow(() -> {
-                    IllegalArgumentException error = new IllegalArgumentException("Raw video not found: " + sourceRecordId);
-                    recordFailed("scraper.refetch-raw-video", sourceRecordId, acceptedAt, error);
+                    IllegalArgumentException error = new IllegalArgumentException("Raw video not found: " + rawVideoId);
+                    recordFailed("scraper.refetch-raw-video", rawVideoId, acceptedAt, error);
                     return error;
                 });
         if (target.dataSourceId() == null) {
-            IllegalStateException error = new IllegalStateException("Raw video has no linked data source: " + sourceRecordId);
-            recordFailed("scraper.refetch-raw-video", sourceRecordId, acceptedAt, error);
+            IllegalStateException error = new IllegalStateException("Raw video has no linked data source: " + rawVideoId);
+            recordFailed("scraper.refetch-raw-video", rawVideoId, acceptedAt, error);
             throw error;
         }
         DataSourceRecord source = dataSourceRepository.findById(target.dataSourceId())
                 .orElseThrow(() -> {
                     IllegalStateException error = new IllegalStateException("Data source not found: " + target.dataSourceId());
-                    recordFailed("scraper.refetch-raw-video", sourceRecordId, acceptedAt, error);
+                    recordFailed("scraper.refetch-raw-video", rawVideoId, acceptedAt, error);
                     return error;
                 });
         ManualScrapeConfigRequest request = new ManualScrapeConfigRequest(
@@ -107,9 +107,9 @@ class ManualScraperService {
                 String detailJson = listScraperClient.fetchDetail(source, request, target.sourceVid());
                 ScrapedVideoDraft draft = mappingService.mapDetail(detailJson, source);
                 ingestionPublisher.publish(mappingService.toItem(draft, true));
-                recordSucceeded("scraper.refetch-raw-video", sourceRecordId, startedAt);
+                recordSucceeded("scraper.refetch-raw-video", rawVideoId, startedAt);
             } catch (RuntimeException ex) {
-                recordFailed("scraper.refetch-raw-video", sourceRecordId, startedAt,
+                recordFailed("scraper.refetch-raw-video", rawVideoId, startedAt,
                         new ManualScraperAuditException("refetch execution failed"));
                 throw ex;
             }

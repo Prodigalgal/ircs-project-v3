@@ -37,7 +37,7 @@ public record PortalMovieDetailResponse(
     public record VideoSource(String id, String name, List<Episode> episodes) {
     }
 
-    public record Episode(String id, String title, String url, String catalogEpisodeId) {
+    public record Episode(String id, String title, String url) {
     }
 
     public record MagnetLink(

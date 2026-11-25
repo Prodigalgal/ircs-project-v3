@@ -84,15 +84,6 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
 
     @Override
     public Optional<String> getJson(URI uri, Optional<DoubanCredential> credential) {
-        return fetch(uri, credential, null);
-    }
-
-    @Override
-    public Optional<String> getPublicPage(URI uri, String accept) {
-        return fetch(uri, Optional.empty(), accept);
-    }
-
-    private Optional<String> fetch(URI uri, Optional<DoubanCredential> credential, String publicAccept) {
         try {
             trafficLimiter.acquireProviderSlot(PROVIDER_CODE);
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(properties.getRequestTimeout())
@@ -101,14 +92,7 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
                             .map(DoubanCredential::userAgent)
                             .filter(StringUtils::hasText)
                             .orElse(properties.getDefaultUserAgent()));
-            if (publicAccept != null) {
-                // The catalog worker backs off on the first upstream rejection or rate limit.
-                policy = policy.withMaxRetries(0);
-            }
             OutboundHttpRequest request = OutboundHttpRequest.get(uri, policy);
-            if (publicAccept != null) {
-                request = request.withHeader("Accept", publicAccept);
-            }
             if (credential.isPresent() && StringUtils.hasText(credential.get().cookie())) {
                 request = request.withHeader("Cookie", credential.get().cookie());
             }
@@ -129,8 +113,8 @@ public class RestClientDoubanHttpClient implements DoubanHttpClient {
                         "UPSTREAM_UNAVAILABLE",
                         "Douban upstream returned " + status);
             }
-            if (status == 401 || status == 403) {
-                throw new MetadataProviderTerminalException("DOUBAN_FORBIDDEN", "Douban returned " + status);
+            if (status == 403) {
+                throw new MetadataProviderTerminalException("DOUBAN_FORBIDDEN", "Douban returned 403");
             }
             throw new MetadataProviderTerminalException("HTTP_" + status, "Douban returned " + status);
         } catch (MetadataProviderRetryableException | MetadataProviderTerminalException ex) {

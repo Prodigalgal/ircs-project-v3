@@ -23,38 +23,38 @@ class InteractionCommandServiceTest {
     @Test
     void toggleFavoriteDeletesExistingFavorite() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
-        when(repository.catalogEntryExists(catalogEntryId)).thenReturn(true);
-        when(repository.deleteFavorite(memberId, catalogEntryId)).thenReturn(1);
+        UUID unifiedVideoId = UUID.randomUUID();
+        when(repository.unifiedVideoExists(unifiedVideoId)).thenReturn(true);
+        when(repository.deleteFavorite(memberId, unifiedVideoId)).thenReturn(1);
 
-        boolean favorited = service.toggleFavorite(memberId, catalogEntryId);
+        boolean favorited = service.toggleFavorite(memberId, unifiedVideoId);
 
         assertFalse(favorited);
-        verify(repository).deleteFavorite(memberId, catalogEntryId);
-        verify(repository, never()).insertFavorite(any(), eq(memberId), eq(catalogEntryId), any());
+        verify(repository).deleteFavorite(memberId, unifiedVideoId);
+        verify(repository, never()).insertFavorite(any(), eq(memberId), eq(unifiedVideoId), any());
     }
 
     @Test
     void toggleFavoriteInsertsWhenFavoriteDoesNotExist() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
-        when(repository.catalogEntryExists(catalogEntryId)).thenReturn(true);
-        when(repository.deleteFavorite(memberId, catalogEntryId)).thenReturn(0);
+        UUID unifiedVideoId = UUID.randomUUID();
+        when(repository.unifiedVideoExists(unifiedVideoId)).thenReturn(true);
+        when(repository.deleteFavorite(memberId, unifiedVideoId)).thenReturn(0);
 
-        boolean favorited = service.toggleFavorite(memberId, catalogEntryId);
+        boolean favorited = service.toggleFavorite(memberId, unifiedVideoId);
 
         assertTrue(favorited);
-        verify(repository).insertFavorite(any(UUID.class), eq(memberId), eq(catalogEntryId), any(Instant.class));
+        verify(repository).insertFavorite(any(UUID.class), eq(memberId), eq(unifiedVideoId), any(Instant.class));
     }
 
     @Test
-    void toggleFavoriteRejectsMissingCatalogEntry() {
-        UUID catalogEntryId = UUID.randomUUID();
-        when(repository.catalogEntryExists(catalogEntryId)).thenReturn(false);
+    void toggleFavoriteRejectsMissingUnifiedVideo() {
+        UUID unifiedVideoId = UUID.randomUUID();
+        when(repository.unifiedVideoExists(unifiedVideoId)).thenReturn(false);
 
         ApiException exception = assertThrows(
                 ApiException.class,
-                () -> service.toggleFavorite(UUID.randomUUID(), catalogEntryId));
+                () -> service.toggleFavorite(UUID.randomUUID(), unifiedVideoId));
 
         assertEquals(HttpStatus.NOT_FOUND, exception.status());
     }
@@ -62,30 +62,28 @@ class InteractionCommandServiceTest {
     @Test
     void favoriteStatusReadsRepository() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
-        when(repository.favoriteExists(memberId, catalogEntryId)).thenReturn(true);
+        UUID unifiedVideoId = UUID.randomUUID();
+        when(repository.favoriteExists(memberId, unifiedVideoId)).thenReturn(true);
 
-        assertTrue(service.favoriteStatus(memberId, catalogEntryId));
+        assertTrue(service.favoriteStatus(memberId, unifiedVideoId));
     }
 
     @Test
     void reportProgressUpsertsNormalizedProgress() {
         UUID memberId = UUID.randomUUID();
-        UUID catalogEntryId = UUID.randomUUID();
+        UUID unifiedVideoId = UUID.randomUUID();
         UUID videoId = UUID.randomUUID();
         UUID episodeId = UUID.randomUUID();
-        when(repository.catalogEntryExists(catalogEntryId)).thenReturn(true);
-        when(repository.upsertWatchHistory(any(UUID.class), eq(memberId), eq(catalogEntryId), eq(videoId),
-                eq(episodeId), eq("第1集"), eq(0), eq(0), any(Instant.class))).thenReturn(true);
+        when(repository.unifiedVideoExists(unifiedVideoId)).thenReturn(true);
         ProgressReportRequest request =
-                new ProgressReportRequest(catalogEntryId, videoId, episodeId, " 第1集 ", -10, -1);
+                new ProgressReportRequest(unifiedVideoId, videoId, episodeId, " 第1集 ", -10, -1);
 
         service.reportProgress(memberId, request);
 
         verify(repository).upsertWatchHistory(
                 any(UUID.class),
                 eq(memberId),
-                eq(catalogEntryId),
+                eq(unifiedVideoId),
                 eq(videoId),
                 eq(episodeId),
                 eq("第1集"),
@@ -96,9 +94,9 @@ class InteractionCommandServiceTest {
 
     @Test
     void reportProgressRejectsBlankEpisodeName() {
-        UUID catalogEntryId = UUID.randomUUID();
-        when(repository.catalogEntryExists(catalogEntryId)).thenReturn(true);
-        ProgressReportRequest request = new ProgressReportRequest(catalogEntryId, null, null, " ", 1, 10);
+        UUID unifiedVideoId = UUID.randomUUID();
+        when(repository.unifiedVideoExists(unifiedVideoId)).thenReturn(true);
+        ProgressReportRequest request = new ProgressReportRequest(unifiedVideoId, null, null, " ", 1, 10);
 
         ApiException exception =
                 assertThrows(ApiException.class, () -> service.reportProgress(UUID.randomUUID(), request));

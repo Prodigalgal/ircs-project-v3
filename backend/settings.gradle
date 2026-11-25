@@ -1,15 +1,3 @@
-pluginManagement {
-    repositories {
-        mavenCentral {
-            content {
-                includeGroup 'org.graalvm.buildtools.native'
-                includeGroup 'org.graalvm.buildtools'
-            }
-        }
-        gradlePluginPortal()
-    }
-}
-
 rootProject.name = 'ircs-project-v3'
 
 include 'shared:ircs-common'

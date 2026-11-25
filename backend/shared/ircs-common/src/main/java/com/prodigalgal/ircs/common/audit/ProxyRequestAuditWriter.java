@@ -25,7 +25,7 @@ public class ProxyRequestAuditWriter {
     private static final int TRACE_ID_LIMIT = 128;
     private static final int ERROR_LIMIT = 2000;
     private static final String INSERT_SQL = """
-            insert into http_request_audit_events (
+            insert into request_audit_logs (
                 id, created_at, updated_at, version, audit_class, request_source, username, method, path, query_string,
                 status_code, success, duration_ms, client_ip, user_agent, trace_id, error_message
             ) values (?, now(), now(), 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

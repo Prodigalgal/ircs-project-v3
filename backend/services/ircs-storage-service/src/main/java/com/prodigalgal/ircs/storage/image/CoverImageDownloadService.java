@@ -126,8 +126,7 @@ public class CoverImageDownloadService {
             URI remoteUri = validateDownloadUri(remoteUrl);
             trafficLimiter.acquire(remoteUri);
             DownloadedImage image = download(remoteUri);
-            NormalizedFile file = repository.reserveLocal(
-                    normalizationService.normalize(image.data(), image.contentType(), coverPathPrefix));
+            NormalizedFile file = normalizationService.normalize(image.data(), image.contentType(), coverPathPrefix);
             if (!localObjectStorage.exists(file.storageKey())) {
                 localObjectStorage.store(file.data(), file.storageKey(), file.mimeType());
             }

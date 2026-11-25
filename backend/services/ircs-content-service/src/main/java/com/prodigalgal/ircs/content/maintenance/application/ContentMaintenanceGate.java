@@ -26,8 +26,8 @@ public class ContentMaintenanceGate {
 
     private static final String OWNER_SERVICE = "content-service";
     private static final String RESOURCE_VIDEO = "video";
-    private static final String RESOURCE_SOURCE_RECORD = "raw-video";
-    private static final String RESOURCE_CATALOG_ENTRY = "unified-video";
+    private static final String RESOURCE_RAW_VIDEO = "raw-video";
+    private static final String RESOURCE_UNIFIED_VIDEO = "unified-video";
     private static final Duration DEFAULT_BLOCKED_CACHE_TTL = Duration.ofSeconds(5);
     private static final String REDIS_PREFIX = "ircs:maintenance:gate:block:" + OWNER_SERVICE + ":";
 
@@ -50,14 +50,14 @@ public class ContentMaintenanceGate {
         this.blockedCacheTtl = DEFAULT_BLOCKED_CACHE_TTL;
     }
 
-    public void assertSourceRecordWrite(UUID id) {
+    public void assertRawVideoWrite(UUID id) {
         assertWrite(RESOURCE_VIDEO, scope(id));
-        assertWrite(RESOURCE_SOURCE_RECORD, scope(id));
+        assertWrite(RESOURCE_RAW_VIDEO, scope(id));
     }
 
-    public void assertCatalogEntryWrite(UUID id) {
+    public void assertUnifiedVideoWrite(UUID id) {
         assertWrite(RESOURCE_VIDEO, scope(id));
-        assertWrite(RESOURCE_CATALOG_ENTRY, scope(id));
+        assertWrite(RESOURCE_UNIFIED_VIDEO, scope(id));
     }
 
     private void assertWrite(String resourceType, String resourceScope) {

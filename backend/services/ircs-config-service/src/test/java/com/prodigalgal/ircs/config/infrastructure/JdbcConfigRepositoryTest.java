@@ -64,9 +64,9 @@ class JdbcConfigRepositoryTest {
         String conflictClause = sql.substring(sql.indexOf("on conflict"));
         assertTrue(conflictClause.contains("do update"));
         assertTrue(conflictClause.contains("config_value = case"));
-        assertTrue(conflictClause.contains("btrim(application_settings.config_value)"));
-        assertTrue(conflictClause.contains("lower(coalesce(btrim(application_settings.config_value), '')) = 'false'"));
-        assertTrue(conflictClause.contains("btrim(application_settings.config_value) = ?"));
+        assertTrue(conflictClause.contains("btrim(system_configs.config_value)"));
+        assertTrue(conflictClause.contains("lower(coalesce(btrim(system_configs.config_value), '')) = 'false'"));
+        assertTrue(conflictClause.contains("btrim(system_configs.config_value) = ?"));
         assertFalse(conflictClause.contains("config_value = excluded.config_value"));
     }
 }

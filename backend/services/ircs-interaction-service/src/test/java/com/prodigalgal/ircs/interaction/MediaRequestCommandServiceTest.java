@@ -34,7 +34,7 @@ class MediaRequestCommandServiceTest {
         when(systemConfigRepository.findValue("member.media-request.daily-limit")).thenReturn(Optional.of("5"));
         when(systemConfigRepository.findValue("member.media-request.point-cost")).thenReturn(Optional.of("3"));
         when(repository.countMemberRequestsCreatedBetween(eq(memberId), any(), any())).thenReturn(0L);
-        when(repository.submit(any(), any(), eq(memberId), any(), any(), any(), any(), any(), any(), eq(3)))
+        when(repository.upsert(any(), eq(memberId), any(), any(), any(), any(), any(), eq(3)))
                 .thenReturn(expected);
 
         MediaRequestResponse actual = service.submit(memberId, new MediaRequestSubmitRequest(
@@ -43,19 +43,17 @@ class MediaRequestCommandServiceTest {
                 "<script>alert(1)</script>基努&nbsp;&amp;&nbsp;科幻"));
 
         assertSame(expected, actual);
-        verify(pointLedger).spend(memberId, 3, "MEDIA_REQUEST", expected.id());
+        verify(pointLedger).spend(memberId, 3, "MEDIA_REQUEST");
         ArgumentCaptor<String> titleCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> normalizedCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> extraCaptor = ArgumentCaptor.forClass(String.class);
-        verify(repository).submit(
-                any(),
+        verify(repository).upsert(
                 any(),
                 eq(memberId),
                 titleCaptor.capture(),
                 normalizedCaptor.capture(),
                 eq(1999),
                 extraCaptor.capture(),
-                any(),
                 any(),
                 eq(3));
         assertEquals("黑客帝国", titleCaptor.getValue());
@@ -75,8 +73,8 @@ class MediaRequestCommandServiceTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.status());
         assertEquals("今日求片次数已达上限 (1次)", exception.getMessage());
-        verify(pointLedger, never()).spend(any(), anyInt(), any(), any());
-        verify(repository, never()).submit(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt());
+        verify(pointLedger, never()).spend(any(), anyInt(), any());
+        verify(repository, never()).upsert(any(), any(), any(), any(), any(), any(), any(), anyInt());
     }
 
     @Test
@@ -86,12 +84,12 @@ class MediaRequestCommandServiceTest {
         when(systemConfigRepository.findValue("member.media-request.daily-limit")).thenReturn(Optional.empty());
         when(systemConfigRepository.findValue("member.media-request.point-cost")).thenReturn(Optional.of("3"));
         when(repository.countMemberRequestsCreatedBetween(eq(memberId), any(), any())).thenReturn(0L);
-        when(repository.submit(any(), any(), eq(memberId), any(), any(), any(), any(), any(), any(), eq(7)))
+        when(repository.upsert(any(), eq(memberId), any(), any(), any(), any(), any(), eq(7)))
                 .thenReturn(response(memberId, "异形", null, 7));
 
         service.submit(memberId, new MediaRequestSubmitRequest("异形", null, null));
 
-        verify(pointLedger).spend(eq(memberId), eq(7), eq("MEDIA_REQUEST"), any(UUID.class));
+        verify(pointLedger).spend(memberId, 7, "MEDIA_REQUEST");
     }
 
     @Test
@@ -102,13 +100,12 @@ class MediaRequestCommandServiceTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.status());
         assertEquals("年份范围无效", exception.getMessage());
-        verify(repository, never()).submit(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt());
+        verify(repository, never()).upsert(any(), any(), any(), any(), any(), any(), any(), anyInt());
     }
 
     private MediaRequestResponse response(UUID memberId, String title, Integer releaseYear, int spentPoints) {
         Instant now = Instant.parse("2026-06-30T00:00:00Z");
         return new MediaRequestResponse(
-                UUID.randomUUID(),
                 UUID.randomUUID(),
                 memberId,
                 title,

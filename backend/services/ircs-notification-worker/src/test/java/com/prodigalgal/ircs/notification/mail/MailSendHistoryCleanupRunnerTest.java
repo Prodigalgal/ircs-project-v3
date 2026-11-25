@@ -115,7 +115,7 @@ class MailSendHistoryCleanupRunnerTest {
     private static long auditCount(String url) throws Exception {
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement()
-                     .executeQuery("select count(*) from background_job_audit_events")) {
+                     .executeQuery("select count(*) from worker_job_audit_events")) {
             result.next();
             return result.getLong(1);
         }
@@ -129,7 +129,7 @@ class MailSendHistoryCleanupRunnerTest {
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement().executeQuery("""
                      select job_source, job_type, job_name, correlation_id, status, error_message
-                       from background_job_audit_events
+                       from worker_job_audit_events
             """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("job_source"))
@@ -148,7 +148,7 @@ class MailSendHistoryCleanupRunnerTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table background_job_audit_events (
+                    create table worker_job_audit_events (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

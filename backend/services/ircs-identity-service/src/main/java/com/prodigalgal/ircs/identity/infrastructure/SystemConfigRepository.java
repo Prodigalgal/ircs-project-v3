@@ -33,12 +33,12 @@ public class SystemConfigRepository extends JdbcSystemConfigRepositorySupport {
     public long upsertValue(String key, String value) {
         Long revision = jdbcTemplate().queryForObject(
                 """
-                insert into application_settings (id, created_at, updated_at, version, config_key, config_value)
+                insert into system_configs (id, created_at, updated_at, version, config_key, config_value)
                 values (gen_random_uuid(), now(), now(), 1, ?, ?)
                 on conflict (config_key) do update
                    set config_value = excluded.config_value,
                        updated_at = now(),
-                       version = coalesce(application_settings.version, 0) + 1
+                       version = coalesce(system_configs.version, 0) + 1
                 returning coalesce(version, 0)
                 """,
                 Long.class,

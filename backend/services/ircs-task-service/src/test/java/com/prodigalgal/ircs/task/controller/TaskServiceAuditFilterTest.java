@@ -91,7 +91,7 @@ class TaskServiceAuditFilterTest {
         var rows = jdbcTemplate.queryForList("""
                 select request_source, username, method, path, query_string, status_code, success,
                        client_ip, user_agent, trace_id, error_message
-                  from http_request_audit_events
+                  from request_audit_logs
                 """);
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst())
@@ -127,7 +127,7 @@ class TaskServiceAuditFilterTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table http_request_audit_events (
+                    create table request_audit_logs (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

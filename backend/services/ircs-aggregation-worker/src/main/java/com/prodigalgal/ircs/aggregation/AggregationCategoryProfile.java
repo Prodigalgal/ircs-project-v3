@@ -43,7 +43,7 @@ enum AggregationCategoryProfile {
         };
     }
 
-    static String category(SourceRecordAggregationRecord raw) {
+    static String category(RawVideoAggregationRecord raw) {
         AggregationCategoryProfile code = from(raw.categoryCode());
         return StringUtils.hasText(raw.categoryCode()) && (code != OTHER && code != UNKNOWN
                 || "other".equalsIgnoreCase(raw.categoryCode())) ? raw.categoryCode() : raw.categoryName();

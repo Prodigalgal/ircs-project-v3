@@ -29,7 +29,7 @@ class JdbcMailSendHistoryCleanupService {
     private static final String SELECT_WITHOUT_STATUS_SQL = """
             select id, created_at, correlation_id, recipient, subject, template_code,
                    delivery_mode, status, credential_id, failure_code, failure_message
-              from mail_delivery_attempts
+              from notification_mail_send_history
              where created_at < ?
              order by created_at asc, id asc
              limit ?
@@ -38,7 +38,7 @@ class JdbcMailSendHistoryCleanupService {
             select count(*)
               from (
                     select id
-                      from mail_delivery_attempts
+                      from notification_mail_send_history
                      where created_at < ?
                      order by created_at asc, id asc
                      limit ?
@@ -48,7 +48,7 @@ class JdbcMailSendHistoryCleanupService {
             select count(*)
               from (
                     select id
-                      from mail_delivery_attempts
+                      from notification_mail_send_history
                      where created_at < ?
                        and lower(status) in (%s)
                      order by created_at asc, id asc
@@ -58,21 +58,21 @@ class JdbcMailSendHistoryCleanupService {
     private static final String SELECT_WITH_STATUS_SQL_TEMPLATE = """
             select id, created_at, correlation_id, recipient, subject, template_code,
                    delivery_mode, status, credential_id, failure_code, failure_message
-              from mail_delivery_attempts
+              from notification_mail_send_history
              where created_at < ?
                and lower(status) in (%s)
              order by created_at asc, id asc
              limit ?
             """;
     private static final String INSERT_ARCHIVE_SQL = """
-            insert into archived_audit_events (
+            insert into audit_archive_entries (
                 id, created_at, updated_at, version, audit_class, archive_type, source_table,
                 source_id, source_created_at, retention_days, reason, payload
             ) values (?, now(), now(), 0, 'SYSTEM', 'RETENTION_PURGE',
-                      'mail_delivery_attempts', ?, ?, ?, ?, ?)
+                      'notification_mail_send_history', ?, ?, ?, ?, ?)
             """;
     private static final String DELETE_BY_ID_SQL =
-            "delete from mail_delivery_attempts where id = ?";
+            "delete from notification_mail_send_history where id = ?";
 
     private final String datasourceUrl;
     private final String username;

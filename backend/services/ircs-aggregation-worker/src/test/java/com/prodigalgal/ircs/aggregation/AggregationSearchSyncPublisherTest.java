@@ -25,14 +25,14 @@ class AggregationSearchSyncPublisherTest {
             publisher.publishUnifiedIndex(pending);
             publisher.publishRawIndex(adult);
             scope.publishRestrictedIndexes();
-            verify(workPublisher).enqueue(adult, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
+            verify(workPublisher).enqueue(adult, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
             org.mockito.Mockito.verifyNoMoreInteractions(workPublisher);
             scope.publishIndexes();
         }
         // Early flush was removed, so this remains exactly one request for the already restricted ID.
-        verify(workPublisher).enqueue(adult, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
-        verify(workPublisher).enqueue(pending, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
-        verify(workPublisher).enqueue(adult, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(adult, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(pending, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(adult, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
     }
 
     @Test
@@ -45,8 +45,8 @@ class AggregationSearchSyncPublisherTest {
             org.mockito.Mockito.verifyNoInteractions(workPublisher);
             scope.publishIndexes();
         }
-        verify(workPublisher).enqueue(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
-        verify(workPublisher).enqueue(id, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(id, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(id, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
     }
 
     @Test
@@ -57,27 +57,27 @@ class AggregationSearchSyncPublisherTest {
         }
         org.mockito.Mockito.verifyNoInteractions(workPublisher);
         publisher.publishUnifiedIndex(id);
-        verify(workPublisher).enqueue(id, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
+        verify(workPublisher).enqueue(id, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
     }
 
     @Test
     void enqueuesRawIndexInSearchWorkQueue() {
-        UUID sourceRecordId = UUID.randomUUID();
+        UUID rawVideoId = UUID.randomUUID();
 
-        publisher.publishRawIndex(sourceRecordId);
+        publisher.publishRawIndex(rawVideoId);
 
-        verify(workPublisher).enqueue(sourceRecordId, SearchEntityType.SOURCE_RECORD, SyncOperation.INDEX);
-        assertThat(sourceRecordId).isNotNull();
+        verify(workPublisher).enqueue(rawVideoId, SearchEntityType.RAW_VIDEO, SyncOperation.INDEX);
+        assertThat(rawVideoId).isNotNull();
     }
 
     @Test
     void enqueuesUnifiedIndexInSearchWorkQueue() {
-        UUID catalogEntryId = UUID.randomUUID();
+        UUID unifiedVideoId = UUID.randomUUID();
 
-        publisher.publishUnifiedIndex(catalogEntryId);
+        publisher.publishUnifiedIndex(unifiedVideoId);
 
-        verify(workPublisher).enqueue(catalogEntryId, SearchEntityType.CATALOG_ENTRY, SyncOperation.INDEX);
-        assertThat(catalogEntryId).isNotNull();
+        verify(workPublisher).enqueue(unifiedVideoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
+        assertThat(unifiedVideoId).isNotNull();
     }
 
     @Test
@@ -86,7 +86,7 @@ class AggregationSearchSyncPublisherTest {
 
         publisher.publishUnifiedDelete(victimId);
 
-        verify(workPublisher).enqueue(victimId, SearchEntityType.CATALOG_ENTRY, SyncOperation.DELETE);
+        verify(workPublisher).enqueue(victimId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.DELETE);
         assertThat(victimId).isNotNull();
     }
 }

@@ -35,7 +35,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
         assertThat(result.deletedRows()).isEqualTo(1);
         assertThat(countByCorrelation(url, "old-sent")).isZero();
         assertThat(countByCorrelation(url, "fresh-sent")).isEqualTo(1);
-        assertThat(archiveCount(url, "mail_delivery_attempts")).isEqualTo(1);
+        assertThat(archiveCount(url, "notification_mail_send_history")).isEqualTo(1);
     }
 
     @Test
@@ -52,7 +52,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
         assertThat(result.deletedRows()).isEqualTo(1);
         assertThat(countByCorrelation(url, "old-skipped")).isZero();
         assertThat(countByCorrelation(url, "old-sent")).isEqualTo(1);
-        assertThat(archiveCount(url, "mail_delivery_attempts")).isEqualTo(1);
+        assertThat(archiveCount(url, "notification_mail_send_history")).isEqualTo(1);
     }
 
     @Test
@@ -70,7 +70,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
         assertThat(result.deletedRows()).isEqualTo(2);
         assertThat(result.batches()).isEqualTo(1);
         assertThat(totalCount(url)).isEqualTo(1);
-        assertThat(archiveCount(url, "mail_delivery_attempts")).isEqualTo(2);
+        assertThat(archiveCount(url, "notification_mail_send_history")).isEqualTo(2);
     }
 
     @Test
@@ -89,7 +89,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
         assertThat(result.deletedRows()).isZero();
         assertThat(result.candidateRows()).isEqualTo(2);
         assertThat(totalCount(url)).isEqualTo(3);
-        assertThat(archiveCount(url, "mail_delivery_attempts")).isZero();
+        assertThat(archiveCount(url, "notification_mail_send_history")).isZero();
     }
 
     @Test
@@ -141,7 +141,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
             throws Exception {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.prepareStatement("""
-                     insert into mail_delivery_attempts (
+                     insert into notification_mail_send_history (
                          id, created_at, updated_at, version, correlation_id, recipient, subject,
                          template_code, delivery_mode, status
                      ) values (?, ?, ?, 0, ?, 'codex@example.invalid', 'subject', 'mail/test', 'sink', ?)
@@ -158,7 +158,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
     private static long countByCorrelation(String url, String correlationId) throws Exception {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.prepareStatement("""
-                     select count(*) from mail_delivery_attempts where correlation_id = ?
+                     select count(*) from notification_mail_send_history where correlation_id = ?
                      """)) {
             statement.setString(1, correlationId);
             try (var result = statement.executeQuery()) {
@@ -171,7 +171,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
     private static long totalCount(String url) throws Exception {
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement().executeQuery(
-                     "select count(*) from mail_delivery_attempts")) {
+                     "select count(*) from notification_mail_send_history")) {
             result.next();
             return result.getLong(1);
         }
@@ -180,7 +180,7 @@ class JdbcMailSendHistoryCleanupServiceTest {
     private static long archiveCount(String url, String sourceTable) throws Exception {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.prepareStatement("""
-                     select count(*) from archived_audit_events where source_table = ?
+                     select count(*) from audit_archive_entries where source_table = ?
                      """)) {
             statement.setString(1, sourceTable);
             try (var result = statement.executeQuery()) {

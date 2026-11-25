@@ -7,9 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.contracts.ingestion.IngestionEpisodeDTO;
 import com.prodigalgal.ircs.contracts.ingestion.IngestionItem;
-import com.prodigalgal.ircs.contracts.ingestion.IngestionPlaylistDTO;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DataSourceRecord;
 import com.prodigalgal.ircs.scraper.ScraperDtos.DirectScrapeItem;
 import com.prodigalgal.ircs.scraper.ScraperDtos.ScrapedVideoDraft;
@@ -235,27 +233,5 @@ class ScraperMappingServiceTest {
         assertEquals("导演丙", raw.path("directorNames").get(0).asText());
         assertEquals("keep-me", raw.path("customProviderField").asText());
         assertTrue(raw.path("sourcePayload").isMissingNode());
-    }
-
-    @Test
-    void directItemPlaylistChangesChangeDataHashEvenWhenRawMetadataIsUnchanged() {
-        UUID dataSourceId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        DataSourceRecord source = new DataSourceRecord(
-                dataSourceId, "Direct", "https://direct.example.invalid", null, null, null, null, "{}");
-        String rawMetadata = "{\"unchanged\":true}";
-        DirectScrapeItem first = new DirectScrapeItem(
-                null, "direct-playlist-1", "Title", null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, rawMetadata,
-                List.of(new IngestionPlaylistDTO("Main", List.of(new IngestionEpisodeDTO("EP1", "https://cdn.example.invalid/1", null)))));
-        DirectScrapeItem changedPlaylist = new DirectScrapeItem(
-                null, "direct-playlist-1", "Title", null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, rawMetadata,
-                List.of(new IngestionPlaylistDTO("Main", List.of(new IngestionEpisodeDTO("EP1", "https://cdn.example.invalid/2", null)))));
-
-        IngestionItem firstItem = service.directItem(first, source, false);
-        IngestionItem changedItem = service.directItem(changedPlaylist, source, false);
-
-        assertEquals(firstItem.video().rawMetadata(), changedItem.video().rawMetadata());
-        assertTrue(!firstItem.video().dataHash().equals(changedItem.video().dataHash()));
     }
 }

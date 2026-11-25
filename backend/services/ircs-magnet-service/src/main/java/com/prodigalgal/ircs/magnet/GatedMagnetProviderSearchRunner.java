@@ -59,7 +59,7 @@ class GatedMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     public MagnetProviderSearchResult search(
             MagnetProviderSummary provider,
             MagnetExternalIdQuery query,
-            UUID catalogEntryId) {
+            UUID unifiedVideoId) {
         if (provider == null) {
             throw unsupportedProvider();
         }
@@ -70,21 +70,21 @@ class GatedMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
             if (!fixtureEnabled()) {
                 throw new MagnetProviderRunnerException(FIXTURE_DISABLED, null, null);
             }
-            return fixtureRunner.search(provider, query, catalogEntryId);
+            return fixtureRunner.search(provider, query, unifiedVideoId);
         }
         if (isYtsBz(provider)) {
             requireRealProviderEnabled();
             if (!isAllowlisted(provider)) {
                 throw unsupportedProvider();
             }
-            return ytsBzRunner.search(provider, query, catalogEntryId);
+            return ytsBzRunner.search(provider, query, unifiedVideoId);
         }
         if (isGenericProvider(provider)) {
             requireRealProviderEnabled();
             if (!isAllowlisted(provider)) {
                 throw unsupportedProvider();
             }
-            return genericRunner.search(provider, query, catalogEntryId);
+            return genericRunner.search(provider, query, unifiedVideoId);
         }
         throw unsupportedProvider();
     }

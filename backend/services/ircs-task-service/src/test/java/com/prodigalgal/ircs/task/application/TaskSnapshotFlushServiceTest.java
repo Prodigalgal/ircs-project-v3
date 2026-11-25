@@ -54,7 +54,7 @@ class TaskSnapshotFlushServiceTest {
         Instant updatedAt = Instant.parse("2026-06-13T01:00:09Z");
         wireRedisOps();
         when(snapshotService.dirtyMastersBefore(updatedAt, 10)).thenReturn(Set.of(masterTaskId.toString()));
-        when(taskRepository.findCurrentRunDetail(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId, "QUEUED", 1, 2)));
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId, "QUEUED", 1, 2)));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(snapshot(masterTaskId, dataSourceId, queuedAt, 1, 2)));
         when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of(
                 "status", "RUNNING",
@@ -94,7 +94,7 @@ class TaskSnapshotFlushServiceTest {
         UUID pageOne = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-13T01:03:00Z");
         wireRedisOps();
-        when(taskRepository.findCurrentRunDetail(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId, "PAUSED", 1, 2)));
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId, "PAUSED", 1, 2)));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(snapshot(masterTaskId, dataSourceId, now, 1, 2)));
         when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of(
                 "status", "RUNNING",
@@ -127,7 +127,7 @@ class TaskSnapshotFlushServiceTest {
         UUID pageOne = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-13T01:04:00Z");
         wireRedisOps();
-        when(taskRepository.findCurrentRunDetail(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId, "RUNNING", 1, 1)));
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId, "RUNNING", 1, 1)));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(snapshot(masterTaskId, dataSourceId, now, 1, 1)));
         when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of(
                 "status", "RUNNING",
@@ -164,7 +164,7 @@ class TaskSnapshotFlushServiceTest {
         UUID page = UUID.randomUUID();
         Instant now = Instant.parse("2026-06-19T09:22:30Z");
         wireRedisOps();
-        when(taskRepository.findCurrentRunDetail(masterTaskId))
+        when(taskRepository.findById(masterTaskId))
                 .thenReturn(Optional.of(task(masterTaskId, dataSourceId, "RUNNING", 1, 0, 54)));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(new TaskMasterSnapshot(
                 masterTaskId,
@@ -221,7 +221,7 @@ class TaskSnapshotFlushServiceTest {
     void cleansDirtyMarkerWhenDbTaskNoLongerExists() {
         UUID masterTaskId = UUID.randomUUID();
         wireRedisOps();
-        when(taskRepository.findCurrentRunDetail(masterTaskId)).thenReturn(Optional.empty());
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.empty());
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.empty());
         when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of());
         when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of());
@@ -237,7 +237,7 @@ class TaskSnapshotFlushServiceTest {
     void incompletePageBatchLeavesTheDirtyMasterForRetry() {
         UUID masterTaskId = UUID.randomUUID();
         wireRedisOps();
-        when(taskRepository.findCurrentRunDetail(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, UUID.randomUUID(), "RUNNING", 1, 2)));
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, UUID.randomUUID(), "RUNNING", 1, 2)));
         when(sets.members(TaskHotKeys.masterDiscoveredPages(masterTaskId))).thenReturn(Set.of(UUID.randomUUID().toString()));
         wirePageResults();
 
@@ -262,7 +262,7 @@ class TaskSnapshotFlushServiceTest {
         for (int index = 0; index < 128; index++) {
             members.add(UUID.randomUUID().toString());
         }
-        when(taskRepository.findCurrentRunDetail(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, UUID.randomUUID(), "QUEUED", 1, 2)));
+        when(taskRepository.findById(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, UUID.randomUUID(), "QUEUED", 1, 2)));
         LettuceConnectionFactory factory = new LettuceConnectionFactory(
                 "127.0.0.1", Integer.parseInt(System.getenv("IRCS_TEST_KEY_VALUE_PORT")));
         factory.afterPropertiesSet();

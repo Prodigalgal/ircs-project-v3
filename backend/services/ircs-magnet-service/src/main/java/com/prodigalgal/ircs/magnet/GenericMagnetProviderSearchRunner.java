@@ -66,7 +66,7 @@ class GenericMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     public MagnetProviderSearchResult search(
             MagnetProviderSummary provider,
             MagnetExternalIdQuery query,
-            UUID catalogEntryId) {
+            UUID unifiedVideoId) {
         if (!isSupportedQuery(query)) {
             throw new MagnetProviderRunnerException(UNSUPPORTED_QUERY, null, null);
         }

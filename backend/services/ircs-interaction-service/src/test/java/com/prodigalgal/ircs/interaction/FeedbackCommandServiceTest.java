@@ -45,7 +45,7 @@ class FeedbackCommandServiceTest {
         ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository).insertMessage(any(), eq(memberId), contentCaptor.capture(), any());
         assertEquals("可以 & 继续看", contentCaptor.getValue());
-        verify(pointLedger).spend(eq(memberId), eq(1), eq("FEEDBACK_POST"), any(UUID.class));
+        verify(pointLedger).spend(memberId, 1, "MESSAGE");
     }
 
     @Test
@@ -168,7 +168,7 @@ class FeedbackCommandServiceTest {
 
         service.submit(memberId, new FeedbackSubmitRequest("扣积分"));
 
-        verify(pointLedger).spend(eq(memberId), eq(2), eq("FEEDBACK_POST"), any(UUID.class));
+        verify(pointLedger).spend(memberId, 2, "MESSAGE");
     }
 
     @Test

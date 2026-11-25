@@ -15,7 +15,7 @@ import com.prodigalgal.ircs.common.aggregation.AggregationWorkPublisher;
 import com.prodigalgal.ircs.metadata.config.MetadataConfigValues;
 import com.prodigalgal.ircs.metadata.dispatch.messaging.MetadataEnrichPublisher;
 import com.prodigalgal.ircs.metadata.result.application.MetadataResultCollectorService;
-import com.prodigalgal.ircs.metadata.result.infrastructure.SourceRecordMetadataRepository;
+import com.prodigalgal.ircs.metadata.result.infrastructure.RawVideoMetadataRepository;
 import com.prodigalgal.ircs.metadata.result.messaging.RawSearchSyncPublisher;
 import tools.jackson.databind.json.JsonMapper;
 import org.springframework.aop.framework.ProxyFactory;
@@ -59,7 +59,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         scoped.setConnectionProperties(properties);
         jdbc = new JdbcTemplate(scoped);
         jdbc.execute("""
-                create table source_records(id uuid primary key, douban_id text, tmdb_id text, imdb_id text,
+                create table raw_videos(id uuid primary key, douban_id text, tmdb_id text, imdb_id text,
                     rotten_tomatoes_id text, description text default 'preserved description', score numeric,
                     title text, total_episodes text, year text, alias_title text,
                     raw_metadata jsonb default '{}', locked_fields jsonb default '[]',
@@ -69,24 +69,24 @@ class MetadataPipelineRunRepositoryIntegrationTest {
                     language_codes jsonb default '[]',genre_codes jsonb default '[]')
                 """);
         jdbc.execute("""
-                create table source_record_processing_runs (
-                    source_record_id uuid not null, pipeline_version text not null, step text not null,
+                create table raw_video_pipeline_runs (
+                    raw_video_id uuid not null, pipeline_version text not null, step text not null,
                     status text not null, expected_count integer not null,
                     completed_count integer not null, success_count integer not null,
                     failure_count integer not null, retryable_failure_count integer not null,
                     permanent_failure_count integer not null,
                     created_at timestamptz not null, updated_at timestamptz not null,
-                    primary key (source_record_id, pipeline_version, step)
+                    primary key (raw_video_id, pipeline_version, step)
                 )
                 """);
         jdbc.execute("""
-                create table source_metadata_provider_runs (
-                    source_record_id uuid not null, pipeline_version text not null, provider_type text not null,
+                create table raw_video_enrichment_provider_runs (
+                    raw_video_id uuid not null, pipeline_version text not null, provider_type text not null,
                     status text not null, attempt_count integer not null,
                     dispatched_at timestamptz, created_at timestamptz not null, updated_at timestamptz not null,
                     completed_at timestamptz, retryable boolean not null default false,
                     error_code text, error_message text,
-                    primary key (source_record_id, pipeline_version, provider_type)
+                    primary key (raw_video_id, pipeline_version, provider_type)
                 )
                 """);
         repository = new MetadataPipelineRunRepository(new NamedParameterJdbcTemplate(scoped));
@@ -95,7 +95,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         var mapper = JsonMapper.builder().build();
         search = mock(RawSearchSyncPublisher.class);
         aggregation = mock(AggregationWorkPublisher.class);
-        var target = new MetadataResultCollectorService(new SourceRecordMetadataRepository(jdbc, mapper), search,
+        var target = new MetadataResultCollectorService(new RawVideoMetadataRepository(jdbc, mapper), search,
                 repository, mock(MetadataEnrichPublisher.class), aggregation, mock(MetadataConfigValues.class), mapper);
         var proxy = new ProxyFactory(target);
         proxy.setProxyTargetClass(true);
@@ -120,11 +120,11 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("SUCCESS");
         assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("SUCCESS");
 
-        assertThat(jdbc.queryForObject("select enrichment_status from source_records where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
                 .isEqualTo("SUCCESS");
-        assertThat(jdbc.queryForObject("select description from source_records where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select description from raw_videos where id=?", String.class, id))
                 .isEqualTo("preserved description");
-        assertThat(jdbc.queryForObject("select tmdb_id from source_records where id=?", String.class, id)).isEqualTo("12345");
+        assertThat(jdbc.queryForObject("select tmdb_id from raw_videos where id=?", String.class, id)).isEqualTo("12345");
         assertThat(pipeline(id).get("completed_count")).isEqualTo(counts.get("completed_count"));
         assertThat(pipeline(id).get("success_count")).isEqualTo(counts.get("success_count"));
         verify(search, times(1)).publishIndex(id);
@@ -138,7 +138,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
 
         assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("PERMANENT_FAILURE");
 
-        assertThat(jdbc.queryForObject("select enrichment_retry_count from source_records where id=?", Integer.class, id))
+        assertThat(jdbc.queryForObject("select enrichment_retry_count from raw_videos where id=?", Integer.class, id))
                 .isEqualTo(2);
         assertThat(pipeline(id).get("completed_count")).isEqualTo(1);
         verify(aggregation).enqueue(id, "hash-v1", "metadata-completed-run-reconciled");
@@ -151,7 +151,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
 
         assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("STALE");
 
-        assertThat(jdbc.queryForObject("select enrichment_status from source_records where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
                 .isEqualTo("PENDING");
         verifyNoInteractions(search, aggregation);
     }
@@ -165,7 +165,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
 
         assertThat(collector.reconcileCompletedRun(id, "hash-v1").enrichmentStatus()).isEqualTo("PENDING");
 
-        assertThat(jdbc.queryForObject("select enrichment_status from source_records where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
                 .isEqualTo("PENDING");
         verifyNoInteractions(search, aggregation);
     }
@@ -178,7 +178,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
 
         assertThrows(IllegalStateException.class, () -> collector.reconcileCompletedRun(id, "hash-v1"));
 
-        assertThat(jdbc.queryForObject("select enrichment_status from source_records where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select enrichment_status from raw_videos where id=?", String.class, id))
                 .isEqualTo("PENDING");
         assertThat(pipeline(id).get("status")).isEqualTo("PENDING");
         verifyNoInteractions(aggregation);
@@ -187,7 +187,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
     @Test
     void invalidSuccessIsDurablyPermanentFailureAndNeverAppliesProviderFields() {
         UUID id = raw("hash-v1", "0");
-        jdbc.update("update source_records set raw_metadata='{\"sourcePayload\":{\"tmdbId\":0}}' where id=?", id);
+        jdbc.update("update raw_videos set raw_metadata='{\"sourcePayload\":{\"tmdbId\":0}}' where id=?", id);
         prepare(id, ProviderType.TMDB);
         EnrichedMetadataDTO metadata = new EnrichedMetadataDTO();
         metadata.setTmdbId("0");
@@ -199,12 +199,12 @@ class MetadataPipelineRunRepositoryIntegrationTest {
                 .enrichmentStatus()).isEqualTo("PERMANENT_FAILURE");
 
         assertThat(providerStatus(id)).isEqualTo("PERMANENT_FAILURE");
-        assertThat(jdbc.queryForObject("select error_code from source_metadata_provider_runs where source_record_id=?", String.class, id)).isEqualTo("INVALID_PROVIDER_ID");
-        assertThat(jdbc.queryForObject("select retryable from source_metadata_provider_runs where source_record_id=?", Boolean.class, id)).isFalse();
-        assertThat(jdbc.queryForObject("select tmdb_id from source_records where id=?", String.class, id)).isNull();
-        assertThat(jdbc.queryForObject("select description from source_records where id=?", String.class, id)).isEqualTo("preserved description");
-        assertThat(jdbc.queryForObject("select actor_names::text from source_records where id=?", String.class, id)).isEqualTo("[]");
-        assertThat(jdbc.queryForObject("select raw_metadata->'sourcePayload'->'tmdbId' from source_records where id=?", String.class, id)).isEqualTo("0");
+        assertThat(jdbc.queryForObject("select error_code from raw_video_enrichment_provider_runs where raw_video_id=?", String.class, id)).isEqualTo("INVALID_PROVIDER_ID");
+        assertThat(jdbc.queryForObject("select retryable from raw_video_enrichment_provider_runs where raw_video_id=?", Boolean.class, id)).isFalse();
+        assertThat(jdbc.queryForObject("select tmdb_id from raw_videos where id=?", String.class, id)).isNull();
+        assertThat(jdbc.queryForObject("select description from raw_videos where id=?", String.class, id)).isEqualTo("preserved description");
+        assertThat(jdbc.queryForObject("select actor_names::text from raw_videos where id=?", String.class, id)).isEqualTo("[]");
+        assertThat(jdbc.queryForObject("select raw_metadata->'sourcePayload'->'tmdbId' from raw_videos where id=?", String.class, id)).isEqualTo("0");
     }
 
     @Test
@@ -222,9 +222,9 @@ class MetadataPipelineRunRepositoryIntegrationTest {
         second.addActor("duplicate must not apply");
         assertThat(collector.process(providerMessage(id, ProviderType.DOUBAN, second), 0).enrichmentStatus()).isEqualTo("SUCCESS");
 
-        assertThat(jdbc.queryForObject("select tmdb_id from source_records where id=?", String.class, id)).isEqualTo("101");
-        assertThat(jdbc.queryForObject("select douban_id from source_records where id=?", String.class, id)).isEqualTo("202");
-        assertThat(jdbc.queryForObject("select actor_names::text from source_records where id=?", String.class, id))
+        assertThat(jdbc.queryForObject("select tmdb_id from raw_videos where id=?", String.class, id)).isEqualTo("101");
+        assertThat(jdbc.queryForObject("select douban_id from raw_videos where id=?", String.class, id)).isEqualTo("202");
+        assertThat(jdbc.queryForObject("select actor_names::text from raw_videos where id=?", String.class, id))
                 .contains("罗予彤", "孙乾钊").doesNotContain("duplicate must not apply");
         assertThat(pipeline(id).get("completed_count")).isEqualTo(2);
         assertThat(pipeline(id).get("success_count")).isEqualTo(2);
@@ -238,7 +238,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
 
     private UUID raw(String hash, String tmdbId) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into source_records(id,data_hash,tmdb_id) values (?,?,?)", id, hash, tmdbId);
+        jdbc.update("insert into raw_videos(id,data_hash,tmdb_id) values (?,?,?)", id, hash, tmdbId);
         return id;
     }
 
@@ -252,7 +252,7 @@ class MetadataPipelineRunRepositoryIntegrationTest {
     void retryResetsCountersRejectsLateOldAttemptAndCountsNewSuccessOnlyOnce() {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into source_records(id,data_hash,title,total_episodes,raw_metadata)
+                insert into raw_videos(id,data_hash,title,total_episodes,raw_metadata)
                 values (?, 'hash-v1', '夜曲', '全40集', '{"title":"夜曲 2020"}')
                 """, id);
         assertThat(prepare(id, ProviderType.TMDB)).containsExactly(ProviderType.TMDB);
@@ -319,11 +319,11 @@ class MetadataPipelineRunRepositoryIntegrationTest {
     }
 
     private Map<String, Object> pipeline(UUID id) {
-        return jdbc.queryForMap("select * from source_record_processing_runs where source_record_id = ?", id);
+        return jdbc.queryForMap("select * from raw_video_pipeline_runs where raw_video_id = ?", id);
     }
 
     private String providerStatus(UUID id) {
-        return jdbc.queryForObject("select status from source_metadata_provider_runs where source_record_id = ?",
+        return jdbc.queryForObject("select status from raw_video_enrichment_provider_runs where raw_video_id = ?",
                 String.class, id);
     }
 

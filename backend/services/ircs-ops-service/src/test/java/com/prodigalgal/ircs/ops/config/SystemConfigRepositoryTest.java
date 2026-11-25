@@ -29,7 +29,7 @@ class SystemConfigRepositoryTest {
     @Test
     void cachesFoundValuesUntilEvicted() {
         when(jdbcTemplate.queryForObject(
-                "select config_value from application_settings where config_key = ?",
+                "select config_value from system_configs where config_key = ?",
                 String.class,
                 OpsConfigValues.REINDEX_DEV_LIMIT_KEY))
                 .thenReturn("5")
@@ -42,7 +42,7 @@ class SystemConfigRepositoryTest {
 
         assertEquals("9", repository.findValue(OpsConfigValues.REINDEX_DEV_LIMIT_KEY).orElseThrow());
         org.mockito.Mockito.verify(jdbcTemplate, times(2)).queryForObject(
-                "select config_value from application_settings where config_key = ?",
+                "select config_value from system_configs where config_key = ?",
                 String.class,
                 OpsConfigValues.REINDEX_DEV_LIMIT_KEY);
     }
@@ -50,7 +50,7 @@ class SystemConfigRepositoryTest {
     @Test
     void cachesMissingValues() {
         when(jdbcTemplate.queryForObject(
-                "select config_value from application_settings where config_key = ?",
+                "select config_value from system_configs where config_key = ?",
                 String.class,
                 "missing"))
                 .thenThrow(new EmptyResultDataAccessException(1));
@@ -59,7 +59,7 @@ class SystemConfigRepositoryTest {
         assertTrue(repository.findValue("missing").isEmpty());
 
         org.mockito.Mockito.verify(jdbcTemplate, times(1)).queryForObject(
-                "select config_value from application_settings where config_key = ?",
+                "select config_value from system_configs where config_key = ?",
                 String.class,
                 "missing");
     }

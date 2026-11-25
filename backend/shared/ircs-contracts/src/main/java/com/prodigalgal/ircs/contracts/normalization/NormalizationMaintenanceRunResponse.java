@@ -5,12 +5,12 @@ import java.util.UUID;
 
 public record NormalizationMaintenanceRunResponse(
         String taskName,
-        long sourceRecordCount,
+        long rawVideoCount,
         long changedRows,
         long enqueuedRows,
-        List<UUID> sampleSourceRecordIds
+        List<UUID> sampleRawVideoIds
 ) {
     public NormalizationMaintenanceRunResponse {
-        sampleSourceRecordIds = sampleSourceRecordIds == null ? List.of() : List.copyOf(sampleSourceRecordIds);
+        sampleRawVideoIds = sampleRawVideoIds == null ? List.of() : List.copyOf(sampleRawVideoIds);
     }
 }

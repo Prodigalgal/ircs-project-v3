@@ -36,7 +36,6 @@ class CoverImageAdminServiceTest {
         NormalizedFile normalized = new NormalizedFile(new byte[] {1}, "hash", "image/png", ".png", 1, "covers/hash.png");
         CoverImageResponse response = response(UUID.randomUUID(), CoverImageStorageType.LOCAL, CoverImageStatus.LOCAL_STORED);
         when(normalizationService.normalize(new byte[] {1}, "image/png", "covers")).thenReturn(normalized);
-        when(repository.reserveLocal(normalized)).thenReturn(normalized);
         when(localObjectStorage.exists("covers/hash.png")).thenReturn(false);
         when(repository.createLocal(normalized)).thenReturn(response);
 
@@ -57,7 +56,6 @@ class CoverImageAdminServiceTest {
         NormalizedFile normalized = new NormalizedFile(new byte[] {1}, "hash", "image/png", ".png", 1, "covers/hash.png");
         CoverImageResponse response = response(imageId, CoverImageStorageType.LOCAL, CoverImageStatus.LOCAL_STORED);
         when(normalizationService.normalize(new byte[] {1}, "image/png", "covers")).thenReturn(normalized);
-        when(repository.reserveLocal(normalized)).thenReturn(normalized);
         when(localObjectStorage.exists("covers/hash.png")).thenReturn(true);
         when(repository.createLocal(normalized)).thenReturn(response);
         when(r2ObjectStorage.isActive()).thenReturn(true);

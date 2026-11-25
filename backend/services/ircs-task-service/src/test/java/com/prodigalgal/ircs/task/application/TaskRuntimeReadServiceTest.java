@@ -42,7 +42,6 @@ class TaskRuntimeReadServiceTest {
 
         wireRedisOps();
         when(taskQueryService.findOne(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId)));
-        when(taskQueryService.findCurrentRunId(masterTaskId)).thenReturn(Optional.of(masterTaskId));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(new TaskMasterSnapshot(
                 masterTaskId,
                 dataSourceId,
@@ -118,7 +117,6 @@ class TaskRuntimeReadServiceTest {
 
         wireRedisOps();
         when(taskQueryService.findOne(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId)));
-        when(taskQueryService.findCurrentRunId(masterTaskId)).thenReturn(Optional.of(masterTaskId));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.of(new TaskMasterSnapshot(
                 masterTaskId,
                 dataSourceId,
@@ -191,7 +189,6 @@ class TaskRuntimeReadServiceTest {
 
         wireRedisOps();
         when(taskQueryService.findOne(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId)));
-        when(taskQueryService.findCurrentRunId(masterTaskId)).thenReturn(Optional.of(masterTaskId));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.empty());
         when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of(
                 "status", "RUNNING",
@@ -228,7 +225,6 @@ class TaskRuntimeReadServiceTest {
 
         wireRedisOps();
         when(taskQueryService.findOne(masterTaskId)).thenReturn(Optional.of(task(masterTaskId, dataSourceId)));
-        when(taskQueryService.findCurrentRunId(masterTaskId)).thenReturn(Optional.of(masterTaskId));
         when(snapshotService.find(masterTaskId)).thenReturn(Optional.empty());
         when(hashes.entries(TaskHotKeys.masterState(masterTaskId))).thenReturn(Map.of(
                 "status", "RUNNING",

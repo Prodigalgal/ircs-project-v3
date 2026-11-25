@@ -24,15 +24,15 @@ public class IngestionPublisher {
         publishJson(QueueTopic.PLAYLIST_SYNC, message);
     }
 
-    public void publishNormalize(UUID sourceRecordId, String pipelineVersion) {
-        String taskId = PipelineRuntimeWorkTypes.normalizeTaskId(sourceRecordId, pipelineVersion);
+    public void publishNormalize(UUID rawVideoId, String pipelineVersion) {
+        String taskId = PipelineRuntimeWorkTypes.normalizeTaskId(rawVideoId, pipelineVersion);
         if (workQueue.hasOpenTask(PipelineRuntimeWorkTypes.NORMALIZE_VIDEO, taskId)) {
             return;
         }
         workQueue.submitAfterCommit(new RuntimeWorkItemRequest(
                 PipelineRuntimeWorkTypes.NORMALIZE_VIDEO,
                 taskId,
-                sourceRecordId.toString(),
+                rawVideoId.toString(),
                 PipelineRuntimeWorkTypes.normalizeVersion(pipelineVersion),
                 ""));
     }

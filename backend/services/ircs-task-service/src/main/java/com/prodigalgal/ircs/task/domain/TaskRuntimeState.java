@@ -8,7 +8,6 @@ public record TaskRuntimeState(
         String status,
         Boolean enabled,
         Integer startPage,
-        Integer currentPage,
-        UUID currentRunId
+        Integer currentPage
 ) {
 }

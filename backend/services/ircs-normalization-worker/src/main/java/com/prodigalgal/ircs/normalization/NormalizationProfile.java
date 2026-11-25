@@ -15,7 +15,7 @@ enum NormalizationProfile {
     private static final Set<String> SHORT_DRAMA_LABELS = Set.of(
             "short-drama", "shortdrama", "短剧", "微短剧");
 
-    static NormalizationProfile select(SourceRecordRecord record, JsonNode metadata) {
+    static NormalizationProfile select(RawVideoRecord record, JsonNode metadata) {
         NormalizationProfile stored = fromCode(record.categoryCode());
         if (stored != CONSERVATIVE && stored != OTHER
                 || CONSERVATIVE_CATEGORIES.contains(normalize(record.categoryCode()))) {

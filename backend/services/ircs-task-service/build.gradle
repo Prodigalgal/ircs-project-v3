@@ -1,5 +1,4 @@
 dependencies {
-    testImplementation testFixtures(project(':platform:ircs-migrator'))
     implementation project(':shared:ircs-common')
     implementation project(':shared:ircs-messaging')
     implementation 'org.springframework.boot:spring-boot-starter-amqp'

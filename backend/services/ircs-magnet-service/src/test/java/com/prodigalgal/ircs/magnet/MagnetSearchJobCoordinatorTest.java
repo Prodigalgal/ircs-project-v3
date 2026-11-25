@@ -65,7 +65,7 @@ class MagnetSearchJobCoordinatorTest {
         coordinator = new MagnetSearchJobCoordinator(repository, jdbc, new DataSourceTransactionManager(pool));
         createSchema();
         videoId = UUID.randomUUID();
-        jdbc.update("insert into catalog_entries (id, title) values (?, 'Example')", videoId);
+        jdbc.update("insert into unified_videos (id, title) values (?, 'Example')", videoId);
     }
 
     @AfterEach
@@ -89,7 +89,7 @@ class MagnetSearchJobCoordinatorTest {
             }
             assertEquals(1, created);
         }
-        assertEquals(1, count("magnet_discovery_jobs"));
+        assertEquals(1, count("magnet_search_jobs"));
     }
 
     @Test
@@ -120,14 +120,14 @@ class MagnetSearchJobCoordinatorTest {
     @Test
     void claimingPendingJobFencesOtherExpiredRunningJobsWithoutDeletingHistory() {
         var stale = repository.createRunningSearchJob(videoId, "AUTO_SCHEDULED", QUERIES);
-        jdbc.update("insert into magnet_discovery_provider_runs (id, job_id, status) values (?, ?, 'SUCCESS')", UUID.randomUUID(), stale.id());
+        jdbc.update("insert into magnet_provider_runs (id, job_id, status) values (?, ?, 'SUCCESS')", UUID.randomUUID(), stale.id());
         expire(stale.id());
         long oldGeneration = generation(stale.id());
         var delivered = repository.createPendingSearchJob(videoId, "AUTO_SCHEDULED", QUERIES);
         coordinator.claim(delivered.id(), videoId, QUERIES, LEASE);
         assertEquals("SKIPPED", repository.findSearchJob(stale.id()).orElseThrow().status());
         assertTrue(generation(stale.id()) > oldGeneration);
-        assertEquals(1, count("magnet_discovery_provider_runs"));
+        assertEquals(1, count("magnet_provider_runs"));
         assertFalse(coordinator.claim(stale.id(), videoId, QUERIES, LEASE).acquired());
     }
 
@@ -146,12 +146,12 @@ class MagnetSearchJobCoordinatorTest {
     @Test
     void duplicateCoalescingPreservesJobsWithExistingProviderHistory() {
         var resumable = repository.createPendingSearchJob(videoId, "AUTO_SCHEDULED", QUERIES);
-        jdbc.update("insert into magnet_discovery_provider_runs (id, job_id, status) values (?, ?, 'SUCCESS')",
+        jdbc.update("insert into magnet_provider_runs (id, job_id, status) values (?, ?, 'SUCCESS')",
                 UUID.randomUUID(), resumable.id());
         var delivered = repository.createPendingSearchJob(videoId, "AUTO_SCHEDULED", QUERIES);
         coordinator.claim(delivered.id(), videoId, QUERIES, LEASE);
         assertEquals("PENDING", repository.findSearchJob(resumable.id()).orElseThrow().status());
-        assertEquals(1, count("magnet_discovery_provider_runs"));
+        assertEquals(1, count("magnet_provider_runs"));
     }
 
     @Test
@@ -169,20 +169,20 @@ class MagnetSearchJobCoordinatorTest {
     void duplicateCoalescingUsesBoundedBatch() {
         var job = coordinator.enqueue(videoId, "AUTO_SCHEDULED", QUERIES).job();
         jdbc.update("""
-                insert into magnet_discovery_jobs (id, catalog_entry_id, trigger_type, status)
+                insert into magnet_search_jobs (id, unified_video_id, trigger_type, status)
                 select md5('duplicate-' || n)::uuid, ?, 'AUTO_SCHEDULED', 'PENDING'
                 from generate_series(1, 1001) n
                 """, videoId);
         coordinator.claim(job.id(), videoId, QUERIES, LEASE);
-        assertEquals(1000, jdbc.queryForObject("select count(*) from magnet_discovery_jobs where status = 'SKIPPED'", Integer.class));
-        assertEquals(1, jdbc.queryForObject("select count(*) from magnet_discovery_jobs where status = 'PENDING'", Integer.class));
+        assertEquals(1000, jdbc.queryForObject("select count(*) from magnet_search_jobs where status = 'SKIPPED'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("select count(*) from magnet_search_jobs where status = 'PENDING'", Integer.class));
     }
 
     @Test
     void renewMaintainsGenerationAndCannotReviveExpiredExecution() {
         var claim = claimNew();
         long generation = generation(claim.job().id());
-        jdbc.update("update magnet_discovery_jobs set updated_at = clock_timestamp() - interval '1 second' where id = ?", claim.job().id());
+        jdbc.update("update magnet_search_jobs set updated_at = clock_timestamp() - interval '1 second' where id = ?", claim.job().id());
         Instant before = heartbeat(claim.job().id());
         assertTrue(coordinator.renew(lease(claim)));
         assertTrue(heartbeat(claim.job().id()).isAfter(before));
@@ -200,8 +200,8 @@ class MagnetSearchJobCoordinatorTest {
         assertTrue(second.acquired());
         assertNotEquals(first.generation(), second.generation());
         assertThrows(MagnetSearchJobCoordinator.MagnetLeaseLostException.class,
-                () -> coordinator.withinLease(lease(first), () -> jdbc.update("update catalog_entries set title = 'stale' where id = ?", videoId)));
-        assertEquals("Example", jdbc.queryForObject("select title from catalog_entries where id = ?", String.class, videoId));
+                () -> coordinator.withinLease(lease(first), () -> jdbc.update("update unified_videos set title = 'stale' where id = ?", videoId)));
+        assertEquals("Example", jdbc.queryForObject("select title from unified_videos where id = ?", String.class, videoId));
         assertFalse(coordinator.renew(lease(first)));
     }
 
@@ -211,11 +211,11 @@ class MagnetSearchJobCoordinatorTest {
         var brief = new MagnetSearchJobCoordinator.Lease(claim.job().id(), videoId, claim.generation(), Duration.ofMillis(200));
         assertThrows(MagnetSearchJobCoordinator.MagnetLeaseLostException.class,
                 () -> coordinator.withinLease(brief, () -> {
-                    jdbc.update("update catalog_entries set title = 'expired' where id = ?", videoId);
+                    jdbc.update("update unified_videos set title = 'expired' where id = ?", videoId);
                     jdbc.execute("select pg_sleep(0.3)");
                     return null;
                 }));
-        assertEquals("Example", jdbc.queryForObject("select title from catalog_entries where id = ?", String.class, videoId));
+        assertEquals("Example", jdbc.queryForObject("select title from unified_videos where id = ?", String.class, videoId));
         assertEquals("RUNNING", repository.findSearchJob(claim.job().id()).orElseThrow().status());
     }
 
@@ -235,14 +235,14 @@ class MagnetSearchJobCoordinatorTest {
                 "v1", "{}", "PROCESSING", 1, now, now, now, now.plusSeconds(60), "worker-test", null);
         try (var guard = new MagnetQueueClaimGuard(store, List.of(item), Duration.ofMinutes(1), () -> {})) {
             assertThrows(IllegalStateException.class, () -> coordinator.withinLease(lease(claim), () -> {
-                jdbc.update("update catalog_entries set title = 'queue-lost' where id = ?", videoId);
+                jdbc.update("update unified_videos set title = 'queue-lost' where id = ?", videoId);
                 queueOwned.set(false);
                 guard.renewNow();
                 return null;
             }));
             assertThrows(IllegalStateException.class, () -> coordinator.finish(lease(claim), List.of(), 0, 0, 0));
         }
-        assertEquals("Example", jdbc.queryForObject("select title from catalog_entries where id = ?", String.class, videoId));
+        assertEquals("Example", jdbc.queryForObject("select title from unified_videos where id = ?", String.class, videoId));
         assertEquals("RUNNING", repository.findSearchJob(claim.job().id()).orElseThrow().status());
     }
 
@@ -250,7 +250,7 @@ class MagnetSearchJobCoordinatorTest {
     void mismatchedVideoAndUnfencedFailureCannotMutateRunningJob() {
         var claim = claimNew();
         UUID otherVideo = UUID.randomUUID();
-        jdbc.update("insert into catalog_entries (id, title) values (?, 'Other')", otherVideo);
+        jdbc.update("insert into unified_videos (id, title) values (?, 'Other')", otherVideo);
         assertThrows(IllegalArgumentException.class, () -> coordinator.claim(claim.job().id(), otherVideo, QUERIES, LEASE));
         var wrongLease = new MagnetSearchJobCoordinator.Lease(claim.job().id(), otherVideo, claim.generation(), LEASE);
         assertThrows(MagnetSearchJobCoordinator.MagnetLeaseLostException.class,
@@ -262,13 +262,13 @@ class MagnetSearchJobCoordinatorTest {
     @Test
     void retryReleasesExecutionAndKeepsSameJobAndProviderHistory() {
         var first = claimNew();
-        jdbc.update("insert into magnet_discovery_provider_runs (id, job_id, status) values (?, ?, 'SUCCESS')", UUID.randomUUID(), first.job().id());
+        jdbc.update("insert into magnet_provider_runs (id, job_id, status) values (?, ?, 'SUCCESS')", UUID.randomUUID(), first.job().id());
         assertEquals("PENDING", coordinator.retry(lease(first), "UPSTREAM_429").status());
         var second = coordinator.claim(first.job().id(), videoId, QUERIES, LEASE);
         assertTrue(second.acquired());
         assertEquals(first.job().id(), second.job().id());
         assertTrue(second.generation() > first.generation());
-        assertEquals(1, count("magnet_discovery_provider_runs"));
+        assertEquals(1, count("magnet_provider_runs"));
         assertThrows(MagnetSearchJobCoordinator.MagnetLeaseLostException.class,
                 () -> coordinator.finish(lease(first), List.of(), 0, 0, 0));
     }
@@ -276,7 +276,7 @@ class MagnetSearchJobCoordinatorTest {
     @Test
     void autoSchedulerExcludesOldPendingJobs() {
         var enqueued = coordinator.enqueue(videoId, "AUTO_SCHEDULED", QUERIES);
-        jdbc.update("update magnet_discovery_jobs set created_at = clock_timestamp() - interval '30 days' where id = ?", enqueued.job().id());
+        jdbc.update("update magnet_search_jobs set created_at = clock_timestamp() - interval '30 days' where id = ?", enqueued.job().id());
         assertTrue(repository.findAutoSearchCandidates(10, Instant.now().minus(Duration.ofHours(12))).isEmpty());
     }
 
@@ -292,7 +292,7 @@ class MagnetSearchJobCoordinatorTest {
             linkId = results.getFirst().get();
             for (var result : results) assertEquals(linkId, result.get());
         }
-        assertEquals(1, count("catalog_magnet_links"));
+        assertEquals(1, count("magnet_links"));
         assertEquals("CANDIDATE", repository.findLinks(videoId).getFirst().status());
         assertEquals("APPROVED", repository.upsertLink(videoId, provider, candidate, true).status());
         assertEquals("APPROVED", repository.upsertLink(videoId, provider, candidate, false).status());
@@ -311,7 +311,7 @@ class MagnetSearchJobCoordinatorTest {
         assertEquals("FAILED", refreshed.lastHealthStatus());
         assertEquals("HTTP_429", refreshed.lastErrorMessage());
         assertEquals(false, refreshed.autoApproveAllowed());
-        assertEquals(0L, jdbc.queryForObject("select version from magnet_discovery_providers where id = ?", Long.class, provider.id()));
+        assertEquals(0L, jdbc.queryForObject("select version from magnet_providers where id = ?", Long.class, provider.id()));
     }
 
     private boolean tryClaim(UUID jobId) {
@@ -322,8 +322,8 @@ class MagnetSearchJobCoordinatorTest {
     @Test
     void providerExecutionReleasesConnectionsAndPersistsRealPostgresOutcome() {
         var source = provider(true);
-        jdbc.update("update magnet_discovery_providers set supported_external_ids = '[\"TITLE_YEAR\"]'::jsonb where id = ?", source.id());
-        jdbc.update("update catalog_entries set \"year\" = '2026', category_code = 'movie' where id = ?", videoId);
+        jdbc.update("update magnet_providers set supported_external_ids = '[\"TITLE_YEAR\"]'::jsonb where id = ?", source.id());
+        jdbc.update("update unified_videos set \"year\" = '2026', category_code = 'movie' where id = ?", videoId);
         MagnetProviderSearchRunner runner = (provider, query, id) -> {
             assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
             assertEquals(0, pool.getHikariPoolMXBean().getActiveConnections());
@@ -335,14 +335,14 @@ class MagnetSearchJobCoordinatorTest {
         assertEquals("SUCCESS", job.status());
         assertEquals(1, job.acceptedCount());
         assertEquals("APPROVED", job.links().getFirst().status());
-        assertEquals(1, count("magnet_discovery_provider_runs"));
+        assertEquals(1, count("magnet_provider_runs"));
         assertEquals(0, pool.getHikariPoolMXBean().getActiveConnections());
     }
 
     @Test
     void realProviderRetryPersistsPreviousAttemptAndDoesNotStrandRunningJob() {
         var source = provider(false);
-        jdbc.update("update magnet_discovery_providers set supported_external_ids = '[\"TITLE\"]'::jsonb where id = ?", source.id());
+        jdbc.update("update magnet_providers set supported_external_ids = '[\"TITLE\"]'::jsonb where id = ?", source.id());
         AtomicBoolean first = new AtomicBoolean(true);
         MagnetProviderSearchRunner runner = (provider, query, id) -> {
             assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
@@ -356,7 +356,7 @@ class MagnetSearchJobCoordinatorTest {
                 () -> executor.execute(job.id(), videoId, "AUTO_SCHEDULED", true)).retryable());
         assertEquals("PENDING", repository.findSearchJob(job.id()).orElseThrow().status());
         assertEquals("SUCCESS", executor.execute(job.id(), videoId, "AUTO_SCHEDULED", true).status());
-        assertEquals(2, count("magnet_discovery_provider_runs"));
+        assertEquals(2, count("magnet_provider_runs"));
     }
 
     @Test
@@ -380,15 +380,15 @@ class MagnetSearchJobCoordinatorTest {
     }
 
     private void expire(UUID jobId) {
-        jdbc.update("update magnet_discovery_jobs set updated_at = clock_timestamp() - interval '3 minutes' where id = ?", jobId);
+        jdbc.update("update magnet_search_jobs set updated_at = clock_timestamp() - interval '3 minutes' where id = ?", jobId);
     }
 
     private Instant heartbeat(UUID jobId) {
-        return jdbc.queryForObject("select updated_at from magnet_discovery_jobs where id = ?", Timestamp.class, jobId).toInstant();
+        return jdbc.queryForObject("select updated_at from magnet_search_jobs where id = ?", Timestamp.class, jobId).toInstant();
     }
 
     private long generation(UUID jobId) {
-        return jdbc.queryForObject("select version from magnet_discovery_jobs where id = ?", Long.class, jobId);
+        return jdbc.queryForObject("select version from magnet_search_jobs where id = ?", Long.class, jobId);
     }
 
     private int count(String table) { return jdbc.queryForObject("select count(*) from " + table, Integer.class); }
@@ -396,7 +396,7 @@ class MagnetSearchJobCoordinatorTest {
     private MagnetProviderSummary provider(boolean autoApprove) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into magnet_discovery_providers (id, code, name, provider_type, base_url, auto_approve_allowed)
+                insert into magnet_providers (id, code, name, provider_type, base_url, auto_approve_allowed)
                 values (?, 'test', 'Test', 'TEST', 'https://example.invalid', ?)
                 """, id, autoApprove);
         return repository.findProvider(id).orElseThrow();
@@ -411,38 +411,38 @@ class MagnetSearchJobCoordinatorTest {
 
     private void createSchema() {
         jdbc.execute("""
-                create table catalog_entries (
+                create table unified_videos (
                     id uuid primary key, title text, alias_title text, subtitle text, season integer, category_code text,
                     "year" text, imdb_id text, tmdb_id text, douban_id text, metadata_status text default 'SYNCED',
                     created_at timestamptz default now(), updated_at timestamptz default now());
-                create table magnet_discovery_jobs (
-                    id uuid primary key, catalog_entry_id uuid not null references catalog_entries(id),
+                create table magnet_search_jobs (
+                    id uuid primary key, unified_video_id uuid not null references unified_videos(id),
                     version bigint default 0, trigger_type text not null, status text not null,
                     provider_codes jsonb default '[]', external_id_plan jsonb default '[]',
                     started_at timestamptz, finished_at timestamptz,
                     total_candidates integer default 0, accepted_count integer default 0, rejected_count integer default 0,
                     skipped_reason text, error_message text, created_at timestamptz default now(), updated_at timestamptz default now());
-                create table magnet_discovery_provider_runs (
-                    id uuid primary key, job_id uuid not null references magnet_discovery_jobs(id), status text not null,
+                create table magnet_provider_runs (
+                    id uuid primary key, job_id uuid not null references magnet_search_jobs(id), status text not null,
                     provider_id uuid, provider_code text, external_id_type text, external_id_value text,
                     request_url text, http_status integer, candidate_count integer default 0, accepted_count integer default 0,
                     duration_ms bigint, error_message text, version bigint default 0,
                     created_at timestamptz default now(), updated_at timestamptz default now());
-                create table magnet_discovery_providers (
+                create table magnet_providers (
                     id uuid primary key, code text unique, name text, provider_type text, base_url text,
                     enabled boolean default true, priority integer default 1, risk_level text default 'HIGH',
                     supported_external_ids jsonb default '[]', min_delay_ms integer default 0, max_delay_ms integer default 0,
                     timeout_ms integer default 1000, result_limit integer default 20, auto_approve_allowed boolean,
                     content_policy text, last_health_check_at timestamptz, last_health_status text, last_error_message text,
                     version bigint default 0, created_at timestamptz default now(), updated_at timestamptz default now());
-                create table catalog_magnet_links (
-                    id uuid primary key, catalog_entry_id uuid references catalog_entries(id), provider_id uuid references magnet_discovery_providers(id),
+                create table magnet_links (
+                    id uuid primary key, unified_video_id uuid references unified_videos(id), provider_id uuid references magnet_providers(id),
                     provider_code text, info_hash text, magnet_uri text, title text, size_bytes bigint, size_label text,
                     published_at timestamptz, seeders integer, leechers integer, quality text, resolution text,
                     matched_external_id_type text, matched_external_id_value text, match_score integer, status text,
                     source_url text, tags jsonb, provider_evidence jsonb, first_seen_at timestamptz, last_seen_at timestamptz,
                     version bigint default 0, created_at timestamptz default now(), updated_at timestamptz default now(),
-                    unique (catalog_entry_id, info_hash));
+                    unique (unified_video_id, info_hash));
                 """);
     }
 }

@@ -7,13 +7,12 @@ import java.util.UUID;
 
 public record InteractionRecordResponse(
         UUID id,
-        UUID catalogEntryId,
+        UUID unifiedVideoId,
         String title,
         String coverImageUrl,
         BigDecimal score,
-        @JsonProperty("lastVideoId") UUID lastSourceRecordId,
-        @JsonProperty("lastEpisodeId") UUID lastSourcePlaybackItemId,
-        UUID catalogEpisodeId,
+        UUID lastVideoId,
+        UUID lastEpisodeId,
         String episodeName,
         int progressSeconds,
         int durationSeconds,

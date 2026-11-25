@@ -24,7 +24,7 @@ public class MaintenanceGateRepository {
 
     public MaintenanceGateResponse create(MaintenanceGateDraft draft) {
         jdbcTemplate.update("""
-                insert into operations_maintenance_runs (
+                insert into maintenance_operations (
                     id, created_at, updated_at, version, operation_key, owner_service, resource_type,
                     resource_scope, mode, status, reason, requested_by, correlation_id, expires_at
                 ) values (
@@ -49,7 +49,7 @@ public class MaintenanceGateRepository {
     public List<MaintenanceGateResponse> findActive(Instant now) {
         return jdbcTemplate.query("""
                 select *
-                  from operations_maintenance_runs
+                  from maintenance_operations
                  where status = 'ACTIVE'
                    and expires_at > :now
                  order by created_at desc
@@ -59,7 +59,7 @@ public class MaintenanceGateRepository {
     public Optional<MaintenanceGateResponse> findById(UUID id) {
         List<MaintenanceGateResponse> rows = jdbcTemplate.query("""
                 select *
-                  from operations_maintenance_runs
+                  from maintenance_operations
                  where id = :id
                 """, Map.of("id", id), this::mapRow);
         return rows.stream().findFirst();
@@ -67,7 +67,7 @@ public class MaintenanceGateRepository {
 
     public Optional<MaintenanceGateResponse> close(UUID id, String reason, Instant now) {
         jdbcTemplate.update("""
-                update operations_maintenance_runs
+                update maintenance_operations
                    set status = 'CLOSED',
                        updated_at = :now,
                        closed_at = :now,

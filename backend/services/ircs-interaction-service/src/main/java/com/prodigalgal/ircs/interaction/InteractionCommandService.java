@@ -17,20 +17,20 @@ public class InteractionCommandService {
     private final JdbcInteractionRepository repository;
 
     @Transactional
-    public boolean toggleFavorite(UUID memberId, UUID catalogEntryId) {
-        requireCatalogEntry(catalogEntryId);
-        if (repository.deleteFavorite(memberId, catalogEntryId) > 0) {
+    public boolean toggleFavorite(UUID memberId, UUID unifiedVideoId) {
+        requireUnifiedVideo(unifiedVideoId);
+        if (repository.deleteFavorite(memberId, unifiedVideoId) > 0) {
             return false;
         }
         Instant now = Instant.now();
-        repository.insertFavorite(IrcsUuidGenerators.nextId(), memberId, catalogEntryId, now);
+        repository.insertFavorite(IrcsUuidGenerators.nextId(), memberId, unifiedVideoId, now);
         return true;
     }
 
     @Transactional(readOnly = true)
-    public boolean favoriteStatus(UUID memberId, UUID catalogEntryId) {
-        requireUuid(catalogEntryId, "影片标识不能为空");
-        return repository.favoriteExists(memberId, catalogEntryId);
+    public boolean favoriteStatus(UUID memberId, UUID unifiedVideoId) {
+        requireUuid(unifiedVideoId, "影片标识不能为空");
+        return repository.favoriteExists(memberId, unifiedVideoId);
     }
 
     @Transactional
@@ -38,24 +38,21 @@ public class InteractionCommandService {
         if (request == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "观看进度不能为空");
         }
-        requireCatalogEntry(request.catalogEntryId());
+        requireUnifiedVideo(request.unifiedVideoId());
         if (!StringUtils.hasText(request.episodeName())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "剧集名称不能为空");
         }
         Instant now = Instant.now();
-        boolean saved = repository.upsertWatchHistory(
+        repository.upsertWatchHistory(
                 IrcsUuidGenerators.nextId(),
                 memberId,
-                request.catalogEntryId(),
+                request.unifiedVideoId(),
                 request.videoId(),
                 request.episodeId(),
                 request.episodeName().trim(),
                 Math.max(request.progress(), 0),
                 Math.max(request.duration(), 0),
                 now);
-        if (!saved) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "播放来源或剧集不属于该作品");
-        }
     }
 
     @Transactional
@@ -69,9 +66,9 @@ public class InteractionCommandService {
         repository.deleteHistoryRecord(memberId, historyId);
     }
 
-    private void requireCatalogEntry(UUID catalogEntryId) {
-        requireUuid(catalogEntryId, "影片标识不能为空");
-        if (!repository.catalogEntryExists(catalogEntryId)) {
+    private void requireUnifiedVideo(UUID unifiedVideoId) {
+        requireUuid(unifiedVideoId, "影片标识不能为空");
+        if (!repository.unifiedVideoExists(unifiedVideoId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "影片不存在");
         }
     }

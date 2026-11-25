@@ -15,22 +15,22 @@ import org.springframework.web.server.ResponseStatusException;
 
 class NormalizationMaintenanceInternalControllerTest {
 
-    private final SourceRecordNormalizationService normalizationService =
-            org.mockito.Mockito.mock(SourceRecordNormalizationService.class);
+    private final RawVideoNormalizationService normalizationService =
+            org.mockito.Mockito.mock(RawVideoNormalizationService.class);
     private final NormalizationInternalAccessPolicy accessPolicy = new NormalizationInternalAccessPolicy();
     private final NormalizationMaintenanceInternalController controller =
             new NormalizationMaintenanceInternalController(normalizationService, accessPolicy);
 
     @Test
     void resetsRawNormalizationThroughInternalEndpoint() {
-        UUID sourceRecordId = UUID.randomUUID();
+        UUID rawVideoId = UUID.randomUUID();
         when(normalizationService.resetAllNormalizationPending(7, false, 500))
                 .thenReturn(new NormalizationMaintenanceRunResponse(
                         "sanitize",
                         12,
                         9,
                         0,
-                        List.of(sourceRecordId)));
+                        List.of(rawVideoId)));
 
         ReflectionTestUtils.setField(accessPolicy, "configuredToken", "internal-token");
         ReflectionTestUtils.setField(accessPolicy, "requiredScope", "normalization:maintenance");
@@ -38,10 +38,10 @@ class NormalizationMaintenanceInternalControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody().taskName()).isEqualTo("sanitize");
-        assertThat(response.getBody().sourceRecordCount()).isEqualTo(12);
+        assertThat(response.getBody().rawVideoCount()).isEqualTo(12);
         assertThat(response.getBody().changedRows()).isEqualTo(9);
         assertThat(response.getBody().enqueuedRows()).isZero();
-        assertThat(response.getBody().sampleSourceRecordIds()).containsExactly(sourceRecordId);
+        assertThat(response.getBody().sampleRawVideoIds()).containsExactly(rawVideoId);
         verify(normalizationService).resetAllNormalizationPending(7, false, 500);
     }
 

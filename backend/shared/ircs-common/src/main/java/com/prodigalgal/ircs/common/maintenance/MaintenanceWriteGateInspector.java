@@ -15,7 +15,7 @@ public final class MaintenanceWriteGateInspector {
 
     private static final String ACTIVE_GATE_SQL = """
             select id, operation_key, owner_service, resource_type, resource_scope, mode, reason, expires_at
-              from operations_maintenance_runs
+              from maintenance_operations
              where status = 'ACTIVE'
                and expires_at > :now
                and lower(owner_service) = lower(:ownerService)

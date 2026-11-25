@@ -31,7 +31,7 @@ class ProxyRequestAuditWriterTest {
                      """
                              select audit_class, request_source, username, method, path, query_string, status_code,
                                     success, duration_ms, client_ip, user_agent, trace_id
-                             from http_request_audit_events
+                             from request_audit_logs
                              """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("audit_class")).isEqualTo("BEHAVIOR");
@@ -61,7 +61,7 @@ class ProxyRequestAuditWriterTest {
         writer.record(request, 200, Duration.ofMillis(1), null);
 
         try (var connection = DriverManager.getConnection(url);
-             var result = connection.createStatement().executeQuery("select count(*) from http_request_audit_events")) {
+             var result = connection.createStatement().executeQuery("select count(*) from request_audit_logs")) {
             assertThat(result.next()).isTrue();
             assertThat(result.getLong(1)).isZero();
         }
@@ -79,12 +79,12 @@ class ProxyRequestAuditWriterTest {
 
         writer.record(request, 200, Duration.ofMillis(17), null);
 
-        Integer count = jdbcTemplate.queryForObject("select count(*) from http_request_audit_events", Integer.class);
+        Integer count = jdbcTemplate.queryForObject("select count(*) from request_audit_logs", Integer.class);
         String source = jdbcTemplate.queryForObject(
-                "select request_source from http_request_audit_events",
+                "select request_source from request_audit_logs",
                 String.class);
         Long duration = jdbcTemplate.queryForObject(
-                "select duration_ms from http_request_audit_events",
+                "select duration_ms from request_audit_logs",
                 Long.class);
         assertThat(count).isEqualTo(1);
         assertThat(source).isEqualTo("ircs-api-gateway");
@@ -103,7 +103,7 @@ class ProxyRequestAuditWriterTest {
         writer.record(request, 200, Duration.ofMillis(1), null);
 
         try (var connection = DriverManager.getConnection(url);
-             var result = connection.createStatement().executeQuery("select query_string from http_request_audit_events")) {
+             var result = connection.createStatement().executeQuery("select query_string from request_audit_logs")) {
             assertThat(result.next()).isTrue();
             assertThat(result.getString("query_string"))
                     .isEqualTo("token=***&keyword=codex&password=***")
@@ -116,7 +116,7 @@ class ProxyRequestAuditWriterTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table http_request_audit_events (
+                    create table request_audit_logs (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,
@@ -141,7 +141,7 @@ class ProxyRequestAuditWriterTest {
 
     private static void createAuditTables(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.execute("""
-                create table http_request_audit_events (
+                create table request_audit_logs (
                     id uuid primary key,
                     created_at timestamp not null,
                     updated_at timestamp not null,

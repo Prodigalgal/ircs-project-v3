@@ -37,7 +37,7 @@ public class JdbcMemberOAuthAccountRepository implements MemberOAuthAccountRepos
     public MemberOAuthAccountRecord insert(MemberOAuthAccountRecord account) {
         jdbcTemplate.update(
                 """
-                insert into member_login_identities (
+                insert into member_oauth_accounts (
                     id, created_at, updated_at, version, member_id, provider, provider_user_id,
                     provider_email, provider_email_verified, provider_nickname, provider_avatar_url,
                     access_token_hash, last_login_at
@@ -64,7 +64,7 @@ public class JdbcMemberOAuthAccountRepository implements MemberOAuthAccountRepos
     public MemberOAuthAccountRecord update(MemberOAuthAccountRecord account) {
         jdbcTemplate.update(
                 """
-                update member_login_identities
+                update member_oauth_accounts
                    set updated_at = ?,
                        version = coalesce(version, 0) + 1,
                        provider_email = ?,
@@ -91,7 +91,7 @@ public class JdbcMemberOAuthAccountRepository implements MemberOAuthAccountRepos
         select id, created_at, updated_at, coalesce(version, 0) as version, member_id, provider, provider_user_id,
                provider_email, provider_email_verified, provider_nickname, provider_avatar_url,
                access_token_hash, last_login_at
-          from member_login_identities
+          from member_oauth_accounts
         """;
     }
 

@@ -47,7 +47,7 @@ export const videosApi = apiSlice.injectEndpoints({
             invalidatesTags: (result, error, { id }) => [
                 { type: 'Video', id },
                 { type: 'Video', id: 'LIST' },
-                { type: 'CatalogEntry', id: 'LIST' },
+                { type: 'UnifiedVideo', id: 'LIST' },
                 'Dashboard'
             ],
         }),
@@ -58,7 +58,7 @@ export const videosApi = apiSlice.injectEndpoints({
             }),
             invalidatesTags: [
                 { type: 'Video', id: 'LIST' },
-                { type: 'CatalogEntry', id: 'LIST' },
+                { type: 'UnifiedVideo', id: 'LIST' },
                 'Dashboard'
             ],
         }),
@@ -70,7 +70,7 @@ export const videosApi = apiSlice.injectEndpoints({
             }),
             invalidatesTags: [
                 { type: 'Video', id: 'LIST' },
-                { type: 'CatalogEntry', id: 'LIST' },
+                { type: 'UnifiedVideo', id: 'LIST' },
                 'Dashboard'
             ],
         }),

@@ -29,7 +29,7 @@ class InternalAggregationBindingCorrectionController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String scopes) {
         accessPolicy.assertAccess(serviceId, serviceToken, scopes);
-        return correctionService.preview(source, request.targetCatalogEntryId(), request.sourceRecordIds());
+        return correctionService.preview(source, request.targetUnifiedVideoId(), request.rawVideoIds());
     }
 
     @PostMapping("/apply")
@@ -39,12 +39,12 @@ class InternalAggregationBindingCorrectionController {
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_TOKEN, required = false) String serviceToken,
             @RequestHeader(value = InternalServiceAuthHeaders.SERVICE_SCOPES, required = false) String scopes) {
         accessPolicy.assertCorrectionAccess(serviceId, serviceToken, scopes);
-        return correctionService.apply(source, request.targetCatalogEntryId(), request.sourceRecordIds(),
+        return correctionService.apply(source, request.targetUnifiedVideoId(), request.rawVideoIds(),
                 request.fingerprint(), serviceId);
     }
 
     record CorrectionRequest(
-            @NotNull @Size(min = 1, max = AggregationBindingCorrectionService.MAX_SOURCE_RECORDS) List<@NotNull UUID> sourceRecordIds,
-            UUID targetCatalogEntryId,
+            @NotNull @Size(min = 1, max = AggregationBindingCorrectionService.MAX_RAW_VIDEOS) List<@NotNull UUID> rawVideoIds,
+            UUID targetUnifiedVideoId,
             @Pattern(regexp = "[0-9a-f]{64}") String fingerprint) { }
 }

@@ -56,8 +56,8 @@ class ScraperTrendSyncMaintenanceClientTest {
                     "updatedByTitleMatch":1,
                     "createdGhosts":2,
                     "skippedDuplicates":1,
-                    "updatedCatalogEntryIds":["%s"],
-                    "createdCatalogEntryIds":["%s"],
+                    "updatedUnifiedVideoIds":["%s"],
+                    "createdUnifiedVideoIds":["%s"],
                     "discoveryKeywords":["Codex"]
                   },
                   "providerErrors":[]

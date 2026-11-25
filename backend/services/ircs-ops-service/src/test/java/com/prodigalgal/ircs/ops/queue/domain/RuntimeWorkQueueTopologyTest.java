@@ -17,7 +17,7 @@ class RuntimeWorkQueueTopologyTest {
         Set<String> producerTaskTypes = Set.of(
                 SearchSyncWorkTypes.RAW,
                 SearchSyncWorkTypes.UNIFIED,
-                AggregationWorkTypes.SOURCE_RECORD,
+                AggregationWorkTypes.RAW_VIDEO,
                 LlmCleaningWorkTypes.RAW_TERM,
                 StorageWorkTypes.AVATAR_SYNC,
                 StorageWorkTypes.COVER_R2_SYNC,
@@ -26,7 +26,7 @@ class RuntimeWorkQueueTopologyTest {
         Set<String> guardedConsumerTaskTypes = Set.of(
                 SearchSyncWorkTypes.RAW,
                 SearchSyncWorkTypes.UNIFIED,
-                AggregationWorkTypes.SOURCE_RECORD,
+                AggregationWorkTypes.RAW_VIDEO,
                 LlmCleaningWorkTypes.RAW_TERM,
                 StorageWorkTypes.AVATAR_SYNC,
                 StorageWorkTypes.COVER_R2_SYNC,

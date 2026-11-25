@@ -113,7 +113,7 @@ public class CatalogService {
 
     @Transactional
     public void deleteDataSource(UUID id) {
-        catalogRepository.deleteById("collection_sources", id);
+        catalogRepository.deleteById("data_sources", id);
     }
 
     public Optional<String> fetchSample(FetchSampleRequest request) {
@@ -181,7 +181,7 @@ public class CatalogService {
 
     @Transactional
     public void deleteStandardCategory(UUID id) {
-        catalogRepository.deleteById("catalog_categories", id);
+        catalogRepository.deleteById("standard_category", id);
         readModelCache.evictStandardCategories();
     }
 
@@ -222,7 +222,7 @@ public class CatalogService {
 
     @Transactional
     public void deleteStandardGenre(UUID id) {
-        catalogRepository.deleteById("catalog_genres", id);
+        catalogRepository.deleteById("standard_genre", id);
         readModelCache.evictStandardGenres();
     }
 

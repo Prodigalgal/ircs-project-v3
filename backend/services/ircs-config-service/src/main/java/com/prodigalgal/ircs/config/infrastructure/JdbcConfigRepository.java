@@ -57,7 +57,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
         String where = buildKeywordWhere(keyword, whereParams);
 
         Long total = jdbcTemplate.queryForObject(
-                "select count(*) from application_settings " + where,
+                "select count(*) from system_configs " + where,
                 Long.class,
                 whereParams.toArray());
 
@@ -68,7 +68,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
         List<SystemConfigRecord> content = jdbcTemplate.query(
                 """
                 select id, config_key, config_value, description, coalesce(version, 0) as version, updated_at
-                from application_settings
+                from system_configs
                 %s
                 order by config_key
                 limit ? offset ?
@@ -84,7 +84,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     """
                     select id, config_key, config_value, description, coalesce(version, 0) as version, updated_at
-                    from application_settings
+                    from system_configs
                     where config_key = ?
                     """,
                     mapper(),
@@ -106,7 +106,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
 
     public boolean existsByKey(String key) {
         Boolean exists = jdbcTemplate.queryForObject(
-                "select exists(select 1 from application_settings where config_key = ?)",
+                "select exists(select 1 from system_configs where config_key = ?)",
                 Boolean.class,
                 key);
         return Boolean.TRUE.equals(exists);
@@ -115,7 +115,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
     public SystemConfigRecord create(SystemConfigWriteRequest request) {
         SystemConfigRecord record = jdbcTemplate.queryForObject(
                 """
-                insert into application_settings (id, created_at, updated_at, version, config_key, config_value, description)
+                insert into system_configs (id, created_at, updated_at, version, config_key, config_value, description)
                 values (gen_random_uuid(), now(), now(), 1, ?, ?, ?)
                 returning id, config_key, config_value, description, coalesce(version, 0) as version, updated_at
                 """,
@@ -132,35 +132,35 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
     public UpsertResult upsertDefault(SystemConfigDefaults.ResolvedDefault config) {
         List<UpsertRow> rows = jdbcTemplate.query(
                 """
-                insert into application_settings (id, created_at, updated_at, version, config_key, config_value, description)
+                insert into system_configs (id, created_at, updated_at, version, config_key, config_value, description)
                 values (gen_random_uuid(), now(), now(), 1, ?, ?, ?)
                 on conflict (config_key) do update
                    set config_value = case
-                           when (coalesce(btrim(application_settings.config_value), '') = ''
+                           when (coalesce(btrim(system_configs.config_value), '') = ''
                                    and coalesce(btrim(excluded.config_value), '') <> '')
-                                or (? and lower(coalesce(btrim(application_settings.config_value), '')) = 'false')
-                                or (cast(? as text) is not null and btrim(application_settings.config_value) = ?)
+                                or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
+                                or (cast(? as text) is not null and btrim(system_configs.config_value) = ?)
                            then excluded.config_value
-                           else application_settings.config_value
+                           else system_configs.config_value
                        end,
                        description = excluded.description,
                        updated_at = case
-                           when (coalesce(btrim(application_settings.config_value), '') = ''
+                           when (coalesce(btrim(system_configs.config_value), '') = ''
                                    and coalesce(btrim(excluded.config_value), '') <> '')
-                                or (? and lower(coalesce(btrim(application_settings.config_value), '')) = 'false')
-                                or (cast(? as text) is not null and btrim(application_settings.config_value) = ?)
-                                or coalesce(application_settings.description, '') is distinct from coalesce(excluded.description, '')
+                                or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
+                                or (cast(? as text) is not null and btrim(system_configs.config_value) = ?)
+                                or coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
                            then now()
-                           else application_settings.updated_at
+                           else system_configs.updated_at
                        end,
                        version = case
-                           when (coalesce(btrim(application_settings.config_value), '') = ''
+                           when (coalesce(btrim(system_configs.config_value), '') = ''
                                    and coalesce(btrim(excluded.config_value), '') <> '')
-                                or (? and lower(coalesce(btrim(application_settings.config_value), '')) = 'false')
-                                or (cast(? as text) is not null and btrim(application_settings.config_value) = ?)
-                                or coalesce(application_settings.description, '') is distinct from coalesce(excluded.description, '')
-                           then coalesce(application_settings.version, 0) + 1
-                           else application_settings.version
+                                or (? and lower(coalesce(btrim(system_configs.config_value), '')) = 'false')
+                                or (cast(? as text) is not null and btrim(system_configs.config_value) = ?)
+                                or coalesce(system_configs.description, '') is distinct from coalesce(excluded.description, '')
+                           then coalesce(system_configs.version, 0) + 1
+                           else system_configs.version
                        end
                  returning (xmax = 0) as inserted,
                            (xmax <> 0) as description_updated,
@@ -192,7 +192,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
     public Optional<SystemConfigRecord> update(String key, SystemConfigWriteRequest request) {
         List<SystemConfigRecord> rows = jdbcTemplate.query(
                 """
-                update application_settings
+                update system_configs
                    set config_value = ?,
                        description = ?,
                        updated_at = now(),
@@ -212,7 +212,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
     }
 
     public int deleteByKey(String key) {
-        int deleted = jdbcTemplate.update("delete from application_settings where config_key = ?", key);
+        int deleted = jdbcTemplate.update("delete from system_configs where config_key = ?", key);
         if (deleted > 0) {
             valkeyCache.evictAfterCommit(key);
         }
@@ -222,7 +222,7 @@ public class JdbcConfigRepository implements com.prodigalgal.ircs.common.config.
     private Optional<String> findValueFromDatabase(String key) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
-                    "select config_value from application_settings where config_key = ?",
+                    "select config_value from system_configs where config_key = ?",
                     String.class,
                     key));
         } catch (EmptyResultDataAccessException ignored) {

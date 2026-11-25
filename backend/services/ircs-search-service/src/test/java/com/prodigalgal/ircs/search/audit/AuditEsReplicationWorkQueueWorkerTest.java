@@ -39,7 +39,7 @@ class AuditEsReplicationWorkQueueWorkerTest {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkItem item = item(1);
         AuditEventSearchDocument document = new AuditEventSearchDocument();
-        document.setId("http_request_audit_events:" + UUID.randomUUID());
+        document.setId("request_audit_logs:" + UUID.randomUUID());
         queue.items.add(item);
         when(repository.findDocument(any(AuditReplicationWorkPayload.class))).thenReturn(Optional.of(document));
         AuditEsReplicationWorkQueueWorker worker = worker(queue);
@@ -72,7 +72,7 @@ class AuditEsReplicationWorkQueueWorkerTest {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkItem item = item(2);
         AuditEventSearchDocument document = new AuditEventSearchDocument();
-        document.setId("http_request_audit_events:" + UUID.randomUUID());
+        document.setId("request_audit_logs:" + UUID.randomUUID());
         queue.items.add(item);
         when(repository.findDocument(any(AuditReplicationWorkPayload.class))).thenReturn(Optional.of(document));
         doThrow(new IllegalStateException("es down")).when(searchIndexService).saveAudit(document);
@@ -91,7 +91,7 @@ class AuditEsReplicationWorkQueueWorkerTest {
         FakeRuntimeWorkQueue queue = new FakeRuntimeWorkQueue();
         RuntimeWorkItem item = item(8);
         AuditEventSearchDocument document = new AuditEventSearchDocument();
-        document.setId("http_request_audit_events:" + UUID.randomUUID());
+        document.setId("request_audit_logs:" + UUID.randomUUID());
         queue.items.add(item);
         when(repository.findDocument(any(AuditReplicationWorkPayload.class))).thenReturn(Optional.of(document));
         doThrow(new IllegalStateException("es down")).when(searchIndexService).saveAudit(document);
@@ -144,7 +144,7 @@ class AuditEsReplicationWorkQueueWorkerTest {
         RuntimeWorkItem item = item(1);
         queue.items.add(item);
         AuditEventSearchDocument document = new AuditEventSearchDocument();
-        document.setId("http_request_audit_events:" + UUID.randomUUID());
+        document.setId("request_audit_logs:" + UUID.randomUUID());
         when(repository.findDocument(any(AuditReplicationWorkPayload.class))).thenReturn(Optional.of(document));
         RecordingExecutor executor = new RecordingExecutor();
         AuditEsReplicationWorkQueueWorker worker = worker(queue, null, executor);

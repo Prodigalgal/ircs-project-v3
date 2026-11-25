@@ -19,28 +19,25 @@ public class JdbcSearchSyncProcessor implements SearchSyncProcessor {
 
     @Override
     public void process(SearchSyncMessage message) {
-        if (message.getEntityType() == SearchEntityType.CATALOG_ENTRY) {
-            // A queued catalog event can be older than the entry's current publication state.
-            documentRepository.findCatalogEntry(message.getEntityId())
-                    .ifPresentOrElse(
-                            searchIndexService::saveUnified,
-                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.CATALOG_ENTRY));
-            return;
-        }
-
         if (message.getOperation() == SyncOperation.DELETE) {
             searchIndexService.delete(message.getEntityId(), message.getEntityType());
             log.debug("Deleted search document: [{}][{}]", message.getEntityType(), message.getEntityId());
             return;
         }
 
-        if (message.getEntityType() == SearchEntityType.SOURCE_RECORD) {
-            documentRepository.findSourceRecord(message.getEntityId())
+        if (message.getEntityType() == SearchEntityType.RAW_VIDEO) {
+            documentRepository.findRawVideo(message.getEntityId())
                     .ifPresentOrElse(
                             searchIndexService::saveRaw,
-                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.SOURCE_RECORD));
+                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.RAW_VIDEO));
             return;
         }
 
+        if (message.getEntityType() == SearchEntityType.UNIFIED_VIDEO) {
+            documentRepository.findUnifiedVideo(message.getEntityId())
+                    .ifPresentOrElse(
+                            searchIndexService::saveUnified,
+                            () -> searchIndexService.delete(message.getEntityId(), SearchEntityType.UNIFIED_VIDEO));
+        }
     }
 }

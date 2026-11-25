@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public record HistoryRecordResponse(
         UUID id,
-        UUID catalogEntryId,
+        UUID unifiedVideoId,
         String title,
         String coverImageUrl,
         BigDecimal score,

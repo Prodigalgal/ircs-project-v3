@@ -29,7 +29,7 @@ import org.springframework.beans.factory.ObjectProvider;
 class PendingNormalizationWatchdogTest {
 
     @Mock
-    private SourceRecordNormalizationRepository repository;
+    private RawVideoNormalizationRepository repository;
 
     @Mock
     private RuntimeWorkQueue workQueue;
@@ -80,8 +80,8 @@ class PendingNormalizationWatchdogTest {
                 .thenReturn(Optional.of(lease));
         when(repository.findPendingNormalizationQueueItems(any(Instant.class), org.mockito.ArgumentMatchers.eq(50)))
                 .thenReturn(List.of(
-                        new SourceRecordNormalizationRepository.SourceRecordQueueItem(first, "hash-1"),
-                        new SourceRecordNormalizationRepository.SourceRecordQueueItem(second, "hash-2")));
+                        new RawVideoNormalizationRepository.RawVideoQueueItem(first, "hash-1"),
+                        new RawVideoNormalizationRepository.RawVideoQueueItem(second, "hash-2")));
         when(workQueue.hasOpenTask(any(), any())).thenReturn(false);
 
         int submitted = watchdog.reconcilePending();
@@ -103,7 +103,7 @@ class PendingNormalizationWatchdogTest {
 
     @Test
     void skipsRowsThatAlreadyHavePendingOrInflightTask() {
-        UUID sourceRecordId = UUID.randomUUID();
+        UUID rawVideoId = UUID.randomUUID();
         when(configValues.pendingWatchdogEnabled()).thenReturn(true);
         when(configValues.pendingWatchdogLeaseTtl()).thenReturn(Duration.ofSeconds(30));
         when(configValues.pendingWatchdogMinPendingAge()).thenReturn(Duration.ofMinutes(5));
@@ -114,7 +114,7 @@ class PendingNormalizationWatchdogTest {
                         Duration.ofSeconds(30)))
                 .thenReturn(Optional.of(lease));
         when(repository.findPendingNormalizationQueueItems(any(Instant.class), org.mockito.ArgumentMatchers.eq(50)))
-                .thenReturn(List.of(new SourceRecordNormalizationRepository.SourceRecordQueueItem(sourceRecordId, "hash-1")));
+                .thenReturn(List.of(new RawVideoNormalizationRepository.RawVideoQueueItem(rawVideoId, "hash-1")));
         when(workQueue.hasOpenTask(any(), any())).thenReturn(true);
 
         int submitted = watchdog.reconcilePending();

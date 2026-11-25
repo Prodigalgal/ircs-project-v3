@@ -118,7 +118,7 @@ class MailConsumerTest {
              var result = connection.createStatement().executeQuery("""
                      select job_source, job_type, job_name, correlation_id, status, duration_ms,
                             error_class, error_message
-                     from background_job_audit_events
+                     from worker_job_audit_events
                      """)) {
             org.assertj.core.api.Assertions.assertThat(result.next()).isTrue();
             org.assertj.core.api.Assertions.assertThat(result.getString("job_source"))
@@ -193,7 +193,7 @@ class MailConsumerTest {
         try (var connection = DriverManager.getConnection(url);
              var result = connection.createStatement().executeQuery("""
                      select correlation_id, status
-                     from background_job_audit_events
+                     from worker_job_audit_events
                      """)) {
             org.assertj.core.api.Assertions.assertThat(result.next()).isTrue();
             org.assertj.core.api.Assertions.assertThat(result.getString("correlation_id"))
@@ -225,7 +225,7 @@ class MailConsumerTest {
              var result = connection.createStatement().executeQuery("""
                      select job_source, job_type, job_name, correlation_id, status, duration_ms,
                             error_class, error_message
-                     from background_job_audit_events
+                     from worker_job_audit_events
                      """)) {
             org.assertj.core.api.Assertions.assertThat(result.next()).isTrue();
             org.assertj.core.api.Assertions.assertThat(result.getString("job_source"))
@@ -247,7 +247,7 @@ class MailConsumerTest {
         try (var connection = DriverManager.getConnection(url);
              var statement = connection.createStatement()) {
             statement.execute("""
-                    create table background_job_audit_events (
+                    create table worker_job_audit_events (
                         id uuid primary key,
                         created_at timestamp not null,
                         updated_at timestamp not null,

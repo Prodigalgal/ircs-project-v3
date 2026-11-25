@@ -14,19 +14,19 @@ public class MetadataEnrichPublisher {
 
     private final RuntimeWorkQueue workQueue;
 
-    public void publish(UUID sourceRecordId, String pipelineVersion) {
-        publish(sourceRecordId, pipelineVersion, Duration.ZERO);
+    public void publish(UUID rawVideoId, String pipelineVersion) {
+        publish(rawVideoId, pipelineVersion, Duration.ZERO);
     }
 
-    public void publish(UUID sourceRecordId, String pipelineVersion, Duration delay) {
-        workQueue.submitAfterCommit(request(sourceRecordId, pipelineVersion), delay);
+    public void publish(UUID rawVideoId, String pipelineVersion, Duration delay) {
+        workQueue.submitAfterCommit(request(rawVideoId, pipelineVersion), delay);
     }
 
-    private static RuntimeWorkItemRequest request(UUID sourceRecordId, String pipelineVersion) {
+    private static RuntimeWorkItemRequest request(UUID rawVideoId, String pipelineVersion) {
         return new RuntimeWorkItemRequest(
                 PipelineRuntimeWorkTypes.ENRICH_METADATA,
-                PipelineRuntimeWorkTypes.enrichTaskId(sourceRecordId, pipelineVersion),
-                sourceRecordId.toString(),
+                PipelineRuntimeWorkTypes.enrichTaskId(rawVideoId, pipelineVersion),
+                rawVideoId.toString(),
                 PipelineRuntimeWorkTypes.normalizeVersion(pipelineVersion),
                 "");
     }

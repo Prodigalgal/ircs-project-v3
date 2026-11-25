@@ -40,21 +40,21 @@ class CoverImageUnlinkServiceTest {
         UUID id = UUID.randomUUID();
         UUID rawId = UUID.randomUUID();
         UUID unifiedId = UUID.randomUUID();
-        when(referenceRepository.findSourceRecordIds(id)).thenReturn(List.of(rawId));
-        when(referenceRepository.findCatalogEntryIds(id)).thenReturn(List.of(unifiedId));
-        when(referenceRepository.unlinkSourceRecords(id)).thenReturn(2);
-        when(referenceRepository.unlinkCatalogEntries(id)).thenReturn(1);
+        when(referenceRepository.findRawVideoIds(id)).thenReturn(List.of(rawId));
+        when(referenceRepository.findUnifiedVideoIds(id)).thenReturn(List.of(unifiedId));
+        when(referenceRepository.unlinkRawVideos(id)).thenReturn(2);
+        when(referenceRepository.unlinkUnifiedVideos(id)).thenReturn(1);
 
         CoverImageUnlinkResult result =
                 new CoverImageUnlinkService(referenceRepository, unlinkedPublisher, searchPublisher).unlink(id);
 
         assertEquals(id, result.imageId());
-        assertEquals(2, result.sourceRecordCount());
-        assertEquals(1, result.catalogEntryCount());
-        verify(referenceRepository).findSourceRecordIds(id);
-        verify(referenceRepository).findCatalogEntryIds(id);
-        verify(referenceRepository).unlinkSourceRecords(id);
-        verify(referenceRepository).unlinkCatalogEntries(id);
+        assertEquals(2, result.rawVideoCount());
+        assertEquals(1, result.unifiedVideoCount());
+        verify(referenceRepository).findRawVideoIds(id);
+        verify(referenceRepository).findUnifiedVideoIds(id);
+        verify(referenceRepository).unlinkRawVideos(id);
+        verify(referenceRepository).unlinkUnifiedVideos(id);
         verify(searchPublisher).publishRawSearch(rawId, SyncOperation.DELETE);
         verify(searchPublisher).publishRawSearch(rawId, SyncOperation.INDEX);
         verify(searchPublisher).publishUnifiedSearch(unifiedId, SyncOperation.DELETE);
@@ -67,10 +67,10 @@ class CoverImageUnlinkServiceTest {
         UUID id = UUID.randomUUID();
         UUID rawId = UUID.randomUUID();
         UUID unifiedId = UUID.randomUUID();
-        when(referenceRepository.findSourceRecordIds(id)).thenReturn(List.of(rawId));
-        when(referenceRepository.findCatalogEntryIds(id)).thenReturn(List.of(unifiedId));
-        when(referenceRepository.unlinkSourceRecords(id)).thenReturn(1);
-        when(referenceRepository.unlinkCatalogEntries(id)).thenReturn(1);
+        when(referenceRepository.findRawVideoIds(id)).thenReturn(List.of(rawId));
+        when(referenceRepository.findUnifiedVideoIds(id)).thenReturn(List.of(unifiedId));
+        when(referenceRepository.unlinkRawVideos(id)).thenReturn(1);
+        when(referenceRepository.unlinkUnifiedVideos(id)).thenReturn(1);
         TransactionSynchronizationManager.initSynchronization();
 
         new CoverImageUnlinkService(referenceRepository, unlinkedPublisher, searchPublisher).unlink(id);
