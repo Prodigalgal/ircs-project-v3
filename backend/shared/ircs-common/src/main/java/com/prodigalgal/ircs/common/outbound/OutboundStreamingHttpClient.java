@@ -48,7 +48,7 @@ public class OutboundStreamingHttpClient {
         circuitBreaker.beforeCall(circuitKey, request.policy().circuitBreaker());
         OutboundProxy selected = null;
         try {
-            selected = pooled ? proxyPool.select() : request.policy().proxy();
+            selected = pooled ? proxyPool.select(request.uri()) : request.policy().proxy();
             OutboundHttpRequest routed = pooled
                     ? new OutboundHttpRequest(request.uri(), request.method(), request.headers(),
                             request.policy().withProxy(selected), request.body())

@@ -1,14 +1,12 @@
 package com.prodigalgal.ircs.metadata.provider.tmdb;
 
-import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
-import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import com.prodigalgal.ircs.common.outbound.OutboundProxy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
-import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
+import com.prodigalgal.ircs.metadata.provider.application.MetadataOutboundHttp;
 import com.prodigalgal.ircs.metadata.provider.application.MetadataProviderTrafficLimiter;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderRetryableException;
 import com.prodigalgal.ircs.metadata.provider.domain.MetadataProviderTerminalException;
@@ -35,9 +33,7 @@ public class RestClientTmdbHttpClient implements TmdbHttpClient {
             ObjectProvider<MetadataProviderTrafficLimiter> trafficLimiterProvider,
             ObjectProvider<PublicOutboundProxyPool> proxyPoolProvider) {
         this.proxyPool = proxyPoolProvider == null ? null : proxyPoolProvider.getIfAvailable();
-        this.httpClient = new OutboundHttpClient(
-                new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                new JdkOutboundTransport(properties.getRequestTimeout()), proxyPool);
+        this.httpClient = MetadataOutboundHttp.proxyOnly(properties.getRequestTimeout(), proxyPool);
         this.timeout = properties.getRequestTimeout();
         this.trafficLimiter = resolveTrafficLimiter(trafficLimiterProvider);
     }

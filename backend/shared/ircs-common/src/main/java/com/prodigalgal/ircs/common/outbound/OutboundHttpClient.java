@@ -73,7 +73,7 @@ public class OutboundHttpClient {
         int attempts = pooled && !safeToRetry ? 1 : policy.maxRetries() + 1;
         IOException last = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
-            OutboundProxy selected = pooled ? proxyPool.select() : policy.proxy();
+            OutboundProxy selected = pooled ? proxyPool.select(normalized.uri()) : policy.proxy();
             OutboundHttpRequest routed = pooled
                     ? new OutboundHttpRequest(normalized.uri(), normalized.method(), normalized.headers(),
                             policy.withProxy(selected), normalized.body()) : normalized;

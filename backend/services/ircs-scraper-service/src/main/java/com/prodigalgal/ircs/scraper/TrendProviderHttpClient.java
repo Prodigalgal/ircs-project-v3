@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.scraper;
 
+import com.prodigalgal.ircs.common.outbound.OutboundChallengeDetector;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
@@ -7,6 +8,7 @@ import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
 import com.prodigalgal.ircs.common.outbound.OutboundUserAgents;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -33,6 +35,7 @@ class TrendProviderHttpClient {
             URI uri = URI.create(url);
             boolean json = uri.getPath().startsWith("/j/") || "api.themoviedb.org".equalsIgnoreCase(uri.getHost());
             OutboundHttpPolicy policy = OutboundHttpPolicy.publicFetch(configValues.providerTimeout())
+                    .withMaxRetries(0)
                     .withUserAgent(OutboundUserAgents.defaultBrowser())
                     .withCallerCircuitBreakerKey("scraper-trend-provider");
             OutboundHttpRequest request = OutboundHttpRequest.get(uri, policy)
@@ -42,6 +45,10 @@ class TrendProviderHttpClient {
                 request = request.withHeader("Upgrade-Insecure-Requests", "1");
             }
             OutboundHttpResponse response = httpClient.execute(request);
+            Optional<String> challenge = OutboundChallengeDetector.detect(response);
+            if (challenge.isPresent()) {
+                throw new TrendProviderFetchException(challenge.orElseThrow());
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new TrendProviderFetchException("HTTP_" + response.statusCode());
             }

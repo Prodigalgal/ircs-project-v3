@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.prodigalgal.ircs.common.config.RuntimeConfigService;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -168,6 +169,70 @@ class PublicOutboundProxyPoolTest {
         assertThat(custom.enabled()).isTrue();
         assertThat(custom.host()).isEqualTo("custom.proxy");
         assertThat(pool.customProxy("app.metadata.tmdb")).isEqualTo(custom);
+    }
+
+    @Test
+    void authorityRequestsUseTheirConfiguredPoolAndOrdinaryRequestsUseThePublicPool() throws Exception {
+        enabled();
+        when(config.stringValue(PublicOutboundProxyPool.AUTHORITY_ENDPOINTS_KEY, PublicOutboundProxyPool.DEFAULT_AUTHORITY_ENDPOINTS))
+                .thenReturn("http://authority.gateway:17890");
+        OutboundHttpClient client = client(request -> ok());
+
+        for (int index = 0; index < 4; index++) {
+            client.execute(OutboundHttpRequest.get("https://www.rottentomatoes.com/browse/" + index, policy));
+        }
+        assertThat(sent).hasSize(4)
+                .allMatch(request -> "authority.gateway".equals(request.policy().proxy().host()));
+        sent.clear();
+
+        for (int index = 0; index < 4; index++) {
+            client.execute(OutboundHttpRequest.get("https://public.test/api/" + index, policy));
+        }
+        assertThat(sent).extracting(request -> request.policy().proxy().host())
+                .containsExactly("oracle.gateway", "cf.gateway", "oracle.gateway", "cf.gateway");
+    }
+
+    @Test
+    void authorityRequestsFailClosedWhenTheirAssignedGatewayIsCoolingDown() throws Exception {
+        enabled();
+        when(config.stringValue(PublicOutboundProxyPool.AUTHORITY_ENDPOINTS_KEY, PublicOutboundProxyPool.DEFAULT_AUTHORITY_ENDPOINTS))
+                .thenReturn("http://oracle.gateway:17890");
+        PublicOutboundProxyPool pool = new PublicOutboundProxyPool(config);
+        pool.recordFailure(OutboundProxy.http("oracle.gateway", 17890, null, null));
+
+        assertThatThrownBy(() -> pool.select(URI.create("https://www.imdb.com/title/tt0133093/")))
+                .isInstanceOf(OutboundHttpException.class)
+                .hasMessageContaining("direct fallback is disabled");
+        assertThat(pool.select(URI.create("https://public.test/api")).host())
+                .isEqualTo("cf.gateway");
+    }
+
+    @Test
+    void blankAuthorityGatewaySettingUsesOracleEvenWithoutTheGeneralPool() throws Exception {
+        when(config.stringValue(PublicOutboundProxyPool.AUTHORITY_ENDPOINTS_KEY, PublicOutboundProxyPool.DEFAULT_AUTHORITY_ENDPOINTS))
+                .thenReturn("");
+        OutboundHttpClient client = client(request -> ok());
+        client.execute(OutboundHttpRequest.get("https://movie.douban.com/chart", policy));
+        client.execute(OutboundHttpRequest.get("https://movie.douban.com/chart", policy));
+
+        assertThat(sent).extracting(request -> request.policy().proxy().host())
+                .containsExactly(
+                        URI.create(PublicOutboundProxyPool.DEFAULT_AUTHORITY_ENDPOINTS).getHost(),
+                        URI.create(PublicOutboundProxyPool.DEFAULT_AUTHORITY_ENDPOINTS).getHost());
+    }
+
+    @Test
+    void invalidAuthoritySettingsCannotBreakTheOrdinaryPublicPool() throws Exception {
+        enabled();
+        when(config.stringValue(PublicOutboundProxyPool.AUTHORITY_ENDPOINTS_KEY, PublicOutboundProxyPool.DEFAULT_AUTHORITY_ENDPOINTS))
+                .thenReturn("invalid setting");
+        OutboundHttpClient client = client(request -> ok());
+
+        assertThatThrownBy(() -> client.execute(OutboundHttpRequest.get("https://www.imdb.com/chart/", policy)))
+                .isInstanceOf(OutboundHttpException.class);
+        client.execute(OutboundHttpRequest.get("https://public.test/api", policy));
+
+        assertThat(sent).extracting(request -> request.policy().proxy().host()).containsExactly("oracle.gateway");
     }
 
     private void enabled() {

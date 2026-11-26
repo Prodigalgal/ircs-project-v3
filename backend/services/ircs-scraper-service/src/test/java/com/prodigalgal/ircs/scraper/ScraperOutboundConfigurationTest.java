@@ -17,10 +17,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 class ScraperOutboundConfigurationTest {
     @ParameterizedTest
     @ValueSource(strings = {"https://www.imdb.com/chart/", "https://v3.sg.media-imdb.com/suggestion/",
-            "https://movie.douban.com/chart", "https://www.rottentomatoes.com/browse"})
-    void forcesAuthorityRequestsThroughProxy(String url) throws Exception {
+            "https://movie.douban.com/chart", "https://www.rottentomatoes.com/browse", "https://source.example.test/list"})
+    void forcesPublicRequestsThroughProxy(String url) throws Exception {
         var transport = mock(OutboundTransport.class);
-        var guarded = ScraperOutboundConfiguration.protectAuthorityRequests(transport);
+        var guarded = ScraperOutboundConfiguration.requirePublicProxy(transport);
         var policy = OutboundHttpPolicy.publicFetch(Duration.ofSeconds(5));
 
         assertThatThrownBy(() -> guarded.send(OutboundHttpRequest.get(url, policy)))

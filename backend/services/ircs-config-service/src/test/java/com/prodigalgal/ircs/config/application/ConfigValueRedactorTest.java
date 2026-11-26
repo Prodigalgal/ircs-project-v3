@@ -42,6 +42,25 @@ class ConfigValueRedactorTest {
     }
 
     @Test
+    void redactsAuthoritySessionValuesFromStoredAndEffectiveSummaries() {
+        SystemConfigRecord record = new SystemConfigRecord(
+                UUID.randomUUID(),
+                "app.outbound.authority-session.cookie",
+                "stored-placeholder",
+                "Authority session cookie",
+                Instant.parse("2026-06-03T00:00:00Z"));
+
+        SystemConfigSummary summary = redactor.sanitize(
+                record,
+                "effective-placeholder",
+                "DEFAULT");
+
+        assertTrue(summary.sensitive());
+        assertNull(summary.value());
+        assertNull(summary.effectiveValue());
+    }
+
+    @Test
     void keepsNonSensitiveValues() {
         SystemConfigSummary summary = redactor.sanitize(new SystemConfigRecord(
                 UUID.randomUUID(),
