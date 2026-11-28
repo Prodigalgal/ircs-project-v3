@@ -146,8 +146,9 @@ class NativeRuntimeScopeTest(unittest.TestCase):
         self.assertEqual(b'{}', request.data)
 
     def magnet_runtime(self, durable_status='SUCCESS', candidate_status='CANDIDATE', queue_error=''):
-        fixture_ids = [uuid.UUID(int=value) for value in (1, 2, 3)]
-        unified_id, provider_id, job_id = map(str, fixture_ids)
+        fixture_ids = [uuid.UUID(int=value) for value in (1, 2, 3, 4, 5)]
+        unified_id, provider_id, job_id = map(str, fixture_ids[:3])
+        link_ids = [str(fixture_ids[3]), str(fixture_ids[4])]
         provider_code = 'native_fixture_' + provider_id.replace('-', '')
         task_id = 'magnet.search:' + job_id
         prefix = 'ircs:work:v1:magnet.search'
@@ -167,10 +168,11 @@ class NativeRuntimeScopeTest(unittest.TestCase):
                              'status': 'SUCCESS', 'candidate_count': 1,
                              'accepted_count': 1, 'request_url': 'fixture://native-smoke/' + query}
                             for query, value in queries.items()]
-                    links = [{'status': candidate_status, 'provider_code': provider_code,
-                              'provider_evidence': {'mode': 'fixture', 'identityDisposition': 'CANDIDATE'},
+                    links = [{'id': link_id, 'status': candidate_status, 'provider_code': provider_code,
+                              'provider_evidence': {'mode': 'fixture', 'identityDisposition': 'CANDIDATE',
+                                                    'sourceTrackerCount': 0},
                               'info_hash': letter * 40, 'magnet_uri': 'magnet:?xt=urn:btih:' + letter.lower() * 40}
-                             for letter in ('A', 'B')]
+                             for link_id, letter in zip(link_ids, ('A', 'B'))]
                     return json.dumps({'job': {'status': durable_status, 'finished_at': '2026-11-16T00:00:00Z',
                                               'provider_codes': [provider_code], 'total_candidates': 2, 'accepted_count': 2},
                                        'jobCount': 1, 'runs': runs, 'links': links})
@@ -200,9 +202,34 @@ class NativeRuntimeScopeTest(unittest.TestCase):
                 return state.get(command[2], '')
             return ''
 
-        def api(path, data=None, authenticated=False):
-            api_calls.append((path, data, authenticated))
-            return {'id': job_id} if data is not None else {'status': 'UP'}
+        review_status = {}
+
+        def api(path, data=None, authenticated=False, method=None):
+            api_calls.append((path, data, authenticated, method))
+            if path.startswith('/api/v1/magnets/search/unified/'):
+                return {'id': job_id}
+            if path.startswith('/api/v1/magnets/links?status=CANDIDATE&size=1&page='):
+                page = int(path.rsplit('=', 1)[1])
+                link_id = link_ids[page]
+                return {
+                    'content': [{'id': link_id, 'status': review_status.get(link_id, candidate_status)}],
+                    'page': {'number': page, 'size': 1, 'totalElements': 2, 'totalPages': 2,
+                             'first': page == 0, 'last': page == 1, 'numberOfElements': 1, 'empty': False},
+                }
+            if path.startswith('/api/v1/magnets/unified/') and path.endswith('/status') and method == 'PUT':
+                link_id = path.split('/')[-2]
+                review_status[link_id] = data['status']
+                return {'id': link_id, 'status': data['status']}
+            if path.startswith('/api/v1/magnets/unified/'):
+                approved_id = next((link_id for link_id, status in review_status.items()
+                                    if status == 'APPROVED'), None)
+                if not approved_id:
+                    return []
+                if review_status.get(approved_id) == 'HIDDEN':
+                    return []
+                return [{'id': approved_id, 'status': 'APPROVED', 'magnetUri': 'magnet:?xt=urn:btih:'
+                         + 'a' * 40 + '&tr=udp%3A%2F%2Ftracker.example%3A80', 'trackerCount': 1}]
+            return {'status': 'UP'}
 
         return fixture_ids, respond, api, state, sql_calls, api_calls, prefix, task_id
 
@@ -214,6 +241,10 @@ class NativeRuntimeScopeTest(unittest.TestCase):
             self.smoke.magnet_search_round_trip()
 
         self.assertEqual(2, len([call for call in api_calls if call[1] == {} and call[2]]))
+        self.assertTrue(any(call[0].endswith('size=1&page=0') for call in api_calls))
+        self.assertTrue(any(call[0].endswith('size=1&page=1') for call in api_calls))
+        self.assertEqual(['APPROVED', 'HIDDEN'], [call[1]['status'] for call in api_calls
+                                                   if call[3] == 'PUT'])
         seed = sql_calls[0]
         self.assertIn('UPDATE magnet_providers SET enabled=false', seed)
         self.assertIn("'2024',1,'series','tt1234567','SYNCED'", seed)

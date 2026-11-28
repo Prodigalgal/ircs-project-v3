@@ -202,8 +202,8 @@ databaseChangeLog:
   - include:
       file: db/changelog/2026/11/28-02-configure-magnet-trackers.sql
   - changeSet:
-      id: 1795900000001-tag-3.17.0
+      id: 1795900000001-tag-3.17.1
       author: codex
       changes:
         - tagDatabase:
-            tag: 3.17.0
+            tag: 3.17.1
