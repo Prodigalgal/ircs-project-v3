@@ -56,14 +56,52 @@ class MagnetSearchExecutorTest {
             return job(failed == 0 ? "SUCCESS" : ledger.stream().anyMatch(run -> run.status().equals("SUCCESS"))
                     ? "PARTIAL_SUCCESS" : "FAILED", call.getArgument(2), call.getArgument(3));
         });
-        when(repository.upsertLink(eq(videoId), any(), any(), anyBoolean())).thenAnswer(call -> {
+        when(repository.upsertLink(eq(videoId), any(), any(), anyBoolean(), nullable(String.class))).thenAnswer(call -> {
             MagnetProviderCandidate candidate = call.getArgument(2);
             boolean approved = call.getArgument(3);
-            return new MagnetLinkSummary(UUID.randomUUID(), videoId, "source", candidate.infoHash(), candidate.magnetUri(),
+            String uri = MagnetUriUtils.mergeMagnets(call.getArgument(4), candidate.magnetUri(),
+                    candidate.infoHash(), candidate.title());
+            return new MagnetLinkSummary(UUID.randomUUID(), videoId, "source", candidate.infoHash(), uri,
+                    MagnetUriUtils.trackersOf(uri).size(),
                     candidate.title(), null, null, null, null, null, null, null, candidate.matchedExternalIdType(),
                     candidate.matchedExternalIdValue(), candidate.matchScore(), approved ? "APPROVED" : "CANDIDATE",
                     null, List.of(), Instant.now(), Instant.now());
         });
+    }
+
+    @Test
+    void bareSourceLinkIsPersistedWithoutPublicTrackers() {
+        when(runner.search(any(), any(), eq(videoId)))
+                .thenReturn(response(candidate("Example 2026 1080p WEB-DL", Map.of("titleSource", "CANDIDATE"))));
+
+        executor.execute(jobId, videoId, "ADMIN_MANUAL", true);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(MagnetProviderCandidate.class);
+        verify(repository).upsertLink(eq(videoId), any(), captor.capture(), anyBoolean(), isNull());
+        MagnetProviderCandidate persisted = captor.getValue();
+        assertEquals(List.of(), MagnetUriUtils.trackersOf(persisted.magnetUri()));
+        assertEquals(0, persisted.providerEvidence().get("sourceTrackerCount"));
+    }
+
+    @Test
+    void aRepeatedHashUsesTheLatestMergedUriAndPrefetchesOnce() {
+        var bare = candidate("Example 2026 1080p WEB-DL", Map.of("titleSource", "CANDIDATE"));
+        String sourceTracker = "udp://source.example:1337/announce";
+        String richUri = MagnetUriUtils.ensureTrackers(bare.magnetUri(), List.of(sourceTracker));
+        String savedUri = MagnetUriUtils.mergeMagnets(null, richUri, bare.infoHash(), bare.title());
+        var rich = new MagnetProviderCandidate(bare.infoHash(), richUri, bare.title(), null, null, null,
+                null, null, null, null, "IMDB", "tt1234567", 100, null, List.of(), bare.providerEvidence());
+        when(runner.search(any(), any(), eq(videoId)))
+                .thenReturn(new MagnetProviderSearchResult(null, 200, List.of(rich, bare)));
+
+        var result = executor.execute(jobId, videoId, "ADMIN_MANUAL", true);
+        var captor = org.mockito.ArgumentCaptor.forClass(MagnetProviderCandidate.class);
+        verify(repository).findStoredMagnetUris(videoId, List.of(bare.infoHash()));
+        verify(repository).upsertLink(eq(videoId), any(), captor.capture(), anyBoolean(), isNull());
+        assertEquals(1, captor.getValue().providerEvidence().get("sourceTrackerCount"));
+        verify(repository).upsertLink(eq(videoId), any(), captor.capture(), anyBoolean(), eq(savedUri));
+        assertEquals(0, captor.getValue().providerEvidence().get("sourceTrackerCount"));
+        assertEquals(List.of(sourceTracker), MagnetUriUtils.trackersOf(result.links().getLast().magnetUri()));
     }
 
     @Test
@@ -92,7 +130,7 @@ class MagnetSearchExecutorTest {
         when(runner.search(any(), any(), any())).thenReturn(response(candidate("Example S02E03 1080p", Map.of("titleSource", "CANDIDATE"))));
         var result = executor.execute(jobId, videoId, "ADMIN_MANUAL", true);
         assertEquals(1, result.rejectedCount());
-        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean());
+        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean(), nullable(String.class));
     }
 
     @Test
@@ -102,7 +140,7 @@ class MagnetSearchExecutorTest {
                 null, null, null, null, null, null, null, "IMDB", "tt1234567", 100, null, List.of(), original.providerEvidence());
         when(runner.search(any(), any(), any())).thenReturn(response(invalid));
         assertEquals(0, executor.execute(jobId, videoId, "ADMIN_MANUAL", true).acceptedCount());
-        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean());
+        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean(), nullable(String.class));
     }
 
     @Test
@@ -140,7 +178,7 @@ class MagnetSearchExecutorTest {
         verify(coordinator).retry(any(), eq("MAGNET_EXECUTION_RETRY_PENDING"));
         assertEquals("SUCCESS", publishingExecutor.execute(jobId, videoId, "AUTO_SCHEDULED", true).status());
         verify(runner).search(any(), any(), eq(videoId));
-        verify(repository).upsertLink(eq(videoId), any(), any(), anyBoolean());
+        verify(repository).upsertLink(eq(videoId), any(), any(), anyBoolean(), nullable(String.class));
         verify(cache, times(2)).evictApprovedLinks(videoId);
         verify(searchSync, times(2)).enqueue(videoId, SearchEntityType.UNIFIED_VIDEO, SyncOperation.INDEX);
     }
@@ -232,7 +270,7 @@ class MagnetSearchExecutorTest {
         assertSame(delivered, executor.execute(jobId, videoId, "ADMIN_MANUAL", true));
 
         verifyNoInteractions(runner);
-        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean());
+        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean(), nullable(String.class));
         verify(repository, never()).finishSearchJob(any(), anyList(), anyInt(), anyInt(), anyInt());
     }
 
@@ -259,7 +297,7 @@ class MagnetSearchExecutorTest {
         assertThrows(MagnetSearchJobCoordinator.MagnetLeaseLostException.class,
                 () -> executor.execute(jobId, videoId, "ADMIN_MANUAL", true));
         verifyNoInteractions(runner);
-        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean());
+        verify(repository, never()).upsertLink(any(), any(), any(), anyBoolean(), nullable(String.class));
     }
 
     @Test
@@ -324,4 +362,5 @@ class MagnetSearchExecutorTest {
         when(provider.getIfAvailable()).thenReturn(value);
         return provider;
     }
+
 }

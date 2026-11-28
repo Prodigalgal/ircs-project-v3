@@ -2,13 +2,10 @@ package com.prodigalgal.ircs.magnet;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import com.prodigalgal.ircs.common.outbound.DefaultOutboundAddressResolver;
-import com.prodigalgal.ircs.common.outbound.JdkOutboundTransport;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpClient;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpPolicy;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpRequest;
 import com.prodigalgal.ircs.common.outbound.OutboundHttpResponse;
-import com.prodigalgal.ircs.common.outbound.OutboundUrlPolicy;
 import com.prodigalgal.ircs.common.outbound.PublicOutboundProxyPool;
 import java.io.IOException;
 import java.net.URI;
@@ -322,10 +319,7 @@ class YtsBzMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
         private final OutboundHttpClient httpClient;
 
         SharedOutboundYtsBzHttpClient(PublicOutboundProxyPool proxyPool) {
-            this(new OutboundHttpClient(
-                    new OutboundUrlPolicy(new DefaultOutboundAddressResolver()),
-                    new JdkOutboundTransport(),
-                    proxyPool));
+            this(MagnetOutboundHttp.client(proxyPool));
         }
 
         SharedOutboundYtsBzHttpClient(OutboundHttpClient httpClient) {

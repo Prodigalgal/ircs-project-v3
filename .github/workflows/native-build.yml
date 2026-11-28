@@ -465,9 +465,11 @@ jobs:
         run: bash backend/scripts/ci/native-consumer-smoke.sh
 
   manifests:
-    needs: [prepare, native-images, native-consumer-smoke, python-images, frontend-images]
+    needs: [prepare, java-tests, python-tests, native-images, native-consumer-smoke, python-images, frontend-images]
     if: >-
       ${{ always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.has_selected == 'true'
+          && (needs.prepare.outputs.java_tests != 'true' || needs.java-tests.result == 'success')
+          && (needs.prepare.outputs.python_tests != 'true' || needs.python-tests.result == 'success')
           && (needs.prepare.outputs.images == '[]' || (needs.native-images.result == 'success' && needs.native-consumer-smoke.result == 'success'))
           && (needs.prepare.outputs.python_changed != 'true' || needs.python-images.result == 'success')
           && (needs.prepare.outputs.frontends == '[]' || needs.frontend-images.result == 'success') }}

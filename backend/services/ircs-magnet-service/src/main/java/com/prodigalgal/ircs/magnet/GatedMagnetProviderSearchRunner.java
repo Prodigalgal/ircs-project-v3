@@ -24,7 +24,7 @@ class GatedMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
     private static final String FIXTURE_DISABLED = "MAGNET_FIXTURE_DISABLED";
     private static final Set<String> GENERIC_PROVIDER_TYPES = Set.of(
             "THE_PIRATE_BAY", "APIBAY", "EZTV", "EZTVX", "THE_PIRATE_BAY_FRONTEND", "TPB_FRONTEND",
-            "EXT_TO", "NYAA", "BT4G", "TORRENT_GALAXY", "SOLIDTORRENTS", "GENERIC_HTML");
+            "EXT_TO", "NYAA", "BT4G", "TORRENT_GALAXY", "SOLIDTORRENTS", "GENERIC_HTML", "THE_RARBG");
     private static final Profiles FIXTURE_PROFILES = Profiles.of("dev", "test", "native-smoke");
 
     private final MagnetProviderSearchRunner fixtureRunner;
@@ -41,7 +41,7 @@ class GatedMagnetProviderSearchRunner implements MagnetProviderSearchRunner {
             GenericMagnetProviderSearchRunner genericRunner,
             ObjectProvider<RuntimeConfigService> runtimeConfigProvider,
             @Value("${app.magnet.real-provider.enabled:false}") boolean realProviderEnabled,
-            @Value("${app.magnet.real-provider.allowlist:YTS_BZ,THE_PIRATE_BAY,EZTV,EXT_TO,THE_PIRATE_BAY_FRONTEND}")
+            @Value("${app.magnet.real-provider.allowlist:YTS_BZ,THE_PIRATE_BAY,EZTV,THE_RARBG}")
                     String realProviderAllowlist,
             Environment environment,
             @Value("${app.magnet.fixture.enabled:false}") boolean fixtureEnabled) {

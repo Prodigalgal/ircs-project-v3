@@ -6,3 +6,12 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
     testImplementation 'com.h2database:h2'
 }
+
+tasks.withType(Test).configureEach {
+    ['ircs.smoke.magnet', 'ircs.smoke.proxy'].each { key ->
+        def value = providers.systemProperty(key)
+        if (value.present) {
+            systemProperty key, value.get()
+        }
+    }
+}

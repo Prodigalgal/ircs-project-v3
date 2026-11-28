@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 registry = os.environ['REGISTRY']
@@ -104,7 +105,7 @@ def requires_search_fixture():
     return 'ircs-search-service' in selected_services
 
 
-def request(path, data=None, broker=False, authenticated=False):
+def request(path, data=None, broker=False, authenticated=False, method=None):
     url = ('http://127.0.0.1:15672' if broker else f'http://127.0.0.1:{current_port}') + path
     headers = {'Content-Type': 'application/json'}
     if broker:
@@ -112,11 +113,11 @@ def request(path, data=None, broker=False, authenticated=False):
     elif authenticated:
         headers['Authorization'] = admin_authorization
         if current_service != 'ircs-api-gateway':
-            headers.update(signed_identity_headers(path, method='POST' if data is not None else 'GET'))
+            headers.update(signed_identity_headers(path, method=method or ('POST' if data is not None else 'GET')))
             headers.update({'X-IRCS-SERVICE-ID': 'native-smoke', 'X-IRCS-SERVICE-TOKEN': password,
                             'X-IRCS-SERVICE-SCOPES': 'ops:read,ops:run'})
     payload = json.dumps(data, ensure_ascii=False).encode() if data is not None else None
-    with urlopen(Request(url, data=payload, headers=headers), timeout=5) as response:
+    with urlopen(Request(url, data=payload, headers=headers, method=method), timeout=5) as response:
         return json.load(response)
 
 
@@ -143,7 +144,7 @@ def queue(name):
         raise
 
 
-def start(service, values, container_name='ircs-native-consumer', listen_port=18080):
+def start(service, values, container_name='ircs-native-consumer', listen_port=18080, baseline=False):
     global current_service, current_port
     current_service = service
     current_port = listen_port
@@ -177,7 +178,7 @@ def start(service, values, container_name='ircs-native-consumer', listen_port=18
             '-p', f'127.0.0.1:{listen_port}:8080', '--memory', '1g']
     for key, value in common.items():
         args += ['-e', f'{key}={value}']
-    docker(*args, image(service), '-Xmx384m')
+    docker(*args, image_refs[service] if baseline else image(service), '-Xmx384m')
 
     def ready():
         state = json.loads(docker('inspect', '--format', '{{json .State}}', container_name))
@@ -186,7 +187,8 @@ def start(service, values, container_name='ircs-native-consumer', listen_port=18
         return request('/actuator/health/readiness')['status'] == 'UP'
 
     wait_for(f'{service} health', ready)
-    assert request('/actuator/info')['build']['version'] == version_for(service), service
+    expected_version = module_versions[service] if baseline else version_for(service)
+    assert request('/actuator/info')['build']['version'] == expected_version, service
     with urlopen(f'http://127.0.0.1:{listen_port}/actuator/prometheus', timeout=5) as response:
         metrics = response.read().decode()
     maxima = re.findall(r'^(?:hikaricp_connections_max|jdbc_connections_max)(?:\{[^\n]*\})? ([\d.]+)', metrics, re.M)
@@ -672,6 +674,26 @@ def magnet_search_round_trip():
             'Native magnet info hashes must use canonical uppercase hexadecimal'
         assert all('xt=urn:btih:' + link['info_hash'].lower() in link['magnet_uri'].lower() for link in links), \
             'Native magnet URI must encode the same hash, allowing equivalent hexadecimal letter case'
+        assert all(link['provider_evidence']['sourceTrackerCount'] == 0
+                   and 'tr' not in parse_qs(urlsplit(link['magnet_uri']).query) for link in links), \
+            'Generated public trackers must stay out of source rows'
+        queue_path = '/api/v1/magnets/links?status=CANDIDATE&size=1&page='
+        first = request(queue_path + '0', authenticated=True)
+        last = request(queue_path + '1', authenticated=True)
+        assert first['page']['totalElements'] == 2 and not first['page']['last'] and last['page']['last']
+        assert {first['content'][0]['id'], last['content'][0]['id']} == {link['id'] for link in links}
+
+        delivery_path = '/api/v1/magnets/unified/' + unified_id
+        status_path = delivery_path + '/links/' + first['content'][0]['id'] + '/status'
+        assert request(delivery_path, authenticated=True) == [], 'Unreviewed links must stay out of delivery'
+        approved = request(status_path, {'status': 'APPROVED'}, authenticated=True, method='PUT')
+        assert approved['status'] == 'APPROVED'
+        delivered = request(delivery_path, authenticated=True)
+        assert [link['id'] for link in delivered] == [approved['id']]
+        trackers = parse_qs(urlsplit(delivered[0]['magnetUri']).query).get('tr', [])
+        assert trackers and len(set(trackers)) == delivered[0]['trackerCount']
+        request(status_path, {'status': 'HIDDEN'}, authenticated=True, method='PUT')
+        assert request(delivery_path, authenticated=True) == [], 'Hiding must evict the approved link'
 
         def pool_released():
             state = json.loads(sql(
@@ -683,7 +705,8 @@ def magnet_search_round_trip():
         wait_for('Native magnet database transactions released', pool_released)
         assert request('/actuator/health/readiness')['status'] == 'UP', 'Native magnet must remain healthy after work'
         print('Native magnet: signed duplicate publishing preserved claim ownership; real queue consumption, '
-              'short transactions, durable provider runs and candidate safety verified with a two-connection pool.', flush=True)
+              'short transactions, candidate pagination, review and cached delivery verified with a two-connection pool.',
+              flush=True)
     finally:
         for lane in ('pending', 'inflight', 'dlq'):
             redis('ZREM', prefix + ':' + lane, task_id)
@@ -765,6 +788,19 @@ def main():
                 print(f'Native startup failed: {service}: {detail}', flush=True)
             finally:
                 failures.extend(f'{service}: {error}' for error in stop())
+        if 'ircs-magnet-service' in selected_services and 'ircs-migrator' in selected_services and 'ircs-magnet-service' in image_refs:
+            service = 'ircs-magnet-service'
+            try:
+                start(service, {'APP_MAGNET_AUTO_SEARCH_ENABLED': 'false',
+                                'APP_MAGNET_RECOVERY_ENABLED': 'false',
+                                'APP_MAGNET_REAL_PROVIDER_ENABLED': 'false'}, baseline=True)
+                assert request('/api/v1/magnets/unified/00000000-0000-0000-0000-000000000001',
+                               authenticated=True) == []
+                print('Baseline Native magnet reads the upgraded database for rollback.', flush=True)
+            except Exception as error:
+                failures.append(f'Magnet rollback: {type(error).__name__}')
+            finally:
+                failures.extend(f'Magnet rollback: {error}' for error in stop())
         # A changed gateway must exercise both forwarding contracts with unchanged
         # verified backend fixtures; their versions remain the ledger versions.
         if 'ircs-api-gateway' in selected_services:

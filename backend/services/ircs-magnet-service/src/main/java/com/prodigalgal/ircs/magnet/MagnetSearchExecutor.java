@@ -215,29 +215,61 @@ final class MagnetSearchExecutor {
 
     private List<MagnetLinkSummary> persistCandidates(MagnetUnifiedVideoSearchTarget target,
             MagnetProviderSummary provider, List<MagnetProviderCandidate> candidates) {
+        var identity = new MagnetCandidateIdentityPolicy.Target(target.title(), target.subtitle(), target.aliasTitle(),
+                year(target.year()), target.season(), target.categoryCode(), target.imdbId(), target.tmdbId(), target.doubanId());
+        List<VerifiedCandidate> verified = candidates.stream()
+                .map(candidate -> verifyCandidate(identity, candidate))
+                .filter(Objects::nonNull)
+                .toList();
+        if (verified.isEmpty()) {
+            return List.of();
+        }
+        List<String> hashes = verified.stream()
+                .map(match -> match.candidate().infoHash())
+                .distinct()
+                .toList();
+        // The coordinator holds the video lock during this batch. Keep it current for repeated hashes.
+        Map<String, String> storedUris = new LinkedHashMap<>(repository.findStoredMagnetUris(target.id(), hashes));
         List<MagnetLinkSummary> links = new ArrayList<>();
-        for (MagnetProviderCandidate candidate : candidates) {
-            if (candidate == null || candidate.title() == null || candidate.title().isBlank()) { continue; }
-            String hash = MagnetUriUtils.normalizeInfoHash(candidate.infoHash()).orElse(null);
-            String uriHash = MagnetUriUtils.normalizeInfoHash(candidate.magnetUri()).orElse(null);
-            if (hash == null || !hash.equals(uriHash)) { continue; }
-            var identity = new MagnetCandidateIdentityPolicy.Target(target.title(), target.subtitle(), target.aliasTitle(),
-                    year(target.year()), target.season(), target.categoryCode(), target.imdbId(), target.tmdbId(), target.doubanId());
-            var decision = MagnetCandidateIdentityPolicy.evaluate(identity, candidate);
-            if (decision.disposition() == MagnetCandidateIdentityPolicy.Disposition.REJECT) { continue; }
-            Map<String, Object> evidence = new LinkedHashMap<>();
-            if (candidate.providerEvidence() != null) { evidence.putAll(candidate.providerEvidence()); }
-            evidence.put("identityPolicy", "v1");
-            evidence.put("identityDisposition", decision.disposition().name());
-            evidence.put("identityReason", decision.reason());
-            MagnetProviderCandidate verified = new MagnetProviderCandidate(hash, candidate.magnetUri(), candidate.title(),
-                    candidate.sizeBytes(), candidate.sizeLabel(), candidate.publishedAt(), candidate.seeders(), candidate.leechers(),
-                    candidate.quality(), candidate.resolution(), candidate.matchedExternalIdType(), candidate.matchedExternalIdValue(),
-                    decision.score(), candidate.sourceUrl(), candidate.tags(), evidence);
-            links.add(repository.upsertLink(target.id(), provider, verified,
-                    decision.disposition() == MagnetCandidateIdentityPolicy.Disposition.AUTO_APPROVE));
+        for (VerifiedCandidate match : verified) {
+            MagnetProviderCandidate candidate = match.candidate();
+            MagnetLinkSummary saved = repository.upsertLink(target.id(), provider, candidate,
+                    match.autoApprove(), storedUris.get(candidate.infoHash()));
+            storedUris.put(candidate.infoHash(), saved.magnetUri());
+            links.add(saved);
         }
         return links;
+    }
+
+    private VerifiedCandidate verifyCandidate(MagnetCandidateIdentityPolicy.Target identity, MagnetProviderCandidate candidate) {
+        if (candidate == null || candidate.title() == null || candidate.title().isBlank()) {
+            return null;
+        }
+        String hash = MagnetUriUtils.normalizeInfoHash(candidate.infoHash()).orElse(null);
+        String uriHash = MagnetUriUtils.normalizeInfoHash(candidate.magnetUri()).orElse(null);
+        if (hash == null || !hash.equals(uriHash)) {
+            return null;
+        }
+        var decision = MagnetCandidateIdentityPolicy.evaluate(identity, candidate);
+        if (decision.disposition() == MagnetCandidateIdentityPolicy.Disposition.REJECT) {
+            return null;
+        }
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        if (candidate.providerEvidence() != null) {
+            evidence.putAll(candidate.providerEvidence());
+        }
+        evidence.put("identityPolicy", "v1");
+        evidence.put("identityDisposition", decision.disposition().name());
+        evidence.put("identityReason", decision.reason());
+        evidence.put("sourceTrackerCount", MagnetUriUtils.trackersOf(candidate.magnetUri()).size());
+        var verified = new MagnetProviderCandidate(hash, candidate.magnetUri(), candidate.title(),
+                candidate.sizeBytes(), candidate.sizeLabel(), candidate.publishedAt(), candidate.seeders(), candidate.leechers(),
+                candidate.quality(), candidate.resolution(), candidate.matchedExternalIdType(), candidate.matchedExternalIdValue(),
+                decision.score(), candidate.sourceUrl(), candidate.tags(), evidence);
+        return new VerifiedCandidate(verified, decision.disposition() == MagnetCandidateIdentityPolicy.Disposition.AUTO_APPROVE);
+    }
+
+    private record VerifiedCandidate(MagnetProviderCandidate candidate, boolean autoApprove) {
     }
 
     private Map<String, MagnetProviderRunSummary> latestRuns(UUID jobId) {

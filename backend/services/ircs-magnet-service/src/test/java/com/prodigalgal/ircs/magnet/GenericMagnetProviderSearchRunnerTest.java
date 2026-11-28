@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.magnet;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -43,8 +44,11 @@ class GenericMagnetProviderSearchRunnerTest {
         assertEquals(1, result.candidates().size());
         MagnetProviderCandidate candidate = result.candidates().getFirst();
         assertEquals("ABCDEF1234567890ABCDEF1234567890ABCDEF12", candidate.infoHash());
+        // apibay publishes only an info hash, so the runner builds the identity part; the announce list
+        // is appended once downstream, in MagnetSearchExecutor.persistCandidates.
         assertEquals(
-                "magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12&dn=Codex%20Movie%202026%201080p%20WEB-DL",
+                "magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12"
+                        + "&dn=Codex%20Movie%202026%201080p%20WEB-DL",
                 candidate.magnetUri());
         assertEquals("Codex Movie 2026 1080p WEB-DL", candidate.title());
         assertEquals(1503238553L, candidate.sizeBytes());

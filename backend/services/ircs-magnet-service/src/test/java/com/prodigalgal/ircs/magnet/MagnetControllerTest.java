@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -38,6 +40,87 @@ class MagnetControllerTest {
 
         assertEquals(List.of(provider), controller.listProviders().getBody());
         verify(magnetQueryService).listProviders();
+    }
+
+    /**
+     * A provider that does not auto-approve writes CANDIDATE rows. Before this endpoint existed the
+     * only read path filtered APPROVED, so those rows could not be listed at all and the status
+     * endpoint was unreachable in practice.
+     */
+    @Test
+    void listsLinksByStatusSoTheReviewQueueIsEnumerable() throws Exception {
+        MagnetLinkSummary candidate = link("CANDIDATE");
+        when(magnetQueryService.findLinksByStatus("CANDIDATE", 50, 0)).thenReturn(List.of(candidate));
+        when(magnetQueryService.countLinksByStatus("CANDIDATE")).thenReturn(1L);
+
+        mockMvc.perform(get("/api/v1/magnets/links"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("CANDIDATE"))
+                .andExpect(jsonPath("$.content[0].infoHash").value(candidate.infoHash()))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    void mapsCanonicalPageArgumentsToRowOffsetsAndReportsThePageNumber() throws Exception {
+        when(magnetQueryService.findLinksByStatus("CANDIDATE", 25, 50)).thenReturn(List.of(link("CANDIDATE")));
+        when(magnetQueryService.countLinksByStatus("CANDIDATE")).thenReturn(120L);
+
+        mockMvc.perform(get("/api/v1/magnets/links")
+                        .param("status", "CANDIDATE")
+                        .param("page", "2")
+                        .param("size", "25"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.number").value(2))
+                .andExpect(jsonPath("$.page.size").value(25))
+                .andExpect(jsonPath("$.page.totalElements").value(120));
+    }
+
+    @Test
+    void normalizesValidStatusBeforeQuerying() throws Exception {
+        when(magnetQueryService.findLinksByStatus("CANDIDATE", 10, 0)).thenReturn(List.of());
+        when(magnetQueryService.countLinksByStatus("CANDIDATE")).thenReturn(0L);
+
+        mockMvc.perform(get("/api/v1/magnets/links").param("status", " candidate ").param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(10));
+
+        verify(magnetQueryService).findLinksByStatus("CANDIDATE", 10, 0);
+        verify(magnetQueryService).countLinksByStatus("CANDIDATE");
+    }
+
+    @Test
+    void rejectsUnsupportedStatusBeforeQuerying() throws Exception {
+        mockMvc.perform(get("/api/v1/magnets/links").param("status", "PENDING"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(magnetQueryService);
+    }
+
+    @Test
+    void rejectsInvalidPageSizeAndPageValuesBeforeQuerying() throws Exception {
+        mockMvc.perform(get("/api/v1/magnets/links").param("page", "-1"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/magnets/links").param("size", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/magnets/links").param("size", "201"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/magnets/links")
+                        .param("page", String.valueOf(Integer.MAX_VALUE))
+                        .param("size", "200"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(magnetQueryService);
+    }
+
+    private MagnetLinkSummary link(String status) {
+        return new MagnetLinkSummary(
+                UUID.randomUUID(), UUID.randomUUID(), "therarbg",
+                "ABCDEF1234567890ABCDEF1234567890ABCDEF12",
+                "magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12",
+                0, // trackerCount
+                "Codex Movie 2026", 1503238553L, "1.4 GB", Instant.parse("2026-06-08T12:34:56Z"),
+                25, 3, "1080P", "1080P", "IMDB", "tt1234567", 95, status,
+                "https://therarbg.com/post-detail/1/x/", List.of("therarbg"), Instant.now(), Instant.now());
     }
 
     @Test
@@ -100,6 +183,7 @@ class MagnetControllerTest {
                 "yts_bz",
                 "abcdef123456",
                 "magnet:?xt=urn:btih:abcdef123456",
+                0, // trackerCount
                 "Codex Movie",
                 1024L,
                 "1 KB",
@@ -133,6 +217,7 @@ class MagnetControllerTest {
                 "yts_bz",
                 "abcdef1234567890abcdef1234567890abcdef12",
                 "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+                0, // trackerCount
                 "Codex Fixture",
                 1024L,
                 "1 KB",

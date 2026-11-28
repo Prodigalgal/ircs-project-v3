@@ -197,3 +197,13 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: 3.12.1
+  - include:
+      file: db/changelog/2026/11/28-01-add-magnet-provider-therarbg.sql
+  - include:
+      file: db/changelog/2026/11/28-02-configure-magnet-trackers.sql
+  - changeSet:
+      id: 1795900000001-tag-3.17.0
+      author: codex
+      changes:
+        - tagDatabase:
+            tag: 3.17.0

@@ -12,6 +12,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -22,14 +24,17 @@ public class MagnetQueryService {
     private final MagnetReadModelCache readModelCache;
     private final SearchSyncWorkPublisher searchSyncWorkPublisher;
     private final MagnetSearchExecutor searchExecutor;
+    private final MagnetTrackerConfigValues trackerConfig;
 
     public MagnetQueryService(JdbcMagnetRepository magnetRepository, MagnetReadModelCache readModelCache,
-            ObjectProvider<SearchSyncWorkPublisher> searchSyncWorkPublisherProvider, MagnetSearchExecutor searchExecutor) {
+            ObjectProvider<SearchSyncWorkPublisher> searchSyncWorkPublisherProvider, MagnetSearchExecutor searchExecutor,
+            MagnetTrackerConfigValues trackerConfig) {
         this.magnetRepository = magnetRepository;
         this.readModelCache = readModelCache;
         this.searchSyncWorkPublisher = searchSyncWorkPublisherProvider == null
                 ? null : searchSyncWorkPublisherProvider.getIfAvailable();
         this.searchExecutor = searchExecutor;
+        this.trackerConfig = trackerConfig;
     }
 
     public List<MagnetProviderSummary> listProviders() {
@@ -71,12 +76,32 @@ public class MagnetQueryService {
     }
 
     public List<MagnetLinkSummary> findApprovedLinks(UUID unifiedVideoId) {
-        return readModelCache.findApprovedLinks(unifiedVideoId, () -> magnetRepository.findApprovedLinks(unifiedVideoId));
+        List<MagnetLinkSummary> links = readModelCache.findApprovedLinks(
+                unifiedVideoId, () -> magnetRepository.findApprovedLinks(unifiedVideoId));
+        if (links.isEmpty()) {
+            return links;
+        }
+        List<String> trackers = trackerConfig.trackers();
+        if (trackers.isEmpty()) {
+            return links;
+        }
+        return links.stream()
+                .map(link -> link.withMagnetUri(MagnetUriUtils.ensureTrackers(link.magnetUri(), trackers)))
+                .toList();
     }
 
     public List<MagnetLinkSummary> findLinks(UUID unifiedVideoId) {
         ensureUnifiedVideoExists(unifiedVideoId);
         return magnetRepository.findLinks(unifiedVideoId);
+    }
+
+    /** One page of links in a given status, so the review queue can actually be enumerated. */
+    public List<MagnetLinkSummary> findLinksByStatus(String status, int limit, int offset) {
+        return magnetRepository.findLinksByStatus(status, limit, offset);
+    }
+
+    public long countLinksByStatus(String status) {
+        return magnetRepository.countLinksByStatus(status);
     }
 
     public List<MagnetSearchJobSummary> findSearchJobs(UUID unifiedVideoId, int limit) {
@@ -124,8 +149,7 @@ public class MagnetQueryService {
         String status = normalizeLinkStatus(request == null ? null : request.status());
         MagnetLinkSummary link = magnetRepository.updateLinkStatus(unifiedVideoId, linkId, status)
                 .orElseThrow(() -> notFound("Magnet link not found"));
-        readModelCache.evictApprovedLinks(unifiedVideoId);
-        enqueueSearchSync(unifiedVideoId);
+        publishLinkChangeAfterCommit(unifiedVideoId);
         return link;
     }
 
@@ -135,6 +159,23 @@ public class MagnetQueryService {
         if (!magnetRepository.deleteLink(unifiedVideoId, linkId)) {
             throw notFound("Magnet link not found");
         }
+        publishLinkChangeAfterCommit(unifiedVideoId);
+    }
+
+    private void publishLinkChangeAfterCommit(UUID unifiedVideoId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publishLinkChange(unifiedVideoId);
+                }
+            });
+            return;
+        }
+        publishLinkChange(unifiedVideoId);
+    }
+
+    private void publishLinkChange(UUID unifiedVideoId) {
         readModelCache.evictApprovedLinks(unifiedVideoId);
         enqueueSearchSync(unifiedVideoId);
     }

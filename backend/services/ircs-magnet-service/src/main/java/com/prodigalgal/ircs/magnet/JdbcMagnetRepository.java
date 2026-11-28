@@ -8,6 +8,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -222,8 +224,64 @@ public class JdbcMagnetRepository {
                 unifiedVideoId);
     }
 
-    public void updateProviderHealth(UUID providerId, String status, String error) {
-        jdbcTemplate.update("""
+    /**
+     * Links waiting for review, newest and best-scored first.
+     *
+     * <p>Without this a provider whose {@code auto_approve_allowed} is false writes rows that nothing
+     * can read: the public path only lists {@code APPROVED}, and the status endpoint needs an id the
+     * operator has no way to discover. This is the enumeration that review workflow was missing.
+     */
+    public List<MagnetLinkSummary> findLinksByStatus(String status, int limit, int offset) {
+        String normalizedStatus = status == null || status.isBlank()
+                ? "CANDIDATE"
+                : status.trim().toUpperCase(java.util.Locale.ROOT);
+        return jdbcTemplate.query(
+                """
+                select id,
+                       unified_video_id,
+                       provider_code,
+                       info_hash,
+                       magnet_uri,
+                       title,
+                       size_bytes,
+                       size_label,
+                       published_at,
+                       seeders,
+                       leechers,
+                       quality,
+                       resolution,
+                       matched_external_id_type,
+                       matched_external_id_value,
+                       match_score,
+                       status,
+                       source_url,
+                       tags::text as tags,
+                       created_at,
+                       updated_at
+                from magnet_links
+                where status = ?
+                order by match_score desc nulls last,
+                         seeders desc nulls last,
+                         created_at desc,
+                         id asc
+                limit ? offset ?
+                """,
+                linkMapper(),
+                normalizedStatus,
+                Math.max(1, Math.min(limit, 200)),
+                Math.max(0, offset));
+    }
+
+    public long countLinksByStatus(String status) {
+        String normalizedStatus = status == null || status.isBlank()
+                ? "CANDIDATE"
+                : status.trim().toUpperCase(java.util.Locale.ROOT);
+        Long count = jdbcTemplate.queryForObject(
+                "select count(*) from magnet_links where status = ?", Long.class, normalizedStatus);
+        return count == null ? 0L : count;
+    }
+
+    public void updateProviderHealth(UUID providerId, String status, String error) {        jdbcTemplate.update("""
                 update magnet_providers
                 set last_health_check_at = clock_timestamp(), last_health_status = ?, last_error_message = ?
                 where id = ?
@@ -726,15 +784,51 @@ public class JdbcMagnetRepository {
         return upsertLink(unifiedVideoId, provider, candidate, Boolean.TRUE.equals(provider.autoApproveAllowed()));
     }
 
+    Map<String, String> findStoredMagnetUris(UUID unifiedVideoId, Collection<String> infoHashes) {
+        if (unifiedVideoId == null || infoHashes.isEmpty()) {
+            return Map.of();
+        }
+        return namedParameterJdbcTemplate.query(
+                """
+                select info_hash, magnet_uri
+                from magnet_links
+                where unified_video_id = :unifiedVideoId
+                  and info_hash in (:infoHashes)
+                """,
+                Map.of("unifiedVideoId", unifiedVideoId, "infoHashes", infoHashes),
+                rs -> {
+                    Map<String, String> uris = new HashMap<>();
+                    while (rs.next()) {
+                        uris.put(rs.getString("info_hash"), rs.getString("magnet_uri"));
+                    }
+                    return uris;
+                });
+    }
+
     public MagnetLinkSummary upsertLink(
             UUID unifiedVideoId,
             MagnetProviderSummary provider,
             MagnetProviderCandidate candidate,
             boolean autoApprove) {
+        String storedUri = MagnetUriUtils.normalizeInfoHash(candidate.infoHash())
+                .map(hash -> findStoredMagnetUris(unifiedVideoId, List.of(hash)).get(hash))
+                .orElse(null);
+        return upsertLink(unifiedVideoId, provider, candidate, autoApprove, storedUri);
+    }
+
+    MagnetLinkSummary upsertLink(
+            UUID unifiedVideoId,
+            MagnetProviderSummary provider,
+            MagnetProviderCandidate candidate,
+            boolean autoApprove,
+            String storedUri) {
         UUID linkId = IrcsUuidGenerators.nextId();
         Timestamp now = Timestamp.from(Instant.now());
         String status = autoApprove && Boolean.TRUE.equals(provider.autoApproveAllowed()) ? "APPROVED" : "CANDIDATE";
-        MapSqlParameterSource params = linkParams(linkId, now, unifiedVideoId, provider, candidate, status);
+        String magnetUri = MagnetUriUtils.mergeMagnets(
+                storedUri, candidate.magnetUri(), candidate.infoHash(), candidate.title());
+        MapSqlParameterSource params = linkParams(
+                linkId, now, unifiedVideoId, provider, candidate, magnetUri, status);
         namedParameterJdbcTemplate.update(
                 """
                 insert into magnet_links (
@@ -972,6 +1066,7 @@ public class JdbcMagnetRepository {
             UUID unifiedVideoId,
             MagnetProviderSummary provider,
             MagnetProviderCandidate candidate,
+            String magnetUri,
             String status) {
         return new MapSqlParameterSource()
                 .addValue("id", linkId)
@@ -980,7 +1075,7 @@ public class JdbcMagnetRepository {
                 .addValue("providerId", provider.id())
                 .addValue("providerCode", provider.code())
                 .addValue("infoHash", candidate.infoHash())
-                .addValue("magnetUri", candidate.magnetUri())
+                .addValue("magnetUri", magnetUri)
                 .addValue("title", candidate.title())
                 .addValue("sizeBytes", candidate.sizeBytes())
                 .addValue("sizeLabel", candidate.sizeLabel())
@@ -1160,28 +1255,32 @@ public class JdbcMagnetRepository {
     }
 
     private RowMapper<MagnetLinkSummary> linkMapper() {
-        return (rs, rowNum) -> new MagnetLinkSummary(
-                rs.getObject("id", UUID.class),
-                rs.getObject("unified_video_id", UUID.class),
-                rs.getString("provider_code"),
-                rs.getString("info_hash"),
-                rs.getString("magnet_uri"),
-                rs.getString("title"),
-                getLong(rs, "size_bytes"),
-                rs.getString("size_label"),
-                toInstant(rs.getTimestamp("published_at")),
-                getInteger(rs, "seeders"),
-                getInteger(rs, "leechers"),
-                rs.getString("quality"),
-                rs.getString("resolution"),
-                rs.getString("matched_external_id_type"),
-                rs.getString("matched_external_id_value"),
-                getInteger(rs, "match_score"),
-                rs.getString("status"),
-                rs.getString("source_url"),
-                parseStringList(rs.getString("tags")),
-                toInstant(rs.getTimestamp("created_at")),
-                toInstant(rs.getTimestamp("updated_at")));
+        return (rs, rowNum) -> {
+            String magnetUri = rs.getString("magnet_uri");
+            return new MagnetLinkSummary(
+                    rs.getObject("id", UUID.class),
+                    rs.getObject("unified_video_id", UUID.class),
+                    rs.getString("provider_code"),
+                    rs.getString("info_hash"),
+                    magnetUri,
+                    MagnetUriUtils.trackersOf(magnetUri).size(),
+                    rs.getString("title"),
+                    getLong(rs, "size_bytes"),
+                    rs.getString("size_label"),
+                    toInstant(rs.getTimestamp("published_at")),
+                    getInteger(rs, "seeders"),
+                    getInteger(rs, "leechers"),
+                    rs.getString("quality"),
+                    rs.getString("resolution"),
+                    rs.getString("matched_external_id_type"),
+                    rs.getString("matched_external_id_value"),
+                    getInteger(rs, "match_score"),
+                    rs.getString("status"),
+                    rs.getString("source_url"),
+                    parseStringList(rs.getString("tags")),
+                    toInstant(rs.getTimestamp("created_at")),
+                    toInstant(rs.getTimestamp("updated_at")));
+        };
     }
 
     private RowMapper<MagnetSearchJobSummary> searchJobMapper() {

@@ -87,6 +87,20 @@ if [[ "$infrastructure_ready" != true ]]; then
   echo 'Required Native runtime infrastructure was not ready within 180 seconds' >&2
   exit 1
 fi
+baseline_migrator="$(python3 - <<'PY'
+import json, os
+selected = set(json.loads(os.environ['JAVA_IMAGES']))
+refs = json.loads(os.environ.get('IMAGE_REFS_JSON', '{}'))
+if {'ircs-migrator', 'ircs-magnet-service'} <= selected:
+    print(refs.get('ircs-migrator', ''))
+PY
+)"
+if [[ -n "$baseline_migrator" ]]; then
+  docker run --rm --network ircs-native-consumers \
+    -e SPRING_DATASOURCE_URL=jdbc:postgresql://ircs-native-postgres:5432/ircs \
+    -e SPRING_DATASOURCE_USERNAME=ircs -e SPRING_DATASOURCE_PASSWORD="$CI_PASSWORD" \
+    "$baseline_migrator" -Xmx256m
+fi
 docker run --name ircs-native-migrator --network ircs-native-consumers \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://ircs-native-postgres:5432/ircs \
   -e SPRING_DATASOURCE_USERNAME=ircs -e SPRING_DATASOURCE_PASSWORD="$CI_PASSWORD" \

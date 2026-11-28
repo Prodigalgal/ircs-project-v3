@@ -1,5 +1,6 @@
 package com.prodigalgal.ircs.magnet;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -88,8 +89,11 @@ class YtsBzMagnetProviderSearchRunnerTest {
 
         MagnetProviderCandidate candidate = result.candidates().get(0);
         assertEquals("ABCDEF1234567890ABCDEF1234567890ABCDEF12", candidate.infoHash());
+        // The YTS API returns only a hash; the announce list is appended once downstream, in
+        // MagnetSearchExecutor.persistCandidates.
         assertEquals(
-                "magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12&dn=Codex%20Movie%20%282026%29%201080p%20web",
+                "magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12"
+                        + "&dn=Codex%20Movie%20%282026%29%201080p%20web",
                 candidate.magnetUri());
         assertEquals("Codex Movie (2026) 1080p web", candidate.title());
         assertEquals(1503238553L, candidate.sizeBytes());

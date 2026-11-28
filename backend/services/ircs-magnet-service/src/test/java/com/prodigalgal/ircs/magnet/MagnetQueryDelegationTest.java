@@ -15,7 +15,7 @@ class MagnetQueryDelegationTest {
     private final JdbcMagnetRepository repository = mock(JdbcMagnetRepository.class);
     private final MagnetSearchExecutor searchExecutor = mock(MagnetSearchExecutor.class);
     private final MagnetQueryService service = new MagnetQueryService(
-            repository, MagnetReadModelCache.disabled(), null, searchExecutor);
+            repository, MagnetReadModelCache.disabled(), null, searchExecutor, new MagnetTrackerConfigValues(null));
 
     @Test
     void manualSearchDelegatesToExecutorWithAdminTrigger() {
