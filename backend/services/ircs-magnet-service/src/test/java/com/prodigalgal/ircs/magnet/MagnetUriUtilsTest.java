@@ -127,12 +127,16 @@ class MagnetUriUtilsTest {
 
         String merged = MagnetUriUtils.mergeMagnets(existing, incoming, HASH, "Matrix");
 
+        List<String> parameters = List.of(merged.substring("magnet:?".length()).split("&"));
         assertThat(merged).contains("xt=urn:btmh:1220" + "0".repeat(64));
-        assertThat(merged).contains("x.pe=peer%3A1&x.pe=peer%3A1&x.pe=peer%3A2");
-        assertThat(merged).contains("ws=https%3A%2F%2Fa.example%2Ffile&ws=https%3a%2f%2fa.example%2ffile"
-                + "&ws=https%3A%2F%2Fb.example%2Ffile");
+        assertThat(parameters).filteredOn(parameter -> parameter.startsWith("x.pe="))
+                .containsExactly("x.pe=peer%3A1", "x.pe=peer%3A1", "x.pe=peer%3A2");
+        assertThat(parameters).filteredOn(parameter -> parameter.startsWith("ws=")).containsExactly(
+                "ws=https%3A%2F%2Fa.example%2Ffile", "ws=https%3a%2f%2fa.example%2ffile",
+                "ws=https%3A%2F%2Fb.example%2Ffile");
         assertThat(merged).containsOnlyOnce("tr=udp%3A%2F%2Ftracker.example%3A80");
         assertThat(merged).contains("xt=urn:btih:" + HASH);
+        assertThat(MagnetUriUtils.mergeMagnets(merged, incoming, HASH, "Matrix")).isEqualTo(merged);
     }
 
     @Test

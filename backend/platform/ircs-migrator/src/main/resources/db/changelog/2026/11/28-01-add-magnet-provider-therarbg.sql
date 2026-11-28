@@ -41,16 +41,15 @@ INSERT INTO magnet_providers (
 )
 ON CONFLICT (code) DO NOTHING;
 
---changeset prodigalgal:2026-11-disable-magnet-provider-tpb-frontend
--- thepiratebay.org is no longer server-rendered: its search page returns a JavaScript shell that
--- fetches from apibay.org, so the HTML parser sees zero magnets. The `thepiratebay` provider already
--- covers the same index through that API, so the frontend path is retired rather than left failing.
+--changeset prodigalgal:2026-11-disable-retired-magnet-providers
+-- The scheduler enumerates enabled rows before applying the allowlist at request time.
+-- Disable the retired rows so missing candidates do not turn into permanent provider failures.
 UPDATE magnet_providers
 SET enabled = false,
-    content_policy = '站点已改为 JS 渲染，搜索页不再返回静态磁力链接；同一索引由 thepiratebay（apibay.org API）覆盖，故停用。',
     updated_at = NOW(),
     version = COALESCE(version, 0) + 1
-WHERE code = 'thepiratebay_org';
+WHERE code IN ('thepiratebay_org', 'ext_to')
+  AND enabled;
 
 --changeset prodigalgal:2026-11-merge-magnet-real-provider-allowlist
 -- Retired from the allowlist:

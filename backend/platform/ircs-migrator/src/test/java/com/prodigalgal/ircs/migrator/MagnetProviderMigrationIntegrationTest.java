@@ -65,8 +65,10 @@ class MagnetProviderMigrationIntegrationTest {
                     risk_level,supported_external_ids,min_delay_ms,max_delay_ms,timeout_ms,result_limit,
                     auto_approve_allowed,content_policy
                 ) values (?,now(),now(),4,'thepiratebay_org','Custom retired frontend','THE_PIRATE_BAY_FRONTEND',
-                    'https://custom.example',true,77,'MEDIUM','[]'::jsonb,25,50,5000,9,true,'operator policy')
-                """, UUID.randomUUID());
+                    'https://custom.example',true,77,'MEDIUM','[]'::jsonb,25,50,5000,9,true,'operator policy'),
+                    (?,now(),now(),4,'ext_to','Ext.to','EXT_TO','https://retired.example',true,90,'HIGH',
+                    '["TITLE"]'::jsonb,25,50,5000,9,false,'operator policy')
+                """, UUID.randomUUID(), UUID.randomUUID());
         insertConfig("app.magnet.real-provider.allowlist", "YTS_BZ,EXT_TO,CUSTOM_SOURCE,THE_PIRATE_BAY_FRONTEND");
         insertConfig("app.magnet.traffic.provider-gap-ms",
                 "YTS_BZ=700,EXT_TO=999,CUSTOM_SOURCE=123,THE_PIRATE_BAY_FRONTEND=5");
@@ -104,6 +106,9 @@ class MagnetProviderMigrationIntegrationTest {
                 String.class)).isEqualTo("Custom retired frontend");
         assertThat(jdbc.queryForObject("select priority from magnet_providers where code='thepiratebay_org'",
                 Integer.class)).isEqualTo(77);
+        assertThat(jdbc.queryForMap("select enabled,content_policy from magnet_providers where code='ext_to'"))
+                .containsEntry("enabled", false)
+                .containsEntry("content_policy", "operator policy");
     }
 
     @Test
